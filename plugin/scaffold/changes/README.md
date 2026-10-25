@@ -63,14 +63,25 @@ every open change against the shape below.
   backticks; or whose `**Risk:**` is below the row's `Risk:` (a row with none is normal). The row
   is the one row of `origin/<main>`'s roadmap that names the change's id, and the proposal's
   `**Roadmap row:**` must be it: no such row, two of them, or a proposal naming another refuses.
-  And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>` and across a
-  rename of its directory, holds an Approved line; the check fails a delegated line whose history
-  shows an Approved line removed. So once the revoke is on `origin/<main>`, a hand edit of a
-  revoked Status line, or of the Approved line back in, does not reopen it; a revoke only on the
-  branch is lost if the branch's history is rewritten (#272). That history includes an earlier
-  change's under the same id, so a new change takes a new id; and a commit that adds this proposal
-  while deleting another change's can make `--follow` read the other's history, a refusal the
-  owner's `--record` clears (#272).
+  And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>`, holds an
+  Approved line; the check fails a delegated line whose history shows an Approved line removed. So
+  once the revoke is on `origin/<main>`, a hand edit of a revoked Status line, or of the Approved
+  line back in, does not reopen it. The history is followed across a move of the change's whole
+  directory, and only that: a commit that moves it and adds another change (a split), or leaves a
+  file of it behind, starts a new lineage, so no other change's history is read as this one's
+  (#272). It includes an earlier change's under the same id, so a new change takes a new id.
+- **The approval log** (OPS-131, #272) holds what a rewrite of the branch could take out of its
+  history. `--record`, `--delegate` and `--revoke` each add a line to
+  `<git common dir>/clauductor/approvals.log` (`git rev-parse --git-common-dir`, outside every
+  branch and shared by every worktree of the clone), and `--delegate` refuses a change the log
+  names, so a revoke made only on a branch still holds here after that branch is rewritten. A log
+  that is missing, unreadable or cannot be appended to refuses too: a missing log is not "never
+  approved". The owner starts it once per clone, on their word,
+  `clauductor-model change-approval.sh --start-log "<owner>"`, or their first `--record` does. Two
+  limits: the log is **per clone**, so another machine or a fresh clone does not see this one's
+  revokes until they land on `origin/<main>`, where the history is firm; and it **guards the act,
+  not the merge**: the check never reads it (a CI runner has none), so an Approved line written
+  past `--delegate` by hand is caught by the history and the review, not by the log.
 - **Risk** picks the build's models: a role with a variant for the tier in
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.

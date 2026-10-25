@@ -6,8 +6,10 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #                       --delegate records Claude's approval only with APPROVAL_DELEGATED on, no
 #                       guarded path named, no Approval: owner in the proposal or its row (the row
 #                       that names the change, as the proposal must too), a Risk not below the
-#                       row's, and no approval before, revoked, standing or in history (across a
-#                       rename); the check fails a delegated line put back after a revoke.
+#                       row's, and no approval before, revoked, standing, in history (across a
+#                       move of the whole directory, never a split) or in the clone's approval log,
+#                       which a rewrite of the branch does not reach and which, missing or
+#                       unreadable, refuses; the check fails a delegated line put back after a revoke.
 #   verify-change.sh    passes a finished change, and fails on an open task, an uncited scenario, a
 #                       voided approval, and a ticked task whose named paths the diff never touched.
 #   change-cost.sh      sums a branch's messages from transcripts (subagents included), once per
@@ -38,6 +40,10 @@ C="$R/changes/add-greeting-name"
 # ── change-approval.sh ─────────────────────────────────────────────────────────────────────────
 # GITHUB_HEAD_REF is cleared so a CI runner's own pull request never names the fixture's branch.
 A() { (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name "$@") > "$d/out" 2>&1; }
+# The clone's approval log (#272): startlog begins it afresh, as the owner does once per clone, so a
+# --delegate expected to pass is not refused by an approval an earlier case logged.
+L="$R/.git/clauductor/approvals.log"
+startlog() { rm -f "$L"; (cd "$R" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1 || fail "change-tools: --start-log: $(cat "$d/out")"; }
 A; expect_rc 1 $? "change-approval: an unapproved change is not approved"
 A --record Ana; expect_rc 0 $? "change-approval --record writes the Approved line"
 grep -qE '^\*\*Approved:\*\* 2026-01-02 by Ana · design [0-9a-f]{12}$' "$C/proposal.md" && ok "the line reads '**Approved:** <date> by <owner> · design <hash>'" || fail "Approved line: $(grep Approved "$C/proposal.md")"
@@ -65,7 +71,7 @@ grep -q 'APPROVAL_DELEGATED is not' "$d/out" && ok "...and says the key is off" 
 printf 'APPROVAL_DELEGATED="1"\n' > "$R/.claude/project.conf"; cp "$CLAUDUCTOR_FW/lib/approval-guarded.txt" "$R/.claude/lib/"
 # Both stand for files already on main, so they are kept out of the branch's diff (untracked files count).
 printf '.claude/project.conf\n.claude/lib/approval-guarded.txt\n' >> "$R/.git/info/exclude"
-A --delegate Ana; expect_rc 0 $? "change-approval --delegate records with the key on and no guarded path"
+startlog; A --delegate Ana; expect_rc 0 $? "change-approval --delegate records with the key on and no guarded path"
 grep -qE '^\*\*Approved:\*\* 2026-01-02 by Claude \(delegated by Ana\) · design [0-9a-f]{12}$' "$C/proposal.md" && ok "the line reads 'by Claude (delegated by <owner>)'" || fail "Approved line: $(grep Approved "$C/proposal.md")"
 A; expect_rc 0 $? "change-approval: the delegated approval holds"
 # A revoke is final for delegation (OPS-128, the owner's ruling): only the owner approves a revoked
@@ -79,12 +85,13 @@ grep -q -- "--record" "$d/out" && ok "...and names the owner's --record" || fail
 A --record Ana; expect_rc 0 $? "change-approval --record approves a revoked change, clearing the marker"
 grep -q 'revoked' "$C/proposal.md" && fail "--record left the revoked marker" || ok "--record replaced the revoked Status line"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses to write over a standing Approved line"
-fresh; A --delegate Ana; expect_rc 0 $? "change-approval --delegate still records on a proposal never approved"
+fresh; startlog; A --delegate Ana; expect_rc 0 $? "change-approval --delegate still records on a proposal never approved"
 # What the owner keeps beyond the guarded lists (OPS-131): a proposal or row marked Approval: owner,
 # a Risk below the row's, an ADR or a practice record, and a proposal its history shows approved.
 # D: --delegate from the fresh proposal, so each case is refused for its own reason or not at all.
 fresh; cp "$C/proposal.md" "$d/fresh.md"
-D() { cp "$d/fresh.md" "$C/proposal.md"; A --delegate Ana; }
+F() { cp "$d/fresh.md" "$C/proposal.md"; A --delegate Ana; }
+D() { startlog; F; }
 awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a signer" }' "$d/fresh.md" > "$C/proposal.md"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal marked '**Approval:** owner'"
 grep -q 'Approval:\*\* owner' "$d/out" && ok "...and names the marker" || fail "no marker in: $(cat "$d/out")"
@@ -154,6 +161,44 @@ grep -q 'history' "$d/out" && ok "...and says the history holds it" || fail "no 
 git -C "$R" reset -q HEAD~1
 git -C "$R" ls-files --error-unmatch "$C/proposal.md" >/dev/null 2>&1 && fail "change-tools: proposal.md is still tracked after undoing its commit"
 D; expect_rc 0 $? "change-approval --delegate records again once that history is gone"
+cp "$C/proposal.md" "$d/delegated1.md"
+# The approval log (#272): a rewrite of the branch takes an approval and its revoke out of the
+# history, but not out of this clone's log, so --delegate still refuses.
+pre=$(git -C "$R" rev-parse HEAD)
+git -C "$R" add "$C" && git -C "$R" commit -qm "proposal: delegated"
+A --revoke; git -C "$R" commit -qm "proposal: revoked" -- "$C/proposal.md"
+cp "$d/fresh.md" "$C/proposal.md"; git -C "$R" add "$C" && git -C "$R" reset -q --soft "$pre" && git -C "$R" commit -qm "the change, its history rewritten"
+[ "$(git -C "$R" log --format=%s "$pre..HEAD")" = "the change, its history rewritten" ] || fail "change-tools: the rewrite did not leave one commit"
+grep -q "	add-greeting-name	revoke	Claude (delegated by Ana)$" "$L" && ok "--revoke adds its line to the approval log" || fail "no revoke line in: $(cat "$L")"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a change the approval log shows, its branch's history rewritten"
+grep -q "approval log .* shows it before" "$d/out" && ok "...and says the log shows it" || fail "no log reason in: $(cat "$d/out")"
+# The log alone refused: started afresh, the rewritten branch delegates.
+startlog; A --delegate Ana; expect_rc 0 $? "change-approval --delegate passes the rewritten branch with a fresh log, so the log refused it"
+grep -q "	add-greeting-name	delegate	Claude (delegated by Ana)$" "$L" && ok "--delegate adds its line to the approval log" || fail "no delegate line in: $(cat "$L")"
+git -C "$R" reset -q "$pre"
+# Fail closed: a log that is missing, unreadable or cannot be appended to is not "never approved".
+rm -f "$L"; F; expect_rc 1 $? "change-approval --delegate refuses with no approval log"
+grep -q "no approval log at .*approvals.log.*--start-log" "$d/out" && ok "...and names the log and --start-log" || fail "no missing-log reason in: $(cat "$d/out")"
+startlog; chmod 000 "$L"
+if [ -r "$L" ]; then ok "change-tools: an unreadable log cannot be tested as root"
+else F; expect_rc 1 $? "change-approval --delegate refuses an approval log it cannot read"
+  grep -q "approval log .* cannot be read" "$d/out" && ok "...and says it cannot be read" || fail "no unreadable reason in: $(cat "$d/out")"
+fi
+chmod 444 "$L"
+if [ -w "$L" ]; then ok "change-tools: a read-only log cannot be tested as root"
+else F; expect_rc 1 $? "change-approval --delegate refuses an approval log it cannot append to"
+  grep -q "approval log .* cannot be written" "$d/out" && ok "...and says it cannot be written" || fail "no unwritable reason in: $(cat "$d/out")"
+  grep -q '^\*\*Approved:' "$C/proposal.md" && fail "--delegate wrote the Approved line though the log refused it" || ok "...and leaves the proposal unapproved"
+  A --record Ana; expect_rc 1 $? "change-approval --record refuses when it cannot log the approval"
+fi
+chmod 644 "$L"
+(cd "$R" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1; expect_rc 1 $? "change-approval --start-log refuses a log already started"
+# Every worktree of a clone shares its log, in the common git dir.
+W="$d/wt"; git -C "$R" worktree add -q --detach "$W" HEAD; rm -f "$L"
+(cd "$W" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1; expect_rc 0 $? "change-approval --start-log in a worktree"
+[ -f "$L" ] && ok "...starts the clone's log in its common git dir" || fail "no log at $L after a worktree's --start-log: $(cat "$d/out")"
+git -C "$R" worktree remove --force "$W"
+cp "$d/delegated1.md" "$C/proposal.md"
 # The check reads the history too: a delegated line put back by hand after a revoke does not hold,
 # and renaming the change's directory does not hide its history from --delegate.
 b0=$(git -C "$R" rev-parse HEAD); cp -R "$C" "$d/c.bak"
@@ -168,6 +213,27 @@ roadmap '`greeting-renamed` — greet a member by name. Risk: low'
 (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-renamed --delegate Ana) > "$d/out" 2>&1
 expect_rc 1 $? "change-approval --delegate follows the proposal's history across a rename of its directory"
 grep -q 'history on this branch holds an Approved line' "$d/out" && ok "...and finds the Approved line before the rename" || fail "no history reason in: $(cat "$d/out")"
+# Only a move of the whole directory continues a change (#272). A commit that moves it but adds a
+# second change is a split, and one that leaves a file behind is a new change: neither inherits the
+# history git's --follow would pair it with.
+s0=$(git -C "$R" rev-parse HEAD)
+git -C "$R" mv changes/greeting-renamed changes/greeting-a && mkdir -p "$R/changes/greeting-b" \
+  && printf '**Status:** awaiting approval\n\nThe other half, greeting by nickname.\n' > "$R/changes/greeting-b/proposal.md" \
+  && git -C "$R" add changes/greeting-b && git -C "$R" commit -qm "split the change"
+[ "$(git -C "$R" log -1 --format=%s)" = "split the change" ] || fail "change-tools: the split commit did not land"
+roadmap '`greeting-a` — greet a member by name. Risk: low'
+startlog; (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-a --delegate Ana) > "$d/out" 2>&1
+expect_rc 0 $? "change-approval --delegate does not read another change's history across a split commit"
+git -C "$R" reset -q --hard "$s0"
+git -C "$R" mv changes/greeting-renamed changes/greeting-c \
+  && printf '# Design\n\nWritten afresh for this change.\n' > "$R/changes/greeting-c/design.md" \
+  && git -C "$R" add changes/greeting-c && git -C "$R" commit -qm "a new change from the old proposal"
+git -C "$R" diff-tree -r -M --name-status HEAD^ HEAD | grep -q "^D	changes/greeting-renamed/design.md" \
+  || fail "change-tools: the partial move did not leave the old design behind"
+roadmap '`greeting-c` — greet a member by name. Risk: low'
+startlog; (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-c --delegate Ana) > "$d/out" 2>&1
+expect_rc 0 $? "change-approval --delegate does not read the history of a directory only partly moved"
+git -C "$R" reset -q --hard "$s0"; rm -rf "$R/changes/greeting-a" "$R/changes/greeting-b" "$R/changes/greeting-c"
 git -C "$R" reset -q --hard "$b0"; rm -rf "$R/changes/greeting-renamed"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 A; expect_rc 0 $? "change-tools: the delegated approval holds again once the history cases are undone"
@@ -185,7 +251,7 @@ grep -q 'on origin/main' "$d/out" && ok "...and says it read origin/main" || fai
 base0=$(git -C "$R" rev-parse HEAD)
 (cd "$R" && git add -f .claude/project.conf .claude/lib/approval-guarded.txt && git commit -qm "main: delegation on")
 git -C "$R" update-ref refs/remotes/origin/main HEAD
-A --delegate Ana; expect_rc 0 $? "change-approval --delegate records when origin/main has the key on and the list"
+startlog; A --delegate Ana; expect_rc 0 $? "change-approval --delegate records when origin/main has the key on and the list"
 # Main's row, not the branch's, and main's history (OPS-131): main marks the row, or lands the
 # proposal approved, after which a hand edit of its Status line on the branch does not reopen it.
 cp "$C/proposal.md" "$d/delegated.md"

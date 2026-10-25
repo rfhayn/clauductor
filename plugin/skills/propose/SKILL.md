@@ -114,8 +114,10 @@ If the line above shows as literal text instead of output, run
    `**Roadmap row:**` and does not say `Approval: owner`; its `**Risk:**` is not below that row's
    `Risk:` (a row with none is normal); and it was never approved before (a standing Approved
    line, a Status line `--revoke` marked `(revoked; was approved by …)`, or an Approved line in
-   `proposal.md`'s history on the branch or `origin/<MAIN_BRANCH>`, across a rename, whoever
-   approved it).
+   `proposal.md`'s history on the branch or `origin/<MAIN_BRANCH>`, across a move of its whole
+   directory, or a line for it in this clone's approval log, whoever approved it). With no
+   approval log yet it refuses: the owner starts one on their word (`--start-log "<owner>"`,
+   `changes/README.md`).
    Otherwise it refuses and says why: go to step 3. On success: run `clauductor-model checks/run.sh
    changes`, open the PR `proposal: <id>` with the decisions you took (each with the alternative it
    beat), the slice line, the `Review:` line and a line `Approved: by Claude on delegation · design

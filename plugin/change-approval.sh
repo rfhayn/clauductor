@@ -16,17 +16,26 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #                                                          row (the one naming it), its Risk not
 #                                                          below its row's (OPS-131), and a proposal
 #                                                          never approved before, by its Status
-#                                                          line or its history (OPS-128, OPS-131)
+#                                                          line, its history or this clone's
+#                                                          approval log (OPS-128, OPS-131)
 #   sh .claude/change-approval.sh <id> --revoke            back to `**Status:** awaiting approval
 #                                                          (revoked; was approved by <who>)`
+#   sh .claude/change-approval.sh --start-log "<owner>"    start this clone's approval log, on the
+#                                                          owner's word: --delegate refuses until it
+#                                                          exists (or an --record creates it)
 #
 # A revoke is final for delegation (OPS-128, the owner's ruling): once a change has been approved
 # and revoked, whoever approved it, only the owner approves it again. --revoke keeps who approved in
 # the Status line, --delegate refuses while that marker or any Approved line stands, or stood in the
 # proposal's history, and only --record clears it; the check fails a delegated line whose history
 # shows an Approved line removed. So an edit after any approval, which voids it, goes to the owner.
-# The history read is firm on origin/<MAIN_BRANCH>; the branch's own can be rewritten, so a revoke
-# made only there is advisory until it lands (#272).
+# The history is followed across a move of the change's whole directory only, so another change's
+# history is never read as this one's. It is firm on origin/<MAIN_BRANCH>; the branch's own can be
+# rewritten, so --record, --delegate and --revoke also add a line to the approval log,
+# <git common dir>/clauductor/approvals.log, which no branch carries, and --delegate refuses a change
+# the log names. The log guards the act, not the merge: the check never reads it, since a CI runner
+# has none. It is per clone (every worktree of a clone shares it): another machine, or a fresh clone,
+# starts its own, so a revoke made only on a branch elsewhere is not seen here (#272).
 #
 # The Approved line reads `**Approved:** YYYY-MM-DD by <owner> · design <hash>`, or for a delegated
 # one `by Claude (delegated by <owner>)`. A delegated approval holds only while the key is on and the
@@ -44,7 +53,34 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 . "$CLAUDUCTOR_FW/lib/conf.sh"
 . "$CLAUDUCTOR_FW/lib/change.sh"
 
-id=${1:-}; [ -n "$id" ] || { echo "usage: change-approval.sh <id> [--record <owner> | --delegate <owner> | --revoke]" >&2; exit 64; }
+# ── The approval log (OPS-131, #272) ───────────────────────────────────────────────────────────
+# A line per approval or revoke, in the repository's common git dir: outside every worktree and
+# every branch's history, so no rewrite of a branch reaches it. Only a repository's root has one.
+approval_log=""
+if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$ROOT" && pwd -P)" ]; then
+  common=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P) \
+    && approval_log="$common/clauductor/approvals.log"
+fi
+# log_append VERB WHO: add a line for this change; fails when the log cannot take it. --record and
+# --start-log create the log, as the owner's word; the others only add to one that exists.
+log_append() {
+  [ -n "$approval_log" ] || return 0
+  [ -e "$approval_log" ] || [ "$1" = record ] || [ "$1" = start ] || return 0
+  mkdir -p "${approval_log%/*}" 2>/dev/null \
+    && printf '%s\t%s\t%s\t%s\n' "${APPROVAL_DATE:-$(date +%Y-%m-%d)}" "${id:--}" "$1" "$2" 2>/dev/null >> "$approval_log"
+}
+
+if [ "${1:-}" = --start-log ]; then
+  owner=${2:-}; [ -n "$owner" ] || { echo "change-approval: --start-log needs the owner's name" >&2; exit 64; }
+  [ -z "$OWNER_NAME" ] || [ "$owner" = "$OWNER_NAME" ] || { echo "change-approval: only OWNER_NAME ($OWNER_NAME) starts the approval log, not $owner" >&2; exit 64; }
+  [ -n "$approval_log" ] || { echo "change-approval: $ROOT is not a git repository's root, so it has no approval log" >&2; exit 1; }
+  [ ! -e "$approval_log" ] || { echo "change-approval: the approval log is started already: $approval_log" >&2; exit 1; }
+  id=""; log_append start "$owner" || { echo "change-approval: cannot write the approval log $approval_log" >&2; exit 1; }
+  echo "started: the approval log $approval_log, by $owner"
+  exit 0
+fi
+
+id=${1:-}; [ -n "$id" ] || { echo "usage: change-approval.sh <id> [--record <owner> | --delegate <owner> | --revoke] | --start-log <owner>" >&2; exit 64; }
 shift
 dir="$ROOT/$CHANGES_DIR/$id"
 [ -f "$dir/proposal.md" ] && [ -f "$dir/design.md" ] || { echo "change-approval: $CHANGES_DIR/$id has no proposal.md and design.md" >&2; exit 1; }
@@ -188,17 +224,69 @@ $(git -C "$ROOT" ls-files -o --exclude-standard 2>/dev/null)"
   [ -z "$hits" ] || echo "it touches a guarded path (approval-guarded.txt, ADR_DIR, PRACTICES_DIR): $hits; the $OWNER_ROLE approves it"
 }
 
+# change_root PATH: the change directory a path under CHANGES_DIR belongs to (an archived one is one
+# level deeper); nothing for a file directly in CHANGES_DIR.
+change_root() {
+  rel=${1#"$CHANGES_DIR"/}; case $rel in */*) ;; *) return ;; esac
+  seg=${rel%%/*}
+  if [ "$seg" = archive ]; then rest=${rel#archive/}; case $rest in */*) seg="archive/${rest%%/*}" ;; *) return ;; esac; fi
+  echo "$CHANGES_DIR/$seg"
+}
+
+# renamed_from COMMIT PATH: the proposal.md COMMIT renamed to PATH, when COMMIT moved its change's
+# whole directory: every file of the old directory to the same place in a directory that did not
+# exist before, and no other change directory added. A split (one directory out, two in), a
+# partial move or a merge into another change starts a new lineage, so its history is not this
+# change's (OPS-131, #272). Prints nothing then; fails when git cannot answer.
+renamed_from() {
+  c=$1 p=$2 new=${2%/*}
+  git -C "$ROOT" rev-parse -q --verify "$c^" >/dev/null 2>&1 || return 0
+  diff=$(git -C "$ROOT" diff-tree -r -M --name-status "$c^" "$c" -- "$CHANGES_DIR/") || return 1
+  old=$(printf '%s\n' "$diff" | awk -F'\t' -v p="$p" '$1 ~ /^R/ && $3 == p { print $2; exit }')
+  [ -n "$old" ] || return 0
+  olddir=${old%/*}
+  before=$(git -C "$ROOT" ls-tree -r --name-only "$c^" -- "$new/") || return 1
+  [ -z "$before" ] || return 0
+  files=$(git -C "$ROOT" ls-tree -r --name-only "$c^" -- "$olddir/") || return 1
+  for f in $files; do
+    printf '%s\n' "$diff" | awk -F'\t' -v o="$f" -v n="$new/${f#"$olddir"/}" '$1 ~ /^R/ && $2 == o && $3 == n { found = 1 } END { exit !found }' || return 0
+  done
+  for d in $(printf '%s\n' "$diff" | awk -F'\t' '$1 ~ /^[ARC]/ { print $NF }'); do
+    r=$(change_root "$d"); [ -n "$r" ] && [ "$r" != "$new" ] || continue
+    there=$(git -C "$ROOT" ls-tree --name-only "$c^" -- "$r") || return 1
+    [ -n "$there" ] || return 0
+  done
+  echo "$old"
+}
+
 # history_holds PATTERN WHAT: say where proposal.md's history, on origin/<main> or this branch, has a
-# diff line matching PATTERN (WHAT names it), or that it cannot be read; nothing when neither.
-# --follow carries it across a rename of the change's directory (OPS-131). An unborn HEAD (a
-# repository with no commit yet) has no history to hold one.
+# diff line matching PATTERN (WHAT names it), or that it cannot be read; nothing when neither. The
+# history crosses a move of the change's whole directory (renamed_from), not git's --follow, which
+# pairs the proposal with any similar one deleted in the same commit (OPS-131, #272). An unborn HEAD
+# (a repository with no commit yet) has no history to hold one.
 history_holds() {
   for ref in $main_ref HEAD; do
     where="this branch"; [ "$ref" = HEAD ] || where=$ref
     [ "$ref" != HEAD ] || git -C "$ROOT" rev-parse -q --verify HEAD >/dev/null 2>&1 || continue
-    log=$(git -C "$ROOT" log --follow --no-color --no-ext-diff --format= -p "$ref" -- "$CHANGES_DIR/$id/proposal.md" 2>&1) \
-      || { echo "its history on $where cannot be read: $log"; return; }
-    ! printf '%s\n' "$log" | grep -Eq "$1" || { echo "its history on $where holds $2"; return; }
+    todo="$ref $CHANGES_DIR/$id/proposal.md"; n=0
+    while [ -n "$todo" ]; do
+      r=${todo%%"
+"*}; [ "$r" = "$todo" ] && todo="" || todo=${todo#*"
+"}
+      p=${r#* }; r=${r%% *}; n=$((n + 1))
+      [ "$n" -le 50 ] || { echo "its history on $where cannot be read: more than 50 moves of its directory"; return; }
+      # log.follow would turn this single-path log back into --follow.
+      log=$(git -C "$ROOT" -c log.follow=false log --no-renames --no-color --no-ext-diff --format= -p "$r" -- "$p" 2>&1) \
+        || { echo "its history on $where cannot be read: $log"; return; }
+      ! printf '%s\n' "$log" | grep -Eq "$1" || { echo "its history on $where holds $2"; return; }
+      adds=$(git -C "$ROOT" -c log.follow=false log --no-renames --format=%H --diff-filter=A "$r" -- "$p" 2>&1) \
+        || { echo "its history on $where cannot be read: $adds"; return; }
+      for c in $adds; do
+        src=$(renamed_from "$c" "$p") || { echo "its history on $where cannot be read: a move at $c"; return; }
+        [ -z "$src" ] || todo="${todo:+$todo
+}$c^ $src"
+      done
+    done
   done
 }
 
@@ -214,12 +302,21 @@ case "${1:-}" in
     # (OPS-131). An Approved line ever committed to proposal.md is an approval before.
     why=$(history_holds '^[+-]\*\*Approved:\*\* ' "an Approved line"); [ -z "$why" ] \
       || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: $why, so it was approved before (or an earlier change used the id $id) and only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
+    # The log holds what a rewrite of the branch can take out of its history. A log that is missing
+    # or cannot be read is not "never approved": it refuses, and the owner starts it (OPS-131, #272).
+    [ -n "$approval_log" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the repository's common git dir cannot be found, so its approval log cannot be read" >&2; exit 1; }
+    [ -e "$approval_log" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: no approval log at $approval_log, so this clone cannot tell whether it was approved before; the $OWNER_ROLE starts it on their word: 'sh "$CLAUDUCTOR_FW"/change-approval.sh --start-log <owner>' (or approves this change: --record)" >&2; exit 1; }
+    seen=$(awk -F'\t' -v id="$id" '$2 == id && $3 != "start" { print $1 " " $3 " by " $4 }' "$approval_log" 2>/dev/null) && [ -r "$approval_log" ] \
+      || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log cannot be read" >&2; exit 1; }
+    [ -z "$seen" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: this clone's approval log $approval_log shows it before ($(printf '%s\n' "$seen" | tail -1)), so only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
+    log_append delegate "Claude (delegated by $owner)" || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by Claude (delegated by $owner) · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by Claude, delegated by $owner, design $hash"
     ;;
   --record)
     owner=${2:-}; [ -n "$owner" ] || { echo "change-approval: --record needs the owner's name" >&2; exit 64; }
     claude_name "$owner" && { echo "change-approval: Claude's approval is recorded with --delegate, which checks the delegation (an owner named Claude sets OWNER_NAME)" >&2; exit 64; }
+    log_append record "$owner" || { echo "change-approval: cannot record $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by $owner · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by $owner, design $hash"
     ;;
@@ -227,6 +324,7 @@ case "${1:-}" in
     line=$(grep -E '^\*\*Approved:\*\*' "$dir/proposal.md" | head -1)
     [ -n "$line" ] || { echo "revoked: $CHANGES_DIR/$id has no Approved line; it is awaiting approval already"; exit 0; }
     who=$(printf '%s\n' "$line" | sed -nE 's/^\*\*Approved:\*\* [0-9-]+ by (.+) · design .*/\1/p')
+    log_append revoke "${who:-an unreadable line}" || { echo "change-approval: cannot revoke $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
     rewrite "**Status:** awaiting approval (revoked; was approved by ${who:-an unreadable line})"
     echo "revoked: $CHANGES_DIR/$id is awaiting approval again; only the $OWNER_ROLE approves it now (--record)"
     ;;
