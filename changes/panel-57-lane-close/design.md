@@ -122,7 +122,17 @@ Read on 2026-10-24, at `24aa88ee`.
     drops out of `claude agents`, and `ApplyAgents` ends it (`HookStatus` "ended",
     `binding.go:136`). The panel then cannot tell what the new session is doing, so the lane is
     held, in its own words, until its program exits: "its session ended while claude still runs
-    (a /clear?): close it from the page". Once the panel forgets the ended session
+    (a /clear?): close it from the page". `s.end` clears the session's reading, so this check
+    comes before the reading test, or the lane would read "claude has not been read yet". A
+    session ends two ways: `ApplyAgents` ends one that drops out of the reading (`s.end`, which
+    clears `Agent`), and a `SessionEnd` hook, which `/clear` sends, sets "ended" and leaves the
+    last reading in place (`state/model.go:548`), so until the next poll that reading still says
+    `idle`. A new `session.endedAt`, set on both paths, decides it: an ended session holds the
+    lane unless a current reading lists it (`m.agentReading` non-nil) and that reading is newer
+    than the end (`m.agentsOKAt` after `endedAt`). `ApplyAgents` takes back a session listed
+    again ("Listed again, it is back", `state/model.go:780`) without clearing "ended", and such a
+    lane is then read as any other. Once
+    the panel forgets the ended session
     (`forgetSessions`, `blocked.go:167`), the lane reads as one never heard from and is held as
     "starting", still held. This is a stated cost: after a `/clear`, neither the command nor auto-close
     closes the lane, and the owner does (auto-close used to close it, reading the ended session's
@@ -240,12 +250,23 @@ Read on 2026-10-24, at `24aa88ee`.
   `CLIHandler` is given, not the request's. A panel shutting down still cancels it, which keeps
   more (E6). No deadline is added: each step keeps its own bound, the teardown its 5 minutes. An
   agent's Bash timeout or a Ctrl-C then leaves the close finished, not the lane stopped with its
-  clean, merged worktree left behind. A timeout before `Close` begins changes nothing: with
-  `--yes` the CLI asks for the plan twice (its dry run, then the close route's own), each up to
-  about a minute, so D5's sentence gives the `--yes` call a 10-minute Bash timeout, Bash's
-  ceiling. That covers the usual case, not the worst (two plans, a 5-minute wait for the
-  manager's lock, the teardown's 5 minutes and the removal's 60 s): a call that times out
-  reports "outcome not received: see the panel's log line", and the close still finishes. The page's route keeps the request's context, as it does today.
+  clean, merged worktree left behind. Only `CloseIf` runs under the panel's context: the
+  route's checks and its plan run under the request's, so a command cut off before `CloseIf`
+  begins changes nothing and leaves no line (a cancelled read keeps more, E6). With `--yes` the
+  CLI asks for the plan twice (its dry run, printed first, then the close route's own); the
+  route checks the request's context once more just before `CloseIf`, so a cancel that lands
+  after the plan still changes nothing; each plan takes up to about a
+  minute, plus up to 5 minutes' wait for the manager's lock (`ClosePlan` takes it,
+  `lanes/close.go:341`) behind a setup or teardown. D5's sentence gives the `--yes` call a
+  10-minute Bash timeout, Bash's ceiling, which covers the usual case and not the worst. A call
+  the timeout kills prints at most the plan, so its outcome is unknown: the close may not have
+  begun, or may still be finishing. D5 then has the session run the dry run again once, under
+  the same timeout: a lane the panel still lists is named for the owner with its plan (a close
+  still waiting for the lock may yet close it); one it no longer lists is named "closed or
+  closing", since the lane leaves the view when it is stopped, before the teardown and the
+  removal, and the owner is pointed to the panel's log line, written once `Close` returns, for
+  what was removed and kept. A retry that times out too is named as "outcome unknown".
+  The page's route keeps the request's context, as it does today.
   **Beat: the request's context, as the page.** It is safe (a cancelled read keeps more), but the
   CLI is likelier than a browser tab to be cut off mid-close, and what it leaves is the half-done
   state this row exists to clear.
@@ -255,8 +276,9 @@ Read on 2026-10-24, at `24aa88ee`.
   For each lane whose pull request merged and that is still open: run `clauductor lane close
   <id>` from the repository, then, only when the plan's first line names the merged branch, the
   same with `--yes` under a 10-minute Bash timeout (D4), and put the plan's Keeps lines, if any,
-  in the final message (or, when the call timed out, that its outcome was not received and is in
-  the panel's log). The id to try
+  in the final message. When the call timed out, its outcome is unknown, and the session
+  follows D4's retry: the dry run once more, under the same timeout, and the lane named "closed
+  or closing" with the panel's log line pointed to, or with its plan, or as "outcome unknown". The id to try
   first is the folder name of the merged branch's worktree in `git worktree list` (a new lane's
   worktree is `<worktree_dir>/<id>`, `lanes/lanes.go:712`; a lane started on an existing worktree
   may differ). When that id is unknown, the refusal's `id (branch)` list names the lane on the
@@ -329,6 +351,7 @@ clauductor lane close <id> [--yes]
 | Situation | What happens instead |
 |---|---|
 | The lane's claude is working, waiting on the owner, starting, or its reading is not current | Refused, exit 1, naming the status (D2). Nothing stops. |
+| claude runs, but `claude agents` has not read it yet, or its session ended while it still runs (after a `/clear`) | Refused, exit 1: "claude has not been read yet", or "its session ended while claude still runs (a /clear?): close it from the page" (D2). Nothing stops. |
 | claude is idle, but its own session's turn ended on background work still in flight, or the lane holds or waits for a lease (exited or not) | Refused, exit 1, naming the task or the lease (D2). Nothing stops. |
 | claude is idle, or the lane's tmux session is gone, and its branch is not merged or not known | Refused, exit 1: "its branch is not merged: <why>" or "its branch is not known" (D2). Nothing stops; the page's Close lane, or its restore, still can. |
 | The id is the caller's own `CLAUDUCTOR_LANE` | Refused by the CLI before it reads anything, naming the page's Close lane, and auto-close where it is on for the lane's type (D2) |
