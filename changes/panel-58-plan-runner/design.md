@@ -612,10 +612,13 @@ same fields step 8's `StartLane` did.
 - **No template of the item's kind, or no lane on any candidate: none runs.** A stop: "a restart
   cut short the start of <row> on <branch>". Refusal 1 is reachable here, since step 6 goes on
   past it to a start. The notice names
-  what step 6 now finds there (a lane running, a worktree, a branch or nothing), so the owner's
-  start picks the right mode. A lane running there is named even when no template has the kind:
-  the cut start may have finished `StartLane` and died before `watching`, and the owner then
-  knows the row's work is under way rather than meeting `path-taken`. The runner does not start it again: a `worktree_setup` killed part way leaves a
+  what is on the recorded branch now: a lane running there, else what `TemplateBranch`'s facts
+  show (a worktree, a branch or nothing), so the owner's start picks the right mode. The running
+  lane comes from a lookup of the project's running lanes on the **recorded** branch, made here
+  and outside `adoptable`, since `candidates` is empty under refusal 1 and `BranchFacts` carries
+  no lane. The cut start may have finished `StartLane` and died before `watching`, and the owner
+  then knows the row's work is under way rather than meeting `path-taken`. The notice only names
+  that lane: tracking it is still `adoptable`'s alone. The runner does not start it again: a `worktree_setup` killed part way leaves a
   worktree only the owner can judge.
 - Step 3 has already waited out the merge's own rebuild when catch-up fast-forwarded with it. So
   a stop is likely only for another cause:

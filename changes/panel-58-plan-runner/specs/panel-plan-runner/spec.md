@@ -85,7 +85,8 @@ SHALL stay `watching`, so the next runtime finds the merge again. During the sta
 context. The `starting` state SHALL record `next`'s item, whole, and its branch. WHEN a runtime
 starts on a `starting` state, THE SYSTEM SHALL run PLANRUN-9's check for the recorded item and
 track the lane it allows with no notice, or, WHEN no template is of the item's kind or no lane runs
-on any candidate, start nothing and stop with a notice naming the row and the branch. And
+on any candidate, start nothing and stop with a notice naming the row, the branch and what is on
+it, a lane running there included, whatever the check's candidates were. And
 WHEN the merged pull request was the session's close, THE SYSTEM SHALL start nothing and end the
 run with a notice.
 
@@ -488,6 +489,8 @@ SHALL be a stop with its notice.
 - **AND** when instead a runtime starts on a `starting` state for that start on `change/b`, under
   the same `next`, nothing is tracked, no lane starts, and one notice says a restart cut short the
   start of B on `change/b`, naming what is there now
+- **AND** when, in that restart, a lane of the build template runs on `change/b`, nothing is
+  tracked, no lane starts, and the one notice names that lane
 
 #### Scenario: [PLANRUN-9-S4] A fix row is tracked and started with its issue
 - **GIVEN** a trusted config with the plan runner on, whose fix template, of kind `fix`, has the

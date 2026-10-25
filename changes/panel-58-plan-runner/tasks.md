@@ -197,8 +197,10 @@
   - On start, a `starting` state is resolved first (D12), through `adoptable` for the recorded
     item, whole. An allowed lane is tracked with no notice; when it is on the recorded
     branch, the restart marks the `Adoption` started before `track`. "No template of the item's
-    kind" and "no lane on any candidate" are each a stop naming the row, the branch and what step
-    6 finds there. Any other refusal is a stop naming its reason.
+    kind" and "no lane on any candidate" are each a stop naming the row, the branch and what is
+    on the recorded branch: a running lane, from a lookup of the running lanes on that branch
+    made outside `adoptable`, else `TemplateBranch`'s facts. Any other refusal is a stop naming
+    its reason.
   - The log line is `plan runner started <lane> (<template>, <mode>) after #<n>`.
   - Tested in `framework/internal/panel/planrun_test.go` over a fake lane starter that records its
     requests, citing [PLANRUN-2-S1], [PLANRUN-2-S3], [PLANRUN-2-S6] and [PLANRUN-4-S7].
@@ -211,7 +213,8 @@
     - [PLANRUN-9-S3]: `next` `["sh", "scripts/next-row.sh"]` with no lane on `change/b`, where
       step 6 goes on and the fake starter records B's build start, with no notice; and a
       restart's resolution of `starting` for that start under the same `next`, which tracks
-      nothing and sends the cut-short notice.
+      nothing and sends the cut-short notice, once with no lane on `change/b` and once with a
+      build lane running there, whose notice names that lane.
     - [PLANRUN-9-S4]: the shipped fix template (`fix/{name}`, a first prompt naming `{issue}`)
       and the item `12-typo` with issue `#12`: its lane adopted while idle; the same lane found by
       a restart's resolution of `starting` and tracked with `started` true; a start the fake
