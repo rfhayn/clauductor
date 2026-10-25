@@ -48,7 +48,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #
 # BOUNDED. A task that never ends (a server left running) would hold a turn forever, so after
 # NO_SILENT_WAIT_MAX_REFUSALS (default 20) refusals of one agent the end is allowed; every refusal
-# says how many remain and how to end the task by hand.
+# says how many remain and how to end the task by hand. For a background agent the bound is about
+# MAX times the Bash timeout, since each end tried while it runs costs a refusal: the refusal says
+# to re-run the wait instead.
 #
 # KNOWN LIMITS.
 #   - Only THIS session's agents, teammates and commands are seen. A lane that is a session of its
@@ -201,7 +203,7 @@ EOF
   [ -n "$_shells" ] && echo "Wait for each command in THIS turn, in the FOREGROUND (Bash timeout 600000), on $_how: until tail -n 1 FILE | grep -Eq '$END_LINE'; do sleep 5; done; tail -n 40 FILE  (call it again if the tool times out). Read the result, act on it, then end your turn." >&2
   # The marker, not the agent's record, is the wait: an agent not yet started has no record either.
   # A stopped agent (TaskStop) never writes one, so the wait is bounded and the next stop re-checks.
-  [ -n "$_agents" ] && printf '%s\n' "Wait for each agent in THIS turn, in the FOREGROUND (Bash timeout 600000), until its end marker exists:$_agents (until [ -e MARKER ]; do sleep 5; done). Its report then reaches you as a notification: read it, act on it, then end your turn. If the wait times out with no marker, try to end your turn: this hook checks again, and refuses only while the agent still runs." >&2
+  [ -n "$_agents" ] && printf '%s\n' "Wait for each agent in THIS turn, in the FOREGROUND (Bash timeout 600000), until its end marker exists:$_agents (until [ -e MARKER ]; do sleep 5; done). Its report then reaches you as a notification: read it, act on it, then end your turn. Re-run the wait if the tool times out: end your turn only once the marker exists, or after you stopped the agent (TaskStop). Each end tried while the agent runs costs one refusal, and the last one releases you with its report lost." >&2
   echo "If you no longer need a command's result (a server you started, say), end it yourself first: TaskStop if you have it, else kill it by its PID (find yours with ps -eo pid,ppid,args), never by pattern (pkill -f): another session may run the same command. After $MAX refusals your turn is allowed to end and the command's result is lost: say so in your final message." >&2
   exit 2
 }
@@ -210,6 +212,9 @@ case $event in
   PostToolUse)
     # Agent ids are hex: `_main`, the main session's own tasks, cannot collide with one.
     note tasks "${agent:-_main}" "$task_id"
+    # A launch of an agent that ran before (resumed) must not find its old end marker: whether a
+    # resumed agent fires SubagentStart, which also clears it, was never probed (#156).
+    rm -f "$STATE/ended/$task_id"
     exit 0 ;;
   SubagentStart)
     [ -n "$agent" ] || exit 0

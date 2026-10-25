@@ -63,13 +63,28 @@ fi
 base=$(git -C "$ROOT" merge-base "$base_ref" HEAD 2>/dev/null) || { fail "cannot find where HEAD forks from $base_ref"; echo "verify-change: $fails FAIL"; exit 1; }
 changed=$(git -C "$ROOT" diff --name-only "$base" HEAD)
 [ -n "$changed" ] || fail "HEAD changes nothing since $base_ref"
-# Ticked task lines, and the path-like tokens in backticks on each: containing a / or a file extension.
+# A backticked token is a path claim only when it names a file or directory of the repo (at HEAD,
+# at the fork point, or in the diff), or has a directory part and an extension, as `src/a/new.ts`
+# that never got written does. A code identifier (`config.LoadProjects`), an absolute path
+# (`/bin/sh`) or a bare name that is no path of the repo (`doctor_test.go`) claims nothing (#252).
+is_claim() {
+  q=${1%/}
+  case "$q" in /*|'') return 1 ;; esac
+  printf '%s\n' "$changed" | grep -qxF "$q" && return 0
+  printf '%s\n' "$changed" | awk -v d="$q/" 'index($0, d) == 1 { f = 1 } END { exit !f }' && return 0
+  git -C "$ROOT" cat-file -e "HEAD:$q" 2>/dev/null && return 0
+  git -C "$ROOT" cat-file -e "$base:$q" 2>/dev/null && return 0
+  case "$q" in */*) printf '%s\n' "$q" | grep -qE '\.[A-Za-z0-9]+$' && return 0 ;; esac
+  return 1
+}
+# Ticked task lines, and the path claims in backticks on each: tokens containing a / or a file
+# extension that is_claim keeps.
 grep -nE '^[[:space:]]*- \[[xX]\]' "$dir/tasks.md" | grep -Ev "$_is_slice" | while IFS= read -r line; do
-  paths=$(printf '%s\n' "$line" | grep -oE '`[^` ]+`' | tr -d '`' | grep -E '/|\.[A-Za-z0-9]+$' | grep -vE '^(https?:|-)' || true)
+  paths=$(printf '%s\n' "$line" | grep -oE '`[^` ]+`' | tr -d '`' | grep -E '/|\.[A-Za-z0-9]+$' | grep -vE '^(https?:|-)' \
+    | sed 's|^\./||' | while IFS= read -r p; do if is_claim "$p"; then printf '%s\n' "$p"; fi; done)
   [ -n "$paths" ] || continue
   hit=""
   for p in $paths; do
-    p=${p#./}
     if printf '%s\n' "$changed" | grep -qxF "$p" || printf '%s\n' "$changed" | grep -q "^${p%/}/"; then hit=1; break; fi
   done
   if [ -n "$hit" ]; then echo "ok   task names a changed path: $(printf '%s' "${line#*:}" | sed 's/^[[:space:]]*//' | cut -c1-90)"

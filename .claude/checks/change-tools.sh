@@ -153,6 +153,16 @@ V; rc=$?; expect_rc 0 "$rc" "verify-change passes a finished change"
 [ "$rc" = 0 ] || sed 's/^/       /' "$d/out"
 grep -q '^verify-change: add-greeting-name verified against main at [0-9a-f]' "$d/out" && ok "its verdict names the change, the base and the commit" || fail "verdict line: $(tail -1 "$d/out")"
 
+# A code identifier, an absolute path and a bare name that is no path of the repo claim nothing
+# (#252): a task naming them beside a changed file passes, and one naming only them is not judged.
+cp "$C/tasks.md" "$d/tasks.bak"
+printf -- '- [x] 9.1 Call `config.LoadProjects` from `src/home/greeting.ts` under `/bin/sh`, beside `doctor_test.go`\n- [x] 9.2 Wire `template.Resolve` into `pkg.Func`\n' >> "$C/tasks.md"
+V; rc=$?; expect_rc 0 "$rc" "verify-change reads no code identifier as a path claim"
+[ "$rc" = 0 ] || sed 's/^/       /' "$d/out"
+printf -- '- [x] 9.3 Write `src/home/never.ts`\n' >> "$C/tasks.md"
+V; expect_rc 1 $? "...but still fails a task naming a new path the diff never wrote"
+cp "$d/tasks.bak" "$C/tasks.md"
+
 sed 's/- \[x\] 1.2/- [ ] 1.2/' "$C/tasks.md" > "$d/t" && cp "$d/t" "$C/tasks.md"
 V; expect_rc 1 $? "verify-change fails on an open task"
 sed 's/- \[ \] 1.2/- [x] 1.2/' "$C/tasks.md" > "$d/t" && cp "$d/t" "$C/tasks.md"

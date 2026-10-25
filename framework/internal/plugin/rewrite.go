@@ -17,7 +17,8 @@ type rewriter struct {
 	shRoot    *regexp.Regexp // ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 	shVarFW   *regexp.Regexp // "$ROOT/.claude/<fw>  and  "$ROOT"/.claude/<fw>
 	shBare    *regexp.Regexp // sh .claude/<fw>   and   in .claude/<fw>
-	shChildFW *regexp.Regexp // sh -c '… $CLAUDUCTOR_FW …' (or -ec, ${CLAUDUCTOR_FW…}): a child that needs the plugin root passed
+	shChildFW *regexp.Regexp // sh <options, one with c> '<body>': a child that needs the plugin root passed when its body names it
+	bodyFW    *regexp.Regexp // $CLAUDUCTOR_FW or ${CLAUDUCTOR_FW…} in a child's body
 	assignsFW *regexp.Regexp // CLAUDUCTOR_FW= among a command's assignments
 	mdFW      *regexp.Regexp // .claude/<fw> in Markdown
 	mdSh      *regexp.Regexp // sh .claude/<fw> in Markdown
@@ -86,8 +87,12 @@ func newRewriter(tmpl string) (*rewriter, error) {
 		shRoot:  regexp.MustCompile(`\b(ROOT|ROOT_HOOK)=\$\(cd "(?:\$\(dirname "\$0"\)|\$dir)/[./]+"(?: 2>/dev/null)? && pwd\)`),
 		shVarFW: regexp.MustCompile(`"(?:\$ROOT|\$ROOT_HOOK|\$\{ROOT\})(")?/\.claude/(` + fw + `)`),
 		shBare:  regexp.MustCompile(`\b(sh|in) \.claude/(` + fw + `)`),
-		// A command's start (the line's, or after ; & | ( and $( ), its assignments, then the child.
-		shChildFW: regexp.MustCompile(`(^\s*|[;&|(]\s*)((?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s;&|()'"]*)\s+)*)sh (-[A-Za-z]*c) '([^']*\$\{?` + FWVar + `)`),
+		// A command's start (the line's, or after ; & | ( and $( ), its assignments, then the child:
+		// its options (`-c`, `-ec`, `-ce`, `-e -c`) and its single-quoted body, which may run over
+		// several lines. Blanks are a line's own, so a match never starts on one line and ends on
+		// another before the body.
+		shChildFW: regexp.MustCompile(`(?m)(^[ \t]*|[;&|(][ \t]*)((?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|()'"]*)[ \t]+)*)sh((?:[ \t]+-[A-Za-z]+)+)[ \t]+'([^']*)'`),
+		bodyFW:    regexp.MustCompile(`\$\{?` + FWVar + `\b`),
 		assignsFW: regexp.MustCompile(`(^|\s)` + FWVar + `=`),
 		mdSh:      regexp.MustCompile(`\bsh \.claude/(` + fw + `)`),
 		panelArg:  regexp.MustCompile(`"sh", "\.claude/(` + fw + `)`),
@@ -158,20 +163,6 @@ func (r *rewriter) shell(dest, s string) string {
 			}
 			return `"$` + FWVar + `/` + sm[2]
 		})
-		// The prologue sets the plugin root without exporting it, so a child `sh -c '…'` that now
-		// names it would read it empty: pass it on that command line (OPS-88). Each child is judged
-		// alone, and one whose own assignments already set it (a check pointing it at a fixture)
-		// keeps that value. A child after a wrapper (`with_timeout 60 sh -c`) does not match, since
-		// after a command word an assignment is an argument; after a reserved word (`then sh -c`) it
-		// would be safe, but is skipped too, to keep the match simple. Either way
-		// TestShellChildGetsPluginRoot names the line, and it is written another way.
-		l = r.shChildFW.ReplaceAllStringFunc(l, func(m string) string {
-			sm := r.shChildFW.FindStringSubmatch(m)
-			if r.assignsFW.MatchString(sm[2]) {
-				return m
-			}
-			return sm[1] + sm[2] + FWVar + `="$` + FWVar + `" sh ` + sm[3] + ` '` + sm[4]
-		})
 		// In a check, a bare `sh .claude/x` runs inside a scratch repository the check built, on the
 		// copy it put there: left as it is.
 		if !strings.HasPrefix(dest, "checks/") {
@@ -179,7 +170,7 @@ func (r *rewriter) shell(dest, s string) string {
 		}
 		lines[i] = l
 	}
-	out := strings.Join(lines, "\n")
+	out := r.passChildren(strings.Join(lines, "\n"))
 	if strings.HasPrefix(s, "#!") {
 		depth := strings.Count(dest, "/")
 		up := "."
@@ -191,6 +182,33 @@ func (r *rewriter) shell(dest, s string) string {
 		out = out[:nl+1] + pro + "\n" + out[nl+1:]
 	}
 	return out
+}
+
+// passChildren: the prologue sets the plugin root without exporting it, so a child `sh -c '…'`
+// whose body now names it would read it empty: pass it on that command line (OPS-88). It runs on
+// the whole script once the lines are rewritten, since a body over several lines names the root
+// only after its later lines are (#232). Each child is judged alone, and one whose own assignments
+// already set it (a check pointing it at a fixture) keeps that value. A child after a wrapper
+// (`with_timeout 60 sh -c`) does not match, since after a command word an assignment is an
+// argument; after a reserved word (`then sh -c`) it would be safe, but is skipped too, to keep the
+// match simple. Either way TestShellChildGetsPluginRoot names the line, and it is written another way.
+func (r *rewriter) passChildren(s string) string {
+	var b strings.Builder
+	last := 0
+	for _, m := range r.shChildFW.FindAllStringSubmatchIndex(s, -1) {
+		lineStart := strings.LastIndexByte(s[:m[0]], '\n') + 1
+		if strings.HasPrefix(strings.TrimSpace(s[lineStart:m[0]]), "#") {
+			continue // comments keep the template's wording
+		}
+		if !strings.Contains(s[m[6]:m[7]], "c") || !r.bodyFW.MatchString(s[m[8]:m[9]]) || r.assignsFW.MatchString(s[m[4]:m[5]]) {
+			continue
+		}
+		b.WriteString(s[last:m[5]])
+		b.WriteString(FWVar + `="$` + FWVar + `" `)
+		last = m[5]
+	}
+	b.WriteString(s[last:])
+	return b.String()
 }
 
 // shellPatches are the few script edits no general rule covers, each for a reason the plugin
