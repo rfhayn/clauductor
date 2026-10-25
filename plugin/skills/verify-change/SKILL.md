@@ -28,7 +28,8 @@ clauductor-model verify-change.sh <id>
     is for a scenario no test can reach, not for one nobody wrote a test for.
   - *a task claims paths the diff never touched*: the task is ticked but its work is not in the
     branch. Do it, or untick it.
-- `NOTE` lines (changed files no task names) are the reviewer's first question, not a failure.
+- `NOTE` lines (changed files no task names, and ticked tasks naming no path of the repo, so not
+  judged) are the reviewer's first question, not a failure.
 
 Change nothing while verifying: the gate's receipt names the commit, and a commit voids it.
 

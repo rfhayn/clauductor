@@ -980,6 +980,10 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 		"x=`sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'`",
 		`v=$(/bin/sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
 		`v=$(bash -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		// After a "$( … )" closed on the same line, the child is still a command.
+		`x="$(date)"; sh -o errexit -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`,
+		`MSG="$(date)" bash -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`,
+		"x=\"`date`\"; sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'",
 	} {
 		if got := unpassedChildren(l); len(got) != 1 {
 			t.Errorf("an unpassed child is not reported once: %q in %q", got, l)
@@ -1033,6 +1037,10 @@ func unpassedChildren(s string) []string {
 // are returned. isCommand is false when the child is in a comment or inside a quoted string.
 func commandWords(p string) (words []string, isCommand bool) {
 	start, q := 0, byte(0)
+	// The quote each open `(`, `$(` or backtick was read in, restored at its close: the `"` that
+	// closes `"$(date)"` closes the outer quote, it opens none.
+	var outer []byte
+	inTick, tickQ := false, byte(0)
 	for i := 0; i < len(p); i++ {
 		c := p[i]
 		switch {
@@ -1043,9 +1051,13 @@ func commandWords(p string) (words []string, isCommand bool) {
 		case c == '\\':
 			i++
 		case c == '$' && i+1 < len(p) && p[i+1] == '(':
+			outer = append(outer, q)
 			start, q = i+2, 0
 			i++
+		case c == '`' && inTick:
+			inTick, q = false, tickQ
 		case c == '`':
+			inTick, tickQ = true, q
 			start, q = i+1, 0
 		case q == '"':
 			if c == '"' {
@@ -1055,7 +1067,12 @@ func commandWords(p string) (words []string, isCommand bool) {
 			q = c
 		case c == '#' && (i == 0 || strings.IndexByte(" \t;&|(", p[i-1]) >= 0):
 			return nil, false
-		case strings.IndexByte(";&|(", c) >= 0:
+		case c == '(':
+			outer = append(outer, 0)
+			start = i + 1
+		case c == ')' && len(outer) > 0:
+			q, outer = outer[len(outer)-1], outer[:len(outer)-1]
+		case strings.IndexByte(";&|", c) >= 0:
 			start = i + 1
 		}
 	}

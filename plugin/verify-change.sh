@@ -13,8 +13,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #   4. the diff touches what tasks.md claims: a ticked task that names paths (in backticks) has at
 #      least one of them in the diff. A task naming a path it only reads still names others it
 #      changed; a task naming ONLY paths the diff never touched claims work that is not there.
-# It also lists, as NOTE lines, changed files no task names: not a failure (a helper, a fixture), but
-# the reviewer's first question.
+# It also lists, as NOTE lines, changed files no task names and ticked tasks that name no path of
+# the repo (so were not judged): not a failure (a helper, a fixture), but the reviewer's first question.
 #
 # build-change runs it after the receipt, and merge-pr before it merges a change PR (step 2c).
 ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
@@ -61,7 +61,8 @@ if [ -z "$base_ref" ]; then
   if git -C "$ROOT" rev-parse -q --verify "origin/$MAIN_BRANCH" >/dev/null 2>&1; then base_ref="origin/$MAIN_BRANCH"; else base_ref=$MAIN_BRANCH; fi
 fi
 base=$(git -C "$ROOT" merge-base "$base_ref" HEAD 2>/dev/null) || { fail "cannot find where HEAD forks from $base_ref"; echo "verify-change: $fails FAIL"; exit 1; }
-changed=$(git -C "$ROOT" diff --name-only "$base" HEAD)
+# --no-renames: a rename lists its old name too, so a task naming either is judged (as docs-gate.sh).
+changed=$(git -C "$ROOT" diff --no-renames --name-only "$base" HEAD)
 [ -n "$changed" ] || fail "HEAD changes nothing since $base_ref"
 # A backticked token is a path claim only when it names a file or directory of the repo (at HEAD,
 # or in the diff, which holds whatever the fork point had and HEAD lost), or has a directory part
@@ -92,7 +93,7 @@ grep -nE '^[[:space:]]*- \[[xX]\]' "$dir/tasks.md" | grep -Ev "$_is_slice" | whi
     if printf '%s\n' "$changed" | grep -qxF "$p" || printf '%s\n' "$changed" | grep -q "^${p%/}/"; then hit=1; break; fi
   done
   if [ -n "$hit" ]; then echo "ok   task names a changed path: $(printf '%s' "${line#*:}" | sed 's/^[[:space:]]*//' | cut -c1-90)"
-  else echo "FAIL task claims $(printf '%s' "$paths" | tr '\n' ' ')but the diff touches none of them: $(printf '%s' "${line#*:}" | sed 's/^[[:space:]]*//' | cut -c1-90)"; fi
+  else echo "FAIL task claims $(printf '%s' "$paths" | tr '\n' ' ') but the diff touches none of them: $(printf '%s' "${line#*:}" | sed 's/^[[:space:]]*//' | cut -c1-90)"; fi
 done > "${TMPDIR:-/tmp}/verify.$$"
 cat "${TMPDIR:-/tmp}/verify.$$"; fails=$((fails + $(grep -c '^FAIL' "${TMPDIR:-/tmp}/verify.$$")))
 named=$(grep -oE '`[^` ]+`' "$dir/tasks.md" | tr -d '`' | sed 's|^\./||')
