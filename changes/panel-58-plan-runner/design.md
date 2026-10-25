@@ -216,8 +216,14 @@ Read on 2026-10-25, at `0cfced2b`.
       lane already running on its branch, or stops the run naming the item, and the owner starts
       the fix by hand.
   - **The runner's check.** Before a start, it runs every template's suggest command once more. It
-    goes on only when exactly one fresh list names the item, so it starts nothing the page would
-    not offer.
+    goes on only when exactly one fresh list of a template of the item's kind (PLANRUN-9's kind
+    rule) names the item, so it starts nothing the page would not offer, and never from a
+    template of another kind whose list happens to hold the same name. When no template has a
+    kind at all (a `next` of another shape), every template's list is read, as PLANRUN-9-S3
+    needs. **The kind is the owner's decision, 2026-10-25 ("Fix them all"), round 15's finding
+    3.** **Decided.** *Beat:* any list naming the item, which round 15 found would start a
+    build item from an ops or propose template whose list held the same name, or stop on two
+    lists where only one is the item's kind.
   - **Beyond the row's surfaces.** This adds `template/.claude/panel-suggest.sh`, its check and the
     plugin build. Round 13 added `template/.claude/roadmap-plan.sh`'s fourth `D` field, held by
     the same check (`template/.claude/checks/panel-suggest.sh`, which already runs the parser).
@@ -298,8 +304,8 @@ Read on 2026-10-25, at `0cfced2b`.
       action of its own on the page, a second way to start a lane beside **Start lane**.
     - The trigger is a pull request of that branch merging after the runner began tracking it.
   - **What happens on the merge.** The runner:
-    1. reads the merged PR's `Review:` line (D8);
-    2. fetches the config's base ref;
+    1. ends the run when the merged PR was the session's close (below);
+    2. otherwise reads the merged PR's `Review:` line (D8), then fetches the config's base ref;
     3. confirms the merge commit is on it;
     4. reads `next` again;
     5. starts the item.
@@ -320,6 +326,10 @@ Read on 2026-10-25, at `0cfced2b`.
     - The owner's **Start lane** on `next`'s row after the close is that click: the lane is
       adopted, tracking it replaces the stop, and the hold ends with it. Every path that tracks a
       lane goes through `adoptable` (**Who may be tracked**), so the hold binds every one of them.
+    - The close's stop starts the hold whatever the close PR's `Review:` line, since the close is
+      read before that line (**What happens on the merge**, step 1). Turning the runner off drops
+      the hold with the rest of the state, and turning it on again is the owner's click (**The
+      runner**, *Turned off, the run lets go*).
     - **Its cost, and the way through.** A lane started before the close stays refused for as
       long as it runs: a restart or resume keeps its `Created`, and **Start lane** on the row is
       refused while the lane holds its branch and worktree. The way through is to close that lane
@@ -468,7 +478,30 @@ Read on 2026-10-25, at `0cfced2b`.
 The runner is one loop of the project's runtime, next to auto-close. It acts only while
 `plan_runner.on` is true and the config is trusted. Its state is `plan-run.json` in the project's
 state directory, written before each step that starts or stops something, so a restart (catch-up's
-rebuild, a crash) resumes it:
+rebuild, a crash) resumes it.
+
+- **Turned off, the run lets go. The owner's decision, 2026-10-25 ("Fix them all"), round 15's
+  finding 2.** **Decided.**
+  - While a trusted config has `on` false (or no `plan_runner`), a runner whose `plan-run.json`
+    tracks a branch, is `starting`, or holds the close (D6) writes it `idle` once: no branch, no
+    hold, the last stop's text kept for the page. With no file, or one already idle, it writes
+    nothing.
+  - Why: a state kept while off is acted on at turn-on. A merge made while off, of the tracked
+    lane or of the close, would start the row after it, or end a run the owner has since
+    restarted, with no click after the merge.
+  - Turning on again resumes from idle, through `adoptable` alone: it adopts, and never starts.
+    A tracked lane whose PR merged while off is refused as merged work (refusal 6).
+  - A lane the owner started while off, on the next session's row after a close that merged
+    while off, is adopted at turn-on. That is accepted: turning the runner on is itself the
+    owner's click, since a config with it on is never trusted on arrival (D9), and the first
+    turn-on adopts a running lane the same way.
+  - An untrusted config is not off: the state is kept, and trusting it resumes the run
+    (PLANRUN-1-S4).
+  - *Beat:* a hold from turn-on, as the close's: adopt only a lane created after the runner was
+    turned on again. It closes the case above, but refuses the owner's own running lane at a
+    turn-on the first turn-on would adopt, and costs the close-and-restart way through (D6).
+
+The state file:
 
 ```json
 {"branch": "change/panel-58-plan-runner", "lane": "panel-58-plan-runner", "started": true,
@@ -629,10 +662,16 @@ one that fails is a stop, except one the runtime cut short:
 - **A start cut short stays `starting`** (D12). `starting` is written before `StartLane`, so a
   runtime stop during the start, or a process that dies, leaves it. The next runtime resolves it
   on start (**A restart**, below).
-1. **The `Review:` line**, as D8 (b) reads it.
-2. **The close.** When the tracked kind was `close`, the run ends: a stop whose notice says the
-   session has closed, carrying `closed`, the merge's time, which holds adoption until a lane
-   started after it (D6, **The close**).
+1. **The close.** When the tracked kind was `close`, the run ends, whatever the merged PR's
+   `Review:` line: a stop whose notice says the session has closed, carrying `closed`, the
+   merge's time, which holds adoption until a lane started after it (D6, **The close**).
+   - Why first: the run ends at the close either way, and only this stop starts the hold. A close
+     PR stopped at its `Review:` line (capped, NOT converged, missing or unreadable) would carry
+     no `closed`, and idle adoption would then track a lane started before the close. **The order
+     is the owner's decision, 2026-10-25 ("Fix them all"), round 15's finding 1.** **Decided.**
+     *Beat:* the `Review:` line first, with the hold added to its stop when the kind is `close`,
+     which is two stops doing one stop's work.
+2. **The `Review:` line**, as D8 (b) reads it, for every merge but the close.
 3. **The fetch.** `git fetch <remote> <branch>` of the config's base ref, in the main checkout,
    under a timeout. Then `git merge-base --is-ancestor <merge commit> <base ref>`.
    - A failed fetch is retried once, 30 seconds later, before it is a stop. Lanes and catch-up
@@ -684,14 +723,16 @@ one that fails is a stop, except one the runtime cut short:
      would make the owner's approval click also start the build, and the owner has not asked for
      that.
 5. **The template.** Every template's suggest command runs once, and its result updates Up next as
-   a refresh would. Exactly one list must name the item.
+   a refresh would. Exactly one list of a template of the item's kind (PLANRUN-9) must name the
+   item; a list of another kind's template, or of no kind's, is not read for it. When no template
+   has a kind at all, every list is read (D2, **The runner's check**).
    - **When no list names it**, as for an entry that is not `queued` or has a name a lane cannot
      take (D2, **Whatever the row's state**), `adoptable` runs for the item first. When it allows
      a running lane (an in-flight row's own lane), that lane is tracked and nothing starts.
      Otherwise, whatever the refusal, it is a stop naming the row, its roadmap state,
      `adoptable`'s reason and, when its name is one a lane cannot take, that name. Unlike step 6,
      refusals 1 and 2 do not go on: with no list naming the item there is nothing to start.
-   - Two or more lists naming it is a stop naming the templates.
+   - Two or more of those lists naming it is a stop naming the templates.
 6. **Where it runs.** `TemplateBranch`'s facts, chosen as `planStart` chooses (E2), in Go, in this
    order:
    - busy is a stop;
@@ -749,6 +790,11 @@ same fields step 8's `StartLane` did.
   (STALL-3).
 - `stop.key` is the reason and the merge or row it is about. A restart does not send the same
   notice twice.
+- **The key is written before the notice is sent: at most once, never twice.** A process that dies
+  between the two loses that one push. That is accepted (round 15's finding 5, the owner's
+  "Fix them all", 2026-10-25): the stop is still in `plan-run.json` and on the page's line, and
+  two pushes for one stop is a miss of this change's signal. *Beat:* send, then record, which
+  repeats the push after such a death.
 - `/api/state` carries `planRun`: `on`, the state, the row, the lane, the last stop's text and
   time, `waiting`, what the last idle read found (**Adopt**), and `stalled`, true while the
   tracked lane is stalled (D7). Up next shows them as one line above its rows, with `waiting`
@@ -769,11 +815,12 @@ same fields step 8's `StartLane` did.
 
 | Situation | What happens instead |
 |---|---|
-| `on` is false, or the config is untrusted | Nothing starts; `planRun.on` says why |
+| `on` is false in a trusted config | Nothing starts; `planRun.on` says why; a tracked branch, a `starting` state or the close's hold is written `idle` once, so turning it on again resumes only through adoption |
+| The config is untrusted | Nothing starts; `planRun.on` says why; the state is kept, and trusting the config resumes it |
 | A version below 8 sets `plan_runner`, `on` without `next`, a `seven_day_pct` outside 1–100, or `on` with `alerts.notify` false | The config does not load, naming the key |
 | A merged config has the runner on (turned on, or any change while on) | Not trusted on arrival; the notice says the config waits for the owner (D9) |
-| The merged PR's `Review:` line is capped, NOT converged, missing, doubled or unreadable | Stop, push naming the PR and the line |
-| The merged PR was the session's close | The run ends, push naming the session; adoption then holds for a lane started after the close |
+| The merged PR was the session's close, whatever its `Review:` line | The run ends, push naming the session; adoption then holds for a lane started after the close |
+| The merged PR, not the close, has a `Review:` line capped, NOT converged, missing, doubled or unreadable | Stop, push naming the PR and the line |
 | The fetch fails twice, 30 seconds apart, or the merge commit is not on the base ref | Stop, push naming the error |
 | Catch-up has not settled 15 minutes after the fetch (no check ended with the merge in HEAD or no retry pending) | Stop, push naming the project |
 | The runtime's context ends during a step before the start (the panel's exit, an arrival's reload, a **Trust config…** that reloads, `projects.json` moving or removing the project) | No stop, no notice: the state stays `watching`, and the next start finds the merge again |
@@ -782,11 +829,11 @@ same fields step 8's `StartLane` did.
 | After a merge (step 4), `next` prints `[]` | Stop, push: the plan has no row left |
 | `next` names the row and kind that just merged (no fragment on main names it) | Stop, push naming the row and the PR |
 | The tracked lane was a row's proposal, and `next` names that row's build | Stop, push: the proposal merged, and its build starts with the owner's click |
-| The next row has a decision in the open session's *The owner decides*, or is a change with no proposal on main (a change row named `feature/…` among them) | Stop, push naming the row and the decision; the row stays offered |
+| The next row has a decision in the open session's *The owner decides*, or is a change with no proposal on main (a change row named `feature/…` among them) | Stop, push naming the row and the decision; the row stays where Up next had it (offered where a list offers it) |
 | `next` fails because the next planned id has no roadmap row | While idle, `planRun.waiting` names the id, with no push; at step 4, a stop with a push naming it |
-| No template's fresh Up next names the item (an entry not `queued`, or a name a lane cannot take, included), and `adoptable` allows a running lane for it | That lane is tracked, and nothing starts |
-| No template's fresh Up next names the item, and `adoptable` refuses | Stop, push naming the row, its roadmap state and the reason |
-| More than one template's fresh Up next names the item | Stop, push naming the item and the templates |
+| No fresh Up next of a template of the item's kind names the item (an entry not `queued`, or a name a lane cannot take, included), and `adoptable` allows a running lane for it | That lane is tracked, and nothing starts |
+| No fresh Up next of a template of the item's kind names the item, and `adoptable` refuses | Stop, push naming the row, its roadmap state and the reason |
+| More than one fresh Up next of a template of the item's kind names the item | Stop, push naming the item and the templates |
 | The item's branch is busy, or holds work already merged | Stop, push naming the branch |
 | A lane already runs on a candidate branch at step 6 | Tracked when `adoptable` allows it, and nothing starts; "no template of the item's kind" and "no lane on any candidate" go on to choose a mode; any other refusal, stop, push naming its reason |
 | The 7-day usage is at or above `seven_day_pct`, or unreadable (its window older than 30 minutes included) | Stop, push naming the reading or why there is none |

@@ -110,8 +110,15 @@
     `lane`, `started`, `item` (`next`'s item whole, one value, never a subset of its fields),
     `since`, `state` (`idle`, `watching`, `starting`), `stop` and the keys of the notices sent. `waiting` is the runtime's alone, never written. It is written atomically (`config.WriteAtomic`) before each step that
     starts or stops anything.
-  - It runs only while `plan_runner.on` is true and the config is trusted. Otherwise it keeps its
-    state and does nothing.
+  - It runs only while `plan_runner.on` is true and the config is trusted. While the config is
+    untrusted it keeps its state and does nothing. While a trusted config has `on` false or no
+    `plan_runner`, it writes a `plan-run.json` that tracks a branch, is `starting` or holds the
+    close `idle` once, with no branch and no hold, keeping the last stop's text, and does nothing
+    more (design.md, *Turned off, the run lets go*). With no file, or an idle one, it writes
+    nothing. Tested in `framework/internal/panel/planrun_test.go` with a stand-in `gh`, citing
+    [PLANRUN-1-S6]: off while tracking `change/a`, A merged while off, then on, with no start
+    and no notice; and off while the close holds, with a build lane started while off adopted
+    at the turn-on.
   - **Who may be tracked** (PLANRUN-9).
     - `candidates(item)` returns the branches `Config.TemplateBranch(id, item.name, item.issue)`
       gives the templates `Config.TemplateKind` gives the item's kind, deduplicated. A template it
@@ -158,21 +165,23 @@
     never read.
   - `mergedRow` (`autoclose.go:149-152`) holds only `Number` and `HeadRefOid`. It gains `Body`,
     `MergedAt` and `MergeCommit` (gh's `{oid}` object), or the runner decodes into its own row.
-  - **The close.** When the tracked kind is `close`, the trigger ends the run. Its stop carries
+  - **The close.** When the tracked kind is `close`, the trigger ends the run, before the
+    `Review:` line is read (task 3.2) and whatever that line says. Its stop carries
     `closed`, the merge's time. While that stop holds, idle adoption tracks only a lane created
     after it (refusal 7, shown in `waiting`, no push), and the first such lane tracked ends the
     hold. The owner's **Start lane** after the close is that lane.
   - Tested in `framework/internal/panel/planrun_test.go` with a stand-in `gh`, citing
-    [PLANRUN-1-S1], [PLANRUN-2-S4] and [PLANRUN-2-S7].
-- [ ] 3.2 The `Review:` line (D8 (b)).
+    [PLANRUN-1-S1], [PLANRUN-2-S4] and [PLANRUN-2-S7], the last with a close PR whose `Review:`
+    line is capped, and one with none, each ending the run with the hold.
+- [ ] 3.2 The `Review:` line (D8 (b)), for a merged PR that was not the session's close.
   - The runner reads the lines of the body that start with `Review:`. It goes on only for exactly
     one, matching `Review: converged in <n> round(s), peak <sev>, at <sha>`, with an optional
     ` · design <hash>`.
   - It stops naming the PR and the line for `capped`, `NOT converged`, none, two, or any other
     text.
   - Tested in `framework/internal/panel/planrun_test.go`, a table over the formats in
-    `template/.claude/skills/merge-pr/SKILL.md`, citing [PLANRUN-3-S1], [PLANRUN-3-S2] and
-    [PLANRUN-3-S3].
+    `template/.claude/skills/merge-pr/SKILL.md`, citing [PLANRUN-3-S2] and [PLANRUN-3-S3]. The
+    converged rows' going on is asserted there as no stop; [PLANRUN-3-S1]'s start is task 4.2's.
 
 ## 4. The start (D2, D3, D5, D6)
 - [ ] 4.1 After the trigger and the review line, the runner goes through the steps in `design.md`'s
@@ -194,8 +203,9 @@
     yet. A tracked `propose` followed by the same row's `build` is its own stop: the proposal
     merged, and its build starts with the owner's click.
   - It runs every template's suggest command once through `suggestSource` and applies the results
-    as a refresh does, then requires exactly one list to name the item. Two or more is a stop
-    naming the templates.
+    as a refresh does, then requires exactly one list of a template `Config.TemplateKind` gives
+    the item's kind to name the item; the other templates' lists are not read for it. When no
+    template has a kind, every list is read. Two or more is a stop naming the templates.
   - When no list names it (an in-flight or deferred row, a name a lane cannot take), it calls
     `adoptable(item)` first: an allowed lane is tracked and nothing starts. Any refusal, 1 and 2
     included, is a stop naming the row, its roadmap state, the reason and, when a lane cannot take
@@ -232,7 +242,9 @@
     its reason.
   - The log line is `plan runner started <lane> (<template>, <mode>) after #<n>`.
   - Tested in `framework/internal/panel/planrun_test.go` over a fake lane starter that records its
-    requests, citing [PLANRUN-2-S1], [PLANRUN-2-S3], [PLANRUN-2-S6] and [PLANRUN-4-S7].
+    requests, citing [PLANRUN-2-S1], [PLANRUN-2-S3], [PLANRUN-2-S6], [PLANRUN-3-S1] (a merge
+    whose line is `converged in 2 round(s), peak medium`, after which the fake starter records
+    the row after A) and [PLANRUN-4-S7].
   - Tested in `framework/internal/panel/planrun_test.go`, with a stand-in `gh` and the fake lane
     starter, citing:
     - [PLANRUN-2-S2]: an adopted lane whose merge starts the row after it, and a propose lane
@@ -280,7 +292,8 @@
   - Each is a macOS notification and one `runPush`, with `sendCatchUp`'s pattern, file and timeout
     rules.
   - The title names the project while the config is trusted, else "clauductor panel".
-  - Each is recorded in `plan-run.json` by its key before it is sent, so a restart does not send it
+  - Each is recorded in `plan-run.json` by its key before it is sent (at most once: design.md,
+    **A stop**), so a restart does not send it
     again.
   - The notifier's push filter admits the runner's notices beside `stalled` and catch-up's, and
     still no other alert.

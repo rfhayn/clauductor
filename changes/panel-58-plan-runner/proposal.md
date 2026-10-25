@@ -102,7 +102,8 @@ This change adds a new capability, `panel-plan-runner` (PLANRUN-1 to PLANRUN-9).
 
 ## How we'll know
 - **Signal:** in the first session the runner is on (S13 is planned), every planned row after the
-  session's first has one of these within 10 minutes of the row before it merging:
+  session's first has one of these within 20 minutes of the row before it merging (the runner
+  waits up to 15 for catch-up to settle before a start, PLANRUN-2-S8):
   - its lane started with no click from the owner, and a `plan runner started <lane>` line in the
     panel's log;
   - one push naming why it did not start.

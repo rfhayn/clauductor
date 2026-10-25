@@ -17,6 +17,11 @@ WHILE `on` is true THE SYSTEM SHALL list the runner in the config's run list as
 sorted order, joined by `, `, or, WHEN no template has one, by `, adopting no lane: no template's suggest command is
 <next> with its last element replaced`. WHILE `on` is false
 or the config is not trusted THE SYSTEM SHALL NOT run `next` or start a lane for the runner.
+WHILE a trusted config has `on` false or no `plan_runner`, and `plan-run.json` tracks a branch, is
+`starting` or holds the session's close (PLANRUN-2), THE SYSTEM SHALL write it `idle` once,
+tracking nothing and holding nothing, so that turning the runner on again resumes only through
+PLANRUN-9's check and never acts on a merge made while it was off. WHILE the config is not
+trusted, THE SYSTEM SHALL keep the state as it is.
 
 #### Scenario: [PLANRUN-1-S1] With no key, a merge starts nothing
 - **GIVEN** a trusted config with no `plan_runner`, a session plan whose next rows are A and B, and
@@ -56,6 +61,16 @@ or the config is not trusted THE SYSTEM SHALL NOT run `next` or start a lane for
 - **WHEN** the owner runs `clauductor panel trust --project <repo>`
 - **THEN** trust is refused, and the plan runner's line is marked as not allowed in a sidecar
 
+#### Scenario: [PLANRUN-1-S6] Turned off, the run lets go, and turning it on acts on no old merge
+- **GIVEN** a runner tracking the lane on `change/a`, the plan's row A, whose plan's row after A is B
+- **WHEN** a trusted config turns the runner off, A's pull request merges, and the owner then
+  turns the runner on again and trusts that config
+- **THEN** `plan-run.json` is `idle`, tracking nothing, from the runner's first tick while off
+- **AND** after the turn-on, no lane starts and no notice goes out, and A's lane is not tracked
+- **AND** when instead the runner was holding the session's close when it was turned off, and the
+  owner started a build lane on the next session's first row while it was off, that lane is
+  tracked at the turn-on's first idle read
+
 ### Requirement: The run tracks one lane, and starts the plan's next row when that lane merges
 WHILE the plan runner is on and the config is trusted, THE SYSTEM SHALL track the lane on the
 branch of `next`'s item, whether the runner started it or the owner did. A lane the runner did not
@@ -63,7 +78,9 @@ start in that same step SHALL be tracked only as PLANRUN-9 allows, whether or no
 names the item. WHEN a pull request of the tracked branch has merged since the branch
 was tracked, and the checks of the next three requirements pass, THE SYSTEM SHALL start `next`'s
 item:
-- from the one template whose fresh suggest list names it;
+- from the one template of the item's kind (PLANRUN-9) whose fresh suggest list names it, the
+  lists of templates of other kinds or of none not read for it, or, WHEN no template is of any
+  kind, from the one template among all whose list names it;
 - through `StartLane` with the trust and quota gate the **Start lane** route passes, never setting
   `OverrideQuota`;
 - in the mode the page would choose for that branch.
@@ -87,8 +104,8 @@ starts on a `starting` state, THE SYSTEM SHALL run PLANRUN-9's check for the rec
 track the lane it allows with no notice, or, WHEN no template is of the item's kind or no lane runs
 on any candidate, start nothing and stop with a notice naming the row, the branch and what is on
 it, a lane running there included, whatever the check's candidates were. And
-WHEN the merged pull request was the session's close, THE SYSTEM SHALL start nothing and end the
-run with a notice, and from then on SHALL track no lane created at or before that merge, until it
+WHEN the merged pull request was the session's close, whatever its `Review:` line, THE SYSTEM
+SHALL start nothing and end the run with a notice, reading the close before that line, and from then on SHALL track no lane created at or before that merge, until it
 tracks a lane created after it.
 
 #### Scenario: [PLANRUN-2-S1] A tracked merge starts the plan's next row with no click
@@ -148,6 +165,9 @@ tracks a lane created after it.
   it keeping its worktree and start the row from Up next
 - **AND** when the owner closes that lane keeping its worktree and starts a lane on `change/a`
   after the close, that lane is tracked, which ends the hold
+- **AND** when instead the close's pull request merges with `Review: capped at 3 round(s), peak
+  medium, at abc1234; see KNOWN LIMITS`, or with no `Review:` line, the run ends the same way, with
+  the one notice that the session has closed, and the build lane started before it is not tracked
 
 #### Scenario: [PLANRUN-2-S8] A start waits for the rebuild its merge sets off
 - **GIVEN** a project with catch-up on, a runner tracking `change/a`, and A's pull request #9,
@@ -189,7 +209,8 @@ tracks a lane created after it.
   `plan-run.json` is still `starting`, for PLANRUN-2-S6 to resolve
 
 ### Requirement: The run goes on only after a review that converged
-WHEN the tracked pull request merges, THE SYSTEM SHALL read the `Review:` lines of its body, and go
+WHEN the tracked pull request merges and it was not the session's close (PLANRUN-2), THE SYSTEM
+SHALL read the `Review:` lines of its body, and go
 on only when there is exactly one and it reads `Review: converged in <n> round(s), peak <sev>, at
 <sha>`, with or without a closing `· design <hash>`, whatever the peak. THE SYSTEM SHALL stop, with
 a notice naming the pull request and the line, WHEN that line reads `capped` or `NOT converged`, or
@@ -272,6 +293,8 @@ Up next.
   that lane is tracked, no lane starts and no notice goes out
 - **AND** when B is `in flight` with no lane running, or is the ops row `ops/B-Release`, no lane
   starts, and one notice names B and its state, and for the second, that name
+- **AND** when B is a build item that the build list names, and an ops template's list names `b`
+  too, the ops list is not read for it, and B's lane starts from the build template
 
 #### Scenario: [PLANRUN-4-S7] A busy branch, or a refused start, stops the run
 - **GIVEN** a tracked merge whose next item is B
@@ -362,7 +385,8 @@ tracking the lane, and go on WHEN it merges.
 ### Requirement: Each notice of the run goes out once, and the page shows the run
 THE SYSTEM SHALL send each notice of the runner once, as a macOS notification and through the push
 (`panel-stall`'s third requirement). SHALL record it in `plan-run.json` by its reason and the merge
-or row it names, so that a restart does not send it again. `/api/state` SHALL carry `planRun`, with
+or row it names before it sends it, so that a restart does not send it again: a notice lost to a
+death between the two is accepted, and a notice sent twice is not. `/api/state` SHALL carry `planRun`, with
 `on`, the state, the row, the lane, the last stop's text and time, `waiting` and `stalled`, each in
 its own field. `waiting` SHALL be what the last idle read found: PLANRUN-9's refusal, or that `next`
 named no row, or that it failed, naming the error. While idle, a `next` that fails SHALL send no
