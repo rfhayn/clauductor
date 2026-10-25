@@ -130,10 +130,10 @@
   already refuses to judge then. **Auto-close's words:** every status word `CloseHeld` gives
   carries auto-close's `"claude is "` prefix ("claude is working", "claude is waiting on you",
   "claude is starting", …), as LANECLOSE-2-S1 says ("each in auto-close's words") and
-  `TestAutoCloseOnMerge` asserts (`autoclose_integration_test.go:79`). Tested in
+  `TestAutoCloseOnMerge` asserts (`autoclose_integration_test.go:77`). Tested in
   `model_lanes_test.go`: a `Dead` lane and an `idle` lane, each held before the first
   `ApplyQueues` and after a failed one, and released after a good read that binds no lease to
-  them; confirm the test fails with the check removed. Citing [LANECLOSE-2-S3].
+  them; confirm the test fails with the check removed. (Tasks 1.1 and 2.3 cover the scenarios.)
 
 ## 2. The socket in the panel's life (D1, D4)
 - [ ] 2.1 `framework/internal/panel/install/singleton.go`: `PanelOwner.Socket` (`json:"socket,
