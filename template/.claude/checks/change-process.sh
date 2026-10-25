@@ -93,9 +93,12 @@ report .clauductor/panel.json
 report clauductor panel trust
 EOF
 }
-merge_pr_cmds() {  # the git and gh commands merge-pr may run outside step 5, none of them a pull
+merge_pr_cmds() {  # the git and gh commands merge-pr may run outside step 5, none of them a pull;
+  # git merge only on the lane's own checkout (cwrite), to catch its branch up to origin/main
   cat <<'EOF'
 git diff
+git fetch
+git merge
 git worktree remove
 gh pr create
 gh pr view
@@ -144,22 +147,30 @@ merge_pr_spans() {
       prose(t)
     }
     function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
-    # skip(t, j, m): the first word from j on that is not an option of git itself (-C <dir>, ...)
+    # skip(t, j, m): the first word from j on that is not an option of git itself (-C <dir>, ...);
+    # sets aimed when one of them points git at another checkout
     function skip(t, j, m) {
-      for (; j <= m && t[j] ~ /^-/; j++) if (t[j] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) j++
+      aimed = 0
+      for (; j <= m && t[j] ~ /^-/; j++)
+        if (t[j] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) { if (t[j] != "-c") aimed = 1; j++ }
+        else if (t[j] ~ /^--(git-dir|work-tree)=/) aimed = 1
       return j
     }
-    # cwrite(s): the first command of code span s that merge_pr_cmds does not list, or ""
-    function cwrite(s,   n, c, k, m, t, i, j, cmd) {
-      n = split(s, c, /\$\(|[|;&()]+/)
+    # cwrite(s): the first command of code span s that merge_pr_cmds does not list, or ""; a listed
+    # command that moves a checkout (git merge, catching up the lane branch itself) passes only on
+    # the checkout the span runs in: never with -C or the like, never after a cd in the same span
+    function cwrite(s,   n, c, k, m, t, i, j, cmd, moved) {
+      n = split(s, c, /\$\(|[|;&()]+/); moved = 0
       for (k = 1; k <= n; k++) {
         if ((m = split(trim(c[k]), t, /[ \t]+/)) == 0) continue
         if (t[1] in moves) return trim(c[k])
+        if (t[1] == "cd" || t[1] == "pushd") moved = 1
         for (i = 1; i <= m; i++) {
           if (t[i] == "git" && (j = skip(t, i + 1, m)) <= m) {
             cmd = "git " t[j]
             if (t[j] == "worktree") cmd = cmd " " t[j + 1]
             if (!(cmd in ok)) return trim(c[k])
+            if ((t[j] in moves) && (aimed || moved)) return trim(c[k])
           }
           if (t[i] == "gh" && i < m && !(("gh " t[i + 1] " " t[i + 2]) in ok)) return trim(c[k])
         }
@@ -382,6 +393,32 @@ _red "a pull named outside a code span after step 5" '/^- Leave the roadmap row/
 _red "a second step 5" '/^## After the merge/i\
 ### 5. Sync again
 ' "a second '### 5.' heading"
+# A legitimate edit passes (OPS-124, #214): a rule that refuses every edit to merge-pr is no
+# guard either. Catching the lane's own branch up to origin/main is not a write to the main
+# checkout; the same merge aimed at the main checkout, by -C or by a cd, stays red.
+_green() {  # _green WHAT SED-SCRIPT: step5 on the edited copy objects to nothing
+  _n=$((_n + 1))
+  sed "$2" "$_skill" > "$_d/step5-$_n.md"
+  _o=$(step5 "$_d/step5-$_n.md")
+  if cmp -s "$_skill" "$_d/step5-$_n.md"; then fail "step 5's green case '$1' edits nothing: re-anchor it"
+  elif [ -z "$_o" ]; then ok "step 5's check passes $1"
+  else fail "step 5's check refuses $1: $(printf '%s' "$_o" | head -n 1)"; fi
+}
+_green "catching the lane branch up before the gate" '/^Run the full gate from the branch.s checkout/i\
+First catch the branch up: `git fetch origin main && git merge origin/main`.
+'
+_green "a fetch and merge in a fenced block before the gate" '/^Run the full gate from the branch.s checkout/i\
+```bash\
+git fetch origin main\
+git merge --no-edit origin/main\
+```
+'
+_red "a merge into the main checkout by cd" '/^- Leave the roadmap row/i\
+- Then `cd "$main" && git merge origin/main`.
+' "text after step 5 names \`git merge origin/main\`"
+_red "a merge into the main checkout by --work-tree" '/^- Leave the roadmap row/i\
+- Then `git --work-tree="$main" merge origin/main`.
+' "text after step 5 names \`git --work-tree=\"\$main\" merge origin/main\`"
 
 # Budget, outcome and provenance at archive and merge (items 12–14).
 has .claude/skills/archive-change/SKILL.md 'change-cost.sh' "archive records the actual cost"
