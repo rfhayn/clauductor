@@ -32,6 +32,10 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | 1.15 | `ops/letter` — Ri&#115;k: high | s | — | ⬜ queued |
 | 1.16 | `ops/oddent` — Ri&#115;k: low-ish | s | — | ⬜ queued |
 | 1.17 | `ops/link` — [Risk](#risk): high | s | — | ⬜ queued |
+| 1.18 | `ops/lt` — p95 < 50ms. Risk: high. Touches > 3 files | s | — | ⬜ queued |
+| 1.19 | `ops/cgj` — Ri&#847;sk: high | s | — | ⬜ queued |
+| 1.20 | `ops/lookalike` — Riskː high | s | — | ⬜ queued |
+| 1.21 | `ops/colonval` — Risk: high：today | s | — | ⬜ queued |
 EOF
 printf '# add-low\n\n**Risk:** low\n' > "$F/changes/add-low/proposal.md"
 printf '# add-bad\n\n**Risk:** medium\n' > "$F/changes/add-bad/proposal.md"
@@ -69,6 +73,10 @@ is 4 "a Risk read as rendered (an entity colon)" ops/entity
 is 4 "a Risk read as rendered (an entity letter)" ops/letter
 refuses "a Risk that is not" "an odd Risk spelt with an entity letter" ops/oddent
 is 4 "a Risk read as rendered (a link around the key)" ops/link
+is 4 "a Risk between a lone < and a later > (no tag)" ops/lt
+is 4 "a Risk read as rendered (a combining joiner in the key)" ops/cgj
+is 4 "a Risk read as rendered (a look-alike colon)" ops/lookalike
+is 4 "a look-alike colon ends a Risk's value, as a colon does" ops/colonval
 printf 'REVIEW_CAPS="low:1 normal:4 high:5"\n' > "$F/.claude/project.conf"
 is 1 "REVIEW_CAPS sets the rounds (low:1)" add-low
 is 4 "REVIEW_CAPS sets the rounds (normal:4)" 1.5

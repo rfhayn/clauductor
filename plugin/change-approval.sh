@@ -323,14 +323,18 @@ history_holds() {
       [ "$n" -le 50 ] || { echo "its history on $where cannot be read: more than 50 moves of its directory"; return; }
       # log.follow would turn this single-path log back into --follow; --text and --no-textconv keep
       # a -diff, binary or textconv attribute from hiding the lines; --full-history keeps a side
-      # branch a merge discarded (`-s ours`) in the walk.
-      log=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --no-color --no-ext-diff --text --no-textconv --format= -p "$r" -- "$p" 2>&1) \
+      # branch a merge discarded (`-s ours`) in the walk; -m shows a merge's own resolution, which
+      # a plain log leaves out (a line added there and removed after is in no other diff).
+      log=$(git -C "$ROOT" -c log.follow=false log --full-history -m --no-renames --no-color --no-ext-diff --text --no-textconv --format= -p "$r" -- "$p" 2>&1) \
         || { echo "its history on $where cannot be read: $log"; return; }
       if [ "$1" = --marker ]; then
-        # Each version the walk reaches (a deletion has none), as a blob: no attribute rewrites it.
-        vs=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --format=%H --diff-filter=d "$r" -- "$p" 2>&1) \
+        # Each version the walk reaches, a merge's included, as a blob: no attribute rewrites it. A
+        # commit that deleted the file has no version.
+        vs=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --format=%H "$r" -- "$p" 2>&1) \
           || { echo "its history on $where cannot be read: $vs"; return; }
         for c in $vs; do
+          t=$(git -C "$ROOT" ls-tree --name-only "$c" -- "$p" 2>&1) || { echo "its history on $where cannot be read: $t"; return; }
+          [ -n "$t" ] || continue
           v=$(git -C "$ROOT" cat-file blob "$c:$p" 2>&1) || { echo "its history on $where cannot be read: $v"; return; }
           m=$(printf '%s\n' "$v" | proposal_marker)
           [ -z "$m" ] || { echo "its history on $where holds $2 ($m, at $(git -C "$ROOT" rev-parse --short "$c"))"; return; }
@@ -338,8 +342,10 @@ history_holds() {
       else
         ! printf '%s\n' "$log" | grep -Eq "$1" || { echo "its history on $where holds $2"; return; }
       fi
-      adds=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --format=%H --diff-filter=A "$r" -- "$p" 2>&1) \
+      # -m: a merge's resolution can move the directory too; it lists a merge once per parent.
+      adds=$(git -C "$ROOT" -c log.follow=false log --full-history -m --no-renames --format=%H --diff-filter=A "$r" -- "$p" 2>&1) \
         || { echo "its history on $where cannot be read: $adds"; return; }
+      adds=$(printf '%s\n' "$adds" | awk 'NF && !seen[$0]++')
       for c in $adds; do
         src=$(renamed_from "$c" "$p") || { echo "its history on $where cannot be read: a move at $c"; return; }
         [ -z "$src" ] || todo="${todo:+$todo

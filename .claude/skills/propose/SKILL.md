@@ -117,8 +117,10 @@ If the line above shows as literal text instead of output, run
    `origin/<MAIN_BRANCH>`'s roadmap that names the change (the table row whose first backticked
    id is the change's, whatever a `ROADMAP_PARSER` says), is a line of the `| # | Change | … |`
    table and the proposal's `**Roadmap row:**`, has no `Approval:` in its Change cell (however
-   marked up, read as rendered, so emphasis, a tag, a comment, a link or an entity hides none;
-   look-alike letters are yours to catch; only a backticked whole
+   marked up, read as rendered, so emphasis, a tag, a comment, a link, an entity or a character
+   outside ASCII hides none, and a `<` that opens no tag is text; one outside ASCII after
+   `approval` or `risk` reads as a colon, so it refuses; look-alike letters are yours to catch;
+   only a backticked whole
    marker, `` `Approval: owner` ``, is a mention) and no Risk
    other than `Risk: low|normal|high`; its `**Risk:**` is not
    below that row's `Risk:` (a row with none is normal); and it was never approved before (a standing Approved

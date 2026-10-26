@@ -67,12 +67,17 @@ every open change against the shape below.
   whole marker, key, colon and value, is a mention), or any Risk other than `Risk: low`, `normal` or
   `high` (`Risk: High`, `Risk: very high`, `Risk: critical`; `review-cap.sh` refuses it too); or
   whose `**Risk:**` is below the row's `Risk:` (a row with none is normal); `Risk: low-ish` is a
-  Risk other than those. A marker is read as it renders (`marker_plain` in `${CLAUDE_PLUGIN_ROOT}/lib/change.sh`):
-  emphasis or code inside the word (`**Appro*val*:**`), an HTML tag or comment
-  (`Appro<b></b>val:`), a link (`[Approval](x):`), an invisible character, an entity, a letter
-  (`Ri&#115;k:`) or a colon (`&#58;`, `&#65306;`), a look-alike colon (`：`) or, in a proposal, a
-  line break inside the marker hides none. Letters that only look Latin (a Cyrillic `А`) are not
-  read: that is `/clauductor:propose` step 3a's judgment. The row is the one row of `origin/<main>`'s roadmap
+  Risk other than those. A marker is read as it renders (`marker_plain` in `${CLAUDE_PLUGIN_ROOT}/lib/change.sh`),
+  left to right as CommonMark reads it: emphasis or code inside the word (`**Appro*val*:**`), an
+  HTML tag or comment (`Appro<b></b>val:`), a link (`[Approval](x):`), an entity, a letter
+  (`Ri&#115;k:`) or a colon (`&#58;`, `&#65306;`), a look-alike colon (`：`, `ː`) or, in a proposal,
+  a line break inside the marker hides none. A `<` that opens no tag (`p95 < 50ms`) is text, and
+  so is a code span or an escape (`\<`), so neither starts a tag that hides a marker. What is not
+  ASCII and not a known space, dash, quote, bullet or arrow reads as nothing inside a word (an
+  invisible or combining character, `Appro&#847;val:`) and as a colon outside one or right after
+  `approval` or `risk` (`Approvalːowner`), so it refuses rather than miss a marker: the safe side.
+  Letters that only look Latin (a Cyrillic `А`) are not read: that is `/clauductor:propose` step 3a's
+  judgment. The row is the one row of `origin/<main>`'s roadmap
   that names the change's id, and the proposal's `**Roadmap row:**` must be it: no such row, two of
   them, a proposal naming another, or a row that is not a line of the `| # | Change | … |` table (a
   `ROADMAP_PARSER` of the project's own may name one; `review-cap.sh` refuses it too) refuses. A
@@ -81,7 +86,8 @@ every open change against the shape below.
   And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>`, holds an
   Approved line; the check fails a delegated line whose history shows an Approved line removed. So
   once the revoke is on `origin/<main>`, a hand edit of a revoked Status line, or of the Approved
-  line back in, does not reopen it. The history is followed across a move of the change's whole
+  line back in, does not reopen it. Every version counts, a merge's own resolution included.
+  The history is followed across a move of the change's whole
   directory, and only that: a commit that moves it and adds another change (a split), or leaves a
   file of it behind, starts a new lineage, so no other change's history is read as this one's
   (#272). It includes an earlier change's under the same id, so a new change takes a new id.

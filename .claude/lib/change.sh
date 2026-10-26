@@ -68,24 +68,33 @@ table_rows_naming() {
 }
 
 # marker_plain [--prose]: stdin as a reader sees it rendered, for finding a marker (`Approval:`,
-# `Risk:`). An HTML tag goes (`Appro<b></b>val`), as do a comment (`<!-- -->`, `<?…?>`, CDATA), a
-# link's destination (`[Approval](x)` is `[Approval]`) and invisible characters (zero-width, soft
-# hyphen, BOM); a colon look-alike (`：`, `∶`) is a colon. Every entity is decoded: a numeric one to
-# its ASCII character (`Ri&#115;k`), a colon or an invisible one as above, a markup character
-# (`` ` * _ | \ < > & ``, which renders as itself, never as markup) to a space, and anything else
-# to `?`; a named one is `&colon;` a colon, an invisible one nothing, any other a space. Letters
-# that only look Latin (`Аpproval`, a Cyrillic А) are not read: /propose step 3a's judgment.
-# A table line (the default) keeps its cells where they were: a tag may hold only an escaped `\|`.
-# --prose reads paragraphs, a blank line apart, each joined into one line as it renders, and strips
-# every tag. Bytes, not characters (LC_ALL=C), so it reads the same in every locale.
+# `Risk:`). It reads left to right as CommonMark does: a backslash escape is its character, a code
+# span is text (a tag or an entity inside it is not markup), and a `<` starts markup only where it
+# opens a real tag (`<b>`, `<span title="a>b">`, `</b>`), a comment (`<!-- -->`), an instruction
+# (`<?…?>`), a declaration or CDATA; those go (`Appro<b></b>val`), and any other `<` is text, so
+# `p95 < 50ms … > 3` hides nothing between. A link reads as its text (`[Approval](x)`). Every entity
+# is decoded: a numeric one to its ASCII character (`Ri&#115;k`), a markup character (`` ` * _ | \
+# < > & ``, which renders as itself, never as markup) or a space to a space; a named one is
+# `&colon;` a colon, an invisible one nothing, any other a space. Then what is not ASCII: an
+# invisible character (zero-width, soft hyphen, BOM) is nothing; a space, a dash, a quote, a bullet,
+# a middle dot or an arrow is a space; a colon look-alike (`：`, `∶`) is a colon; and anything else
+# is nothing inside a word (`Appro&#847;val`, a combining joiner) and a colon outside one or right
+# after `approval` or `risk` (`Approvalːowner`: a marker, so a reader refuses rather than miss one).
+# Letters that only look Latin (`Аpproval`, a Cyrillic А) are not read: /propose step 3a's judgment.
+# A table line (the default) is read a cell at a time, an escaped `\|` being text, as
+# roadmap-queue.sh splits it, so markup never spans two cells. --prose reads paragraphs, a blank
+# line apart, each joined into one line as it renders. Bytes, not characters (LC_ALL=C), so it
+# reads the same in every locale.
 marker_plain() {
   LC_ALL=C awk -v prose="$([ "${1:-}" = --prose ] && echo 1)" '
   function dec(n) {
     if (n == 124 || n == 96 || n == 42 || n == 95 || n == 92 || n == 60 || n == 62 || n == 38) return " "
-    if (n >= 32 && n < 127) return sprintf("%c", n)
+    if (n > 32 && n < 127) return sprintf("%c", n)
+    if (n <= 32 || n == 127 || n == 160 || (n >= 8192 && n <= 8202) || n == 8239 || n == 8287 || n == 12288) return " "
+    if ((n >= 8208 && n <= 8223) || n == 8226 || n == 8230 || n == 183 || (n >= 8592 && n <= 8703)) return " "
     if (n == 65306 || n == 65109 || n == 65043 || n == 42889 || n == 8758 || n == 760) return ":"
     if ((n >= 8203 && n <= 8207) || (n >= 8288 && n <= 8292) || n == 65279 || n == 173) return ""
-    return "?"
+    return "\200"  # any other character: what is not ASCII is read below
   }
   function num(e,   i, v, h, d) {  # e: the digits after &#, decimal or x-prefixed hex
     v = 0; h = (e ~ /^[xX]/); if (h) e = substr(e, 2)
@@ -95,17 +104,60 @@ marker_plain() {
     }
     return v
   }
-  function cut(s, a, z,   i, j, b) {  # s without each a…z (a comment, an instruction, CDATA)
-    while ((i = index(s, a)) && (j = index(substr(s, i + length(a)), z))) {
-      b = substr(s, i + length(a), j - 1); gsub(/\\\|/, "", b)
-      if (!prose && index(b, "|")) break
-      s = substr(s, 1, i - 1) substr(s, i + length(a) + j - 1 + length(z))
+  function closer(s, n,   j, r) {  # where the first run of exactly n backticks in s starts, or 0
+    j = 1
+    while (match(substr(s, j), /`+/)) {
+      r = j + RSTART - 1
+      if (RLENGTH == n) return r
+      j = r + RLENGTH
     }
-    return s
+    return 0
+  }
+  function skip(s,   j) {  # past the comment, instruction, CDATA or declaration s opens, or 0
+    if (substr(s, 1, 5) == "<!-->") return 6
+    if (substr(s, 1, 6) == "<!--->") return 7
+    if (substr(s, 1, 4) == "<!--") return (j = index(substr(s, 5), "-->")) ? j + 7 : 0
+    if (substr(s, 1, 2) == "<?") return (j = index(substr(s, 3), "?>")) ? j + 4 : 0
+    if (substr(s, 1, 9) == "<![CDATA[") return (j = index(substr(s, 10), "]]>")) ? j + 12 : 0
+    if (s ~ /^<![A-Za-z]/) return (j = index(s, ">")) ? j + 1 : 0
+    return 0
+  }
+  # html: s with its markup gone, read in CommonMark order. What a later step must not read as
+  # markup (an escaped character, a code span`s `&` and `]`) is followed by \002, which plain drops.
+  function html(s,   o, c, n, r, t) {
+    o = ""
+    while (s != "") {
+      c = substr(s, 1, 1)
+      if (c == "\\" && length(s) > 1 && index(pu, substr(s, 2, 1))) {
+        c = substr(s, 2, 1); o = o (c == "`" ? q : c "\002"); s = substr(s, 3); continue
+      }
+      if (c == "`") {
+        match(s, /^`+/); n = RLENGTH
+        if (r = closer(substr(s, n + 1), n)) {
+          t = substr(s, 1, r + 2 * n - 1); gsub(/&|\]/, "&\002", t)
+          o = o t; s = substr(s, r + 2 * n); continue
+        }
+        o = o substr(s, 1, n); s = substr(s, n + 1); continue
+      }
+      if (c == "<") {
+        if (r = skip(s)) { s = substr(s, r); continue }
+        if (match(s, otag) || match(s, ctag)) { s = substr(s, RLENGTH + 1); continue }
+      }
+      o = o c; s = substr(s, 2)
+    }
+    return o
+  }
+  function wide(s,   o, a) {  # each run of bytes outside ASCII: nothing inside a word, else a colon
+    o = ""
+    while (match(s, nb)) {
+      o = o substr(s, 1, RSTART - 1); a = substr(o, length(o))
+      if (!(a ~ /[A-Za-z0-9]/ && substr(s, RSTART + RLENGTH, 1) ~ /[A-Za-z0-9]/) \
+        || tolower(substr(o, length(o) - 7)) ~ /(approval|risk)$/) o = o ":"
+      s = substr(s, RSTART + RLENGTH)
+    }
+    return o s
   }
   function plain(s,   o, e) {
-    s = cut(cut(cut(s, "<!--", "-->"), "<?", "?>"), "<![CDATA[", "]]>")
-    gsub(tag, "", s)
     # A link reads as its text: `[Approval](x):` is `[Approval]:`, and the caller drops the brackets.
     if (prose) { gsub(/\]\([^)]*\)/, "]", s); gsub(/\]\[[^]]*\]/, "]", s) }
     else { gsub(/\]\([^)|]*\)/, "]", s); gsub(/\]\[[^]|]*\]/, "]", s) }
@@ -118,18 +170,29 @@ marker_plain() {
       s = substr(s, RSTART + RLENGTH)
     }
     s = o s
-    gsub(zw, "", s); gsub(co, ":", s); return s
+    gsub(zw, "", s); gsub(sp, " ", s); gsub(pn, " ", s); gsub(co, ":", s); gsub(/\002/, "", s); return wide(s)
   }
   BEGIN {
     zw = "\342\200[\213-\217]|\342\201[\240-\244]|\357\273\277|\302\255"
+    sp = "\302\240|\342\200[\200-\212]|\342\200\257|\342\201\237|\343\200\200"
+    pn = "\342\200[\220-\237]|\342\200[\242\246]|\302\267|\342\206[\220-\277]|\342\207[\200-\277]"
     co = "\357\274\232|\357\271\225|\357\270\223|\352\236\211|\342\210\266|\313\270"
-    # A tag, its quoted attributes whole (`<span title="a>b">`); in a table line no `|` but `\|`.
-    q = "\047"
-    if (prose) tag = "<([^<>\"" q "]|\"[^\"]*\"|" q "[^" q "]*" q ")*>"
-    else tag = "<([^<>\"" q "|]|\\\\\\||\"([^\"|]|\\\\\\|)*\"|" q "([^" q "|]|\\\\\\|)*" q ")*>"
+    nb = "[\200-\377]+"
+    q = "\047"; pu = "!\"#$%&" q "()*+,-./:;<=>?@[\\]^_`{|}~"
+    # A tag as CommonMark reads one: a name, then attributes, a quoted value whole (`title="a>b"`).
+    av = "([^ \t\"" q "=<>`]+|\"[^\"]*\"|" q "[^" q "]*" q ")"
+    otag = "^<[A-Za-z][A-Za-z0-9-]*([ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*([ \t]*=[ \t]*" av ")?)*[ \t]*/?>"
+    ctag = "^</[A-Za-z][A-Za-z0-9-]*[ \t]*>"
     if (prose) RS = ""
   }
-  { if (prose) gsub(/\n/, " "); print plain($0) }'
+  prose { gsub(/\n/, " "); print plain(html($0)); next }
+  {
+    s = $0; gsub(/\\\|/, "\001", s); n = split(s, c, "|"); s = html(c[1])
+    for (i = 2; i <= n; i++) s = s "|" html(c[i])
+    n = split(plain(s), c, "\001"); s = c[1]
+    for (i = 2; i <= n; i++) s = s "\\|" c[i]
+    print s
+  }'
 }
 
 # row_change_cell: the Change cell (cell 2 of `| # | Change | Scope | Deps | Status |`) of the

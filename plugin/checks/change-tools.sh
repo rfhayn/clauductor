@@ -97,17 +97,24 @@ F() { cp "$d/fresh.md" "$C/proposal.md"; A --delegate Ana; }
 D() { startlog; F; }
 awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a signer" }' "$d/fresh.md" > "$C/proposal.md"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal marked '**Approval:** owner'"
-grep -q 'says Approval: owner — it names a signer' "$d/out" && ok "...and names the marker" || fail "no marker in: $(cat "$d/out")"
+grep -q 'says Approval: owner .*it names a signer' "$d/out" && ok "...and names the marker" || fail "no marker in: $(cat "$d/out")"
 awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** the Owner, as signer" }' "$d/fresh.md" > "$C/proposal.md"
 startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line in other words"
 grep -q 'proposal.md says Approval: the Owner, as signer' "$d/out" && ok "...and quotes the line" || fail "no Approval-line reason in: $(cat "$d/out")"
 # A marker reads as it renders: a tag, an invisible character, an entity or a look-alike colon (a
 # full-width one, as a CJK input method types it) hides none.
-fw=$(printf '\357\274\232'); zw=$(printf '\342\200\213')
+# Only a real tag is markup: a `<` that opens none (`< $25`) is text, so it hides nothing up to a
+# later `>`; a code span or an escape is text, so a tag cannot start in one and end past the marker.
+# What is not ASCII reads as nothing inside a word (a combining joiner, a tag character) and as a
+# colon outside one (`ː`, `ꓽ`, `᠄`).
+fw=$(printf '\357\274\232'); zw=$(printf '\342\200\213'); cgj=$(printf '\315\217')
 for spelt in '**Approval**: owner' ' **Approval:** owner' '__approval:__ owner' '- **Approval:** owner' '> **Approval:** owner' \
   "**Approval$fw** owner" '**Appro<b></b>val:** owner' "**Appro${zw}val:** owner" '**Appro*val*:** owner' 'Appro`val`: owner' \
   'Approval &#65306; owner' 'Approval<span title="a|b"></span>: owner' 'Approval<span title="a>b"></span>: owner' \
-  'Appro<!-- > -->val: owner' '[Approval](http://x): owner' '**Approval**\n: owner'; do
+  'Appro<!-- > -->val: owner' '[Approval](http://x): owner' '**Approval**\n: owner' \
+  '**Budget:** $20 (< $25 cap)\n**Approval:** owner -> outward' 'Appro&#847;val: owner' "Appro${cgj}val: owner" \
+  'Appro&#xE0020;val: owner' "Approval$(printf '\313\220')owner" "Approval$(printf '\352\223\275') owner" \
+  "Approval$(printf '\341\240\204') owner" '`<b title="` Approval: owner `">`' '\\<b title="Appro<i></i>val: owner">'; do
   awk -v m="$spelt" '{ print } /^\*\*Risk:\*\*/ { print m }' "$d/fresh.md" > "$C/proposal.md"
   startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line spelt '$spelt'"
 done
@@ -118,10 +125,25 @@ roadmap '`add-greeting-name` — greet a member by name. Risk: low. approval: Ow
 D; expect_rc 1 $? "change-approval --delegate refuses a row marker in any case"
 for spelt in '**Approval:** owner' 'Approval:owner' 'Approval: the owner' '_Approval_: owner' '__Approval__: owner' '`Approval`: owner' '`Approval:` owner' \
   'Appro<b></b>val: owner' 'Approval&#58; owner' "Approval${fw}owner" "Appro${zw}val: owner" 'Approv&#97;l: owner' 'Approval&#65306; owner' \
-  'Approval<span title="a\|b"></span>: owner' '[Approval](x): owner' 'Appro<!-- x -->val: owner'; do
+  'Approval<span title="a\|b"></span>: owner' '[Approval](x): owner' 'Appro<!-- x -->val: owner' \
+  'p95 < 50ms. Approval: owner. Touches > 3 files' 'Appro&#847;val: owner' "Approval$(printf '\313\220')owner" \
+  '`<b title="` Approval: owner `">`' '\<b title="Appro<i></i>val: owner">'; do
   roadmap "\`add-greeting-name\` — greet a member by name. Risk: low. $spelt"
   D; expect_rc 1 $? "change-approval --delegate refuses a row marker spelt '$spelt'"
 done
+roadmap '`add-greeting-name` — p95 < 50ms. Risk: high. Touches > 3 files'
+D; expect_rc 1 $? "change-approval --delegate reads a Risk between a lone < and a later >"
+grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no lone-< floor reason in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — p95 < 50ms, x < y. Risk: low. Touches > 3 files'
+D; expect_rc 0 $? "change-approval --delegate passes a row whose lone < opens no tag"
+# A dash is punctuation, not a colon, written or as an entity: "the approval — a note" is no marker.
+for dash in '—' '&#8212;'; do
+  roadmap "\`add-greeting-name\` — the approval $dash a note. Risk: low"
+  D; expect_rc 0 $? "change-approval --delegate passes a row whose 'approval' is followed by a dash ($dash)"
+done
+# A known invisible reads as nothing wherever it stands, not as an unknown character (a colon).
+roadmap "\`add-greeting-name\` — the approval$(printf '\342\200\213') process. Risk: low"
+D; expect_rc 0 $? "change-approval --delegate passes a row whose 'approval' is followed by a zero-width space"
 # A stray backtick in the Change cell pairs with nothing in the Scope's span, so it hides neither
 # marker.
 roadmap '`add-greeting-name` — trims 5` of padding. Approval: owner'
@@ -390,6 +412,42 @@ rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"; startlog; F
 expect_rc 1 $? "change-approval --delegate reads a side branch a merge discarded"
 grep -q 'history on this branch holds an Approved line' "$d/out" && ok "...and finds its Approved line" || fail "no side-branch reason in: $(cat "$d/out")"
 git -C "$R" reset -q --hard "$b0"; git -C "$R" branch -q -D side; rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
+# The same for an Approval line: each version on a discarded side branch is read too.
+{ git -C "$R" checkout -q -b side \
+  && awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a signer" }' "$d/fresh.md" > "$C/proposal.md" \
+  && git -C "$R" add "$C" && git -C "$R" commit -qm "side: kept for the owner" \
+  && git -C "$R" checkout -q change/add-greeting-name && git -C "$R" merge -q -s ours --no-edit side; } > "$d/side" 2>&1 \
+  || fail "change-tools: the side branch did not merge: $(cat "$d/side")"
+rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"; startlog; F
+expect_rc 1 $? "change-approval --delegate reads an Approval line on a side branch a merge discarded"
+grep -q 'history on this branch holds an \*\*Approval:\*\* line' "$d/out" && ok "...and says so" || fail "no side-branch marker reason in: $(cat "$d/out")"
+git -C "$R" reset -q --hard "$b0"; git -C "$R" branch -q -D side; rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
+# A merge's own resolution is a version too: a marker or an Approved line written only there, and
+# taken out after (by a commit, or by another merge's resolution), is still history.
+mres() {  # mres BRANCH FILE: merge BRANCH (one unrelated commit), proposal.md resolved as FILE
+  git -C "$R" checkout -q -b "$1" && echo "$1" > "$R/$1.txt" && git -C "$R" add "$R/$1.txt" && git -C "$R" commit -qm "$1" \
+    && git -C "$R" checkout -q change/add-greeting-name && git -C "$R" merge -q --no-ff --no-commit "$1" \
+    && cp "$2" "$C/proposal.md" && git -C "$R" add "$C" && git -C "$R" commit -qm "merge $1"
+}
+awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a signer" }' "$d/fresh.md" > "$d/marked.md"
+cp "$d/fresh.md" "$C/proposal.md"; git -C "$R" add "$C" && git -C "$R" commit -qm "proposal: fresh"
+{ mres m1 "$d/marked.md" && cp "$d/fresh.md" "$C/proposal.md" && git -C "$R" commit -qm "proposal: marker removed" -- "$C/proposal.md"; } > "$d/side" 2>&1 \
+  || fail "change-tools: the merge did not resolve: $(cat "$d/side")"
+startlog; F; expect_rc 1 $? "change-approval --delegate reads an Approval line only a merge's resolution held"
+grep -q 'history on this branch holds an \*\*Approval:\*\* line' "$d/out" && ok "...and says so" || fail "no merge-marker reason in: $(cat "$d/out")"
+git -C "$R" reset -q --hard "$b0"; git -C "$R" branch -q -D m1; rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
+cp "$d/fresh.md" "$C/proposal.md"; git -C "$R" add "$C" && git -C "$R" commit -qm "proposal: fresh"
+{ mres m2 "$d/delegated1.md" && mres m3 "$d/fresh.md"; } > "$d/side" 2>&1 || fail "change-tools: the merges did not resolve: $(cat "$d/side")"
+startlog; F; expect_rc 1 $? "change-approval --delegate reads an Approved line one merge's resolution added and another's took out"
+grep -q 'history on this branch holds an Approved line' "$d/out" && ok "...and finds it" || fail "no merge Approved-line reason in: $(cat "$d/out")"
+git -C "$R" reset -q --hard "$b0"; git -C "$R" branch -q -D m2 m3; rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
+# A commit that deleted the proposal has no version to read: it neither refuses nor hides one.
+cp "$d/fresh.md" "$C/proposal.md"; git -C "$R" add "$C" && git -C "$R" commit -qm "proposal: fresh"
+{ git -C "$R" rm -q "$C/proposal.md" && git -C "$R" commit -qm "proposal: gone" \
+  && cp "$d/fresh.md" "$C/proposal.md" && git -C "$R" add "$C" && git -C "$R" commit -qm "proposal: back"; } > "$d/side" 2>&1 \
+  || fail "change-tools: the proposal did not go and come back: $(cat "$d/side")"
+startlog; F; expect_rc 0 $? "change-approval --delegate passes a proposal deleted and written again in its history"
+git -C "$R" reset -q --hard "$b0"; rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
 A; expect_rc 0 $? "change-tools: the delegated approval holds again once the history cases are undone"
 # A shallow clone's history stops at its depth, so it cannot show what was removed: nothing holds.
 git -C "$R" rev-parse HEAD > "$R/.git/shallow"
