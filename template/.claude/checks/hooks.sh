@@ -597,6 +597,86 @@ cdg 0 "build-change's call is recorded again" "$(wf '{"name":"build-change"}' wf
 git -C "$C" worktree remove --force "$CW" 2>/dev/null
 cdg 0 "once the held worktree is gone" "$(cdb "cd /")"
 
+# ── catch-up-guard ──────────────────────────────────────────────────────────────────────
+# With catch-up on, a git pull, merge, rebase or reset aimed at the main checkout is refused: from
+# the main checkout, a subdirectory of it, or a lane that aims there by -C, cd, chdir, eval, sh -c,
+# GIT_DIR or an alias. A lane's own catch-up merge, merge-pr's squash-merge and a pull with catch-up
+# off are not. A stand-in clauductor answers `panel catch-up` from a state file, and only for the
+# project the file names, so a row passes only if the hook asks about the main checkout.
+M="$d/cug"; new_repo "$M"; git -C "$M" commit -q --allow-empty -m seed; mkdir -p "$M/sub" "$M/.claude/worktrees"
+git -C "$M" worktree add -q -b lane "$M/.claude/worktrees/lane" 2>/dev/null; ML="$M/.claude/worktrees/lane"
+git -C "$M" config alias.up 'pull --ff-only'; git -C "$M" config alias.st status
+mkdir -p "$d/cug-bin"
+cat > "$d/cug-bin/clauductor" <<EOF
+#!/bin/sh
+# panel catch-up --project P: the state file's word when P is the project it names, else off
+[ "\$1 \$2 \$3" = "panel catch-up --project" ] || exit 3
+read -r want state code < "$d/cug-state"
+[ "\$4" = "\$want" ] || { echo off; exit 0; }
+echo "\$state"; exit "\${code:-0}"
+EOF
+chmod +x "$d/cug-bin/clauductor"
+cu() { printf '%s %s %s\n' "$1" "$2" "${3:-0}" > "$d/cug-state"; }  # cu PROJECT WORD [EXIT]
+# PATHs with no real clauductor: tools only (cug-noc), and the same less jq beside the stand-in.
+mkdir -p "$d/cug-noc" "$d/cug-nojq"
+for t in sh cat git awk sed grep tr sort cut head tail pwd printf dirname basename jq; do
+  p=$(command -v "$t" 2>/dev/null) || continue
+  ln -sf "$p" "$d/cug-noc/$t"; [ "$t" = jq ] || ln -sf "$p" "$d/cug-nojq/$t"
+done
+ln -sf "$d/cug-bin/clauductor" "$d/cug-nojq/clauductor"
+cug() {  # cug WANT LABEL COMMAND CWD [PATH]
+  rc=0; cug_out=$(payload "$3" "$4" | (cd "$4" && PATH="${5:-$d/cug-bin:$PATH}" sh "$H/catch-up-guard.sh") 2>&1) || rc=$?
+  [ "$1" = 2 ] && [ "$rc" = 2 ] && case $cug_out in *"BLOCKED by catch-up-guard"*) ;; *) rc="2 without its refusal text";; esac
+  expect_rc "$1" "$rc" "catch-up-guard $( [ "$1" = 2 ] && echo blocks || echo allows ): $2"
+}
+cu "$M" on
+cug 2 "a pull in the main checkout" "git pull --ff-only origin main" "$M"
+cug 2 "a pull from a subdirectory of it (the session's cwd persists)" "git pull" "$M/sub"
+cug 2 "a merge in the main checkout" "git merge origin/main" "$M"
+cug 2 "a rebase in the main checkout" "git rebase origin/main" "$M"
+cug 2 "a reset in the main checkout" "git reset --hard origin/main" "$M"
+cug 2 "a pull after git's own options" "git -c color.ui=never --no-pager pull" "$M"
+cug 2 "a pull by an alias" "git up" "$M"
+cug 2 "a pull by an alias set on the command line" "git -c alias.x=pull x" "$M"
+cug 2 "a subcommand named by a variable" 'git "$sub"' "$M"
+cug 2 "git named by a variable" '$g pull' "$M"
+cug 2 "a pull in a subshell" "(git pull)" "$M"
+cug 2 "a pull after another command" "git status && git pull" "$M"
+cug 2 "a lane's pull by -C and a variable" 'git -C "$main" pull' "$ML"
+cug 2 "a lane's pull by -C and the main checkout's path" "git -C $M pull" "$ML"
+cug 2 "a lane's pull by -C and a relative path" "git -C ../../.. pull" "$ML"
+cug 2 "a lane's merge after cd" "cd \"$M\" && git merge origin/main" "$ML"
+cug 2 "a lane's merge after zsh's chdir" "chdir $M; git merge origin/main" "$ML"
+cug 2 "a lane's merge after an eval of split words" "x=c; y=d; eval \"\$x\$y\" $M; git merge origin/main" "$ML"
+cug 2 "a pull an eval builds" 'c="git pull"; eval "$c"' "$ML"
+cug 2 "a lane's pull by sh -c" "sh -c 'cd \"\$0\" && git pull' $M" "$ML"
+cug 2 "a lane's merge by GIT_DIR and GIT_WORK_TREE" "GIT_DIR=$M/.git GIT_WORK_TREE=$M git merge origin/main" "$ML"
+cug 2 "a lane's merge by --work-tree" "git --work-tree=$M --git-dir=$M/.git merge origin/main" "$ML"
+cug 2 "a lane's pull by env -C" "env -C $M git pull" "$ML"
+cug 2 "a lane's pull by pushd" "pushd $M >/dev/null && git pull" "$ML"
+cug 2 "without jq: a pull in the main checkout" "git pull" "$M" "$d/cug-nojq"
+cug 0 "without jq: a command with no pull" "git status" "$M" "$d/cug-nojq"
+cug 0 "merge-pr's squash-merge from the main checkout" "gh pr merge 5 --squash --delete-branch --body-file f" "$M"
+cug 0 "step 5's confirmation with catch-up on" "git fetch origin main && git log -1 --oneline origin/main && git merge-base --is-ancestor abc origin/main" "$M"
+cug 0 "a commit message naming a pull" "git commit -m 'merge the pull'" "$M"
+cug 0 "an alias that moves nothing" "git st" "$M"
+cug 0 "the lane's catch-up line (merge-pr step 2)" "git fetch origin main && git merge origin/main" "$ML"
+cug 0 "a lane's pull of its own branch" "git pull --ff-only" "$ML"
+cug 0 "a merge aimed at the lane by -C from the main checkout" "git -C $ML merge origin/main" "$M"
+cug 0 "a merge in a repository that is not this one" "git -C $d/repo merge origin/main" "$M"
+cug 0 "a command with no git" "ls -la" "$M"
+rc=0; printf '{"tool_name":"Read","cwd":"%s","tool_input":{"file_path":"x"}}' "$M" | (cd "$M" && PATH="$d/cug-bin:$PATH" sh "$H/catch-up-guard.sh") >/dev/null 2>&1 || rc=$?
+expect_rc 0 "$rc" "catch-up-guard allows a tool that is not Bash"
+cu /elsewhere on
+cug 0 "catch-up on for another project only" "git pull --ff-only origin main" "$M"
+cu "$M" off
+cug 0 "a pull in the main checkout with catch-up off (merge-pr step 5)" "git pull --ff-only origin main" "$M"
+case $cug_out in *"catch-up-guard: catch-up is off for $M"*) ok "catch-up-guard says why it allowed a pull in the main checkout" ;; *) fail "catch-up-guard allowed a main-checkout pull without saying catch-up is off: $cug_out" ;; esac
+cu "$M" on 1
+cug 0 "a catch-up answer of on with a non-zero exit (counts as off)" "git pull" "$M"
+cug 0 "no clauductor on PATH (catch-up counts as off)" "git pull --ff-only origin main" "$M" "$d/cug-noc"
+case $cug_out in *"no clauductor on PATH"*) ok "catch-up-guard says it allowed with no clauductor to ask" ;; *) fail "catch-up-guard allowed with no clauductor and did not say so: $cug_out" ;; esac
+
 # ── worktree-hook-drift ─────────────────────────────────────────────────────────────────
 git init -q --bare "$d/origin.git"
 A="$d/main"; new_repo "$A"
@@ -729,6 +809,7 @@ no-background-gate.sh	2	out:BLOCKED by no-background-gate: a subagent started th
 no-silent-wait.sh	0	file:@REPO@/.git/clauductor-wait/hooks-check/tasks/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","agent_id":"check","tool_name":"Bash","tool_response":{"backgroundTaskId":"b1"}}	a subagent's backgrounded command is recorded for its stop to read
 worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so
 cd-guard.sh	0	file:@REPO@/.git/clauductor-cd-guard/hooks-check/holds/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{"taskId":"check"}}	a build-change run is recorded as holding the worktree it started in
+catch-up-guard.sh	0	out:catch-up-guard: (no clauductor on PATH|catch-up is off)	{"tool_name":"Bash","tool_input":{"command":"git pull --ff-only origin main"}}	a pull in the main checkout, catch-up off or unaskable: allowed, and says so
 focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges
 format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written
 EOF

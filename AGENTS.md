@@ -73,6 +73,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | No gate ends where nobody hears it; a subagent waits for its gate in the foreground | **`.claude/hooks/no-background-gate.sh`** (blocking); **`scripts/ci/gate-wait.sh`**; **`checks/hooks.sh`**, **`checks/gate.sh`** |
 | No agent ends its turn while a command it started runs; no blocking question to the owner while work runs | **`.claude/hooks/no-silent-wait.sh`** (blocking: SubagentStop, AskUserQuestion, an agent's `&`; TeammateIdle unprobed); **`checks/hooks.sh`** |
 | A build-change run's agents work in its worktree: the session never `cd`s out while the run holds it | **`.claude/hooks/cd-guard.sh`** (blocking: the main session's Bash `cd`; the hold ends with the run's state file, a Stop not listing it, its worktree or its age); **`checks/hooks.sh`** |
+| With catch-up on, no agent pulls, merges, rebases or resets the main checkout | **`.claude/hooks/catch-up-guard.sh`** (blocking: aimed there, or re-aimed where it cannot tell); **`checks/hooks.sh`** |
 | A worktree agent is guarded by the hooks on `origin/main` | **`.claude/hooks/worktree-hook-drift.sh`** (blocking on drift) |
 | The status-line focus says what this lane is doing | **`.claude/hooks/focus-staleness.sh`** (a nudge, not a block) |
 | A model or effort is chosen in ONE place | **`.claude/checks/model-roles.sh`**: `model-roles.json` against every skill, agent, settings, workflow and lane type |
