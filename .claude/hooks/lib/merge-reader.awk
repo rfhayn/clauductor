@@ -11,7 +11,9 @@
 #
 # Output, one line per finding:
 #   PLAIN <n>        n readable `gh pr merge` sites — all three words plain, adjacent
-#   API <repo> <pr>  a readable `gh api -X PUT repos/<o>/<n>/pulls/<pr>/merge` (repo `.` = this one)
+#   API <repo> <pr> <host>  a readable `gh api -X PUT repos/<o>/<n>/pulls/<pr>/merge` (repo `.` =
+#                    this one); host its --hostname, `-` none, `?` one it cannot read (computed,
+#                    repeated, or not a plain host name)
 #   ODD <why>        a merge, or a construct around one, this reader cannot read: the hook blocks
 #   MENTION          merge words inside ONE word or heredoc body: prose, or code for an evaluator
 #   UNSAFE <word>    with a MENTION, a command not on the inert list (prose_safe)
@@ -505,8 +507,8 @@ function ghword(c, k, n,   j, x, m) {
 # gh api — a PUT to repos/<o>/<n>/pulls/<pr>/merge merges exactly like `gh pr merge <pr>`, so it is
 # reported (API) for the hook to police the same way. One whose endpoint or method cannot be read
 # and that names a merge is ODD, as is a GraphQL call naming a merge or reading its query from a file.
-function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M) {
-  m = ""; mw = 0; ep = ""; ew = 0; ei = 0; men = 0; gq = 0; nf = 0
+function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M, h, hw) {
+  m = ""; mw = 0; ep = ""; ew = 0; ei = 0; men = 0; gq = 0; nf = 0; h = ""; hw = 0
   for (j = k + 2; j <= n; j++) {
     w = W[c, j]
     if (tolower(w) ~ /merge/) men = 1
@@ -520,8 +522,12 @@ function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M
       if (w == "--input") gq = 1
       if (w ~ /^--(field|raw-field|input)$/) nf = 1
       if (++j <= n) { if (tolower(W[c, j]) ~ /merge/) men = 1; if (W[c, j] ~ /^[^=]*=@/) gq = 1; if (!provable(c, j)) mw = 1 }
+      # The host the merge goes to, read only from the flag's own word (#271): text that says
+      # --hostname inside a field's value is not one.
+      if (w == "--hostname") { if (j > n || !provable(c, j) || h != "") hw = 1; else h = W[c, j] }
       continue
     }
+    if (w ~ /^--hostname=/) { if (h != "") hw = 1; else h = substr(w, 12); continue }
     if (w ~ /^--/) {
       if (w ~ /^--input=/ || w ~ /^--(field|raw-field)=[^=]*=@/) gq = 1
       if (w ~ /^--(field|raw-field|input)=/) nf = 1
@@ -561,7 +567,8 @@ function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M
   }
   split(e, q, "/")
   r = q[2] "/" q[3]; if (r ~ /^(\{owner\}|:owner)\/(\{repo\}|:repo)$/) r = "."
-  APIS[++NA] = r " " q[5]; SITE[c] = 1
+  if (h != "" && h !~ /^[A-Za-z0-9.-]+$/) hw = 1
+  APIS[++NA] = r " " q[5] " " (hw ? "?" : (h == "" ? "-" : h)); SITE[c] = 1
 }
 
 { buf = buf $0 "\n" }

@@ -51,12 +51,13 @@ for f in cg_body cg_subject; do
   command -v "$f" >/dev/null 2>&1 || no "$cg did not define $f, so the merge's own message cannot be checked."
 done
 
-cd "$ROOT" || exit 2
-repo=${GUARD_REPO:-}
 # The PR the merge names, as the guard reads it (#267): a bare number resolves through gh's default
-# repository, which in a fork's checkout is another repo's PR.
+# repository, which in a fork's checkout is another repo's PR. Read before the cd: with no repo
+# named, the directory resolves it, and the guard checked the merge's against its own, not ROOT.
 [ -n "${GUARD_PR_REF:-}" ] || no "the merge guard did not pass GUARD_PR_REF, so which PR this merge names cannot be read (a guard older than this module: run clauductor update)."
 pr_json=$(gh pr view "$GUARD_PR_REF" ${GUARD_PR_REPO:+-R "$GUARD_PR_REPO"} --json title,body,closingIssuesReferences 2>/dev/null)
+cd "$ROOT" || exit 2
+repo=${GUARD_REPO:-}
 [ -n "$pr_json" ] || no "could not read PR #$pr's body and closing issues, so the premise check cannot be evaluated."
 printf '%s' "$pr_json" | jq -e 'type == "object"' >/dev/null 2>&1 \
   || no "PR #$pr's details did not come back as JSON ($(printf '%s' "$pr_json" | head -c 80)), so the premise check cannot be evaluated."

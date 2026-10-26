@@ -359,8 +359,11 @@ nsites=$((${plain:-0} + $(printf '%s' "$apis" | grep -c .)))
 # A `gh api` merge: the reader found `gh api … PUT repos/<o>/<n>/pulls/<pr>/merge`, with
 # every word it needs plain. Policed below exactly as `gh pr merge <pr>` — `.` is this repo
 # ({owner}/{repo}); any other repo takes the foreign rules, with its own allowlisted shape.
-api_repo=""; api_pr=""
-if [ -n "$apis" ]; then api_repo=${apis% *}; api_pr=${apis##* }; fi
+api_repo=""; api_pr=""; api_host=""
+if [ -n "$apis" ]; then read -r api_repo api_pr api_host <<EOF
+$apis
+EOF
+fi
 
 # WHICH REPO AND WHICH PR — both from ONE parse of the merge's argv, AFTER rule 1, which is merge
 # safety anywhere.
@@ -383,6 +386,8 @@ if [ -n "$apis" ]; then api_repo=${apis% *}; api_pr=${apis##* }; fi
 # `$`, a backtick or `(` is dropped, never kept cut short: its reading would be a shorter number than
 # the shell merges (OPS-57). A repo flag glued to such a word still reads as a repo, unconfirmed:
 #   - more than one `gh pr merge` (any blanks between the words) BLOCKS;
+#   - a stop at an unquoted expansion, or one with an expansion or repo-flag text still after it,
+#     BLOCKS: gh merges in the last -R, which the reads never saw (#271);
 #   - a repo named (-R X, -RX, -sR X, --repo X, --repo=X, or a PR URL) that is not this repo,
 #     outside the allowlisted shape, BLOCKS and shows the shape;
 #   - the PR is the first positional word (values of gh's value-taking flags skipped, `--` ends
@@ -413,6 +418,13 @@ repo_key() {
 # LC_ALL=C for the reason merge_scan has it (#100): it, too, matches one character at a time.
 merge_argv() {
   printf '%s' "$cmd" | LC_ALL=C awk '
+    # cut(ch, quoted, rest) — the read stops at ch with rest unread, which gh still gets. A later -R
+    # there is the one gh merges in, unseen by the reads (#271): `U` when rest may hold one, as text
+    # (-R, --repo), or as another expansion, or when ch is an unquoted expansion that can split.
+    function cut(ch, quoted, rest) {
+      if ((ch == "$" || ch == "`") && !quoted) { print "U"; return }
+      if (rest ~ /[$`]/ || rest ~ /(^|[^A-Za-z0-9_])-(-repo|[A-Za-z]*R)/) print "U"
+    }
     { buf = buf $0 "\n" }
     END {
       rest = buf; count = 0; off = 0; start = 0
@@ -430,6 +442,7 @@ merge_argv() {
         if (c == "$" || c == "`") {
           # A repo flag glued to a cut value still names a repo: one that cannot be confirmed.
           if (tok ~ /^(-[dmrs]*R|--repo=)/) t[++nt] = "-R"
+          cut(c, q == "\"", substr(s, j + 1))
           have = 0; break
         }
         if (c == "\\" && j < n) { j++; if (substr(s, j, 1) != "\n") { tok = tok substr(s, j, 1); have = 1 }; continue }
@@ -442,6 +455,9 @@ merge_argv() {
           # In zsh a `(` inside a word is a glob qualifier: dropping the word covers one that
           # empties a PR word, not one that rewrites it into other words.
           if (c == "(" && have) have = 0
+          # A glob qualifier ends the read, not the command: words follow it. (A redirect before
+          # the last word the reader refuses as ODD, so one here has only its target after it.)
+          if (c == "(") cut(c, 1, substr(s, j + 1))
           break
         }
         tok = tok c; have = 1
@@ -548,17 +564,12 @@ fi
 
 if [ -n "$api_pr" ]; then
   # `gh api --hostname H` sends the merge to H, so the reads name H too (-R H/<owner>/<name>): read
-  # on the default host, they would judge another server's PR. Read only when it is one plain word.
-  case "$cmd" in
-    *--hostname*)
-      api_host=$(printf '%s' "$cmd" | tr '\n\t' '  ' | awk '{
-          n = 0; s = " " $0 " "
-          while (match(s, /--hostname/)) { n++; s = substr(s, RSTART + RLENGTH) }
-          if (n == 1 && match(" " $0 " ", / --hostname[ =][A-Za-z0-9.-]+ /)) {
-            h = substr(" " $0 " ", RSTART + 12, RLENGTH - 13); print h
-          }
-        }')
-      [ -n "$api_host" ] || block "this gh api merge names --hostname in a form this guard cannot read, so it cannot read the PR on the host the merge goes to. Name it once, plainly: gh api --hostname <host> -X PUT repos/<owner>/<name>/pulls/<n>/merge"
+  # on the default host, they would judge another server's PR. The reader takes H from the flag's
+  # own word (`-` none, `?` one it cannot read), never from text that merely says --hostname.
+  case "$api_host" in
+    - | '') ;;
+    '?') block "this gh api merge names --hostname in a form this guard cannot read (computed, repeated, or not a plain host name), so it cannot read the PR on the host the merge goes to. Name it once, plainly: gh api --hostname <host> -X PUT repos/<owner>/<name>/pulls/<n>/merge" ;;
+    *)
       [ "$api_repo" != "." ] || block "this gh api merge names --hostname $api_host and {owner}/{repo}, which gh fills from this directory's repository while the merge goes to $api_host. Name the repository: gh api --hostname $api_host -X PUT repos/<owner>/<name>/pulls/$api_pr/merge"
       api_repo="$api_host/$api_repo" ;;
   esac
@@ -568,10 +579,11 @@ $argv"
 else
   argv=$(merge_argv)
 fi
-many=""; own=""; own_repo=""; other=""; unparsed=""; pr_arg=""; pr=""
+many=""; hidden=""; own=""; own_repo=""; other=""; unparsed=""; pr_arg=""; pr=""
 while IFS= read -r line; do
   case "$line" in
     M) many=1 ;;
+    U) hidden=1 ;;
     "R "* | "P http://"* | "P https://"*)
       named=${line#? }
       key=$(repo_key "$named")
@@ -606,6 +618,8 @@ case "$pr_arg" in
   *) case "$pr_arg" in '' | *[!0-9]*) ;; *) pr=$pr_arg ;; esac ;;
 esac
 [ -n "$pr" ] || block "cannot tell which PR this merges${pr_arg:+ ('$pr_arg' is not a PR number or PR URL)}, so its CI evidence cannot be checked. Name it: gh pr merge <n> --squash --delete-branch"
+# The PR and its repo read whole, but the read stopped short of words gh still gets (#271).
+[ -z "$hidden" ] || block "this merge has words this guard cannot read past (a \$ or backtick expansion, a redirect, a glob) that could name another repository (-R), which gh would merge in instead of the one the checks read. Put redirects last, quote each expansion and name -R before it, or pass the text in a file: gh pr merge <n> --squash --delete-branch --body-file <file>"
 
 # ghpr SUBCOMMAND [ARGS...] — `gh pr SUBCOMMAND` for the PR this merge names, named the way the merge
 # names it: its PR URL, or its number with the merge's own -R word. A bare number resolves through

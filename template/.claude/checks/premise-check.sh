@@ -191,9 +191,11 @@ case "$1 $2" in
   "pr checks") echo '[]' ;;
   "pr view")
     case "$*" in
-      # Named (-R or a URL): FAKE_PR. Bare: gh's default repository's PR, FAKE_PR_DEFAULT if set.
+      # Named (-R or a URL): FAKE_PR. Bare: gh's default repository's PR, FAKE_PR_DEFAULT if set,
+      # and only from FAKE_PR_CWD if set: a bare read resolves through the directory it runs in.
       *closingIssuesReferences*)
         case "$3 $*" in http* | *" -R "*) p=${FAKE_PR:-} ;; *) p=${FAKE_PR_DEFAULT-${FAKE_PR:-}} ;; esac
+        case "$3 $*" in http* | *" -R "*) ;; *) [ -z "${FAKE_PR_CWD:-}" ] || [ "$(pwd -P)" = "$FAKE_PR_CWD" ] || p="" ;; esac
         [ -n "$p" ] && printf '%s\n' "$p" ;;
       *"--json state "*) echo OPEN ;;
       *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "$GH_BRANCH" "$GH_HEAD" ;;
@@ -232,7 +234,7 @@ rulep() {
   [ -n "${RAW+x}" ] && _pr=$RAW
   payload "${MCMD:-gh pr merge 290 --squash}" "$G" > "$d/payload"
   rc=0
-  out=$(cd "$G" && env PATH="$d/bin:$PATH" FAKE_PR="$_pr" ROOT="$G" GUARD_PR=290 GUARD_PR_REF="${PREF-290}" GUARD_PR_REPO="${PREPO-acme/app}" GUARD_BRANCH="$_br" GUARD_REPO=acme/app \
+  out=$(cd "$G" && env PATH="$d/bin:$PATH" FAKE_PR="$_pr" ROOT="${RROOT:-$G}" GUARD_PR=290 GUARD_PR_REF="${PREF-290}" GUARD_PR_REPO="${PREPO-acme/app}" GUARD_BRANCH="$_br" GUARD_REPO=acme/app \
     GUARD_BASE="$GH" GUARD_HEAD="${RHEAD:-$GH}" GUARD_COMMAND="${MCMD:-gh pr merge 290 --squash}" GUARD_PAYLOAD="$d/payload" \
     sh "$G/.claude/modules/premise-check/guard.d/premise.sh" 2>"$d/err") || rc=$?
   expect_rc "$_w" "$rc" "guard rule: $( [ "$_w" = 2 ] && echo blocks || echo allows ) $_l"
@@ -265,6 +267,14 @@ unset DEFBODY; MCMD=
 PREF=; rulep 2 "when the guard passes no GUARD_PR_REF (an older guard; fails closed)" "$RCPT"
 has yes "did not pass GUARD_PR_REF" "$(cat "$d/err")" "guard rule: ...and says what is missing"
 unset PREF
+# A bare read resolves through the directory, so the rule reads from the one the guard checked the
+# merge's against (its own), not from ROOT, the hooks' checkout, which can be another.
+cp -R "$G" "$d/rootcopy"
+PREPO= RROOT=$d/rootcopy; FAKE_PR_CWD=$(cd "$G" && pwd -P); export FAKE_PR_CWD
+rulep 0 "a bare read from the guard's directory, ROOT another checkout" "Fixes it.
+
+$RCPT"
+unset PREPO RROOT FAKE_PR_CWD; rm -rf "$d/rootcopy"
 MCMD='gh pr merge 290 --squash --body "Fixes #239: the closed card."'
 merge 2 "a squash whose --body closes an issue the PR does not name (the merge command reaches the rule)" "Tidy." "" "Tidy the card"
 has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the merge's --body closes it"
