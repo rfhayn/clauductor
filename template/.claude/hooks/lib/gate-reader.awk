@@ -27,17 +27,26 @@
 #
 # With `-v gits=1` (catch-up-guard.sh), in order, at any depth (a child's too: the caller reads
 # them as a superset):
-#   CD     a tab, "T" when THIS shell runs it ("C" in a child), a tab and the target word as above
-#          (`~` for none), for each cd, pushd and chdir; "$" for a target nobody can read from here:
-#          popd, source or `.` (a script may cd), env -C, GIT_DIR=, GIT_WORK_TREE=, GIT_COMMON_DIR=
-#          or GIT_CONFIG*=, --git-dir, --work-tree, --config-env, or `-c core.worktree` or core.bare.
+#   CD     a tab, "T" when THIS shell, or a `( … )` subshell of it, runs it ("C" in another shell,
+#          or under if, then, while and the like, or in a case arm, where it may not run; a case
+#          pattern's `)` closes no subshell), a tab and the target word
+#          as above (`~` for none), for each
+#          cd, pushd and chdir; "$" for a target nobody can read from here: a bare pushd (it swaps
+#          the stack), popd, source or `.` (a script may cd), env -C, GIT_DIR=, GIT_WORK_TREE=,
+#          GIT_COMMON_DIR= or GIT_CONFIG*=, --git-dir, --work-tree, --config-env, or `-c
+#          core.worktree` or core.bare.
 #   GIT    one line per git invocation, at its end: tab-separated, the -C chain composed ("." for
-#          none, "?" when a -C is computed), the subcommand, the word after it ("-" for none), 1
-#          when a later word is -u or --update-head-ok (else 0), and the value a `-c alias.<sub>=`
-#          on the line gives (empty for none). Git is `git` or a path ending /git in command
-#          position, or ANY such word later in a simple command (an unknown wrapper: `chronic git`).
+#          none, "?" when a -C is computed, or for a git `find -execdir` runs), the subcommand, the
+#          word after it ("-" for none), 1 when a later word is -u or --update-head-ok (else 0), and
+#          the value a `-c alias.<sub>=` on the line gives (empty for none). Git is `git` or a path
+#          ending /git in command position, or ANY such word later in a simple command (an unknown
+#          wrapper: `chronic git`). `gh pr checkout` and `gh repo sync` print as a git checkout.
 #   DYN    a command word the shell computes (`$g`, `$( … )`): it may be git, or a cd. `eval`'s
 #          words are joined and read as one command, as the shell does.
+#   SEP    a tab and the operator that ends a simple command THIS shell runs (`;` for a newline
+#          too, `&&`, `||`, `|`, `&`), so the caller can tell a cd that is sure to run from one that
+#          may not, or that runs in a pipeline's or the background's subshell; and `(` and `)`
+#          around a subshell, whose cds end at its `)`.
 #
 # KNOWN LIMITS (not seen, so allowed): a computed command word (`$G`, `$(echo gate.sh)`), an alias
 # or a function, `find -exec`, a `cd` run through `eval` (read as a child here: CD misses it), a gate run as a script on a shell's stdin (`bash <<EOF`), and a gate
@@ -48,7 +57,7 @@
 BEGIN {
   n = split(gates, g, " ")
   for (i = 1; i <= n; i++) if (g[i] != "") GATES[g[i]] = 1
-  n = split("bash sh zsh dash ksh mksh", g, " ")
+  n = split("bash sh zsh dash ksh mksh fish csh tcsh", g, " ")
   for (i = 1; i <= n; i++) SHELLS[g[i]] = 1
   n = split("nohup setsid exec command builtin time nice caffeinate stdbuf env timeout xargs sudo ! { if then elif else while until do", g, " ")
   for (i = 1; i <= n; i++) WRAP[g[i]] = 1
@@ -57,6 +66,9 @@ BEGIN {
   for (i = 1; i <= n; i++) OPTARG[g[i]] = 1
   n = split("builtin command time ! { if then elif else while until do", g, " ")
   for (i = 1; i <= n; i++) CDWRAP[g[i]] = 1
+  # Words after which a cd may not run (gits).
+  n = split("if then elif else while until do", g, " ")
+  for (i = 1; i <= n; i++) CONDW[g[i]] = 1
   D = 0
 }
 { src = src $0 "\n" }
@@ -80,19 +92,35 @@ function isgate(t,   p) {
 # cdend: a `cd` with no target word goes home.
 function cdend() { if (ST[D] == "cd") { print "CD\t~"; ST[D] = "rest" } }
 
-# gscope: "T" for a command this shell runs itself, "C" for one a child runs.
-function gscope() { return (D == 1 && !SUB) ? "T" : "C" }
+# gscope: "T" for a command this shell, or a `( … )` subshell of it the SEP lines bracket, runs
+# itself; "C" for one another shell runs (`sh -c`, `eval`, `$( … )`).
+function gscope() { return D == 1 ? "T" : "C" }
+
+# cdscope: a cd under if, then, while and the like, or in a case arm, may not run: read like a child's.
+function cdscope() { return (CW[D] || (D == 1 && CASEN > 0)) ? "C" : gscope() }
 
 # flush: the simple command at depth D has ended. An eval's joined words are read only now.
 function flush(   s) {
   cdend()
   if (!gits) return
-  if (ST[D] == "gcd") { print "CD\t" gscope() "\t~"; ST[D] = "rest" }
+  if (ST[D] == "gcd") { print "CD\t" cdscope() "\t" (GCW[D] == "pushd" ? "$" : "~"); ST[D] = "rest" }
+  if (ST[D] == "gh") ST[D] = "rest"
   if (ST[D] == "git") gitend()
   if (ST[D] == "eval") { s = EVB[D]; EVB[D] = ""; ST[D] = "rest"; scan(s) }
 }
 
-function gitstart() { ST[D] = "git"; GDIR[D] = "."; GNX[D] = ""; GCA[D] = ""; GSUB[D] = ""; GARG[D] = "-"; GHA[D] = 0; GU[D] = 0 }
+# gitstart: a git invocation begins; one `find -execdir` runs is aimed where nobody can read.
+function gitstart() { ST[D] = "git"; GDIR[D] = XD[D] ? "?" : "."; GNX[D] = ""; GCA[D] = ""; GSUB[D] = ""; GARG[D] = "-"; GHA[D] = 0; GU[D] = 0 }
+
+# ghword T: one word after gh, its options skipped; `pr checkout` and `repo sync` move a checkout.
+function ghword(t) {
+  if (GHS[D]) { GHS[D] = 0; return }
+  if (t == "-R" || t == "--repo") { GHS[D] = 1; return }
+  if (t ~ /^-/) return
+  if (GH1[D] == "") { GH1[D] = t; return }
+  if ((GH1[D] == "pr" && t == "checkout") || (GH1[D] == "repo" && t == "sync")) print "GIT\t.\tcheckout\t-\t0\t"
+  ST[D] = "rest"
+}
 
 # gitdir X: compose a -C the way git does, each read from the one before.
 function gitdir(x) {
@@ -143,8 +171,12 @@ function gitend(   k, c, v, i, p) {
   print "GIT\t" GDIR[D] "\t" GSUB[D] "\t" GARG[D] "\t" GU[D] "\t" v
 }
 
-# A new simple command at this depth.
-function sep() { flush(); ST[D] = "cmd"; WK[D] = ""; SKN[D] = 0; CF[D] = 0; NOX[D] = 0; EVS[D] = 0; RD[D] = 0 }
+# sep [OP]: a new simple command at this depth, after the operator OP (gits: printed for this shell).
+function sep(op) {
+  flush()
+  if (gits && op != "" && D == 1) print "SEP\t" op
+  ST[D] = "cmd"; WK[D] = ""; SKN[D] = 0; CF[D] = 0; NOX[D] = 0; EVS[D] = 0; RD[D] = 0; CW[D] = 0; XD[D] = 0
+}
 
 function endword(   t) {
   if (!HV[D]) return
@@ -159,13 +191,16 @@ function onword(t,   b, st) {
   st = ST[D]
   if (st == "rest") {
     if (gits && base(t) == "git") gitstart()
+    else if (gits && base(t) == "gh") { ST[D] = "gh"; GH1[D] = ""; GHS[D] = 0 }
     else if (gits && reaims(t)) print "CD\t" gscope() "\t$"
+    else if (gits && (t == "-execdir" || t == "-okdir")) XD[D] = 1
     return
   }
   if (st == "git") { gitword(t); return }
+  if (st == "gh") { ghword(t); return }
   if (st == "gcd") {
     if (t == "--" || t ~ /^-[LPe@]+$/) return
-    print "CD\t" gscope() "\t" t; ST[D] = "rest"; return
+    print "CD\t" cdscope() "\t" t; ST[D] = "rest"; return
   }
   if (st == "eval" && gits) { EVB[D] = EVB[D] " " t; return }
   if (st == "cd") {
@@ -204,14 +239,18 @@ function onword(t,   b, st) {
   if (WK[D] != "" && t ~ /^[0-9.]+[smhd]?$/) return
   b = base(t)
   if (cds && D == 1 && !SUB && (t == "cd" || t == "pushd") && (WK[D] == "" || WK[D] in CDWRAP)) { ST[D] = "cd"; return }
+  # CASEN: inside a top-level case, whose patterns end in a `)` that closes no subshell.
+  if (D == 1 && t == "case") { CASEN++; CASESUB[CASEN] = SUB; ST[D] = "rest"; return }
+  if (D == 1 && t == "esac" && CASEN > 0) { CASEN--; ST[D] = "rest"; return }
   if (gits) {
     if (b == "git") { gitstart(); return }
-    if (t == "cd" || t == "pushd" || t == "chdir") { ST[D] = "gcd"; return }
+    if (b == "gh") { ST[D] = "gh"; GH1[D] = ""; GHS[D] = 0; return }
+    if (t == "cd" || t == "pushd" || t == "chdir") { ST[D] = "gcd"; GCW[D] = t; return }
     if (t == "popd" || t == "." || t == "source") { print "CD\t" gscope() "\t$"; ST[D] = "rest"; return }
     if (t == "eval") { ST[D] = "eval"; EVB[D] = ""; return }
     if (t ~ /\$/) { print "DYN"; ST[D] = "rest"; return }
   }
-  if (b in WRAP) { WK[D] = b; return }
+  if (b in WRAP) { WK[D] = b; if (b in CONDW) CW[D] = 1; return }
   if (isgate(t)) { G = 1; ST[D] = "rest"; return }
   if (b in SHELLS) { ST[D] = "shell"; return }
   if (t == "eval") { ST[D] = "eval"; return }
@@ -308,22 +347,21 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
     if (c == "$" && c2 == "(") { i = subst(s, i); continue }
     if (c == "`") { i = subst(s, i); continue }
     if (c == "$" && c2 == "{") {
-      # To its `}`, past any `$( … )` or backticks in it (`${x:=$(cmd)}`), which are commands too.
+      # To its `}`; each `$( … )` or backtick in it (`${x:=$(cmd)}`) is read as a command of its
+      # own, and the expansion itself is a word, never a command line.
+      e = WB[D]
       for (j = i + 2; j <= n; j++) {
-        k = substr(s, j, 1)
-        if (k == "\\") j++
-        else if (k == "$" && substr(s, j + 1, 1) == "(") j = close_paren(s, j + 1)
-        else if (k == "`") j = close_tick(s, j + 1)
-        else if (k == "}") break
+        c = substr(s, j, 1)
+        if (c == "\\") j++
+        else if (c == "`" || (c == "$" && substr(s, j + 1, 1) == "(")) j = subst(s, j) - 1
+        else if (c == "}") break
       }
-      e = substr(s, i + 2, j - i - 2)
-      if (e ~ /\$\(|`/) scan(e)
-      WB[D] = WB[D] substr(s, i, j - i + 1); HV[D] = 1; i = j + 1; continue
+      WB[D] = e substr(s, i, j - i + 1); HV[D] = 1; i = j + 1; continue
     }
     if (c == "#" && !HV[D]) { while (i <= n && substr(s, i, 1) != "\n") i++; continue }
     if (c == " " || c == "\t") { endword(); i++; continue }
     if (c == "\n") {
-      endword(); sep(); i++
+      endword(); sep(";"); i++
       # The bodies of the heredocs opened on this line: skipped, never read as commands.
       for (k = 1; k <= HP[D]; k++) {
         dl = HQ[D, k]
@@ -337,16 +375,22 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
       HP[D] = 0
       continue
     }
-    if (c == ";") { endword(); sep(); i++; continue }
+    if (c == ";") { endword(); sep(";"); i++; continue }
     if (c == "&") {
       endword()
-      if (c2 == "&") { sep(); i += 2; continue }
+      if (c2 == "&") { sep("&&"); i += 2; continue }
       if (c2 == ">") { RD[D] = 1; i += 2; if (substr(s, i, 1) == ">") i++; continue }
-      A = 1; sep(); i++; continue
+      A = 1; sep("&"); i++; continue
     }
-    if (c == "|") { endword(); sep(); i += (c2 == "|" || c2 == "&") ? 2 : 1; continue }
+    if (c == "|") { endword(); sep(c2 == "|" ? "||" : "|"); i += (c2 == "|" || c2 == "&") ? 2 : 1; continue }
     # SUB: inside a top-level `( … )` subshell, where a `cd` moves only the child.
-    if (c == "(" || c == ")") { endword(); sep(); if (D == 1) SUB += c == "(" ? 1 : (SUB > 0 ? -1 : 0); i++; continue }
+    if (c == "(" || c == ")") {
+      endword(); sep()
+      if (D == 1 && c == "(") { SUB++; if (gits) print "SEP\t(" }
+      else if (D == 1 && CASEN > 0 && SUB == CASESUB[CASEN]) { }   # a case pattern's end
+      else if (D == 1 && SUB > 0) { SUB--; if (gits) print "SEP\t)" }
+      i++; continue
+    }
     if (c == "<" || c == ">") {
       # A word of digits just before is the redirected descriptor (`2>`), not an argument.
       if (HV[D] && WB[D] ~ /^[0-9]+$/) { WB[D] = ""; HV[D] = 0 } else endword()
