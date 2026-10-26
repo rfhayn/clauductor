@@ -180,7 +180,7 @@ guard 2 "a -R after a glob qualifier, the PR CLOSED there" 'gh pr merge 5 --squa
 guard 2 "a -R after a redirect (the reader refuses it)" 'gh pr merge 5 --squash 2>/dev/null -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "an unquoted expansion, which can split into a -R" 'gh pr merge 5 --squash --body-file $f'
 guard 2 "two quoted substitutions" 'gh pr merge 5 --squash --subject "$(cat s)" --body "$(cat f)"'
-guard 0 "a quoted substitution last, nothing after it" 'gh pr merge 5 --squash --body "$(cat f)"'
+guard 0 "a quoted variable last, nothing after it" 'gh pr merge 5 --squash --body "$B"'
 guard 0 "merge-pr's form with stderr redirected last" "gh pr merge 5 --squash --delete-branch --body-file f 2>&1"
 guard 0 "-R this repo with stderr redirected last" "gh pr merge 5 -R acme/app --squash 2>/dev/null"
 guard 2 "an expansion after a redirect's target (the reader refuses it)" 'gh pr merge 5 --squash > "$TMPDIR/x" $Y'
@@ -193,9 +193,9 @@ guard 2 "a value flag's value taken by the flag before it, the expansion a fresh
 guard 2 "an escaped -\\R after a quoted substitution" 'gh pr merge 5 --squash --body "$(cat f)" -\R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "a quote-split -R after a quoted substitution" "gh pr merge 5 --squash --body \"\$(cat f)\" -''R acme/app" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "a quote-split --repo after a quoted substitution" 'gh pr merge 5 --squash --body "$(cat f)" --re""po acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
-guard 0 "a quoted substitution glued to --body=" 'gh pr merge 5 --squash --body="$(cat f)"'
-guard 0 "a quoted substitution as -b's value" 'gh pr merge 5 --squash -b "$(cat f)"'
-guard 0 "a quoted substitution as --subject's value, stderr redirected last" 'gh pr merge 5 --squash --subject "$(cat s)" 2>&1'
+guard 0 "a quoted variable glued to --body=" 'gh pr merge 5 --squash --body="$B"'
+guard 0 "a quoted variable as -b's value" 'gh pr merge 5 --squash -b "$B"'
+guard 0 "a quoted variable as --subject's value, stderr redirected last" 'gh pr merge 5 --squash --subject "$S" 2>&1'
 # A brace or glob is kept as one word by the read, but the shell expands it into words gh parses.
 guard 2 "a brace expansion into -R and a repo" 'gh pr merge 5 --squash {-R,acme/app}' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "a brace expansion in --body-file's value, into a glued -R" 'gh pr merge 5 --squash --body-file {f,-Racme/app}' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
@@ -216,7 +216,16 @@ guard 0 "redirects alone to the end: > f 2>&1" 'gh pr merge 5 --squash --body-fi
 guard 2 "a -R after a redirect's plain target" 'gh pr merge 5 --squash > out -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "a -R after a target whose \$( nests a quoted )" 'gh pr merge 5 --squash > "$(echo ")" -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "a heredoc" 'gh pr merge 5 --squash <<EOF -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
-# Only "$name", "${name}" and "$(…)" stay one word in quotes; "$@", "${a[@]}" and zsh flags split.
+# Only "$name" or "${name}", then plain text, is one closed word in bash and zsh alike; "$@",
+# "${a[@]}", zsh's "$a[@]" and flags split, and a # in "$(…)" is a zsh comment hiding its ) (#271).
+guard 2 'a quoted "$(…)", even last' 'gh pr merge 5 --squash --body "$(cat f)"'
+guard 2 'a zsh comment in "$(…)" hiding its ), then a -R' 'gh pr merge 5 --squash --delete-branch --body "$(echo hi #)"
+)" -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 'a case pattern in "$(…)" whose ) closes nothing, then a -R' 'gh pr merge 5 --squash --body "$(case a in a)"
+" ;; esac)" -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 'a zsh "$a[@]" set in the command, behind a hosted -R' 'a=(x -R acme/app); gh pr merge 5 -R github.com/acme/app --squash --delete-branch --body "$a[@]"' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 2 'a zsh "$a[@]" carrying --admin, behind a PR URL' 'a=(x --a""dmin); gh pr merge https://github.com/acme/app/pull/5 --squash --delete-branch --body "$a[@]"'
+guard 2 'a zsh modifier "$B:h"' 'gh pr merge 5 --squash --body-file "$B:h"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 'a quoted "$@" after set -- x -R, behind a hosted -R' 'set -- x -R acme/app; gh pr merge 5 -R github.com/acme/app --squash --body "$@"' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
 guard 2 'a quoted "${a[@]}"' 'gh pr merge 5 --squash --body "${a[@]}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 'a quoted zsh split "${(@s.:.)PWD}"' 'gh pr merge 5 --squash --body "${(@s.:.)PWD}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN

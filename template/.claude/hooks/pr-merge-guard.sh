@@ -389,7 +389,8 @@ fi
 #   - more than one `gh pr merge` (any blanks between the words) BLOCKS;
 #   - the read ends only at a separator, or at redirects that alone, each with one plain target,
 #     run to the end of the command (> f 2>&1); <(…) is a word, not a redirect. Any other stop BLOCKS
-#     unless it is "$name", "${name}" or "$(…)" in the command's last word (that redirect aside),
+#     unless it is "$name" or "${name}", then only letters, digits and _./-, in the command's last
+#     word (a trailing 2>&1 or 2>/dev/null aside; no "$(…)", whose ) a zsh comment can hide),
 #     as the value of --body, --subject or another value flag: anything the read never saw could
 #     be the -R gh merges in (#271). So does an unquoted character outside letters, digits,
 #     _./:@%+=,- and non-ASCII (a brace, glob or tilde expands into words the read never sees);
@@ -429,10 +430,11 @@ merge_argv() {
     # stop passes only by allowlist: a `$` inside double quotes whose word ends the command (a
     # trailing 2>&1 or 2>/dev/null aside) and is the value of a flag, glued (--body=...) or confirmed
     # by the parse below (VCUT); never a word of its own, which gh reads as a flag (-Racme/app).
-    # Only $name, ${name} and $(…) stay one word in quotes: "$@", "${a[@]}", zsh "${(@s: :)x}" split.
-    # Plain text after it stays in the word ("$TMPDIR/body.md"); a second expansion does not pass.
+    # Only "$name" or "${name}", then letters, digits and _./- ("$TMPDIR/body.md"), is one closed
+    # word in bash and zsh alike: zsh splits "$a[@]" as "$@", reads :h or :s after a name as a
+    # modifier, and takes a # inside "$(…)" for a comment, so the ) the read sees can sit in it.
     function cut(ch, quoted, rest, tok) {
-      if (ch != "$" || !quoted || rest !~ /^(\([^"$`\\\047]*\)|[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})[^"$`\\]*"[ \t]*([ \t]2>(&1|\/dev\/null))?[ \t]*([\n;|]|&$|&[^>]|$)/) { print "U"; return }
+      if (ch != "$" || !quoted || rest !~ /^([A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})[A-Za-z0-9_.\/-]*"[ \t]*([ \t]2>(&1|\/dev\/null))?[ \t]*([\n;|]|&$|&[^>]|$)/) { print "U"; return }
       LAST = 1; GLUED = (tok ~ /^--(body|body-file|subject|match-head-commit|author-email)=/)
     }
     { buf = buf $0 "\n" }
