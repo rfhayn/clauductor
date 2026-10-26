@@ -84,6 +84,7 @@ case $mrc in
   0) ;;
   1) merge_body=$(git -C "$ROOT" log --format=%B "$GUARD_BASE..$GUARD_HEAD" 2>/dev/null) \
        || no "could not read the commit messages of $GUARD_BASE..$GUARD_HEAD (the squash commit's default body), so the issues they close cannot be checked." ;;
+  3) no "this merge names a relative --body-file after another command, which may have changed directory, so the issues the squash commit closes cannot be checked. Write its path out in full, or run the merge on its own." ;;
   *) no "cannot read this merge's --body/--body-file (a substitution, an unreadable file, stdin, or an API merge's --input), so the issues the squash commit closes cannot be checked. Write the body to a file and pass --body-file <file>." ;;
 esac
 # The squash SUBJECT closes issues too ("Fixes #239: the card"); unset, GitHub uses the PR title,

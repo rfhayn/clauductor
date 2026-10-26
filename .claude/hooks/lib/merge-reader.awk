@@ -459,13 +459,21 @@ function git_sub(c, j,   x, w) {
 # api or merge, is ODD. (One that cannot — `grep "gh" --include=*.ts` — is left alone.)
 # heads(c, k) — the words before k leave k in command position: assignments, and only prefixes that
 # run the rest of the line AS WRITTEN (sudo, env, nice, time, …) with their flags and numbers. xargs,
-# find -exec, parallel and the like ADD or SUBSTITUTE words, so gh after them is not.
-function heads(c, k,   x, w) {
+# find -exec, parallel and the like ADD or SUBSTITUTE words, so gh after them is not. Nor is gh after
+# eval, env -S (--split-string) or sudo -s/-i (--shell, --login): each hands the words to a parse of
+# their own, which splits '--squash 6 --body' into flags and expands a single-quoted $ (OPS-132).
+function heads(c, k,   x, w, r) {
+  r = ""
   for (x = 1; x < k; x++) {
     w = W[c, x]
     if (!provable(c, x)) return 0
-    if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^-/ || w ~ /^[0-9]+[smhd]?$/) continue
-    if (w ~ /^(then|do|else|elif|if|while|until|!|\{|time|command|builtin|exec|nohup|sudo|doas|env|nice|timeout|eval|noglob|nocorrect|stdbuf)$/) continue
+    if (w ~ /^-/) {
+      if (r == "env" && w ~ /^(-[A-Za-z0-9]*S|--split-string)/) return 0
+      if (r ~ /^(sudo|doas)$/ && w ~ /^(-[A-Za-z0-9]*[si]|--shell|--login)/) return 0
+      continue
+    }
+    if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^[0-9]+[smhd]?$/) continue
+    if (w ~ /^(then|do|else|elif|if|while|until|!|\{|time|command|builtin|exec|nohup|sudo|doas|env|nice|timeout|noglob|nocorrect|stdbuf)$/) { r = w; continue }
     return 0
   }
   return 1

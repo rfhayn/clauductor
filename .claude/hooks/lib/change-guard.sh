@@ -95,7 +95,8 @@ cg_archives() {  # cg_archives BASE HEAD
 # cg_field COMMAND CWD body|subject: what a merge command sets for the squash commit's body or
 # subject, read the way gh reads its flags. Prints it; returns 1 when the command sets none, 2 when
 # it cannot be read (a substitution in the text, a file that cannot be read or is stdin, an API
-# merge whose fields come from --input). Forms read:
+# merge whose fields come from --input), 3 when it names a relative file after another command.
+# Forms read:
 #   gh pr merge   body:    --body T, --body=T, --body-file F, --body-file=F, and the short flags
 #                          -b/-F with the value next, glued (-bT, -FF) or after = (-b=T), also
 #                          inside a cluster of boolean shorthands (-sdbT)
@@ -179,15 +180,18 @@ cg_field() {
       if (bad) exit 2
       if (!found) exit 1
       if (vo) exit 2
-      printf "%s\n%s", kind, v
+      # pre: a word comes before gh, which may change directory (cd sub, or anything before a URL)
+      printf "%s\n%d\n%s", kind, (t[1] != "gh"), v
     }')
   _rc=$?
   [ "$_rc" -eq 0 ] || return "$_rc"
-  _kind=$(printf '%s\n' "$_b" | head -1); _val=$(printf '%s\n' "$_b" | sed '1d')
+  _kind=$(printf '%s\n' "$_b" | head -1); _pre=$(printf '%s\n' "$_b" | sed -n 2p); _val=$(printf '%s\n' "$_b" | sed '1,2d')
   case "$_kind" in
     file)
       [ "$_val" != - ] || return 2   # stdin: not readable from here
-      case "$_val" in /*) _f=$_val ;; *) _f="${2:-.}/$_val" ;; esac
+      # After another command, a relative file is the one in the directory it left gh in, which
+      # CWD need not be: `cd sub && gh pr merge … --body-file body.md` reads sub/body.md (OPS-132).
+      case "$_val" in /*) _f=$_val ;; *) [ "$_pre" = 0 ] || return 3; _f="${2:-.}/$_val" ;; esac
       [ -r "$_f" ] || return 2
       cat "$_f" ;;
     *) printf '%s\n' "$_val" ;;
@@ -204,6 +208,7 @@ Session: ${3:-<the id of this session>}"
   case "$_rc" in
     1) printf 'this squash merge sets no --body, so its commit would carry no provenance trailers. Write the body to a file ending in:\n%s\nthen merge with: gh pr merge <n> --squash --delete-branch --body-file <file>\n' "$_want"; return ;;
     2) printf 'cannot read this merge'"'"'s body (a substitution in --body, or an unreadable --body-file), so its provenance trailers cannot be checked. Write the body to a file and pass --body-file <file>. It must end in:\n%s\n' "$_want"; return ;;
+    3) printf 'this merge names a relative --body-file after another command, which may have changed directory, so the file gh reads cannot be checked. Write its path out in full (--body-file /abs/path/body.md), or run the merge on its own. It must end in:\n%s\n' "$_want"; return ;;
   esac
   _miss=""
   for _k in Change Agent-Role Model Session; do

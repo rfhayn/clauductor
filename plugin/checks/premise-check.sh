@@ -288,6 +288,13 @@ MCMD='gh pr merge 290 --squash --body-file nowhere.md'
 rulep 2 "a squash whose --body-file cannot be read (fails closed)" "$RCPT" "239" "Tidy the card"
 has yes "cannot read this merge's --body/--body-file" "$(cat "$d/err")" "guard rule: ...and says it cannot read the merge's body"
 printf 'Tidy the card.\n' > "$G/tidy.md"
+# After a cd, a relative --body-file is the one gh reads there (sub/tidy.md closes #239), not the
+# payload directory's: the rule cannot read it, so it refuses.
+mkdir -p "$G/sub"; printf 'Resolves #239.\n' > "$G/sub/tidy.md"
+MCMD='cd sub && gh pr merge 290 -R acme/app --squash --body-file tidy.md'
+rulep 2 "a relative --body-file after a cd (fails closed)" "Tidy." "" "Tidy the card"
+has yes "relative --body-file after another command" "$(cat "$d/err")" "guard rule: ...and says why"
+rm -rf "$G/sub"
 MCMD='gh pr merge 290 --squash --subject "Fixes #239: card" --body-file tidy.md'
 merge 2 "a squash whose --subject closes an issue (through the guard)" "Tidy." "" "Tidy the card"
 has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the squash subject closes it"

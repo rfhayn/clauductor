@@ -670,7 +670,7 @@ case "$pr_arg" in
 esac
 [ -n "$pr" ] || block "cannot tell which PR this merges${pr_arg:+ ('$pr_arg' is not a PR number or PR URL)}, so its CI evidence cannot be checked. Name it: gh pr merge <n> --squash --delete-branch"
 # The PR and its repo read whole, but the read stopped short of words gh still gets (#271).
-[ -z "$hidden" ] || block "this merge has words this guard cannot read (a \$ or backtick expansion, a glob, a brace or tilde expansion) that could name another repository (-R), which gh would merge in instead of the one the checks read. Pass the text in a file named plainly, or as \"\$NAME\" with plain text around its closing quote, as the command's last word: gh pr merge <n> --squash --delete-branch --body-file \"\$TMPDIR/body.md\""
+[ -z "$hidden" ] || block "this merge has words this guard cannot read (a \$ or backtick expansion, a glob, a brace or tilde expansion) that could name another repository (-R), which gh would merge in instead of the one the checks read. Pass the text in a file, its path written out with no \$ (rule 12 reads it): gh pr merge <n> --squash --delete-branch --body-file <file>"
 
 # ghpr SUBCOMMAND [ARGS...] — `gh pr SUBCOMMAND` for the PR this merge names, named the way the merge
 # names it: its PR URL, or its number with the merge's own -R word. A bare number resolves through
@@ -693,7 +693,9 @@ ghpr() {
 # than any list of them (GH_REPO=, GIT_DIR=, `cd;`, `c\d`, `export "GH_""REPO=…"`, a sourced file:
 # round 3 of OPS-132 passed each past a text match). So what may come before the merge depends on
 # what its words leave open:
-#   - a PR URL, or -R HOST/OWNER/NAME: nothing. Anything may come before it.
+#   - a PR URL, or -R HOST/OWNER/NAME: nothing. Anything may come before it, so long as the reader
+#     can read the merge's words (not after eval, env -S or sudo -s, which parse them again), and a
+#     --body-file after it is written out in full (rule 12 cannot know the directory: cg_field).
 #   - -R OWNER/NAME: the host, which gh takes from GH_HOST. Only `cd <path> && ` may come before it.
 #   - no repo (the bare number, gh api's {owner}/{repo}): the repository, from GH_REPO and the
 #     directory's remotes. Nothing may come before it, and the payload's cwd (the Bash tool's

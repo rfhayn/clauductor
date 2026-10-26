@@ -256,6 +256,14 @@ guard 2 "rule 1: --admin split by quotes" 'gh pr merge 5 --squash --ad""min'
 guard 2 "rule 1: --admin escaped" 'gh pr merge 5 --squash --\admin'
 guard 2 "gh named by a path, no repo named" '/usr/local/bin/gh pr merge 5 --squash'
 grep -q 'named by a path' "$d/err" && ok "merge-guard: ...and the refusal says gh is named by a path" || fail "merge-guard: the path-named gh refusal does not say so: $(head -3 "$d/err")"
+# eval, env -S and sudo -s run their words through another parse, which splits a quoted word into
+# flags and expands a single-quoted $: gh merges what the read never saw, even behind a hosted -R.
+guard 2 "eval splitting a quoted word into a second PR, behind a hosted -R" "eval gh pr merge '--squash 6 --body' 5 -R github.com/acme/app"
+guard 2 "eval expanding a single-quoted \$ into --admin, behind a hosted -R" "X=admin; eval gh pr merge 5 -R github.com/acme/app '--\$X'"
+guard 2 "env -S running a command of its own, behind a hosted -R" "env -S\"sh -c 'echo x' sh\" gh pr merge 5 -R github.com/acme/app --squash"
+guard 2 "env --split-string=, behind a PR URL" "env --split-string='echo x' gh pr merge https://github.com/acme/app/pull/5 --squash"
+guard 2 "sudo -s handing the words to a shell, behind a hosted -R" "sudo -s gh pr merge 5 -R github.com/acme/app --squash"
+guard 0 "env setting a variable, behind a hosted -R" "env GH_PROMPT_DISABLED=1 gh pr merge 5 -R github.com/acme/app --squash"
 # The payload's cwd is the Bash tool's directory, where gh runs, and need not be this hook's: a merge
 # naming no repo passes only from a worktree of this repository.
 O="$d/other"; new_repo "$O"
@@ -669,6 +677,14 @@ sguard 2 "rule 12: a glued -b<body> missing the Session trailer" "gh pr merge 5 
 # A value that starts with - is text: a --subject reading "-b<trailers>" sets no body.
 sguard 2 "rule 12: a --subject whose text starts with -b is not a body" "gh pr merge 5 --squash --subject \"-b$(trail)\""
 grep -q 'sets no --body' "$d/err" && ok "rule 12: ...it is read as no --body at all" || fail "rule 12: ...it is read as no --body at all: $(cat "$d/err")"
+# A command before the merge can change directory (cd sub, or anything before a URL): a relative
+# --body-file is then not the file the hook reads from the payload's cwd. Here sub/body.txt has none.
+mkdir -p "$R/sub"; printf 'Adds x.\n' > "$R/sub/body.txt"
+sguard 2 "rule 12: a relative --body-file after a cd" "cd sub && gh pr merge 5 -R acme/app --squash --delete-branch --body-file body.txt"
+grep -q 'relative' "$d/err" && ok "rule 12: ...and the block says to write the path out in full" || fail "rule 12: the relative --body-file block does not say why: $(head -3 "$d/err")"
+sguard 2 "rule 12: a relative glued -F after commands before a PR URL" "cd /nonexistent; cd sub; gh pr merge https://github.com/acme/app/pull/5 --squash -Fbody.txt"
+sguard 0 "rule 12: an absolute --body-file after a cd" "cd sub && gh pr merge 5 -R acme/app --squash --delete-branch --body-file $R/body.txt"
+rm -rf "$R/sub"
 trail > "$R/-"   # a file named "-" with good trailers: stdin must not be read as that file
 sguard 2 "rule 12: a --body-file read from stdin (unreadable)" "gh pr merge 5 --squash --body-file -"
 rm -f "$R/-"
