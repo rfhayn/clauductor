@@ -6,6 +6,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # falsified elsewhere (changes.sh, scenarios.sh, change-tools.sh, merge-guard.sh, gate.sh).
 . "$(dirname "$0")/lib.sh"
 need jq
+# shellcheck disable=SC1091
+. "$CLAUDUCTOR_FW/lib/modules.sh" || { fail "cannot read .claude/lib/modules.sh, so merge-pr's fragments cannot be listed"; finish; }
 
 has() {  # has FILE FIXED-TEXT WHAT
   _f="$ROOT/$1"; case $1 in .claude/*) [ -e "$_f" ] || _f="$CLAUDUCTOR_FW/${1#.claude/}" ;; esac
@@ -110,6 +112,27 @@ gh auth status
 gh api user
 EOF
 }
+merge_pr_whole() {  # whole commands merge-pr may run outside step 5 that no command on merge_pr_cmds covers
+  # A fetch of origin moves no checkout (living-visuals' fragment); `git fetch` on merge_pr_cmds would
+  # also pass a fetch into main:main.
+  cat <<'EOF'
+git fetch origin
+EOF
+}
+# merge_pr_fragments: "<layer>\t<file>" for every fragment extensions.sh could emit for merge-pr
+# (its `fragments merge-pr`: ext_files, less a SKILL.md a module ships whole), with every module a
+# project could enable counted as enabled, each shipped one and the project's own, not only those
+# MODULES names here: a module turned on later brings its fragment into merge-pr unread otherwise.
+merge_pr_fragments() {
+  (
+    modules_enabled() {
+      for _mc in "$MODULES_FW"/*/module.conf "$MODULES_OWN"/*/module.conf; do
+        [ -f "$_mc" ] && basename "$(dirname "$_mc")"
+      done | awk '!seen[$0]++'
+    }
+    ext_files skills/merge-pr .md | grep -v '/SKILL\.md$'
+  )
+}
 # merge_pr_catchup: the one line that may catch the PR's branch up to origin/main outside step 5
 # (OPS-124, #214), and its one place: alone between step 2's heading and its first line, where
 # merge-pr is in the branch's own checkout and no text before it in the step can aim it elsewhere.
@@ -155,7 +178,7 @@ merge_pr_unanchor() {
 # owner's bullet, back to report; a `####` heading is such a line. A blank line ends neither: a
 # list item may go on after one.
 merge_pr_spans() {
-  awk -v cmds="$(merge_pr_cmds | tr '\n' ',')" '
+  awk -v cmds="$(merge_pr_cmds | tr '\n' ',')" -v whole="$(merge_pr_whole | tr '\n' ',')" '
     function outside() { return part == "before" || part == "after" }
     function prose(s,   w) {
       if (outside()) { if ((w = pwrite(s)) != "") print "Q " part " " w; return }
@@ -183,19 +206,24 @@ merge_pr_spans() {
       for (; j <= m && t[j] ~ /^-/; j++) if (t[j] ~ /^(-C|-c|--git-dir|--work-tree|--namespace)$/) j++
       return j
     }
-    # cwrite(s): the first command of code span s that merge_pr_cmds does not list, one that
-    # changes directory (a word cd or pushd anywhere, quoted, escaped, after then or assigned, as
-    # in sh -c or c=cd), one named by a bare variable with arguments ($c "$main", never a path
-    # like ${CLAUDE_PLUGIN_ROOT}/hooks/... in the plugin build), or one that sets GIT_* (an export
-    # too), or ""
+    # cwrite(s): the first command of code span s that merge_pr_cmds does not list (and is not a
+    # whole command on merge_pr_whole), one that changes directory (a word cd, pushd or chdir
+    # anywhere, quoted, escaped, after then or assigned, as in sh -c or c=cd) or evals, one named
+    # by a bare variable with arguments ($c "$main", never a path like
+    # ${CLAUDE_PLUGIN_ROOT}/hooks/... in the plugin build), or one that sets GIT_* (an export too),
+    # or "". Two cds are not a change of checkout (#249, item 3): a span that is the word alone,
+    # naming it in prose, and a plain `cd <dir>` into a subdirectory (no .., $, ~ or leading /)
+    # as a command of its own. Every other spelling is for hooks/catch-up-guard.sh, at run time.
     function cwrite(s,   n, c, k, m, t, i, j, cmd, w) {
       n = split(s, c, /\$\(|[|;&()]+/)
+      if (n == 1 && trim(s) ~ /^(cd|pushd|chdir)$/) return ""
       for (k = 1; k <= n; k++) {
-        if ((m = split(trim(c[k]), t, /[ \t]+/)) == 0) continue
+        if ((m = split(trim(c[k]), t, /[ \t]+/)) == 0 || trim(c[k]) in wh) continue
         if (t[1] in moves || (m > 1 && t[1] ~ /^["\047]?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?["\047]?$/)) return trim(c[k])
+        if (m == 2 && t[1] ~ /^(cd|pushd)$/ && t[2] ~ /^[A-Za-z0-9_.][A-Za-z0-9_.\/-]*$/ && t[2] !~ /(^|\/)\.\.(\/|$)/) continue
         for (i = 1; i <= m; i++) {
           w = t[i]; gsub(/["\047\\]/, "", w)
-          if (w ~ /(^|=)(cd|pushd)$/ || w ~ /^GIT_[A-Z_]*=/) return trim(c[k])
+          if (w ~ /(^|=)(cd|pushd|chdir|eval)$/ || w ~ /^GIT_[A-Z_]*=/) return trim(c[k])
           if (t[i] == "git" && (j = skip(t, i + 1, m)) <= m) {
             cmd = "git " t[j]
             if (t[j] == "worktree") cmd = cmd " " t[j + 1]
@@ -222,6 +250,7 @@ merge_pr_spans() {
       head[4] = "**The owner\047s step, in your report.**"; name[4] = "report"
       head[5] = "- `git pull --ff-only`, unless step 5 pulled"; name[5] = "owner"
       n = split(cmds, c, ","); for (i = 1; i <= n; i++) if (c[i] != "") ok[c[i]] = 1
+      n = split(whole, c, ","); for (i = 1; i <= n; i++) if (c[i] != "") wh[c[i]] = 1
       n = split("pull merge reset checkout switch rebase restore stash update-ref", c, " ")
       for (i = 1; i <= n; i++) moves[c[i]] = 1
     }
@@ -320,6 +349,18 @@ step5() {  # step5 SKILL.md: prints each rule step 5 breaks, one per line; nothi
     done
   fi
 }
+step5_fragments() {  # step5_fragments SKILL.md: "<fragment>: <rule>" for each rule a fragment breaks
+  # Each fragment is read where the agent reads it, after the skill under extensions.sh's own
+  # heading, and charged only with what it adds to the skill's own objections.
+  _sfb=$(step5 "$1")
+  _sfd=$(scratch)
+  merge_pr_fragments | while IFS="$(printf '\t')" read -r _sfl _sff; do
+    { cat "$1"; printf '\n#### From the %s layer: %s\n\n' "$_sfl" "$(basename "$_sff")"; cat "$_sff"; } > "$_sfd/with.md"
+    step5 "$_sfd/with.md" | grep -vxF -- "$_sfb" | while IFS= read -r _sfo; do
+      printf '%s: %s\n' "${_sff#"$ROOT"/}" "$_sfo"
+    done
+  done
+}
 _skill="$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md"
 _why=$(step5 "$_skill")
 if [ -z "$_why" ]; then
@@ -329,6 +370,24 @@ else
 $_why
 EOF
 fi
+# merge-pr has the agent follow its Project steps, the fragments extensions.sh emits, as part of its
+# steps (#249, item 1): each is read after the skill, as text after step 5.
+_fw=$(step5_fragments "$_skill")
+if [ -z "$_fw" ]; then
+  ok "merge-pr's fragments ($(merge_pr_fragments | grep -c .), every module's and the local layer's) name nothing step 5's rules refuse outside step 5"
+else
+  while IFS= read -r _l; do fail "merge-pr's fragment $_l"; done <<EOF
+$_fw
+EOF
+fi
+# The list is every fragment a project could have: each shipped module's, enabled here or not.
+_fl=$(merge_pr_fragments | cut -f2)
+for _f in "$MODULES_FW"/*/skills/merge-pr/*.md; do
+  [ -f "$_f" ] || continue
+  case $_f in */SKILL.md) continue ;; esac
+  printf '%s\n' "$_fl" | grep -qxF -- "$_f" && ok "merge-pr's fragments include ${_f#"$MODULES_FW"/}" ||
+    fail "merge_pr_fragments does not list $_f, which a project that enables its module follows in merge-pr"
+done
 # Each rule turns red, alone, on a copy of the skill that breaks it and nothing else: a rule
 # no copy turns red checks nothing.
 _d=$(scratch)
@@ -525,6 +584,53 @@ Run `env -C "$main" git merge origin/main`.
 _red "a fetch that moves main" '/^Run the full gate from the branch.s checkout/i\
 Run `git fetch --update-head-ok origin main:main`.
 ' "text before step 5 names \`git fetch --update-head-ok origin main:main\`"
+# #249, item 2: zsh's chdir and an eval of split words passed the cd rule. Both now refuse; the
+# runtime control for every other spelling is hooks/catch-up-guard.sh.
+_red "zsh's chdir before the catch-up line" "$_catch"'/^Use the argument if given/i\
+Run `chdir "$main"`.
+' "text before step 5 names \`chdir \"\$main\"\`"
+_red "an eval of split words before the catch-up line" "$_catch"'/^Use the argument if given/i\
+Run `x=c; y=d; eval "$x$y" "$main"`.
+' "text before step 5 names \`eval \"\$x\$y\" \"\$main\"\`"
+# #249, item 3: a span that names cd in prose, and a project step into a subdirectory, are not a
+# change of checkout. A cd up, to an absolute path or by a variable still is.
+_green "a span naming cd in prose" '/^Use the argument if given/i\
+No step needs `cd`: Bash keeps its directory between calls.
+'
+_green "a project step into a subdirectory" '/^Use the argument if given/i\
+Build the docs first: `cd docs && make`.
+'
+_red "a cd up and out of the checkout" '/^Use the argument if given/i\
+Build the docs first: `cd ../.. && make`.
+' "text before step 5 names \`cd ../..\`"
+_red "a cd to an absolute path" '/^Use the argument if given/i\
+Build the docs first: `cd /tmp && make`.
+' "text before step 5 names \`cd /tmp\`"
+_red "a cd into the home directory" '/^Use the argument if given/i\
+Build the docs first: `cd ~/src && make`.
+' "text before step 5 names \`cd ~/src\`"
+
+# The fragments (#249, item 1): every module's and the local layer's are found, a SKILL.md a module
+# ships whole is not one, and a fragment that pulls is refused, named by its file.
+_fr=$(scratch)/frag-layers
+mkdir -p "$_fr/local/skills/merge-pr" "$_fr/own/mine/skills/merge-pr"
+printf 'name="mine"\nenables="skills"\n' >"$_fr/own/mine/module.conf"
+printf 'After the merge, run `git pull --ff-only` in the main checkout.\n' > "$_fr/local/skills/merge-pr/sync.md"
+printf 'Then catch up: `git -C "$main" merge origin/main`.\n' > "$_fr/own/mine/skills/merge-pr/mine.md"
+printf -- '---\nname: merge-pr\n---\n' > "$_fr/own/mine/skills/merge-pr/SKILL.md"
+_lf=$(LOCAL_DIR="$_fr/local" MODULES_OWN="$_fr/own" merge_pr_fragments | cut -f2)
+for _f in "$_fr/local/skills/merge-pr/sync.md" "$_fr/own/mine/skills/merge-pr/mine.md"; do
+  printf '%s\n' "$_lf" | grep -qxF -- "$_f" && ok "merge_pr_fragments finds ${_f#"$_fr"/}" || fail "merge_pr_fragments misses ${_f#"$_fr"/}: $(printf '%s' "$_lf" | tr '\n' ' ')"
+done
+printf '%s\n' "$_lf" | grep -q '/SKILL\.md$' && fail "merge_pr_fragments lists a module's whole SKILL.md as a fragment" || ok "merge_pr_fragments leaves out a module's whole SKILL.md"
+_fo=$(LOCAL_DIR="$_fr/local" MODULES_OWN="$_fr/own" step5_fragments "$_skill")
+printf '%s\n' "$_fo" | grep -qF "local/skills/merge-pr/sync.md: the text after step 5 names \`git pull --ff-only\`" &&
+  ok "step 5's check catches a pull in a local-layer fragment" || fail "step 5's check passes a pull in a local-layer fragment: $_fo"
+printf '%s\n' "$_fo" | grep -qF "mine/skills/merge-pr/mine.md: the text after step 5 names \`git -C \"\$main\" merge origin/main\`" &&
+  ok "step 5's check catches a merge in a module's fragment" || fail "step 5's check passes a merge in a module's fragment: $_fo"
+printf '### 5. Sync\n\nThen `git pull --ff-only origin main`.\n' > "$_fr/local/skills/merge-pr/sync.md"
+LOCAL_DIR="$_fr/local" MODULES_OWN="$_fr/own" step5_fragments "$_skill" | grep -qF "sync.md: a second '### 5.' heading" &&
+  ok "step 5's check catches a fragment that opens a step 5 of its own" || fail "step 5's check passes a fragment's own '### 5.' heading"
 
 # Budget, outcome and provenance at archive and merge (items 12–14).
 has .claude/skills/archive-change/SKILL.md 'change-cost.sh' "archive records the actual cost"

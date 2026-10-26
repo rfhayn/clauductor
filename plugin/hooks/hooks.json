@@ -53,6 +53,10 @@
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" cd-guard.sh",
             "type": "command"
+          },
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" catch-up-guard.sh",
+            "type": "command"
           }
         ]
       },
