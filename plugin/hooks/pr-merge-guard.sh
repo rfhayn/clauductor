@@ -390,7 +390,9 @@ fi
 #   - more than one `gh pr merge` (any blanks between the words) BLOCKS;
 #   - a stop BLOCKS unless it is a `$` in double quotes, in the command's last word (a trailing
 #     2>&1 or 2>/dev/null aside), as the value of --body, --subject or another value flag: anything
-#     the read never saw could be the -R gh merges in (#271);
+#     the read never saw could be the -R gh merges in (#271); so does an unquoted character
+#     outside letters, digits, _./:@%+=,- and non-ASCII (a brace, glob or tilde expands into
+#     words the read never sees);
 #   - a repo named (-R X, -RX, -sR X, --repo X, --repo=X, or a PR URL) that is not this repo,
 #     outside the allowlisted shape, BLOCKS and shows the shape;
 #   - the PR is the first positional word (values of gh's value-taking flags skipped, `--` ends
@@ -416,7 +418,7 @@ repo_key() {
       }'
 }
 # merge_argv — one line per finding: `M` more than one merge, `R <repo>` per repo named, `P <word>`
-# the PR argument. For POLICING only: it decides which PR rules 2-8 check and whether a foreign repo
+# the PR argument, `U` words it cannot read that gh still gets. For POLICING only: it decides which PR rules 2-8 check and whether a foreign repo
 # is named at all. It never decides that a merge is foreign — foreign_shape does, by allowlist.
 # LC_ALL=C for the reason merge_scan has it (#100): it, too, matches one character at a time.
 merge_argv() {
@@ -465,6 +467,10 @@ merge_argv() {
           if (c == "(") print "U"
           break
         }
+        # Unquoted, only characters that stay as written: a brace, glob or tilde ({-R,o/n}, -[R], -?)
+        # expands into words this read never sees, so anything else is `U` (#271). A byte of a
+        # non-ASCII character is no shell syntax (#100: a body file named with a 🤖).
+        if (c !~ /[A-Za-z0-9_.\/:@%+=,-]/ && c < "\200") { print "U"; have = 0; break }
         tok = tok c; have = 1
       }
       if (q == "" && have) t[++nt] = tok
@@ -626,7 +632,7 @@ case "$pr_arg" in
 esac
 [ -n "$pr" ] || block "cannot tell which PR this merges${pr_arg:+ ('$pr_arg' is not a PR number or PR URL)}, so its CI evidence cannot be checked. Name it: gh pr merge <n> --squash --delete-branch"
 # The PR and its repo read whole, but the read stopped short of words gh still gets (#271).
-[ -z "$hidden" ] || block "this merge has words this guard cannot read (a \$ or backtick expansion, a glob) that could name another repository (-R), which gh would merge in instead of the one the checks read. An expansion passes only in double quotes, as the value of --body or --subject, in the command's last word: gh pr merge <n> --squash --delete-branch --body \"\$(cat <file>)\". Or pass the text in a file: --body-file <file>"
+[ -z "$hidden" ] || block "this merge has words this guard cannot read (a \$ or backtick expansion, a glob, a brace or tilde expansion) that could name another repository (-R), which gh would merge in instead of the one the checks read. Pass the text in a file, its name plain or quoted: gh pr merge <n> --squash --delete-branch --body-file <file>"
 
 # ghpr SUBCOMMAND [ARGS...] — `gh pr SUBCOMMAND` for the PR this merge names, named the way the merge
 # names it: its PR URL, or its number with the merge's own -R word. A bare number resolves through

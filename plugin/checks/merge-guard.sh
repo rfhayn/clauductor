@@ -197,6 +197,14 @@ guard 2 "a quote-split --repo after a quoted substitution" 'gh pr merge 5 --squa
 guard 0 "a quoted substitution glued to --body=" 'gh pr merge 5 --squash --body="$(cat f)"'
 guard 0 "a quoted substitution as -b's value" 'gh pr merge 5 --squash -b "$(cat f)"'
 guard 0 "a quoted substitution as --subject's value, stderr redirected last" 'gh pr merge 5 --squash --subject "$(cat s)" 2>&1'
+# A brace or glob is kept as one word by the read, but the shell expands it into words gh parses.
+guard 2 "a brace expansion into -R and a repo" 'gh pr merge 5 --squash {-R,acme/app}' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a brace expansion in --body-file's value, into a glued -R" 'gh pr merge 5 --squash --body-file {f,-Racme/app}' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a glob bracket that can match a file named -R" 'gh pr merge 5 --squash -[R] acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+# ...and in gh api, an unquoted shorthand value can split into a --hostname the host read never sees.
+guard 2 "gh api -f with an unquoted substitution that splits into --hostname" 'gh api -X PUT repos/acme/app/pulls/5/merge -f $(printf "a=b --hostname ghe2.example.com")' GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 2 "gh api -H with an unquoted substitution that splits into --hostname" 'gh api -X PUT repos/acme/app/pulls/5/merge -H $(printf "a:b --hostname ghe2.example.com")' GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 2 "gh api --hostname H, then -f with a variable that splits into another" 'gh api --hostname ghe.example.com -X PUT repos/acme/app/pulls/5/merge -f $X' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
 guard 2 "gh named by a path, no repo named" '/usr/local/bin/gh pr merge 5 --squash'
 grep -q 'named by a path' "$d/err" && ok "merge-guard: ...and the refusal says gh is named by a path" || fail "merge-guard: the path-named gh refusal does not say so: $(head -3 "$d/err")"
 # The payload's cwd is the Bash tool's directory, where gh runs, and need not be this hook's: a merge

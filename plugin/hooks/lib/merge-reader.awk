@@ -539,7 +539,9 @@ function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M
         x = substr(w, pos, 1)
         if (x !~ /[XfFHqtp]/) continue
         r = substr(w, pos + 1); sub(/^=/, "", r)
-        if (r == "" && ++j <= n) { r = W[c, j]; if (tolower(r) ~ /merge/) men = 1; if (!provable(c, j)) { if (x == "X") mw = 1; r = "" } }
+        # An unprovable value can split into more words (-f $X: "a=b --hostname h2"), as in the long
+        # form: any of them, not only -X, leaves the merge unread.
+        if (r == "" && ++j <= n) { r = W[c, j]; if (tolower(r) ~ /merge/) men = 1; if (!provable(c, j)) { mw = 1; r = "" } }
         if (x == "X") m = r
         if (x ~ /[fF]/) nf = 1
         if (x ~ /[fF]/ && r ~ /^[^=]*=@/) gq = 1
