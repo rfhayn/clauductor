@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestMain lets the test binary act as the clauductor CLI (as cmd/clauductor/main
@@ -35,6 +36,12 @@ func TestMain(m *testing.M) {
 				}
 				return &panel.RestartError{Code: panel.ExitRestart, From: strings.Repeat("a", 40), To: strings.Repeat("b", 40)}
 			}
+		}
+		if w := os.Getenv("CLAUDUCTOR_CMD_HELPER_HANGUP"); w != "" {
+			// A closed terminal's hangup, through `clauductor panel`'s own stop signals
+			// (#162): what stops the run is the test (hangupRun).
+			window, _ := time.ParseDuration(w)
+			runPanel = func(ctx context.Context, _ panel.Options) error { return hangupRun(ctx, window) }
 		}
 		os.Exit(Main(os.Stderr)) // as main does
 	}

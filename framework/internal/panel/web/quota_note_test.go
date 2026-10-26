@@ -30,6 +30,54 @@ func quotaSource(t *testing.T) string {
 	return js[i:j]
 }
 
+// jsFunction is the source of panel.js's top-level function name, from its declaration
+// to its closing brace, so a harness runs the page's own helpers rather than copies of
+// them that would keep passing when the page's changed (#160). Braces inside a string
+// or a comment are skipped; the helpers it reads hold no regular expression.
+func jsFunction(t *testing.T, js, name string) string {
+	t.Helper()
+	i := strings.Index(js, "\nfunction "+name+"(")
+	if i < 0 {
+		t.Fatalf("panel.js: function %s not found", name)
+	}
+	i++
+	depth, quote := 0, byte(0)
+	for j := i; j < len(js); j++ {
+		c := js[j]
+		switch {
+		case quote != 0:
+			if c == '\\' {
+				j++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'' || c == '`':
+			quote = c
+		case strings.HasPrefix(js[j:], "//"):
+			if k := strings.IndexByte(js[j:], '\n'); k >= 0 {
+				j += k
+			}
+		case strings.HasPrefix(js[j:], "/*"):
+			if k := strings.Index(js[j+2:], "*/"); k >= 0 {
+				j += k + 3
+			}
+		case c == '{':
+			depth++
+		case c == '}':
+			if depth--; depth == 0 {
+				return js[i : j+1]
+			}
+		}
+	}
+	t.Fatalf("panel.js: function %s has no closing brace", name)
+	return ""
+}
+
+// quotaHelpers are the panel.js helpers quotaField draws with, loaded from the page
+// itself. Only the clock's (now, until, age, hm) are stubbed: a field with no reading
+// shows none of them.
+var quotaHelpers = []string{"el", "key", "pct", "bullet", "num"}
+
 // [MEASURES-5-S1] The note of a quota field with no reading says the quota comes only
 // with a status-line post, and that a lane measured from its transcript brings none: it
 // is the no-reading branch of the field's title.
@@ -50,25 +98,21 @@ func TestQuotaNoteSaysATranscriptBringsNone(t *testing.T) {
 }
 
 // quotaHarness draws the quota with no reading, through panel.js's own quotaField and
-// quotaFields over a minimal document, and prints each field's label, value and note.
+// quotaFields, and the helpers they draw with, over a minimal document, and prints each
+// field's label, value and note.
 const quotaHarness = `
 const vm = require("vm"), fs = require("fs");
 function node(tag) {
-  const n = { tag, className: "", textContent: "", children: [], dataset: {}, style: {},
+  const n = { tag, className: "", textContent: "", children: [], dataset: {}, style: {}, attrs: {},
     appendChild(c) { this.children.push(c); return c; },
+    setAttribute(k, v) { this.attrs[k] = String(v); },
     get firstChild() { return this.children[0]; } };
   return n;
 }
 const document = { createElement: node, createTextNode: (t) => ({ textContent: t, children: [] }) };
-const prelude = 'function el(tag, cls, text, kids) { const e = document.createElement(tag); if (cls) e.className = cls;' +
-  ' if (text != null) e.textContent = text; for (const k of kids || []) if (k) e.appendChild(k); return e; }' +
-  ' function key(e, k) { e.dataset.k = k; return e; }' +
-  ' function pct(v) { return v == null ? "—" : Math.round(v) + "%"; }' +
-  ' function bullet(v) { return el("span", "bullet", null, [el("i")]); }' +
-  ' function num(text) { return el("span", "num", text); }' +
-  ' const now = () => 1e12, until = () => el("span"), age = () => el("span"), hm = () => "";';
+const stubs = 'const now = () => 1e12, until = () => el("span"), age = () => el("span"), hm = () => "";\n';
 const ctx = { document, out: null };
-vm.runInNewContext(prelude + fs.readFileSync(process.argv[2], "utf8") +
+vm.runInNewContext(stubs + fs.readFileSync(process.argv[2], "utf8") +
   '; out = { unknown: quotaFields({}, {}, {}), windows: quotaFields({}, { quotaMode: "windows" }, {}) };', ctx);
 const text = (n) => (n.textContent || "") + n.children.map(text).join("");
 const show = (fs) => fs.map((f) => ({ label: text(f.children[0]), value: text(f.children[1]), note: f.title }));
@@ -90,8 +134,14 @@ func TestQuotaFieldsWithNoReading(t *testing.T) {
 		t.Skip("node is not installed; the quota's fields are drawn untested here")
 	}
 	dir := t.TempDir()
+	js := readWeb(t, "panel.js")
+	var code strings.Builder
+	for _, name := range quotaHelpers {
+		code.WriteString(jsFunction(t, js, name) + "\n")
+	}
+	code.WriteString(quotaSource(t))
 	src := filepath.Join(dir, "quota.js")
-	if err := os.WriteFile(src, []byte(quotaSource(t)), 0o644); err != nil {
+	if err := os.WriteFile(src, []byte(code.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	h := filepath.Join(dir, "harness.js")
