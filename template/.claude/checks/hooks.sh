@@ -598,10 +598,11 @@ git -C "$C" worktree remove --force "$CW" 2>/dev/null
 cdg 0 "once the held worktree is gone" "$(cdb "cd /")"
 
 # ── catch-up-guard ──────────────────────────────────────────────────────────────────────
-# With catch-up on, a git pull, merge, rebase or reset aimed at the main checkout is refused: from
-# the main checkout, a subdirectory of it, or a lane that aims there by -C, cd, chdir, eval, sh -c,
-# GIT_DIR or an alias. A lane's own catch-up merge, merge-pr's squash-merge and a pull with catch-up
-# off are not. A stand-in clauductor answers `panel catch-up` from a state file, and only for the
+# With catch-up on, a git command that moves the main checkout (pull, merge, rebase, reset, switch,
+# update-ref, ...) aimed there is refused: from the main checkout, a subdirectory of it, or a lane
+# that aims there by -C, cd, chdir, eval, sh -c, GIT_DIR or an alias, through any wrapper or
+# spelling. A lane's own catch-up merge (after a cd into it, too), a mention, merge-pr's
+# squash-merge and a pull with catch-up off are not. A stand-in clauductor answers `panel catch-up` from a state file, and only for the
 # project the file names, so a row passes only if the hook asks about the main checkout.
 M="$d/cug"; new_repo "$M"; git -C "$M" commit -q --allow-empty -m seed; mkdir -p "$M/sub" "$M/.claude/worktrees"
 git -C "$M" worktree add -q -b lane "$M/.claude/worktrees/lane" 2>/dev/null; ML="$M/.claude/worktrees/lane"
@@ -654,6 +655,42 @@ cug 2 "a lane's merge by GIT_DIR and GIT_WORK_TREE" "GIT_DIR=$M/.git GIT_WORK_TR
 cug 2 "a lane's merge by --work-tree" "git --work-tree=$M --git-dir=$M/.git merge origin/main" "$ML"
 cug 2 "a lane's pull by env -C" "env -C $M git pull" "$ML"
 cug 2 "a lane's pull by pushd" "pushd $M >/dev/null && git pull" "$ML"
+cug 2 "a lane's pull by -C and an unquoted \$( … )" 'git -C $(git worktree list --porcelain | sed -n "1s/^worktree //p") pull' "$ML"
+cug 2 "a lane's pull by -C and backticks" 'git -C `git worktree list --porcelain | sed -n 1p` pull' "$ML"
+cug 2 "a lane's pull by -C and a nested \$( … )" 'git -C $(dirname $(pwd)) pull' "$ML"
+cug 2 "a pull through timeout" "timeout 60 git pull" "$M"
+cug 2 "a pull through nice -n" "nice -n 5 git pull" "$M"
+cug 2 "a pull through command -p" "command -p git pull" "$M"
+cug 2 "a pull through sudo -u" "sudo -u rich git pull" "$M"
+cug 2 "a pull through xargs -n1" "echo origin | xargs -n1 git pull" "$M"
+cug 2 "a pull through a wrapper not on any list" "chronic git pull" "$M"
+cug 2 "a pull spelled g\\it" 'g\it pull' "$M"
+cug 2 "a pull spelled gi''t" "gi''t pull" "$M"
+cug 2 "a pull spelled \"gi\"t" '"gi"t pull' "$M"
+cug 2 "a switch -C onto main" "git switch -C main origin/main" "$M"
+cug 2 "a checkout -B onto main" "git checkout -B main origin/main" "$M"
+cug 2 "an update-ref of main" "git update-ref refs/heads/main origin/main" "$M"
+cug 2 "a fetch with --update-head-ok" "git fetch --update-head-ok origin main:main" "$M"
+cug 2 "a stash in the main checkout" "git stash" "$M"
+cug 2 "a pull after a cd within the main checkout" "cd sub && git pull" "$M"
+cug 2 "a pull after a cd that fails" "cd $d/no-such-dir; git pull" "$M"
+cug 2 "a pull after a subshell's cd (this shell stays)" "(cd $ML && true); git pull" "$M"
+cug 2 "a lane's merge after cd - (unknown)" "cd - && git merge origin/main" "$ML"
+cug 2 "a lane's pull by -c core.worktree" "git -c core.worktree=$M pull" "$ML"
+cug 2 "a lane's pull by GIT_CONFIG_PARAMETERS" "GIT_CONFIG_PARAMETERS=\"'core.worktree=$M'\" git pull" "$ML"
+cug 2 "a lane's pull in a \$( … ) inside \${ … }" ": \${x:=\$(git -C $M pull)}" "$ML"
+cug 2 "without jq: a pull spelled g\\it" 'g\it pull' "$M" "$d/cug-nojq"
+rc=0; printf '{"tool_name":"Bash","cwd":"%s","tool_input":{"command":"git pull"}' "$M" | (cd "$M" && PATH="$d/cug-bin:$PATH" sh "$H/catch-up-guard.sh") >/dev/null 2>&1 || rc=$?
+expect_rc 2 "$rc" "catch-up-guard blocks: a pull in a payload jq cannot read (read raw)"
+cug 0 "a lane's catch-up after cd into its own worktree" "cd $ML && git fetch origin main && git merge origin/main" "$ML"
+cug 0 "a lane's catch-up by cd from the main checkout" "cd $ML && git fetch origin main && git merge origin/main" "$M"
+cug 0 "a variable command with no git in the main checkout" 'for f in a b; do $f --version; done' "$M"
+cug 0 "a variable command with no git in a lane" 'for f in a b; do $f --version; done' "$ML"
+cug 0 "a lane's eval of an agent's environment, then a status" 'eval "$(ssh-agent -s)" && git status' "$ML"
+cug 0 "a search of the docs for a pull" 'grep -rn "git pull" docs/' "$M"
+cug 0 "a stash listing" "git stash list" "$M"
+cug 0 "a status through timeout" "timeout 60 git status" "$M"
+cug 0 "a fetch into a remote-tracking ref" "git fetch origin main:refs/remotes/origin/main" "$M"
 cug 2 "without jq: a pull in the main checkout" "git pull" "$M" "$d/cug-nojq"
 cug 0 "without jq: a command with no pull" "git status" "$M" "$d/cug-nojq"
 cug 0 "merge-pr's squash-merge from the main checkout" "gh pr merge 5 --squash --delete-branch --body-file f" "$M"
