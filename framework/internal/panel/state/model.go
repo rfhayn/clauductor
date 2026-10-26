@@ -208,6 +208,7 @@ type Model struct {
 	worktreesSrc SourceStatus
 	agentsSrc    SourceStatus
 	agentsOKAt   time.Time // the last `claude agents` poll that succeeded
+	agentsFirst  time.Time // the first one: a wait it lists began before this panel saw it (#231)
 	// agentsPollStart is when that poll started (ApplyAgentsTimed): a session that
 	// ended after it may still be listed in it (PANEL-57, closeheld.go).
 	agentsPollStart time.Time
@@ -730,6 +731,9 @@ func (m *Model) applyAgents(agents []signals.Agent, err error, start, now time.T
 		return
 	}
 	first := m.agentsOKAt.IsZero()
+	if first {
+		m.agentsFirst = now
+	}
 	m.agentsSrc = SourceStatus{OK: true, At: ms(now)}
 	m.agentsOKAt, m.agentsPollStart = now, start
 	seen := map[string]bool{}
@@ -1251,6 +1255,20 @@ func (m *Model) stale(s *session, now time.Time) bool {
 	return m.laneHookAt[s.Lane].Before(s.BusySince.Add(-busySlack))
 }
 
+// waitsCarried is the sessions whose wait the first `claude agents` answer listed (or a
+// restart restored, restoreKeep's askAt) and that has not ended since: the panel did
+// not see it begin, so after a restart it may be the stretch notified before it.
+func (m *Model) waitsCarried() []string {
+	var ids []string
+	for id, s := range m.sessions {
+		if s.Agent != nil && s.Agent.Status == "waiting" && !s.WaitingSince.IsZero() && !s.WaitingSince.After(m.agentsFirst) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // Snapshot derives the View at `now`.
 func (m *Model) Snapshot(now time.Time) View {
 	v := View{
@@ -1722,6 +1740,10 @@ type ViewOrchestration struct {
 	// yet answered for their branch and HEAD: the notifier keeps their stalls' marks
 	// meanwhile (PANEL-51 D1, D10; stall.go). The notifier's, not the page's.
 	StallsUnjudged []string `json:"-"`
+	// WaitsCarried are the sessions waiting since the first `claude agents` answer
+	// (waitsCarried): their alert's Since is when this panel first saw the wait, not
+	// when it began. The notifier's, not the page's (#231).
+	WaitsCarried []string `json:"-"`
 }
 
 // ApplyClaudeVersion records `claude --version`.
@@ -2007,6 +2029,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 	}
 
 	v.Alerts = append(append(m.computeAlerts(v, th, now), m.metricsAlerts(v, th, now)...), stalled...)
+	v.WaitsCarried = m.waitsCarried()
 	sort.SliceStable(v.Alerts, func(i, j int) bool { return sevRank(v.Alerts[i].Severity) > sevRank(v.Alerts[j].Severity) })
 
 	v.Observe = ObsView{Obs: m.v2.obs, HookEvents: m.hookEvents, StatusPosts: m.statusPosts, DroppedForeign: m.dropped,

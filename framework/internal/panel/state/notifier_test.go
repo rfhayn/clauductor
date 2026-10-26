@@ -225,6 +225,70 @@ func TestNotifierIntervalHoldsWhileTheLaneIsUnbound(t *testing.T) {
 	}
 }
 
+// #231: a waiting alert's Since is when this panel first saw the wait, so a restart
+// gives a stretch still waiting a new one. Past MinInterval, with the lane still
+// waiting, the restart sends nothing: before `claude agents` answers, while the alert
+// waits out its threshold, or once it shows with its new Since. The wait ending and
+// coming back after the restart is a new stretch, and notifies.
+func TestNotifierRestartPastMinIntervalKeepsAWaitNotified(t *testing.T) {
+	t.Parallel()
+	const cfg = `,"alerts":{"waiting_seconds":60,"stall_minutes":0}`
+	wts := []signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/x", Branch: "change/x"}}
+	waiting := []signals.Agent{{SessionID: "s", Cwd: "/repo/w/x", Status: "waiting", WaitingFor: "input needed", PID: 7}}
+	waitAlert := func(v View) []AlertView {
+		var out []AlertView
+		for _, a := range v.Alerts {
+			if a.Kind == AlertWaiting {
+				out = append(out, a)
+			}
+		}
+		return out
+	}
+
+	a := NewModel(v2Config(t, cfg), "/repo", t0)
+	a.ApplyWorktrees(wts, nil, t0)
+	a.ApplyAgents(waiting, nil, t0)
+	a.ApplyAgents(waiting, nil, t0.Add(2*time.Minute))
+	n := &Notifier{MinInterval: 5 * time.Minute}
+	if out := n.ProcessView(a.Snapshot(t0.Add(2*time.Minute)), nil, t0.Add(2*time.Minute)); len(out) != 1 {
+		t.Fatalf("before the restart: %d notices, want 1", len(out))
+	}
+
+	start := t0.Add(20 * time.Minute)
+	b := NewModel(v2Config(t, cfg), "/repo", start)
+	b.ApplyWorktrees(wts, nil, start)
+	n2 := &Notifier{MinInterval: 5 * time.Minute}
+	n2.Restore(n.State())
+	at := func(d time.Duration) time.Time { return start.Add(d) }
+	if out := n2.ProcessView(b.Snapshot(at(0)), nil, at(0)); len(out) != 0 {
+		t.Fatalf("before claude agents answers: %+v", out)
+	}
+	b.ApplyAgents(waiting, nil, at(2*time.Second))
+	if out := n2.ProcessView(b.Snapshot(at(3*time.Second)), nil, at(3*time.Second)); len(out) != 0 {
+		t.Fatalf("inside the waiting threshold: %+v", out)
+	}
+	b.ApplyAgents(waiting, nil, at(70*time.Second))
+	v := b.Snapshot(at(70 * time.Second))
+	if w := waitAlert(v); len(w) != 1 || w[0].Since != at(2*time.Second).UnixMilli() {
+		t.Fatalf("premise: the waiting alert after the restart is %+v, want one with the restart's Since", w)
+	}
+	if out := n2.ProcessView(v, nil, at(70*time.Second)); len(out) != 0 {
+		t.Fatalf("the restart re-notified a wait still active past MinInterval: %+v", out)
+	}
+
+	// The wait ends and comes back: a new stretch, and it notifies.
+	busy := []signals.Agent{{SessionID: "s", Cwd: "/repo/w/x", Status: "busy", PID: 7}}
+	b.ApplyAgents(busy, nil, at(2*time.Minute))
+	if out := n2.ProcessView(b.Snapshot(at(2*time.Minute)), nil, at(2*time.Minute)); len(out) != 0 {
+		t.Fatalf("busy: %+v", out)
+	}
+	b.ApplyAgents(waiting, nil, at(3*time.Minute))
+	b.ApplyAgents(waiting, nil, at(4*time.Minute+5*time.Second))
+	if out := n2.ProcessView(b.Snapshot(at(4*time.Minute+5*time.Second)), nil, at(4*time.Minute+5*time.Second)); len(out) != 1 {
+		t.Fatalf("a wait begun after the restart: %d notices, want 1", len(out))
+	}
+}
+
 // stalledAt is a stalled alert of lane-a since since, as applyStalls raises it.
 func stalledAt(since time.Time, approx bool) AlertView {
 	return AlertView{Key: AlertStalled + ":/repo/w/a", Kind: AlertStalled, Severity: signals.SevBlock, Lane: "/repo/w/a",
