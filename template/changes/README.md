@@ -69,9 +69,11 @@ every open change against the shape below.
   whose `**Risk:**` is below the row's `Risk:` (a row with none is normal); `Risk: low-ish` is a
   Risk other than those. A marker is read as it renders (`marker_plain` in `.claude/lib/change.sh`),
   left to right as CommonMark reads it: emphasis or code inside the word (`**Appro*val*:**`), an
-  HTML tag or comment (`Appro<b></b>val:`), a link (`[Approval](x):`), an entity, a letter
-  (`Ri&#115;k:`) or a colon (`&#58;`, `&#65306;`), a look-alike colon (`：`, `ː`) or, in a proposal,
-  a line break inside the marker hides none. A `<` that opens no tag (`p95 < 50ms`) is text, and
+  HTML tag or comment (`Appro<b></b>val:`), a link (`[Approval](x):`), text that is no link or a
+  reference label (`[x](Approval: owner)`, `[x][Risk: high]`), an entity, a letter (`Ri&#115;k:`),
+  a colon (`&#58;`, `&#65306;`) or a named one not listed (`Approval&ratio; owner`), a control
+  character, a look-alike colon (`：`, `ː`) or, in a proposal, a line break inside the marker hides
+  none. A `<` that opens no tag (`p95 < 50ms`) is text, and
   so is a code span or an escape (`\<`), so neither starts a tag that hides a marker. What is not
   ASCII and not a known space, dash, quote, bullet or arrow reads as nothing inside a word (an
   invisible or combining character, `Appro&#847;val:`) and as a colon outside one or right after

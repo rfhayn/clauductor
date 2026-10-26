@@ -114,7 +114,9 @@ for spelt in '**Approval**: owner' ' **Approval:** owner' '__approval:__ owner' 
   'Appro<!-- > -->val: owner' '[Approval](http://x): owner' '**Approval**\n: owner' \
   '**Budget:** $20 (< $25 cap)\n**Approval:** owner -> outward' 'Appro&#847;val: owner' "Appro${cgj}val: owner" \
   'Appro&#xE0020;val: owner' "Approval$(printf '\313\220')owner" "Approval$(printf '\352\223\275') owner" \
-  "Approval$(printf '\341\240\204') owner" '`<b title="` Approval: owner `">`' '\\<b title="Appro<i></i>val: owner">'; do
+  "Approval$(printf '\341\240\204') owner" '`<b title="` Approval: owner `">`' '\\<b title="Appro<i></i>val: owner">' \
+  '[x](Approval: owner)' '[x][Approval: owner]' 'note](Approval:owner).' '[1](Approval: owner — money. More (end)' \
+  'Approval&ratio; owner' 'Appro&DownBreve;val: owner' 'Appro&#1;val: owner' "Appro$(printf '\177')val: owner"; do
   awk -v m="$spelt" '{ print } /^\*\*Risk:\*\*/ { print m }' "$d/fresh.md" > "$C/proposal.md"
   startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line spelt '$spelt'"
 done
@@ -127,7 +129,8 @@ for spelt in '**Approval:** owner' 'Approval:owner' 'Approval: the owner' '_Appr
   'Appro<b></b>val: owner' 'Approval&#58; owner' "Approval${fw}owner" "Appro${zw}val: owner" 'Approv&#97;l: owner' 'Approval&#65306; owner' \
   'Approval<span title="a\|b"></span>: owner' '[Approval](x): owner' 'Appro<!-- x -->val: owner' \
   'p95 < 50ms. Approval: owner. Touches > 3 files' 'Appro&#847;val: owner' "Approval$(printf '\313\220')owner" \
-  '`<b title="` Approval: owner `">`' '\<b title="Appro<i></i>val: owner">'; do
+  '`<b title="` Approval: owner `">`' '\<b title="Appro<i></i>val: owner">' '[x](Approval: owner)' '[see][Approval: owner]' \
+  'Approval&ratio; owner' "Appro$(printf '\033')val: owner"; do
   roadmap "\`add-greeting-name\` — greet a member by name. Risk: low. $spelt"
   D; expect_rc 1 $? "change-approval --delegate refuses a row marker spelt '$spelt'"
 done
@@ -137,13 +140,16 @@ grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk i
 roadmap '`add-greeting-name` — p95 < 50ms, x < y. Risk: low. Touches > 3 files'
 D; expect_rc 0 $? "change-approval --delegate passes a row whose lone < opens no tag"
 # A dash is punctuation, not a colon, written or as an entity: "the approval — a note" is no marker.
-for dash in '—' '&#8212;'; do
+for dash in '—' '&#8212;' '&mdash;'; do
   roadmap "\`add-greeting-name\` — the approval $dash a note. Risk: low"
   D; expect_rc 0 $? "change-approval --delegate passes a row whose 'approval' is followed by a dash ($dash)"
 done
 # A known invisible reads as nothing wherever it stands, not as an unknown character (a colon).
 roadmap "\`add-greeting-name\` — the approval$(printf '\342\200\213') process. Risk: low"
 D; expect_rc 0 $? "change-approval --delegate passes a row whose 'approval' is followed by a zero-width space"
+# A link reads as its text, and a reference link holding no marker either way is no marker.
+roadmap '`add-greeting-name` — the approval [process](#p "how it runs") and [notes][n]. Risk: low'
+D; expect_rc 0 $? "change-approval --delegate passes a row whose links hold no marker"
 # A stray backtick in the Change cell pairs with nothing in the Scope's span, so it hides neither
 # marker.
 roadmap '`add-greeting-name` — trims 5` of padding. Approval: owner'
@@ -152,6 +158,12 @@ grep -q 'says Approval: owner' "$d/out" && ok "...and names the marker" || fail 
 roadmap '`add-greeting-name` — trims 5` of padding. Risk: high'
 D; expect_rc 1 $? "change-approval --delegate reads the row's Risk past a stray backtick"
 grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no stray-backtick floor reason in: $(cat "$d/out")"
+# A span closes only on a run of its own length: one backtick, then the marker, then two, is no span.
+roadmap '`add-greeting-name` — x. `Risk: high``'
+D; expect_rc 1 $? "change-approval --delegate reads a Risk after a backtick no run of one length closes"
+grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no run-length floor reason in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — x. `Approval: owner``. Risk: low'
+D; expect_rc 1 $? "change-approval --delegate reads Approval: owner after a backtick no run of one length closes"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row says `Approval: owner` to keep it'
 D; expect_rc 0 $? "change-approval --delegate passes a row that only names the marker in backticks"
 roadmap '`add-greeting-name` — greet a member by name &amp; title, under `changes/<id>/`. Risk: low'

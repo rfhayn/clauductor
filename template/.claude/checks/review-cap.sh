@@ -35,6 +35,10 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | 1.19 | `ops/cgj` — Ri&#847;sk: high | s | — | ⬜ queued |
 | 1.20 | `ops/lookalike` — Riskː high | s | — | ⬜ queued |
 | 1.21 | `ops/colonval` — Risk: high：today | s | — | ⬜ queued |
+| 1.22 | `ops/nolink` — x [see](Risk: high) | s | — | ⬜ queued |
+| 1.23 | `ops/reflabel` — x [see][Risk: high] | s | — | ⬜ queued |
+| 1.24 | `ops/named` — Risk&ratio; high | s | — | ⬜ queued |
+| 1.25 | `ops/runs` — x. `Risk: high`` | s | — | ⬜ queued |
 EOF
 printf '# add-low\n\n**Risk:** low\n' > "$F/changes/add-low/proposal.md"
 printf '# add-bad\n\n**Risk:** medium\n' > "$F/changes/add-bad/proposal.md"
@@ -76,6 +80,10 @@ is 4 "a Risk between a lone < and a later > (no tag)" ops/lt
 is 4 "a Risk read as rendered (a combining joiner in the key)" ops/cgj
 is 4 "a Risk read as rendered (a look-alike colon)" ops/lookalike
 is 4 "a look-alike colon ends a Risk's value, as a colon does" ops/colonval
+is 4 "a Risk in a destination with a space, which is no link" ops/nolink
+is 4 "a Risk in a reference label, which renders where a definition names it" ops/reflabel
+is 4 "a Risk read as rendered (a named entity not listed, as a colon)" ops/named
+is 4 "a Risk after a lone backtick, which no run of one length closes" ops/runs
 printf 'REVIEW_CAPS="low:1 normal:4 high:5"\n' > "$F/.claude/project.conf"
 is 1 "REVIEW_CAPS sets the rounds (low:1)" add-low
 is 4 "REVIEW_CAPS sets the rounds (normal:4)" 1.5

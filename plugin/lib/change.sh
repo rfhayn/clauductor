@@ -72,10 +72,13 @@ table_rows_naming() {
 # span is text (a tag or an entity inside it is not markup), and a `<` starts markup only where it
 # opens a real tag (`<b>`, `<span title="a>b">`, `</b>`), a comment (`<!-- -->`), an instruction
 # (`<?…?>`), a declaration or CDATA; those go (`Appro<b></b>val`), and any other `<` is text, so
-# `p95 < 50ms … > 3` hides nothing between. A link reads as its text (`[Approval](x)`). Every entity
-# is decoded: a numeric one to its ASCII character (`Ri&#115;k`), a markup character (`` ` * _ | \
-# < > & ``, which renders as itself, never as markup) or a space to a space; a named one is
-# `&colon;` a colon, an invisible one nothing, any other a space. Then what is not ASCII: an
+# `p95 < 50ms … > 3` hides nothing between. A link CommonMark makes reads as its text
+# (`[Approval](x)`); a destination with a space in it (`[x](Approval: owner)`) is no link, so it
+# stays, and a reference label, which renders only where a definition names it, is read both ways
+# (a line each). Every entity is decoded: a numeric one to its ASCII character (`Ri&#115;k`), a
+# markup character (`` ` * _ | \ < > & ``, which renders as itself, never as markup) or a space to
+# a space; a named one as its code point is (`&colon;`, `&nbsp;`, `&mdash;`), and a name not listed
+# (`&ratio;`) or a control character as what is not ASCII. Then what is not ASCII: an
 # invisible character (zero-width, soft hyphen, BOM) is nothing; a space, a dash, a quote, a bullet,
 # a middle dot or an arrow is a space; a colon look-alike (`：`, `∶`) is a colon; and anything else
 # is nothing inside a word (`Appro&#847;val`, a combining joiner) and a colon outside one or right
@@ -90,11 +93,11 @@ marker_plain() {
   function dec(n) {
     if (n == 124 || n == 96 || n == 42 || n == 95 || n == 92 || n == 60 || n == 62 || n == 38) return " "
     if (n > 32 && n < 127) return sprintf("%c", n)
-    if (n <= 32 || n == 127 || n == 160 || (n >= 8192 && n <= 8202) || n == 8239 || n == 8287 || n == 12288) return " "
+    if (n == 9 || n == 10 || n == 12 || n == 13 || n == 32 || n == 160 || (n >= 8192 && n <= 8202) || n == 8239 || n == 8287 || n == 12288) return " "
     if ((n >= 8208 && n <= 8223) || n == 8226 || n == 8230 || n == 183 || (n >= 8592 && n <= 8703)) return " "
     if (n == 65306 || n == 65109 || n == 65043 || n == 42889 || n == 8758 || n == 760) return ":"
     if ((n >= 8203 && n <= 8207) || (n >= 8288 && n <= 8292) || n == 65279 || n == 173) return ""
-    return "\200"  # any other character: what is not ASCII is read below
+    return "\200"  # any other character, a control or NUL too: what is not ASCII is read below
   }
   function num(e,   i, v, h, d) {  # e: the digits after &#, decimal or x-prefixed hex
     v = 0; h = (e ~ /^[xX]/); if (h) e = substr(e, 2)
@@ -124,6 +127,7 @@ marker_plain() {
   }
   # html: s with its markup gone, read in CommonMark order. What a later step must not read as
   # markup (an escaped character, a code span`s `&` and `]`) is followed by \002, which plain drops.
+  # In a table line a code span is wrapped in \003, so row_change_cell drops only a real one.
   function html(s,   o, c, n, r, t) {
     o = ""
     while (s != "") {
@@ -135,7 +139,7 @@ marker_plain() {
         match(s, /^`+/); n = RLENGTH
         if (r = closer(substr(s, n + 1), n)) {
           t = substr(s, 1, r + 2 * n - 1); gsub(/&|\]/, "&\002", t)
-          o = o t; s = substr(s, r + 2 * n); continue
+          o = o (prose ? t : "\003" t "\003"); s = substr(s, r + 2 * n); continue
         }
         o = o substr(s, 1, n); s = substr(s, n + 1); continue
       }
@@ -157,20 +161,33 @@ marker_plain() {
     }
     return o s
   }
-  function plain(s,   o, e) {
-    # A link reads as its text: `[Approval](x):` is `[Approval]:`, and the caller drops the brackets.
-    if (prose) { gsub(/\]\([^)]*\)/, "]", s); gsub(/\]\[[^]]*\]/, "]", s) }
-    else { gsub(/\]\([^)|]*\)/, "]", s); gsub(/\]\[[^]|]*\]/, "]", s) }
+  # plain: s, from html, as text. A link reads as its text, `[Approval](x):` being `[Approval]:` (the
+  # caller drops the brackets), but only a link CommonMark makes: an opener, then a destination with
+  # no space and at most a quoted title (lk); `note](Approval: owner)` keeps its words. The label of
+  # a reference (`[x][Approval: owner]`) renders only where a definition names it, which is not
+  # read, so the caller reads s both ways: the label gone, and kept (ref).
+  function plain(s, ref,   o, e, m) {
+    o = ""
+    while (match(s, lk)) {
+      m = substr(s, RSTART, RLENGTH); o = o substr(s, 1, RSTART - 1) substr(m, 1, index(m, "]"))
+      s = substr(s, RSTART + RLENGTH)
+    }
+    s = o s
+    if (ref) gsub(/\]\[/, "] [", s); else gsub(/\]\[[^]|]*\]/, "]", s)
     o = ""
     while (match(s, /&(#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/)) {
       e = substr(s, RSTART + 1, RLENGTH - 2); o = o substr(s, 1, RSTART - 1)
       if (e ~ /^#/) o = o dec(num(substr(e, 2)))
-      else if (e == "colon") o = o ":"
-      else if (e !~ /^(shy|zwj|zwnj|lrm|rlm|NoBreak|ZeroWidthSpace|InvisibleTimes|it|InvisibleComma|ic|ApplyFunction|af|Negative(VeryThin|Thin|Medium|Thick)Space)$/) o = o " "
+      else o = o (e in ent ? dec(ent[e]) : "\200")
       s = substr(s, RSTART + RLENGTH)
     }
     s = o s
     gsub(zw, "", s); gsub(sp, " ", s); gsub(pn, " ", s); gsub(co, ":", s); gsub(/\002/, "", s); return wide(s)
+  }
+  function cells(s,   n, c, i) {  # the escaped pipes of a table line back
+    n = split(s, c, "\001"); s = c[1]
+    for (i = 2; i <= n; i++) s = s "\\|" c[i]
+    return s
   }
   BEGIN {
     zw = "\342\200[\213-\217]|\342\201[\240-\244]|\357\273\277|\302\255"
@@ -183,15 +200,35 @@ marker_plain() {
     av = "([^ \t\"" q "=<>`]+|\"[^\"]*\"|" q "[^" q "]*" q ")"
     otag = "^<[A-Za-z][A-Za-z0-9-]*([ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*([ \t]*=[ \t]*" av ")?)*[ \t]*/?>"
     ctag = "^</[A-Za-z][A-Za-z0-9-]*[ \t]*>"
+    lk = "\\[[^][\002|]*\\]\\((<[^<>|]*>|[^ \t()<>|]*)([ \t]+(\"[^\"|]*\"|" q "[^" q "|]*" q "|\\([^()|]*\\)))?[ \t]*\\)"
+    # The named entities prose meets, read as their code points are (dec); any other name is read as
+    # what is not ASCII, so `Approval&ratio; owner` is a marker and `Appro&DownBreve;val:` one word.
+    n = split("colon 58 Tab 9 NewLine 10 nbsp 160 NonBreakingSpace 160 ensp 8194 emsp 8195 emsp13 8196" \
+      " emsp14 8197 numsp 8199 puncsp 8200 thinsp 8201 ThinSpace 8201 hairsp 8202 VeryThinSpace 8202" \
+      " MediumSpace 8287 amp 38 AMP 38 lt 60 LT 60 gt 62 GT 62 quot 34 QUOT 34 apos 39 ast 42 midast 42" \
+      " lowbar 95 UnderBar 95 grave 96 DiacriticalGrave 96 verbar 124 vert 124 VerticalLine 124 bsol 92" \
+      " lsqb 91 lbrack 91 rsqb 93 rbrack 93 excl 33 num 35 dollar 36 percnt 37 lpar 40 rpar 41 plus 43" \
+      " comma 44 period 46 sol 47 semi 59 equals 61 quest 63 commat 64 Hat 94 lcub 123 lbrace 123" \
+      " rcub 125 rbrace 125 hyphen 8208 dash 8208 ndash 8211 mdash 8212 horbar 8213 lsquo 8216" \
+      " OpenCurlyQuote 8216 rsquo 8217 rsquor 8217 CloseCurlyQuote 8217 sbquo 8218 lsquor 8218" \
+      " ldquo 8220 OpenCurlyDoubleQuote 8220 rdquo 8221 rdquor 8221 CloseCurlyDoubleQuote 8221 bdquo 8222" \
+      " ldquor 8222 bull 8226 bullet 8226 hellip 8230 mldr 8230 middot 183 centerdot 183 CenterDot 183" \
+      " larr 8592 uarr 8593 rarr 8594 darr 8595 harr 8596 lArr 8656 uArr 8657 rArr 8658 dArr 8659" \
+      " hArr 8660 shy 173 zwnj 8204 zwj 8205 lrm 8206 rlm 8207 ZeroWidthSpace 8203" \
+      " NegativeVeryThinSpace 8203 NegativeThinSpace 8203 NegativeMediumSpace 8203" \
+      " NegativeThickSpace 8203 NoBreak 8288 ApplyFunction 8289 af 8289 InvisibleTimes 8290 it 8290" \
+      " InvisibleComma 8291 ic 8291", c, " ")
+    for (i = 1; i < n; i += 2) ent[c[i]] = c[i + 1]
+    # A control character renders as nothing a reader sees: it is read as what is not ASCII too.
+    ctl = "[\001-\010\013\016-\037\177]"
     if (prose) RS = ""
   }
-  prose { gsub(/\n/, " "); print plain(html($0)); next }
+  { gsub(ctl, "\200") }
+  prose { gsub(/\n/, " "); s = html($0); a = plain(s); b = plain(s, 1); print a; if (b != a) print b; next }
   {
     s = $0; gsub(/\\\|/, "\001", s); n = split(s, c, "|"); s = html(c[1])
     for (i = 2; i <= n; i++) s = s "|" html(c[i])
-    n = split(plain(s), c, "\001"); s = c[1]
-    for (i = 2; i <= n; i++) s = s "\\|" c[i]
-    print s
+    a = cells(plain(s)); b = cells(plain(s, 1)); print a; if (b != a) print b
   }'
 }
 
@@ -202,17 +239,18 @@ marker_plain() {
 # marks (`*`, `_`, backticks) go, so emphasis or a span around only part of a marker (Risk:
 # `high`, `Approval:` owner) cannot hide it. The cells are split as roadmap-queue.sh splits them,
 # an escaped `\|` being text, and the spans read only after, so a stray backtick cannot pair with
-# one in the next cell. review-cap.sh reads a row's Risk from it, and change-approval.sh its Risk
-# and `Approval:`.
+# one in the next cell. A span is one marker_plain found (wrapped in \003), opened and closed by
+# runs of one length, so a lone backtick before a marker pairs with nothing after it. review-cap.sh
+# reads a row's Risk from it, and change-approval.sh its Risk and `Approval:`.
 row_change_cell() {
   marker_plain | awk '{
     gsub(/\\\|/, " "); split($0, c, "|"); x = c[3]; y = ""
-    while (match(x, /`[^`]*`/)) {
+    while (match(x, /\003[^\003]*\003/)) {
       s = substr(x, RSTART, RLENGTH); y = y substr(x, 1, RSTART - 1)
       if (tolower(s) !~ /(risk|approval)[^a-z0-9]*:[^a-z0-9]*[a-z0-9]/) y = y s
       x = substr(x, RSTART + RLENGTH)
     }
-    y = y x; gsub(/[`*_]|\[|\]/, "", y); print y
+    y = y x; gsub(/[`*_\003]|\[|\]/, "", y); print y
   }'
 }
 
