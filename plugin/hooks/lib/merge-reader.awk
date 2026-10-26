@@ -550,7 +550,10 @@ function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M
     if (ep == "") { ep = w; ei = j }
   }
   # GitHub routes …/merge?x=1 and …/merge#x to the merge endpoint: the query and fragment go first.
-  e = tolower(ep); sub(/[?#].*$/, "", e); sub(/^https:\/\/api\.github\.com\//, "", e); sub(/^\//, "", e)
+  e = tolower(ep); sub(/[?#].*$/, "", e)
+  # gh sends an absolute endpoint where it says, whatever --hostname or GH_HOST names: github.com.
+  if (sub(/^https:\/\/api\.github\.com\//, "", e)) { if (h != "" && tolower(h) != "github.com") hw = 1; else h = "github.com" }
+  sub(/^\//, "", e)
   # The method gh sends: -X, else POST when any field or --input is given, else GET.
   M = toupper(m); if (M == "" && nf) M = "POST"
   if (ew) { if (men || M == "PUT" || mw) odd("gh api with a computed endpoint (" ep ") that may merge"); return }

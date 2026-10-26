@@ -166,9 +166,14 @@ guard 2 "gh api --hostname named twice" "gh api --hostname ghe.example.com --hos
 guard 2 "gh api --hostname and --hostname= both" "gh api --hostname=ghe.example.com --hostname github.com -X PUT repos/acme/app/pulls/5/merge"
 guard 2 "gh api --hostname computed" 'gh api --hostname "$H" -X PUT repos/acme/app/pulls/5/merge'
 guard 2 "gh api --hostname= computed" 'gh api --hostname=$H -X PUT repos/acme/app/pulls/5/merge'
+# An absolute https://api.github.com/ endpoint goes to github.com, whatever --hostname or GH_HOST says.
+guard 2 "gh api --hostname H with an absolute github.com endpoint" "gh api --hostname ghe.example.com -X PUT https://api.github.com/repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_HOSTED=OPEN
+guard 2 "an absolute github.com endpoint: CLOSED on github.com, OPEN in gh's default" "gh api -X PUT https://api.github.com/repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 0 "an absolute github.com endpoint: OPEN on github.com" "gh api -X PUT https://api.github.com/repos/acme/app/pulls/5/merge" GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 0 "--hostname github.com with an absolute github.com endpoint" "gh api --hostname github.com -X PUT https://api.github.com/repos/acme/app/pulls/5/merge" GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
 # The PR reader stops at an expansion or a redirect; gh does not, and merges in the LAST -R (#271).
 guard 2 "a -R after a backtick substitution, the PR CLOSED there, OPEN in gh's default repo" 'gh pr merge 5 --squash -t `date` -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
-grep -q 'cannot read past' "$d/err" && ok "merge-guard: ...as words it cannot read past" || fail "merge-guard: the cut refusal does not say why: $(head -3 "$d/err")"
+grep -q 'words this guard cannot read' "$d/err" && ok "merge-guard: ...as words it cannot read" || fail "merge-guard: the cut refusal does not say why: $(head -3 "$d/err")"
 guard 2 "a -R after a quoted command substitution, the PR CLOSED there" 'gh pr merge 5 --squash --body "$(cat f)" -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "a second -R after a quoted substitution, behind GH_HOST" 'GH_HOST=ghe.example.com gh pr merge 5 -R github.com/acme/app --body "$(cat f)" -R acme/app' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
 guard 2 "a -R after a glob qualifier, the PR CLOSED there" 'gh pr merge 5 --squash -t x(N) -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
@@ -179,6 +184,20 @@ guard 0 "a quoted substitution last, nothing after it" 'gh pr merge 5 --squash -
 guard 0 "merge-pr's form with stderr redirected last" "gh pr merge 5 --squash --delete-branch --body-file f 2>&1"
 guard 0 "-R this repo with stderr redirected last" "gh pr merge 5 -R acme/app --squash 2>/dev/null"
 guard 2 "an expansion after a redirect's target (the reader refuses it)" 'gh pr merge 5 --squash > "$TMPDIR/x" $Y'
+# A quoted expansion that is a word of its own can BE the flag: gh reads "-Racme/app" as -R.
+guard 2 "a quoted substitution as a word of its own, decoding to -R" 'gh pr merge 5 --squash "$(echo LVJhY21lL2FwcA== | base64 -d)"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a quoted variable as a word of its own, behind GH_HOST and a hosted -R" 'GH_HOST=ghe.example.com gh pr merge 5 -R github.com/acme/app --squash "$X"' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 2 "a braced variable as a word of its own" 'gh pr merge 5 --squash "${X}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a value flag's value taken by the flag before it, the expansion a fresh word" 'gh pr merge 5 --squash --subject --body "$X"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+# ...and quoting hides a -R from any text match after the expansion: only blanks may follow it.
+guard 2 "an escaped -\\R after a quoted substitution" 'gh pr merge 5 --squash --body "$(cat f)" -\R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a quote-split -R after a quoted substitution" "gh pr merge 5 --squash --body \"\$(cat f)\" -''R acme/app" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a quote-split --repo after a quoted substitution" 'gh pr merge 5 --squash --body "$(cat f)" --re""po acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 "a quoted substitution glued to --body=" 'gh pr merge 5 --squash --body="$(cat f)"'
+guard 0 "a quoted substitution as -b's value" 'gh pr merge 5 --squash -b "$(cat f)"'
+guard 0 "a quoted substitution as --subject's value, stderr redirected last" 'gh pr merge 5 --squash --subject "$(cat s)" 2>&1'
+guard 2 "gh named by a path, no repo named" '/usr/local/bin/gh pr merge 5 --squash'
+grep -q 'named by a path' "$d/err" && ok "merge-guard: ...and the refusal says gh is named by a path" || fail "merge-guard: the path-named gh refusal does not say so: $(head -3 "$d/err")"
 # The payload's cwd is the Bash tool's directory, where gh runs, and need not be this hook's: a merge
 # naming no repo passes only from a worktree of this repository.
 O="$d/other"; new_repo "$O"
