@@ -48,7 +48,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #
 # BOUNDED. A task that never ends (a server left running) would hold a turn forever, so after
 # NO_SILENT_WAIT_MAX_REFUSALS (default 20) refusals of one agent the end is allowed; every refusal
-# says how many remain and how to end the task by hand.
+# says how many remain and how to end the task by hand. For a background agent the bound is about
+# MAX times the Bash timeout, since each end tried while it runs costs a refusal: the refusal says
+# to re-run the wait instead.
 #
 # KNOWN LIMITS.
 #   - Only THIS session's agents, teammates and commands are seen. A lane that is a session of its
@@ -200,8 +202,10 @@ EOF
   printf '%s\n' "BLOCKED by no-silent-wait: you started command(s) or agent(s) that are still running:${_list%;}. Nothing wakes you when one ends (on Claude Code 2.1.302 a command is killed as your turn ends, and an agent's report goes to the main session), so its result would reach nobody. Refusal $_n of $MAX." >&2
   [ -n "$_shells" ] && echo "Wait for each command in THIS turn, in the FOREGROUND (Bash timeout 600000), on $_how: until tail -n 1 FILE | grep -Eq '$END_LINE'; do sleep 5; done; tail -n 40 FILE  (call it again if the tool times out). Read the result, act on it, then end your turn." >&2
   # The marker, not the agent's record, is the wait: an agent not yet started has no record either.
-  # A stopped agent (TaskStop) never writes one, so the wait is bounded and the next stop re-checks.
-  [ -n "$_agents" ] && printf '%s\n' "Wait for each agent in THIS turn, in the FOREGROUND (Bash timeout 600000), until its end marker exists:$_agents (until [ -e MARKER ]; do sleep 5; done). Its report then reaches you as a notification: read it, act on it, then end your turn. If the wait times out with no marker, try to end your turn: this hook checks again, and refuses only while the agent still runs." >&2
+  # A stopped agent (TaskStop, by anyone) never writes one, nor does an agent that ended before its
+  # launch was recorded (that PostToolUse clears the marker): so a wait that times out with the agent
+  # no longer running ends the turn, and the stop re-checks background_tasks' status.
+  [ -n "$_agents" ] && printf '%s\n' "Wait for each agent in THIS turn, in the FOREGROUND (Bash timeout 600000), until its end marker exists:$_agents (until [ -e MARKER ]; do sleep 5; done). Its report then reaches you as a notification: read it, act on it, then end your turn. Re-run the wait if the tool times out while the agent still runs. If it no longer runs (stopped, by you or anyone, or its status says it ended) and no marker came, end your turn: this hook checks again and refuses only while it runs. Each end tried while the agent runs costs one refusal, and the last one releases you with its report lost." >&2
   echo "If you no longer need a command's result (a server you started, say), end it yourself first: TaskStop if you have it, else kill it by its PID (find yours with ps -eo pid,ppid,args), never by pattern (pkill -f): another session may run the same command. After $MAX refusals your turn is allowed to end and the command's result is lost: say so in your final message." >&2
   exit 2
 }
@@ -210,6 +214,9 @@ case $event in
   PostToolUse)
     # Agent ids are hex: `_main`, the main session's own tasks, cannot collide with one.
     note tasks "${agent:-_main}" "$task_id"
+    # A launch of an agent that ran before (resumed) must not find its old end marker: whether a
+    # resumed agent fires SubagentStart, which also clears it, was never probed (#156).
+    rm -f "$STATE/ended/$task_id"
     exit 0 ;;
   SubagentStart)
     [ -n "$agent" ] || exit 0
