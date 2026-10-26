@@ -384,6 +384,20 @@ git -C "$R" reset -q --hard HEAD~1
 echo x > "$R/new.sh"; run --docs; rc=$?; rm -f "$R/new.sh"
 expect_rc 1 "$rc" "the docs gate refuses an untracked code file"
 grep -q 'not a docs-only diff.*new\.sh' "$d/out" && [ ! -f "$REC" ] && ok "...naming it, before any step" || fail "docs untracked: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+# ...but a clean room tests the commit, not the working tree: an untracked file it never copies in
+# refuses nothing (#235), unless --dirty runs the steps on that working tree.
+docs0=$(git -C "$R" rev-parse docs-x)
+git -C "$R" checkout -q main; printf 'GATE_CLEAN_ROOM="archive"\n' >> "$R/.claude/project.conf"; git -C "$R" commit -qam "clean room"
+git -C "$R" push -q origin HEAD:main && git -C "$R" fetch -q origin
+git -C "$R" checkout -q docs-x && git -C "$R" rebase -q main
+echo x > "$R/new.sh"; run --docs; rc=$?
+expect_rc 0 "$rc" "a clean-room docs gate passes beside an untracked code file it never tests"
+[ "$rc" = 0 ] || grep -v '^ ' "$d/out" | tail -3 | sed 's/^/       /'
+run --docs --dirty; rc=$?; rm -f "$R/new.sh"
+expect_rc 1 "$rc" "...and still refuses it under --dirty, which tests the working tree"
+grep -q 'not a docs-only diff.*new\.sh' "$d/out" && ok "...naming it" || fail "docs untracked --dirty: $(grep -v '^ ' "$d/out" | tail -3 | tr '\n' ' ')"
+git -C "$R" checkout -q main && git -C "$R" reset -q --hard HEAD~1 && git -C "$R" push -qf origin HEAD:main && git -C "$R" fetch -q origin
+git -C "$R" checkout -q docs-x && git -C "$R" reset -q --hard "$docs0"; rm -f "$REC"
 # Unreachable origin: the docs gate does not trust a stale origin/main, it refuses.
 git -C "$R" remote set-url origin "$d/gone.git"; run --docs; rc=$?; git -C "$R" remote set-url origin "$d/origin.git"
 expect_rc 1 "$rc" "the docs gate refuses when origin/main cannot be fetched"

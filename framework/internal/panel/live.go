@@ -442,6 +442,8 @@ func (ls *liveSet) writeOwner() {
 	if def == nil {
 		return
 	}
+	// A copy of the record Run claimed: what a live change does not touch, the command
+	// socket's path among it (PANEL-57 D1), is written again as it was.
 	o := ls.owner
 	o.Project, o.Name = def.root, def.cfg.Name
 	o.Projects = nil

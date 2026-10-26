@@ -414,7 +414,7 @@
     },
     "lanes_auto_close": {
       "default": "off",
-      "description": "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
+      "description": "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; every reason in `clauductor lane close`'s table of reasons but its last two (the branch and a cancelled request) holds it too, such as background work (a shell, a monitor, a teammate), a wakeup, a lease, and after a panel restart an idle lane until it ends a turn; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
       "enum": [
         "off",
         "on_merge"

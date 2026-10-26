@@ -632,8 +632,11 @@ func claudeConfig(t *testing.T) (home string, e []string) {
 			e = append(e, kv)
 		}
 	}
-	// The updater would replace the user's installed claude from inside a test run.
-	return home, append(e, "CLAUDE_CONFIG_DIR="+cfg, "CLAUDE_CODE_PLUGIN_CACHE_DIR="+filepath.Join(cfg, "plugins"), "DISABLE_AUTOUPDATER=1")
+	// The updater would replace the user's installed claude from inside a test run. A unit test
+	// reaches no network either: without the last two, claude opens api.anthropic.com at startup
+	// (#254), a denied connection in a sandboxed session.
+	return home, append(e, "CLAUDE_CONFIG_DIR="+cfg, "CLAUDE_CODE_PLUGIN_CACHE_DIR="+filepath.Join(cfg, "plugins"), "DISABLE_AUTOUPDATER=1",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "DISABLE_TELEMETRY=1")
 }
 
 // claudeEnvOutsideTemp says why running claude in home with env could reach state outside the
@@ -909,10 +912,8 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		for i, l := range strings.Split(string(raw), "\n") {
-			for _, bad := range unpassedChildren(l) {
-				t.Errorf("%s:%d: a sh -c names $%s without it among its assignments: %s", p, i+1, FWVar, bad)
-			}
+		for _, bad := range unpassedChildren(string(raw)) {
+			t.Errorf("%s: a sh -c names $%s without it among its assignments: %s", p, FWVar, bad)
 		}
 		return nil
 	})
@@ -937,6 +938,20 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 			`with_timeout 60 sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`},
 		{`v=$(sh -ec '. "${CLAUDUCTOR_FW:-$ROOT/.claude}/lib/conf.sh"')`,
 			`v=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -ec '. "${CLAUDUCTOR_FW:-$ROOT/.claude}/lib/conf.sh"')`},
+		// The class, not the instances (#232): any option spelling with a c, a body over several
+		// lines, and a child inside a double-quoted command substitution.
+		{`v=$(sh -ce '. "$ROOT/.claude/lib/conf.sh"')`,
+			`v=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -ce '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+		{`v=$(sh -e -c '. "$ROOT/.claude/lib/conf.sh"')`,
+			`v=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -e -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+		{"v=$(sh -c '\n  . \"$ROOT/.claude/lib/conf.sh\"\n  echo ok')",
+			"v=$(CLAUDUCTOR_FW=\"$CLAUDUCTOR_FW\" sh -c '\n  . \"$CLAUDUCTOR_FW/lib/conf.sh\"\n  echo ok')"},
+		{`x="$(sh -c '. "$ROOT/.claude/lib/conf.sh"')"`,
+			`x="$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')"`},
+		{`v=$(sh -e '. "$ROOT/.claude/lib/conf.sh"')`, // no -c: the quoted word is a script path
+			`v=$(sh -e '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+		{"# v=$(sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"')",
+			"# v=$(sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"')"},
 	} {
 		if got := rw.shell("checks/x.sh", c.in); got != c.want {
 			t.Errorf("shell(%s)\n got %s\nwant %s", c.in, got, c.want)
@@ -949,30 +964,201 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 	if got := unpassedChildren(rw.shell("checks/x.sh", `out=$(MSG="a; b (c)" sh -c '. "$ROOT/.claude/lib/conf.sh"')`)); len(got) != 0 {
 		t.Errorf("a passed child after a quoted value with a blank is reported: %q", got)
 	}
+	// A correct child inside "$( … )" is not reported (#232, item 1); each unpassed spelling is.
+	if got := unpassedChildren(rw.shell("checks/x.sh", `x="$(sh -c '. "$ROOT/.claude/lib/conf.sh"')"`)); len(got) != 0 {
+		t.Errorf("a passed child inside a double-quoted command substitution is reported: %q", got)
+	}
+	for _, l := range []string{
+		`v=$(sh -ce '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		`v=$(sh -e -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		"v=$(sh -c '\n  . \"$CLAUDUCTOR_FW/lib/conf.sh\"')",
+		`x="$(sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')"`,
+		// Forms the rewrite does not pass: reported, so a template line using one fails here.
+		`v=$(sh -o errexit -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		`v=$(sh +e -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		`v=$(sh -c -- '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		"x=`sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'`",
+		`v=$(/bin/sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		`v=$(bash -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		// After a "$( … )" closed on the same line, the child is still a command.
+		`x="$(date)"; sh -o errexit -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`,
+		`MSG="$(date)" bash -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`,
+		"x=\"`date`\"; sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'",
+	} {
+		if got := unpassedChildren(l); len(got) != 1 {
+			t.Errorf("an unpassed child is not reported once: %q in %q", got, l)
+		}
+	}
+	// A passed child after an assignment whose value is a closed substitution is not reported: the
+	// command still starts where the shell starts it, at the assignment.
+	for _, l := range []string{
+		`REV="$(git rev-parse HEAD)" sh -c '. "$ROOT/.claude/lib/conf.sh"'`,
+		"REV=\"`git rev-parse HEAD`\" sh -c '. \"$ROOT/.claude/lib/conf.sh\"'",
+	} {
+		if got := unpassedChildren(rw.shell("checks/x.sh", l)); len(got) != 0 {
+			t.Errorf("a passed child is reported: %q in %q", got, rw.shell("checks/x.sh", l))
+		}
+	}
+	// Nor is one passed by hand in a form the rewrite does not write: an unquoted substitution's
+	// blanks split no word, and a case pattern's `)` starts a command and closes no substitution.
+	pass := `CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`
+	for _, l := range []string{
+		`REV=$(git rev-parse HEAD) ` + pass,
+		`case $1 in a) ` + pass + ` ;; esac`,
+		`x="$(case $1 in a) ` + pass + ` ;; esac)"`,
+	} {
+		if got := unpassedChildren(l); len(got) != 0 {
+			t.Errorf("a child passed by hand is reported: %q in %q", got, l)
+		}
+	}
+	// Those forms unpassed are reported, and the rewrite does not pass them: a template line using
+	// one fails here.
+	for _, l := range []string{
+		`x="$(case $1 in a) sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"' ;; esac)"`,
+		`case $1 in a) sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"' ;; esac`,
+		rw.shell("checks/x.sh", `REV=$(git rev-parse HEAD) sh -c '. "$ROOT/.claude/lib/conf.sh"'`),
+		rw.shell("checks/x.sh", `case $1 in a) sh -c '. "$ROOT/.claude/lib/conf.sh"' ;; esac`),
+	} {
+		if got := unpassedChildren(l); len(got) != 1 {
+			t.Errorf("an unpassed child is not reported once: %q in %q", got, l)
+		}
+	}
+	if got := unpassedChildren("# sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'\nv=$(sh -e '$CLAUDUCTOR_FW/x.sh')"); len(got) != 0 {
+		t.Errorf("a comment, or a sh with no -c, is reported: %q", got)
+	}
 }
 
-// unpassedChildren returns each `sh -c '…$CLAUDUCTOR_FW…'` on the line whose command does not set
-// CLAUDUCTOR_FW among its leading assignments. Written apart from the rewrite's regex, so the two
-// do not share a mistake: the command is the text back to the last ; & | or (, split on blanks.
-func unpassedChildren(l string) []string {
+// unpassedChildren returns each child `<any shell> <arguments, an option with c among them> '<body>'`
+// in the script whose body names CLAUDUCTOR_FW and whose command does not set it among its leading
+// assignments. Written apart from the rewrite's regex, so the two do not share a mistake: any shell
+// by any path (`/bin/sh`, `bash`), any unquoted arguments (`-o errexit -c`, `+e`, `--`), a body
+// that runs to its closing quote over as many lines as it takes, and the text before the child on
+// its line read as the shell reads it (commandWords) to find where its command starts (#232). A
+// form the rewrite does not pass is then reported here, not shipped with an empty variable.
+func unpassedChildren(s string) []string {
 	var bad []string
+	child := regexp.MustCompile("(^|[\\s;&|(`])((?:[\\w./-]*/)?(?:ba|da|z|k)?sh)((?:[ \\t]+[^\\s'\"]+)+)[ \\t]+'")
+	withC := regexp.MustCompile(`(^|\s)-[A-Za-z]*c[A-Za-z]*(\s|$)`)
+	names := regexp.MustCompile(`\$\{?` + FWVar + `\b`)
 	assign := regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
-	quoted := regexp.MustCompile(`"[^"]*"|'[^']*'`)
-	for _, loc := range regexp.MustCompile(`sh -[A-Za-z]*c '[^']*\$\{?`+FWVar).FindAllStringIndex(l, -1) {
-		// A quoted value may hold a blank, a ; or a (: empty it before cutting and splitting.
-		before := quoted.ReplaceAllString(l[:loc[0]], `""`)
-		before = before[strings.LastIndexAny(before, ";&|(")+1:]
+	for _, loc := range child.FindAllStringSubmatchIndex(s, -1) {
+		end := strings.IndexByte(s[loc[1]:], '\'')
+		if !withC.MatchString(s[loc[6]:loc[7]]) || end < 0 || !names.MatchString(s[loc[1]:loc[1]+end]) {
+			continue
+		}
+		sh := loc[4]
+		words, isCommand := commandWords(s[strings.LastIndexByte(s[:sh], '\n')+1 : sh])
+		if !isCommand {
+			continue
+		}
 		passed := false
-		for _, f := range strings.Fields(before) {
-			if !assign.MatchString(f) {
+		for _, w := range words {
+			if !assign.MatchString(w) {
 				passed = false
 				break
 			}
-			passed = passed || strings.HasPrefix(f, FWVar+"=")
+			passed = passed || strings.HasPrefix(w, FWVar+"=")
 		}
 		if !passed {
-			bad = append(bad, l[loc[0]:loc[1]])
+			bad = append(bad, strings.SplitN(s[sh:loc[1]+end+1], "\n", 2)[0])
 		}
 	}
 	return bad
+}
+
+// commandWords reads a line up to a child as the shell would: quotes hold blanks and separators, a
+// `$(` starts a new command even inside double quotes, and the words since the last command start
+// are returned. isCommand is false when the child is in a comment or inside a quoted string.
+func commandWords(p string) (words []string, isCommand bool) {
+	start, q := 0, byte(0)
+	// Each open `(`, `$(` or backtick saves the quote it was read in and where the outer command
+	// started, and its close restores both: the `"` that closes `"$(date)"` closes the outer quote,
+	// and `REV="$(git rev-parse HEAD)" CLAUDUCTOR_FW=… sh` is still one command of assignments. A
+	// frame also counts the `case`s open in it, whose pattern's `)` closes nothing.
+	type frame struct {
+		q            byte
+		start, cases int
+		tick         bool
+	}
+	frames := []frame{{}}
+	keyword := func(i int, k string) bool {
+		e := i + len(k)
+		return strings.HasPrefix(p[i:], k) && (e == len(p) || strings.IndexByte(" \t;)", p[e]) >= 0) &&
+			strings.TrimLeft(p[start:i], " \t") == ""
+	}
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		top := &frames[len(frames)-1]
+		switch {
+		case q == '\'':
+			if c == '\'' {
+				q = 0
+			}
+		case c == '\\':
+			i++
+		case c == '$' && i+1 < len(p) && p[i+1] == '(':
+			frames = append(frames, frame{q: q, start: start})
+			start, q = i+2, 0
+			i++
+		case c == '`' && top.tick:
+			q, start, frames = top.q, top.start, frames[:len(frames)-1]
+		case c == '`':
+			frames = append(frames, frame{q: q, start: start, tick: true})
+			start, q = i+1, 0
+		case q == '"':
+			if c == '"' {
+				q = 0
+			}
+		case c == '\'' || c == '"':
+			q = c
+		case c == '#' && (i == 0 || strings.IndexByte(" \t;&|(", p[i-1]) >= 0):
+			return nil, false
+		case keyword(i, "case"):
+			top.cases++
+			i += len("case") - 1
+		case keyword(i, "esac") && top.cases > 0:
+			top.cases--
+			i += len("esac") - 1
+		case c == ')' && top.cases > 0:
+			start = i + 1
+		case c == '(':
+			frames = append(frames, frame{q: q, start: start})
+			start = i + 1
+		case c == ')' && len(frames) > 1 && !top.tick:
+			q, start, frames = top.q, top.start, frames[:len(frames)-1]
+		case strings.IndexByte(";&|", c) >= 0:
+			start = i + 1
+		}
+	}
+	if q != 0 {
+		return nil, false
+	}
+	// A blank splits a word only outside quotes and outside an unquoted `$( … )` or backtick.
+	var w strings.Builder
+	depth, tick := 0, false
+	for i := start; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case q != 0:
+			if c == q {
+				q = 0
+			}
+		case c == '\'' || c == '"':
+			q = c
+		case c == '`':
+			tick = !tick
+		case c == '(':
+			depth++
+		case c == ')' && depth > 0:
+			depth--
+		case (c == ' ' || c == '\t') && depth == 0 && !tick:
+			if w.Len() > 0 {
+				words = append(words, w.String())
+				w.Reset()
+			}
+			continue
+		}
+		w.WriteByte(c)
+	}
+	return words, true
 }

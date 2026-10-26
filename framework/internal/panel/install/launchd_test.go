@@ -306,7 +306,7 @@ func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
 	home := t.TempDir()
 	RotateToken(home)
 	dir := config.PanelDir(home)
-	for _, f := range []string{"browser-opened", "pid", "port", "bin/clauductor", "logs/panel.log"} {
+	for _, f := range []string{"browser-opened", "pid", "port", "cli.sock", "bin/clauductor", "logs/panel.log"} {
 		os.MkdirAll(filepath.Dir(filepath.Join(dir, f)), 0o700)
 		os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600)
 	}
@@ -319,7 +319,7 @@ func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
 	if err := Uninstall(home, &out, func(...string) ([]byte, error) { return nil, nil }); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"token", "browser-opened", "pid", "port", "bin", "logs", filepath.Dir(lanes.RegistryPath(home, "/empty"))} {
+	for _, f := range []string{"token", "browser-opened", "pid", "port", CLISocketPath(home), "bin", "logs", filepath.Dir(lanes.RegistryPath(home, "/empty"))} {
 		p := f
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(dir, f)

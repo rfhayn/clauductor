@@ -193,7 +193,7 @@ var Fields = []Field{
 	{Path: "quota_economy.five_hour_pct", Version: 4, Type: "number",
 		Doc: "At or above this 5-hour quota the panel writes `~/" + brand.Dir(brand.Name) + "/panel/economy.json` with `\"economy\": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off.", Schema: map[string]any{"minimum": 0, "maximum": 100}},
 	{Path: "lanes_auto_close", Version: 5, Type: "string: \"off\" or \"on_merge\"", Default: AutoCloseOff,
-		Doc:    "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
+		Doc:    "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; every reason in `clauductor lane close`'s table of reasons but its last two (the branch and a cancelled request) holds it too, such as background work (a shell, a monitor, a teammate), a wakeup, a lease, and after a panel restart an idle lane until it ends a turn; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
 		Schema: map[string]any{"enum": []string{AutoCloseOff, AutoCloseOnMerge}}},
 	{Path: "quota_auto_resume", Version: 5, Type: "boolean", Default: false,
 		Doc: "Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*)."},
