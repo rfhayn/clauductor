@@ -264,6 +264,12 @@ guard 2 "env -S running a command of its own, behind a hosted -R" "env -S\"sh -c
 guard 2 "env --split-string=, behind a PR URL" "env --split-string='echo x' gh pr merge https://github.com/acme/app/pull/5 --squash"
 guard 2 "sudo -s handing the words to a shell, behind a hosted -R" "sudo -s gh pr merge 5 -R github.com/acme/app --squash"
 guard 0 "env setting a variable, behind a hosted -R" "env GH_PROMPT_DISABLED=1 gh pr merge 5 -R github.com/acme/app --squash"
+# getopt_long takes any unambiguous prefix of a long option, so --split= is --split-string and --sh
+# is --shell: env and sudo pass only the flags known not to parse the words again.
+guard 2 "env --split= (an abbreviated --split-string), behind a hosted -R" "env --split='sh -c \"echo x\" sh' gh pr merge 5 -R github.com/acme/app --squash"
+guard 2 "sudo --sh (an abbreviated --shell), behind a hosted -R" "sudo --sh gh pr merge 5 -R github.com/acme/app --squash"
+guard 2 "sudo --logi (an abbreviated --login), behind a PR URL" "sudo --logi gh pr merge https://github.com/acme/app/pull/5 --squash"
+guard 0 "sudo -E and env -i, behind a hosted -R" "sudo -E env -i gh pr merge 5 -R github.com/acme/app --squash"
 # The payload's cwd is the Bash tool's directory, where gh runs, and need not be this hook's: a merge
 # naming no repo passes only from a worktree of this repository.
 O="$d/other"; new_repo "$O"
@@ -684,6 +690,15 @@ sguard 2 "rule 12: a relative --body-file after a cd" "cd sub && gh pr merge 5 -
 grep -q 'relative' "$d/err" && ok "rule 12: ...and the block says to write the path out in full" || fail "rule 12: the relative --body-file block does not say why: $(head -3 "$d/err")"
 sguard 2 "rule 12: a relative glued -F after commands before a PR URL" "cd /nonexistent; cd sub; gh pr merge https://github.com/acme/app/pull/5 --squash -Fbody.txt"
 sguard 0 "rule 12: an absolute --body-file after a cd" "cd sub && gh pr merge 5 -R acme/app --squash --delete-branch --body-file $R/body.txt"
+sguard 2 "rule 12: a relative --body-file after a cd that follows another gh" "gh --version; cd sub && gh pr merge https://github.com/acme/app/pull/5 --squash --delete-branch --body-file body.txt"
+# Only the merge's own words set its body: a flag in a comment, another command or another gh is
+# not one gh reads for the merge.
+sguard 2 "rule 12: a --body-file in a comment after the merge's own" "gh pr merge 5 --squash --delete-branch --body-file sub/body.txt # --body-file $R/body.txt"
+sguard 2 "rule 12: a --body-file in a command after the merge" "gh pr merge 5 --squash --delete-branch --body-file sub/body.txt; echo --body-file $R/body.txt"
+sguard 2 "rule 12: a --body-file in a gh pr view after the merge" "gh pr merge 5 --squash --delete-branch --body-file sub/body.txt && gh pr view 5 --body-file $R/body.txt"
+sguard 2 "rule 12: a commit_message field in a gh api before the merge" "gh api user -F commit_message=@$R/body.txt >/dev/null; gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/sub/body.txt"
+sguard 0 "rule 12: the merge's own --body-file, its output piped on" "gh pr merge 5 --squash --delete-branch --body-file body.txt 2>&1 | tail -1"
+sguard 0 "rule 12: a substitution before the merge, the body written out in full" "cd \"\$(git -C $R rev-parse --show-toplevel)\" && gh pr merge 5 -R github.com/acme/app --squash --body-file $R/body.txt"
 rm -rf "$R/sub"
 trail > "$R/-"   # a file named "-" with good trailers: stdin must not be read as that file
 sguard 2 "rule 12: a --body-file read from stdin (unreadable)" "gh pr merge 5 --squash --body-file -"

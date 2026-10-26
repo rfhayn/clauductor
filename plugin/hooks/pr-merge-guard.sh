@@ -694,7 +694,8 @@ ghpr() {
 # round 3 of OPS-132 passed each past a text match). So what may come before the merge depends on
 # what its words leave open:
 #   - a PR URL, or -R HOST/OWNER/NAME: nothing. Anything may come before it, so long as the reader
-#     can read the merge's words (not after eval, env -S or sudo -s, which parse them again), and a
+#     can read the merge's words (not after eval, or env or sudo with a flag outside the reader's
+#     short list, as env -S and sudo -s parse them again: merge-reader.awk heads()), and a
 #     --body-file after it is written out in full (rule 12 cannot know the directory: cg_field).
 #   - -R OWNER/NAME: the host, which gh takes from GH_HOST. Only `cd <path> && ` may come before it.
 #   - no repo (the bare number, gh api's {owner}/{repo}): the repository, from GH_REPO and the

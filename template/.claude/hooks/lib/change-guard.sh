@@ -95,7 +95,9 @@ cg_archives() {  # cg_archives BASE HEAD
 # cg_field COMMAND CWD body|subject: what a merge command sets for the squash commit's body or
 # subject, read the way gh reads its flags. Prints it; returns 1 when the command sets none, 2 when
 # it cannot be read (a substitution in the text, a file that cannot be read or is stdin, an API
-# merge whose fields come from --input), 3 when it names a relative file after another command.
+# merge whose fields come from --input, a command with no merge or more than one, a substitution
+# left open), 3 when it names a relative file after another word. Only the merge's own simple
+# command is read: a flag in a comment or in another command is not the merge's (OPS-132).
 # Forms read:
 #   gh pr merge   body:    --body T, --body=T, --body-file F, --body-file=F, and the short flags
 #                          -b/-F with the value next, glued (-bT, -FF) or after = (-b=T), also
@@ -109,31 +111,71 @@ cg_body() { cg_field "$1" "$2" body; }        # cg_body COMMAND CWD (rule 12; pr
 cg_subject() { cg_field "$1" "$2" subject; }  # cg_subject COMMAND CWD (premise-check)
 cg_field() {
   _b=$(printf '%s' "$1" | awk -v want="$3" '
+    # shut(s, j, n): the index of the ) that closes the substitution whose ( is at j, past quotes
+    # and nested parentheses; 0 when nothing closes it.
+    function shut(s, j, n,   d, c, q) {
+      d = 0; q = ""
+      for (; j <= n; j++) {
+        c = substr(s, j, 1)
+        if (q == "\047") { if (c == "\047") q = ""; continue }
+        if (q == "\"") { if (c == "\\") j++; else if (c == "\"") q = ""; continue }
+        if (c == "\\") { j++; continue }
+        if (c == "\047" || c == "\"") { q = c; continue }
+        if (c == "(") d++
+        else if (c == ")" && --d == 0) return j
+      }
+      return 0
+    }
+    function cut() { if (have) { t[++nt] = tok; oddt[nt] = odd; sg[nt] = seg; tok = ""; have = 0; odd = 0 } }
     { buf = buf $0 "\n" }
     END {
-      s = buf; n = length(s); q = ""; tok = ""; have = 0; nt = 0; odd = 0
+      # The words, each with the simple command it is in (seg): ; & | ( ) and a newline end one,
+      # and a # that starts a word starts a comment. A substitution is one unreadable piece of the
+      # word it is in, so its own ; and ) end nothing.
+      s = buf; n = length(s); q = ""; tok = ""; have = 0; nt = 0; odd = 0; seg = 1
       for (j = 1; j <= n; j++) {
         c = substr(s, j, 1)
         if (q == "\047") { if (c == "\047") q = ""; else tok = tok c; continue }
+        if (c == "`" || (c == "$" || (q == "" && (c == "<" || c == ">"))) && substr(s, j + 1, 1) == "(") {
+          if (c == "`") { e = index(substr(s, j + 1), "`"); e = e ? j + e : 0 } else e = shut(s, j + 1, n)
+          if (!e) exit 2
+          j = e; odd = 1; have = 1; continue
+        }
         if (q == "\"") {
           if (c == "\\" && j < n) { j++; tok = tok substr(s, j, 1); continue }
-          if (c == "$" || c == "`") odd = 1
+          if (c == "$") odd = 1
           if (c == "\"") q = ""; else tok = tok c; continue
         }
         if (c == "\047" || c == "\"") { q = c; have = 1; continue }
         # Unquoted, a backslash makes the next character literal (Fixes\ \#239 is one word), and a
         # backslash before a newline joins the lines.
         if (c == "\\" && j < n) { j++; if (substr(s, j, 1) != "\n") { tok = tok substr(s, j, 1); have = 1 }; continue }
-        if (c == " " || c == "\t" || c == "\n") { if (have) { t[++nt] = tok; oddt[nt] = odd; tok = ""; have = 0; odd = 0 }; continue }
-        if (c == "$" || c == "`") odd = 1
+        if (c == "#" && !have) { while (j < n && substr(s, j + 1, 1) != "\n") j++; continue }
+        if (c == " " || c == "\t") { cut(); continue }
+        # & and | inside a redirection (2>&1, &>f, >|f) end nothing.
+        if ((c == "&" && !(tok ~ /[<>]$/ || substr(s, j + 1, 1) == ">")) || (c == "|" && tok !~ />$/) || c ~ /[;()\n]/) { cut(); seg++; continue }
+        if (c == "$") odd = 1
         tok = tok c; have = 1
       }
-      if (have) { t[++nt] = tok; oddt[nt] = odd }
-      mode = "pr"
-      for (k = 1; k < nt; k++) if (t[k] == "gh") { if (t[k + 1] == "api") mode = "api"; break }
+      cut()
+      # The merge: the one gh in a simple command of its own that runs pr merge, or api naming a
+      # merge. Its flags are read from there to the end of that command, and nowhere else: a flag in
+      # a comment, another command or another gh is not one gh reads for this merge.
+      ng = 0
+      for (k = 1; k < nt; k++) {
+        if ((t[k] != "gh" && t[k] !~ /\/gh$/) || sg[k + 1] != sg[k]) continue
+        if (t[k + 1] == "api") {
+          for (x = k + 2; x <= nt && sg[x] == sg[k]; x++) if (tolower(t[x]) ~ /merge/) { ng++; g = k; mode = "api"; break }
+          continue
+        }
+        if (t[k + 1] != "pr") continue
+        for (x = k + 2; x <= nt && sg[x] == sg[k] && t[x] ~ /^-/; x++) if (t[x] == "-R" || t[x] == "--repo") x++
+        if (x <= nt && sg[x] == sg[k] && t[x] == "merge") { ng++; g = k; mode = "pr" }
+      }
+      if (ng != 1) exit 2
       long = (want == "body") ? "--body" : "--subject"
       key = (want == "body") ? "commit_message" : "commit_title"
-      for (k = 1; k <= nt; k++) {
+      for (k = g + 2; k <= nt && sg[k] == sg[g]; k++) {
         x = t[k]
         if (mode == "api") {
           kv = ""; ko = 0; isF = 0; got = 0
@@ -180,8 +222,9 @@ cg_field() {
       if (bad) exit 2
       if (!found) exit 1
       if (vo) exit 2
-      # pre: a word comes before gh, which may change directory (cd sub, or anything before a URL)
-      printf "%s\n%d\n%s", kind, (t[1] != "gh"), v
+      # pre: a word comes before the merge, which may change directory (cd sub, or anything before
+      # a URL), whatever it is: gh --version; cd sub && gh pr merge … is still after a cd.
+      printf "%s\n%d\n%s", kind, (g != 1), v
     }')
   _rc=$?
   [ "$_rc" -eq 0 ] || return "$_rc"

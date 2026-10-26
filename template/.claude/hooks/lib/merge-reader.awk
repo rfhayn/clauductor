@@ -462,14 +462,17 @@ function git_sub(c, j,   x, w) {
 # find -exec, parallel and the like ADD or SUBSTITUTE words, so gh after them is not. Nor is gh after
 # eval, env -S (--split-string) or sudo -s/-i (--shell, --login): each hands the words to a parse of
 # their own, which splits '--squash 6 --body' into flags and expands a single-quoted $ (OPS-132).
+# env, sudo and doas pass only the flags listed here: getopt_long takes any unambiguous prefix of a
+# long option (--split= is --split-string, --sh is --shell), so a list of the bad ones misses some.
 function heads(c, k,   x, w, r) {
   r = ""
   for (x = 1; x < k; x++) {
     w = W[c, x]
     if (!provable(c, x)) return 0
     if (w ~ /^-/) {
-      if (r == "env" && w ~ /^(-[A-Za-z0-9]*S|--split-string)/) return 0
-      if (r ~ /^(sudo|doas)$/ && w ~ /^(-[A-Za-z0-9]*[si]|--shell|--login)/) return 0
+      if (r == "env" && w !~ /^(-[i0v]+|-|--ignore-environment|--null|--debug)$/) return 0
+      if (r == "sudo" && w !~ /^(-[EHknPSb]+|--(preserve-env|non-interactive|set-home|reset-timestamp|stdin|background|preserve-groups))$/) return 0
+      if (r == "doas" && w != "-n") return 0
       continue
     }
     if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^[0-9]+[smhd]?$/) continue
