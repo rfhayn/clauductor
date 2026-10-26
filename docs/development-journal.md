@@ -14,6 +14,1078 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 12 — 2026-10-26 — Rich — doctor, delegated approval and its stops, an agent closes a lane, the merge guard reads only open PRs, and the open lows
+
+**Totals.** Gate 178 min (a row's gate was CANNOT CHECK, so this is a floor); cost $438.37.
+
+**Rows folded.** OPS-109 (#240); OPS-119 (#241); OPS-124 (#247); OPS-126 (#239); OPS-127 (#246); OPS-128 (#256); OPS-130 (#258); OPS-131 (#270); OPS-132 (#268); OPS-134 (#266); OPS-135 (#263); OPS-136 (#264); OPS-137 (#278); OPS-138 (#283); PANEL-57 (#250).
+
+### OPS-109 — `clauductor doctor` checks a machine's setup and a project's
+
+- **PR**: #240
+- **Session**: S12, started 2026-10-24 17:53 ET
+- **Review**: 11 rounds, peak high, cap 2
+- **Gate**: 28 min
+- **Cost**: $110.51
+- **Session start**: 55739 tokens, 0 min
+
+#### What happened
+
+`clauductor doctor` is built in three task groups: the command and the machine's tools, gh and
+template (group 1), the project's model, drift and gate (group 2), and on macOS the panel's
+registry, install, running, build, served project, config and trust lines, plus the prereqs line
+and the docs that send a user to doctor (group 3). Doctor writes nothing, and every `fix:` it prints
+is backed by the read-only check its own command runs: `prepareInstall` (new, in `install.go`),
+`template.Survey` for diff, `planUpdate` for update, and `install.CheckAdd` (new, in
+`panel/install/projects.go`) for the panel. The build took four workflow runs: groups 1 and 2 each
+stopped at the review cap and were fixed and resumed.
+
+#### Decisions
+
+- The gh line tells a sign-out (`gh auth login`, with `--hostname` off github.com) apart from a gh
+  too old for `auth token` (a note) and any other failure (a warning, no fix). design.md's gh row
+  says any non-zero exit means `gh auth login`; the build follows D8 for the other causes. Flagged
+  to the owner; design.md unchanged.
+- The cap-stopped findings in groups 1 and 2 were fixed rather than deferred: each was a fix doctor
+  printed that its own command would refuse (Claude's triage, by the owner's delegation).
+- The panel lines' fix comes from `install.CheckAdd`, which `AddProject` now calls, so doctor and
+  `panel add` cannot drift; the same shape as `prepareInstall` beside `install`.
+
+#### Surprises
+
+- Review found the same class three times: doctor predicting a command's outcome with code other
+  than the command's own. Each fix moved the command's read-only checks into a function both call.
+- `verify-change.sh` reads any backticked token with a `.` or `/` as a path claim, so
+  `config.LoadProjects`, `template.Resolve` and `/bin/sh` failed tasks that were done. Five task
+  lines now name their file as well.
+- `usage-report.sh` reads $40.30 for this session while the build workflow's own group costs sum to
+  $110.51; the Cost above is the workflow's figure. One reading misses workflow agents.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-119 — update keeps a role's eval receipt whole
+
+- **PR**: #241
+- **Session**: S12, started 2026-10-24 17:54 ET
+- **Review**: 2 rounds, peak medium, cap 3 (round 2 peaked low; its two lows fixed after it, not re-reviewed)
+- **Gate**: 20 min (the full run on dffb89cd3: red at process checks, six of them failing on `git: couldn't create cache file .../xcrun_db` under the Bash sandbox, which denies writes to `/var/folders`; the final gate runs outside it and follows this commit)
+- **Cost**: $2.84 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122155 tokens, 0 min
+
+#### What happened
+
+`clauductor update` merges `.claude/model-roles.json` add-only, so it re-added the template's
+`roles.reviewer.eval.baseline` beside this repo's eval receipt (OPS-97, #170) on every run, and
+`survey` reported the baseline as a key the project lacked. `template.MergeModelRoles` now leaves
+`roles.<role>.eval` whole when either side holds a `receipt`, and both production callers use it
+(`planExtras` for install and update, survey's `configNote`). The generic `MergeAddOnly` had no
+other caller and is gone. `TestUpdateKeepsAnEvalReceiptWhole` failed first on the old merge; table
+cases cover a template receipt, two baselines that still merge, an existing role that still gains
+`tiers`, and a role literally named `eval`. Update from this checkout now leaves this repo's file
+byte for byte.
+
+#### Decisions
+
+- Which copy drifts: the template's are the source. The baseline was update's own doing, not drift;
+  `orchestration/config.json` already matches the template (`clauductor diff`, 2026-10-24), and
+  only `docs/conventions.md` and `docs/playbook.md` differ, which are doc-tier and the project's.
+- The guard checks a receipt on both sides (round 1's finding 6): a project baseline beside a
+  template receipt would name a receipt file the project lacks.
+- The close marks two insight rows Fixed by this row (a row's PR never edits the log): 2026-10-19
+  "update follows CLAUDUCTOR_FRAMEWORK" and 2026-10-24 "update/non-interactive".
+
+#### Surprises
+
+The full gate inside the Bash sandbox fails six process checks on xcrun's cache under
+`/var/folders`, and the gate stops at that step, so the Go tests never ran; the gate has to run
+outside the sandbox.
+
+The first gate outside it, on 7db3b801b, went red at `test (race)` on
+`TestCatchUpRebuildNoticesIgnoreAlertsNotify` (its two pushes in the other order), the flake #234
+owns; ten `-race` runs of it alone passed, and the gate was re-run whole.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-124 — catch-up's four lows
+
+- **PR**: #247
+- **Session**: S13, started 2026-10-24 20:29 ET
+- **Review**: 3 rounds, peak high, cap 3 (round 3 peaked medium: its two placement findings fixed after it, not re-reviewed; the rest to #249)
+- **Gate**: 26 min (the full run on 9f564d767, outside the Bash sandbox: red at `test (race)`, `TestPluginChecksPassInScaffoldedProject`, where the variable-command rule refused the plugin's `${CLAUDE_PLUGIN_ROOT}/...` paths; fixed, and the final gate follows this commit)
+- **Cost**: $10.34 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122905 tokens, 0 min
+
+#### What happened
+
+The four lows OPS-118's build left (#214). (1) merge-pr's step-5 guard
+(`checks/change-process.sh`) now passes one legitimate edit: `merge_pr_catchup`'s line, *In the
+branch's checkout, first catch it up* with `git fetch origin main && git merge origin/main`, alone
+between the first step-2 heading and its first line. The line names its checkout itself, since
+merge-pr may start in the main checkout. Anywhere else, worded
+otherwise or fenced, a fetch or merge still falls to `merge_pr_cmds`, which lists neither. No span
+outside step 5 may change directory (`cd`/`pushd` quoted, escaped, assigned or after `then`), name
+its command by a variable, or set `GIT_*` (an export included). A `_green` helper fails a green case
+that edits nothing or is refused, and 21 new red cases cover the forms review found. What review
+left at the cap (fragments the guard never reads, an `eval` of split words, two false refusals)
+is #249's. Each rule was
+shown load-bearing by mutation. Step 5's objections print with `printf`: `echo` in `sh` cut one
+short at `\c`. (2) The roadmap's *After each merge the owner* bullet now says catch-up is on only on
+exit 0 printing `on`. (3) `selfUpdater.restarted` is gone: it was written and never read. (4)
+`change-cost.sh` votes a lane for the change when a session's lead recorded the branch there last,
+*or* more often than any other branch (a tie falls back to last) in a lane not named after the last
+branch. OPS-118 read $0 with both lanes rejected. Its build lead recorded its branch 709 times, then
+`ops/ops-118-archive` 237; its proposal lead 1823, then `ops/session-9-close` 552. It now reads
+$214.17. PANEL-48's `session-3-close` lane (168 to 86, named after its last branch) stays rejected.
+`checks/change-tools.sh`'s new v5–v8 lanes fail on the old script.
+
+#### Decisions
+
+- One fixed line in one place, not a rule about how a merge is aimed. Round 1 broke an aim rule
+  (`-c core.worktree`, `GIT_WORK_TREE=`, `env -C`, `sh -c`, a fetch into `main:main`), and round 2
+  broke a list of spans allowed anywhere before step 5 (prose, step 4, an earlier export). The forms
+  that aim a merge elsewhere are endless; the place the line may stand is one.
+- Majority, not merge time, for the vote: offline, needs no `gh`, and every existing fixture's
+  tie keeps its verdict. The lane-name rule keeps a close lane out of the count vote.
+- $214.17 overstates the build-change $200.24 the archive recorded: a counted lane counts whole,
+  the archive and the session-9 close in those lanes included. Named as a known limit in the
+  header; the archived figure is left as it is.
+
+#### Surprises
+
+`clauductor update` with no terminal again cancelled its file reviews (insight
+`update/non-interactive`). The three changed copies matched the template byte for byte at HEAD, so
+they were copied across.
+
+An apostrophe in a comment inside the single-quoted awk program ended the shell's quote, three
+times.
+
+The first full gate went red in the plugin's scaffolded project, not in either check set: the
+plugin build rewrites `.claude/` paths in merge-pr to `${CLAUDE_PLUGIN_ROOT}/...`, so a span began
+with `$` and the rule against a command named by a variable refused it (round 3's finding 4, in
+a form review had not seen). The rule now takes only a bare variable with arguments, and a green
+case holds a plugin path in the template's own checks.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-126 — OPS-125's follow-ups: a build lane marks itself, landed rows stop being offered
+
+- **PR**: #239
+- **Session**: S12, started 2026-10-24 17:53 ET
+- **Review**: 3 rounds, peak medium, cap 3 (round 3's three fixable findings fixed after it, not re-reviewed; its other two, and two found earlier, are KNOWN LIMITS queued as OPS-129)
+- **Gate**: CANNOT CHECK — no full gate ran before this commit; the final gate follows it
+- **Cost**: $12.21 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122155 tokens, 0 min
+
+#### What happened
+
+The six items of #223, in template/ and synced to this repo's copy and the plugin.
+build-change's preflight now runs `session-start/marker.sh` itself (on the expected branch only), so
+a build lane, whose first prompt must start with `/build-change`, gets its draft PR and marker, and
+a marker WARNING reaches `report.warnings`. The marker's empty commit is now made from HEAD's tree,
+never the index, so a resumed run's staged work stays uncommitted. The session plan's Rows cell
+learns `ID (proposal)` (the session only proposes it; it lands once its proposal is on main) and
+`A + B` (one PR titled by A closes both), and R records carry `kind` and `lead`. panel-suggest now
+reads the fragments for every kind: `build`, `ops` and `propose` never offer a landed row, nor a
+batch's later row while its lead is open, and `close` counts a planned proposal landed once it is on
+main. checks/roadmap.sh exempts only the marker's `roadmap-plan.sh` call, not the whole file.
+checks/panel-contract.sh's leading-command guard accepts a one-character command (`/x`) and holds
+build-change's preflight to running the marker; the shipped template set (build, propose, fix, ops,
+close) is asserted by this repo's own `local:panel-templates`, over the preset and this repo's
+config.
+
+#### Decisions
+
+- The marker runs inside build-change's preflight rather than the panel accepting a lead
+  `/session-start` on a build prompt: the panel's approval warning reads a build prompt's leading
+  `/build-change`, and the preflight is an executed step where the description was only read.
+- The plan grammar learns `(proposal)` and `A + B` rather than dropping batches from the plan:
+  S11's OPS-89 + OPS-103 and OPS-109's proposal-only session were real plan shapes the parser
+  refused or misread.
+- The shipped template set is this repo's check, not every project's: a project's panel.json is its
+  own and may drop a template on purpose (review round 1).
+- A batch's later row waits only while its lead is open: once the lead merges, is cancelled or lands
+  without closing it (S11's OPS-103 shipped apart from its batch), it is offered (review round 1).
+- An id may be planned twice, as `ID (proposal)` and then, in a later session, as its build: the
+  proposal's landing closes only the proposal's session, and the marker numbers the build lane
+  from its build entry once `changes/<id>/proposal.md` exists (review round 2).
+- This repo's own panel config is held to the preset's ids, the authority, not to a hard-coded
+  list; the list stays only for the preset itself (review round 2).
+- The preflight takes a marker as run only from marker.sh's closed set of success lines
+  (`MARKER_OK`), not "anything but a WARNING": a skipped step or a shell error now warns, and
+  `checks/marker.sh` holds the set to the lines marker.sh really prints (review round 3).
+- What review left at the cap is queued as OPS-129 (filed as OPS-127, renumbered when #245 took that id): a proposal-only session's close, `(proposal)`
+  on an ops row, the build lane's orientation still being description, and the preflight's marker
+  pushing before a later stop.
+
+#### Surprises
+
+- `clauductor update` with no terminal cancelled its reviews and rewrote `.claude/model-roles.json`
+  again (logged in S11, update/non-interactive); reverted by hand.
+- The sandbox refuses writes under `.claude/workflows/` and `.claude/skills/`, and the default Go
+  build cache, so syncing the copies and building the plugin needed an unsandboxed copy and
+  `GOCACHE=$TMPDIR/gocache`.
+- Round 1 found that putting the marker in the preflight exposed its `git commit --allow-empty`,
+  which commits whatever is staged: harmless at a session's start, not beside a resumed build.
+
+#### Insights
+
+3 row(s), moved to the insights log.
+
+### OPS-127 — a project can delegate a change's approval to Claude, by mechanism
+
+- **PR**: #246
+- **Session**: S12, started 2026-10-24 20:28 ET
+- **Review**: 4 rounds, peak high, cap 3 (round 3 peaked normal; a fourth, on the delta after it and the key, peaked normal: both normals and five lows fixed after it, not re-reviewed; the guarded list's derivation from AGENTS.md's table and a detached commit past the tip are OPS-130's)
+- **Gate**: 25 min (the full run on cba656ed2, after two red runs: an empty, ignored `template/.claude/.cc-writes/` the harness left, then two self-test cases that could not reach a plugin project's framework list; the final gate follows this commit)
+- **Cost**: $11.88 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 122787 tokens, 0 min
+
+#### What happened
+
+A new `project.conf` key, `APPROVAL_DELEGATED` (default `"0"` in `lib/conf.sh` and the template),
+lets `change-approval.sh <id> --delegate "<owner>"` record
+`**Approved:** <date> by Claude (delegated by <owner>) · design <hash>`. It refuses while the key is
+off on `origin/<main>`, when `<owner>` is not `OWNER_NAME` (when that is set), and for a change
+that touches a guarded path. Two lists guard: `.claude/lib/approval-guarded.txt`, the framework's
+(the approval and verify scripts, the review cap, budget enforcement, `model-roles.json`,
+`project.conf`, settings, hooks, checks, agents, `lib/`, build-change, `propose` and `merge-pr`, CI
+workflows, `scripts/ci/`, `AGENTS.md`), kept current by `update` and the plugin; and
+`.claude/local/approval-guarded.txt`, the project's own. "Touches" is a path named in a task line
+of `tasks.md`, or, on the change's branch, a path its diff from the merge base changes (untracked
+files too). Matching is by whole path segments, so `src/home` catches `src/home/greeting.ts` and
+`template/.claude/hooks/x.sh` but not `src/homepage`. The diff is taken with `--no-renames`, so a
+guarded file moved out of its place is still seen, and "the change's branch" is its name, a
+detached HEAD at its tip, or a CI pull request's `GITHUB_HEAD_REF`.
+
+Where the authority cannot be read, a delegated approval does not hold (fail closed): outside a
+repository (a `GATE_CLEAN_ROOM="archive"` gate), in a clone with a remote but no `origin/<main>`
+(a shallow CI checkout; this repo's `test.yml` now fetches every branch), or on a change branch that
+shares no commit with main. Only a repository with no remote reads the key and the lists from disk.
+
+The check mode, which `checks/changes.sh` calls for every open change, re-tests the key, the owner
+and the lists on every run, so turning the key off or later touching a guarded path voids a
+delegated approval the way a design edit voids the owner's. An approval written `by Claude` in any
+other form fails, and `--record` refuses any name starting with "claude" (any case), so the
+delegated form is the only way Claude's name reaches the line.
+
+`checks/changes.sh` gains fifteen self-test cases (among them a decision-log citation of a guarded
+path passing, a task naming `AGENTS.md:40`, no repository, no `origin/main`, an owner named
+Claudette or OWNER_NAME "Claude Martin" passing, "Claude Code" failing), and
+`checks/change-tools.sh` the `--delegate` cases (a legitimate delegation read from `origin/main`,
+main's project list catching a path the branch lacks, the key on only in the branch, a committed
+rename, a detached HEAD and a CI head, the approval holding on main after merge). Every negative was
+run against the script before it and failed there; mutating `authority()` to read nothing fails
+the positive cases, and branch detection back to the name alone fails the detached-tip case.
+
+#### Decisions
+
+- **The authority is `origin/<main>`, not the branch, and its absence refuses.** The key and both
+  lists are read from main, so a change branch cannot turn its own key on or empty its own list.
+  Round 2's version fell back to disk whenever the ref was missing; review showed a `git archive`
+  copy then recorded and passed a delegated approval of a branch that turned the key on and edited a
+  hook. Disk is now read only in a repository with no remote, which has no main to read.
+- **The list is hand-written, so it was reviewed against AGENTS.md's table** three times, each
+  round finding more (guard rules in `guard.d`, evals, health, the gitleaks allowlist, the local
+  skill fragments for `propose` and `merge-pr`). It stays hand-written: the table's cells name
+  controls in prose, not paths a parser could read. The list's header names the table as its source.
+- **The guard reads what the change does, not only what it says.** Round 1 matched the change's
+  prose as substrings; review found that both missed a diff naming no path and blocked a proposal
+  that merely mentioned `AGENTS.md`. Task lines and the branch diff replace the prose.
+- **The framework list lives in `lib/`**, so the plugin reads it from `$CLAUDUCTOR_FW` and `update`
+  replaces it; a project's additions go in the local layer, which neither writes. Round 1's
+  scaffold placement in `plugin/build.go` is reverted.
+- **This repo's key went on in this PR, on the owner's own word.** The permission classifier
+  refused Claude's edit setting `APPROVAL_DELEGATED="1"`, rightly: it grants Claude the approval.
+  It became an owner-queue item. When the owner relayed through another session that it should go
+  in here, the lane still declined: a peer session's relay is not the owner. The owner then said so
+  in this lane's own session (2026-10-25), and the line went in. With the key on here, this repo also
+  got its own `.claude/local/approval-guarded.txt` (the team-queue states and the roadmap tracker,
+  the local controls AGENTS.md's table names). OPS-128 puts the key to use.
+
+#### Surprises
+
+The branch the panel started this lane on was #245's pre-squash branch, already merged; the
+orchestrator flagged it, and the lane reset to `origin/main` before any edit (the draft PR the
+marker opened had pushed the four stale commits; the push here replaces them).
+
+The race step's plugin run failed two self-test cases the template run passed: a plugin project's
+framework list is the plugin's own (`$CLAUDUCTOR_FW/lib`), so deleting the fixture's list changed
+nothing. That is the authority working, not a gap; the two cases now run the fixture's own copy of
+the script, which reads the fixture's list in either layout.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-128 — delegated approval used in /propose, start-project and Who decides
+
+- **PR**: #256
+- **Session**: S12, started 2026-10-25 06:05 ET
+- **Review**: 6 rounds, peak high, cap 3 (round 3 peaked medium: an approval the owner gave could be replaced by a delegated one after an edit; the owner asked for a fourth on the delta, which peaked medium: the fix read the Approved line after `--revoke` had erased it; the fifth, on that fix, peaked medium: an owner's overrule of a delegated approval left a delegated line last in the history, so a later `--delegate` could replace it. The owner ruled the fix into the script; the sixth, on it, converged at low, and its three lows were fixed after it, not re-reviewed)
+- **Gate**: 30 min (the full run on 02916934, green; the one on fd6c2cb1 was red at `test (race)`: the new AGENTS.md row ran 336 characters in the plugin's scaffold, over the 320 ceiling. The final gate follows the script's fix)
+- **Cost**: $15.23 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 123182 tokens, 0 min
+
+#### What happened
+
+`/propose` gains step 3a: the stops a skill step keeps (the review did not converge; money, legal,
+outward, irreversible or at-the-computer work; an ADR or practice record, or a row that keeps its
+own approval; a `**Risk:**` below the row's). Otherwise it runs OPS-127's `change-approval.sh
+--delegate` (which now also refuses a change approved before, standing or revoked), then opens the
+proposal PR with an `Approved: by Claude on delegation` line, pushes the owner one line and lands
+without waiting. The owner overrules before
+landing with `--revoke`, after it with a `proposal: <id>` revision PR on an ops branch carrying their
+`--record`. `start-project` offers `APPROVAL_DELEGATED` ("0" unless the owner says). AGENTS.md's
+*Who decides* and its table, the conventions, the playbook and `changes/README.md` say who approves
+now, in both copies, and `checks/change-process.sh` holds step 3a's call to the script in place. The
+session plan's owner cells from S13 on name only what stays the owner's.
+
+#### Decisions
+
+- Any revoke means only the owner re-approves (the owner's ruling, 2026-10-25, after round 5).
+  `change-approval.sh --revoke` now writes `**Status:** awaiting approval (revoked; was approved by
+  <who>)`, and `--delegate` refuses while that marker or any Approved line stands; only `--record`
+  clears it. Prose stops that read the history had failed review twice, so the stop moved into the
+  script. The cost: Claude revoking its own delegated approval to edit a design now waits for the
+  owner.
+- The stops the script does not test (outward, Risk lowered) stay a
+  skill step here and move into `change-approval.sh` under a new row, OPS-131, placed in S13: OPS-130
+  was editing the script and its checks in a parallel lane, so a second edit there would have
+  conflicted. OPS-131 lands before S15 proposes OPS-116's signer, the first outward change.
+- The delegation row in AGENTS.md's table bolds only what runs a control, `.claude/change-approval.sh`,
+  `checks/changes.sh` and, since OPS-130 (#258) merged first, its `checks/approval-guarded.sh`: that
+  check fails a bold path the guarded list lacks, and `start-project`, which names the key, is not
+  guarded. Agreed with OPS-130's lane: whichever merged second names the other's check.
+- Trimmed the session plan's owner cells: PANEL-50, PANEL-43 and PANEL-38's proposal approvals came
+  out (delegable now); PANEL-46's split, OPS-92a, OPS-116, OPS-117, OPS-42 and PANEL-56 stayed, each
+  with the reason it stays.
+- Held the merge for the owner's own go in this lane, after the pushed diff, as the row says: a peer
+  session's relayed "merge it" is not that.
+
+#### Surprises
+
+A peer session relayed "merge it" while #256 held only the marker commit, so the go would have
+covered a diff nobody had read. The merge of `origin/main` conflicted on the S12/S13 session-plan
+rows, which OPS-130's #257 and this row both edited. The new AGENTS.md row passed
+`agents-md-budget` in both of this repo's sets at 311 characters, then failed in the plugin's
+scaffold at 336: the plugin rewrites `.claude/` to `${CLAUDE_PLUGIN_ROOT}/` and `/propose` to
+`/clauductor:propose`, so only the 12-minute race test sees the row as a plugin project gets it.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-130 — the guarded list follows AGENTS.md's table; a detached HEAD past the tip is the branch's
+
+- **PR**: #258
+- **Session**: S12, started 2026-10-25 06:28 ET
+- **Review**: 3 rounds, peak high, cap 3 (round 3 peaked low: the one low, a first match hiding a project's skill fragment behind the framework's, fixed after it, not re-reviewed)
+- **Gate**: 10 min (the full run on 8b8234741, after 27 min queued behind OPS-128's gate: red at `test (short)`, `TestNoProjectPathsLeft`, on five self-test lines that spelt a fixture path the way the model reaches into a project; fixed, and the final gate follows this commit)
+- **Cost**: $9.82 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 123170 tokens, 0 min
+
+#### What happened
+
+OPS-127 left two known limits past its cap, and this row closes both.
+
+**The guarded list has an authority.** A new check, `checks/approval-guarded.sh`, reads every name
+that AGENTS.md's "What executes each rule" table puts in bold in its executor column. It resolves
+each name to a file and fails any name that neither `.claude/lib/approval-guarded.txt` nor the
+project's `.claude/local/approval-guarded.txt` guards, on whole path segments, as
+`change-approval.sh` matches them. Names resolve as follows:
+
+- a bare name (`pr-merge-guard.sh`, `checks/gate.sh`, `merge-pr`, `local:team-queue`) goes to
+  every file it names under `.claude/` and the usual control directories, so a project's
+  `.claude/local/skills/merge-pr` fragment is checked beside the framework's skill;
+- a glob goes to its directory;
+- a shell function (`roadmap_queue`) goes to the `lib/` file that defines it;
+- an agent's `tools:` line goes to `.claude/agents`.
+
+A name that resolves to nothing fails too, so a typo or a rename cannot pass as guarded. Under the
+plugin, the check reads the plugin root's list (the rewriter points the path there), and a name
+found only in the plugin root passes, since the plugin cache is read-only to a project's branches.
+On this repo the table names 74 files and the template's names 67, all guarded. The check holds
+with `APPROVAL_DELEGATED` off too: the list must be whole before the key turns on.
+
+**A detached HEAD past the change's tip is the branch's.** In `change-approval.sh`, a new
+`on_branch()` counts HEAD as the change's work in two cases, so its diff from the merge base is
+checked for guarded paths:
+
+- HEAD is at or past a tip of `change/<id>` (local or origin's) that main does not already contain;
+- HEAD has commits since main that touch `changes/<id>/`.
+
+A HEAD that main contains is never the branch's, so a merged change, or the main checkout, is still
+judged by its task lines alone. `checks/change-tools.sh` gains these cases:
+
+- detached past the tip: refused;
+- a detached amend that adds a hook: refused;
+- a detached HEAD on main past the tip: not charged;
+- `ops/other` cut from main while the change branch sits at main: not charged;
+- the main checkout at the branch's commit with an untracked hook: not charged.
+
+#### Decisions
+
+- **History or content, never a bare tip.** Round 1 counted any HEAD past the branch's tip. Review
+  showed that a fresh `change/<id>` still at main has a tip every branch is past, so the change was
+  charged with every other branch's diff. A tip identifies the branch only when main lacks it.
+  The content signal catches the rest, because every build ticks `tasks.md`.
+- **A bold name that is no file fails, rather than being skipped.** Round 2 found `gitleaks` and
+  `tsc --noEmit` in bold, which nothing resolves. The check stays strict: bold in that column
+  marks what executes a control, so the fix is to name the file that runs it, or unbold it, and
+  the message says so.
+- **The content signal's reach is accepted.** A branch that edits `changes/<id>/` and also touches a
+  guarded path refuses that change's delegation. A refusal sends the approval to the owner, the
+  safe side.
+- **No AGENTS.md row here.** OPS-128 (#256) adds the delegation row to both tables. By agreement
+  with its lane, whichever lands second names `checks/approval-guarded.sh` in that row.
+
+#### Surprises
+
+The first negative test for a detached HEAD passed vacuously. `git checkout` of the fixture's base
+had deleted the untracked `.claude/hooks/` it relied on, so nothing guarded was left to find. It
+went red only after a `mkdir -p` after the checkout. Every new case was then run against origin/main's
+script and round 1's, and failed on both.
+
+The check passed in the template and failed in every plugin project: it read the framework list
+from `$1/.claude/lib/`, and a plugin project keeps it in the plugin root. The scaffold test
+(`TestPluginChecksPassInScaffoldedProject`) is not in the short suite, and review found the
+failure by reading the code. Passing the list as a literal `"$ROOT/.claude/lib/..."` lets the
+plugin rewriter point it at the right place.
+
+The scaffold test took 632 s on a machine running two other lanes' checks, so it exceeded
+`go test`'s 10-minute default timeout once with no hang. `ps` showed the checks advancing.
+
+The full gate went red on the short suite, which had not run since round 1: `TestNoProjectPathsLeft`
+reads a fixture's `git add -f .claude/hooks/...` and an expected `(.claude/skills/...)` as the
+model still reaching into a project's `.claude/`. The lines now spell the fixture as `"$R/..."` and
+compare paths without the prefix. Running checks by name is not running the short suite.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-131 — change-approval --delegate refuses what step 3a kept by hand
+
+- **PR**: #270
+- **Session**: S12, started 2026-10-25 14:43 ET
+- **Review**: 12 rounds, peak high, cap 3 (rounds 1–3 to the cap: high, high, low; the owner asked for fresh rounds past it with no medium left at merge: round 4 medium, 5 medium (an escaped pipe), 6 three mediums (a backtick span, a marker's spelling, a removed marker's history), 7 two mediums (spans dropping a tier, a shallow clone), 8 a high (a custom parser's row shape) and three mediums, 9 medium (review-cap reading an odd Risk as normal), 10 two mediums (markers hidden by markup, entities and line breaks), 11 a high (a tag pattern ate the text after a lone `<`) and two mediums (unlisted invisibles and colons, a merge's resolution), 12 two mediums (link destinations, named entities) and two lows (control bytes, a row's backtick pairing), all fixed; merged on the owner's word without a 13th round)
+- **Gate**: CANNOT CHECK — no full gate passed before this commit (the run on 66499ae3 was stopped, superseded); the final gate follows it
+- **Cost**: $65.28 (usage-report.sh, this session: $47.24 session, $18.04 reviewers)
+- **Session start**: 9505556 tokens, 103 min
+- **Unreviewed at merge** *(at the close)*: round 12 read up to 66499ae3; its fix commit 913d7b09,
+  3a8e944c (the AGENTS.md row shortened) and the two merges of `origin/main` landed without a
+  review round, on Rich's word in the lane. #284 owns their post-merge review (row OPS-143, S13).
+
+#### What happened
+
+`change-approval.sh --delegate`, and the check over a delegated line, now refuse the stops
+`/propose` step 3a kept as prose: a change touching `ADR_DIR` or `PRACTICES_DIR`; a proposal with
+an `Approval:` marker in any spelling or place, or one its history ever held; a roadmap row with any
+`Approval:` in its Change cell; a Risk the row states in a form the floor cannot read; a
+`**Risk:**` below the row's (a row with none is normal); and a change ever approved before, by a
+standing or revoked line, an Approved line in its history, or an entry in the clone's approval log
+(`<git-common-dir>/clauductor/approvals.log`, which the owner starts with `--start-log`). The row
+is the one row of `origin/main`'s roadmap table naming the change's id, and the proposal's
+`**Roadmap row:**` must be it. `review-cap.sh` reads a row's Risk the same way and says UNKNOWN for
+one it cannot read. Markers are read as they render (`marker_plain` in `.claude/lib/change.sh`),
+left to right in CommonMark's order. PANEL-56, PANEL-57, OPS-42, OPS-92a, OPS-112, OPS-113, OPS-116
+and OPS-117 carry `(Approval: owner)` in their change cells. Every refusal has a negative case
+confirmed failing on a mutant of its line first: 75 mutants, none surviving.
+
+#### Decisions
+
+- The approval log (L-a, option A, the owner's call): a delegated approval is refused for a change
+  this clone's log shows approved before, and no log refuses; `--start-log` takes the owner's name.
+  Branch history alone could be rewritten by whoever controls the branch.
+- The history is followed across a whole-directory move only, with `--full-history -m`, capped at
+  50 hops (L-b), replacing `--follow`, which could read another change's history.
+- Allow only the shapes the script can read; refuse every other, naming why: a shallow clone, a row
+  that is not a line of the queue table, a parser's row that is not main's table row for the id,
+  an odd Risk spelling. A refusal goes to the owner, who can always `--record`.
+- Markers are read as rendered, not as written: escapes and code spans first, then only real
+  tags, comments, links CommonMark makes and entities; what is not ASCII reads as nothing inside a
+  word and as a colon outside one. The over-refusals this buys (`owner approval: none` in any past
+  version, an unknown character after `approval`) are documented as the safe side.
+
+#### Surprises
+
+- Eight rows that keep the owner's approval carried no marker, PANEL-57 among them, whose proposal
+  the owner had approved by hand the day before. Rule 4 again: the stop had lived in prose that
+  each proposal's author re-read.
+- Twelve review rounds, nine past the cap, each finding a new way to write a marker the reader did
+  not see. A marker read as written has as many spellings as the renderer has features; the
+  findings narrowed only once the reader followed CommonMark's own order and erred toward refusal
+  on anything it did not model, and round 12 still found two.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-132 — the merge guard refuses a PR that is not open, read in the repo the merge names
+
+- **PR**: #268
+- **Session**: S12, started 2026-10-25 13:53 ET
+- **Review**: 3 rounds, peak medium, cap 3, then a second run at the owner's request with #271 and #267 in scope: round 4 peak medium (two mediums, two lows, all fixed); round 5 peak medium (three mediums, three lows, all fixed); round 6 peak high (a high, a medium, two lows, all fixed); round 7 peak high (three highs, a medium, three lows; fixed but one low, a renamed repository's old name, deferred to #282); round 8 peak high (a high, a low, both fixed); round 9 peak high (a high, a low, both fixed); round 10 peak high (a high, two lows, all fixed); round 11 peak high (a high, a medium, a low, all fixed); round 12 peak high (a high, two mediums, all fixed); round 13 found nothing (converged)
+- **Gate**: CANNOT CHECK — no full gate ran before this commit; the first full run follows it, and its receipt covers this head
+- **Cost**: $11.67 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 10564794 tokens, 53 min
+
+#### What happened
+
+Issue #217: #215 was closed as a duplicate at 18:35 Z on 2026-10-23 and merged twelve minutes
+later, because `pr-merge-guard.sh` checked the gate evidence for the head commit and never asked
+whether the PR was still open. A closed PR is another session's "do not land this", and the guard
+let it through.
+
+**Rule 14.** Right after the guard resolves the PR, before any evidence rule, it reads
+`gh pr view --json state`. Anything other than `OPEN` is refused: `CLOSED`, `MERGED`, an empty
+answer, or a gh failure. The refusal for a gh failure carries gh's first stderr line, so the
+message says what to fix rather than guessing at auth.
+
+**Every read names the PR the merge names.** Round 1 found the state read unpinned: `gh pr view 5`
+asks gh's default repository, which in a fork after `gh repo set-default` is a different PR #5.
+That was already true of rule 2's three reads (the checks and both head reads). A helper, `ghpr`,
+now reads the PR the way the merge named it: by its URL, or by its number with the merge's own
+`-R` word. All four reads go through it.
+
+**What the guard cannot read, it refuses.** Round 2 found the words were not the whole story. gh
+also picks the repository from `GH_REPO`/`GH_HOST` and from the directory it runs in, and the hook
+reads from its own directory with the session's environment. Round 2's answer was a text match on
+`GH_REPO`, `GH_HOST` and `cd`; round 3 got past it five ways (`GIT_DIR=`, `cd;`, `c\d`, a split
+`export`, the payload's `cwd`), all tracked as #271. At the owner's request #271 and #267 came
+into this row. The text match gave way to an allowlist by what the merge's words leave gh to
+resolve. Before a URL or a hosted `-R` anything may come. Before `-R OWNER/NAME`, only
+`cd <path> && `. A merge naming no repo must have nothing before it, and its payload `cwd` must be a
+worktree of this repository. Rule 2b's `gh run list` now lists the PR's own repository's runs (the
+`-R` word, or the URL's host/owner/name), and every remediation hint names the PR as the read does.
+
+**The words the read stops at.** Round 4 found two more places the read and gh part. The PR reader
+stops at `$`, a backtick or a glob's `(`, but gh does not, and it merges in the last `-R`. Round 4's
+answer matched the text after the stop for a `-R`; round 5 beat it with quoting (`-\R`, `--re""po`)
+and showed a quoted expansion that is a word of its own can be the flag itself
+(`"$(… | base64 -d)"` is `-Racme/app`). So a stop now passes only by allowlist: a `$` in double
+quotes, in the command's last word (a trailing `2>&1` or `2>/dev/null` aside), as the value of
+`--body`, `--subject` or another value flag. Round 6 found words the read kept whole that the shell
+does not: `{-R,acme/app}` and `-[R]`. An unquoted character now passes only from a small set
+(letters, digits, `_./:@%+=,-`, non-ASCII), the same allowlist turn one level down. Round 7
+found three more. A process substitution, `<(…)`, is a word, but the read took it for a redirect
+and stopped, while gh got the `-R` after it. A quoted `"$@"`, `"${a[@]}"` or zsh
+`"${(@s.:.)x}"` splits into several words. And rule 1's raw text match was passed by
+`--au''to` and `--\admin`. A redirect now ends the read only when redirects alone, each with
+one plain target, run to the end of the command (the reader already refused one before the last
+word). The read also refuses
+`--auto` or `--admin` once their quotes are out. Round 8 found an empty repo flag, `-R ""` or
+`--repo=`, after this repo's `-R`. gh keeps the last `-R`, and an empty one overrides nothing, so
+gh fell back to `GH_REPO` or the directory while the reads used the `-R` before it. An empty
+repo flag is now a repo the guard cannot confirm. Round 9 showed that the quoted forms still
+allowed were not closed words in zsh, the Bash tool's shell. A `#` inside `"$(…)"` starts a
+comment, so the `)"` the read took for its end could sit inside it, with a `-R` on the next
+line. And `"$a[@]"` splits as `"$@"` does. Only `"$name"` or `"${name}"`, then letters, digits
+and `_./-` (`"$TMPDIR/body.md"`), now pass as that last value. merge-pr's own form needs no `$`
+at all. Round 10 found the step before the read. The guard joins each backslash-newline before
+it reads, as the shell does, but it also joined one whose backslash was itself escaped. In
+`"a\\<newline>"` that made the closing quote read as escaped, so the words after it went unread;
+unquoted, a comment on the next line read as this repo's `-R`. A line now joins only when it
+ends in an odd run of backslashes. Round 11 tested "anything may come before a URL or a hosted
+`-R`". The reader had passed `eval`, `env -S` and `sudo -s` as prefixes that run the rest as
+written, but each parses it again: `eval gh pr merge '--squash 6 --body' 5 -R github.com/acme/app`
+merges #6, and `'--$X'` becomes `--admin`. A gh after them is now unreadable, as after `xargs`.
+Rule 12 read a relative `--body-file` from the payload's directory, which a `cd` before the merge
+had left. After any word before the merge, it now refuses a relative path, and so does
+premise-check. Round 12 found both fixes keyed to spellings. getopt_long takes any unambiguous
+prefix of a long option, so `env --split=` and `sudo --sh` still parsed the words again: env, sudo
+and doas now pass only a short list of flags. And rule 12 tokenized the whole command, so a
+`--body-file` in a comment, a later `echo` or a `gh api` before the merge was read as the merge's,
+and a leading `gh --version` hid the `cd`. It now reads only the merge's own simple command, and
+refuses a command with no merge in it or more than one.
+`gh api --hostname` had been text-matched anywhere, a field's value included. The
+reader now takes the host from the flag's own word, refuses a host that is computed, repeated or
+not a plain name, and reads an absolute `https://api.github.com/` endpoint on github.com, where gh
+sends it whatever `--hostname` or `GH_HOST` says. An unprovable value of any shorthand (`-f $X`),
+not only `-X`, now leaves the merge unread, as the long forms already did: it can split into a
+`--hostname`.
+
+**premise-check reads the PR the merge names (#267).** Extension rules now receive `GUARD_PR_REF`
+and `GUARD_PR_REPO`. premise-check reads through them, before it changes to `ROOT`, so a bare read
+resolves in the directory the guard checked. Without `GUARD_PR_REF` it refuses, naming an older
+guard as the cause.
+
+`checks/merge-guard.sh` gains these cases:
+
+- CLOSED (the refusal names it), MERGED, a gh error (named), an empty answer: refused;
+- CLOSED via this repo's PR URL, and via `gh api -X PUT repos/<owner>/<repo>/pulls/N/merge`: refused;
+- CLOSED by `-R`, by URL or through `gh api` while gh's default repo has an OPEN PR of that
+  number: refused; OPEN by `-R` or `gh api` while the default repo's is CLOSED: allowed;
+- a workflow success only in gh's default repo, for a PR named by `-R` or URL: refused;
+- anything before a merge naming no repo, and anything but `cd <path> && ` before `-R OWNER/NAME`:
+  refused; a `cd` or `GH_HOST=` before a URL or `-R HOST/OWNER/NAME`: allowed;
+- a merge naming no repo whose payload `cwd` is another repository, missing or empty: refused;
+  from a worktree or a subdirectory of this one: allowed;
+- unpinning the checks, head or branch read fails the suite: the stub answers pinned and default
+  reads apart;
+- a `-R` after a backtick, a quoted substitution or a glob qualifier, plain or quote-split; an
+  unquoted expansion; a quoted expansion as a word of its own; a brace or glob that expands into a
+  `-R`: refused; a quoted variable as
+  the last value of `--body`, `--body=` or `-b`, and merge-pr's form with `2>&1`: allowed;
+- an escaped backslash before a newline, in quotes (hiding a `-R` or `--admin`) or unquoted
+  (making a comment line read as `-R`): refused; a real continuation, and `"$TMPDIR"/…` (with
+  provenance off: rule 12 reads only a path written out): allowed;
+- `eval`, `env -S`, `--split-string` or its prefix `--split=`, `sudo -s`, `--sh` or `--logi`
+  before a hosted `-R` or a URL: refused; `env VAR=…`, `sudo -E env -i`: allowed;
+- with provenance on, a relative `--body-file` or `-F` after a `cd` or any command, a leading gh
+  included: refused (and in premise-check); an absolute one: allowed;
+- with provenance on, a `--body-file` or `commit_message` field outside the merge's own simple
+  command (a comment, an `echo`, a `gh pr view` after it, a `gh api` before it): not read as the
+  merge's; the merge piped on, and a substitution in a command before it: allowed;
+- a PR URL with a later `/pull/<n>` in its path: read as its first, as gh reads it;
+- a quoted `"$(…)"`, even last; a zsh comment or case pattern in it hiding its `)`; a zsh
+  `"$a[@]"` set in the same command; a zsh modifier (`"$B:h"`): refused;
+- a `-R` after `<(…)` or `>(…)`; a quoted `"$@"`, `"${a[@]}"` or zsh split; `--auto` or
+  `--admin` split by quotes or escaped (named as rule 1): refused; redirects alone to the end
+  (`> f 2>&1`) and `--body-file "$TMPDIR/…"` piped on (provenance off): allowed;
+- an empty `-R ""`, `--repo=`, `-R=` or `-sR ''` after this repo's `-R`: refused;
+- `gh api --hostname` read from a field's text, repeated or computed: refused or read on the default
+  host, as gh would; an absolute github.com endpoint: read on github.com; an unquoted `-f` or `-H`
+  value that splits into `--hostname`: refused;
+- gh named by a path: refused, saying so.
+
+The other checks that run the guard end to end (`artifacts`, `write-surfaces`, `premise-check`)
+answer OPEN in their gh stubs. `merge-pr` step 1 now checks the PR is open and stops, without
+reopening it, if it is not. The AGENTS.md row, the hooks README, the conventions and the playbook
+name the refusal.
+
+#### Decisions
+
+- **Fail closed on no answer.** A guard that cannot read the state cannot know the PR is open, and
+  the merge it is guarding is the irreversible step; a retry after `gh auth status` costs a minute.
+- **Rule 14 runs before the evidence rules.** A closed PR's evidence is beside the point, and its
+  refusal is the one that tells the session to stop and ask why.
+- **Pin rule 2's reads in the same row.** They were the same class as the new read, in the same
+  file, and leaving them would have let a fork's checkout judge a merge by another PR's checks.
+- **An allowlist of what may come before the merge, not a list of what may not.** Round 2's text
+  match on `GH_REPO`, `GH_HOST` and `cd` was a denylist, the kind `foreign_shape`'s comment records
+  three rounds of review defeating, and round 3 defeated it the same way. The allowlist (option A)
+  keeps merge-pr's form as it is. Option B, refusing every merge that does not name
+  `-R HOST/OWNER/NAME` or a URL, would close the profile's own environment too, at the cost of
+  changing merge-pr. The choice between them is the owner's, and the PR states both. *(At the
+  close:)* Rich chose option A on 2026-10-26, typed in the lane, so the allowlist merged as built.
+- **Past the cap at the owner's word.** Round 3 capped with #271's findings open. The owner asked for
+  them and #267 to be fixed in this row and for review to start again, so rounds 4 on are a second
+  run against a fresh cap.
+- **Refuse words the read cannot pass, rather than read further.** Reading past an expansion means
+  guessing what it expands to; a refusal names the form that reads whole.
+- **The window between the read and the merge stays,** and so does the environment a shell profile
+  sets. A close in that window still lands, as for every rule of a client-side hook; only a
+  server-side control closes either. A renamed repository's old name, which GitHub redirects,
+  still reads as a foreign repo: #282 owns it.
+
+#### Surprises
+
+The bug was older than the issue: rule 2's evidence reads had always read gh's default repository,
+and nothing had noticed because this repo has no fork with a default set. The review found it only
+because the new read was one line away.
+
+Round 1's fix pinned every read to the merge's words and claimed the rest "resolves exactly as the
+merge does". Round 2 showed two more inputs to gh's choice of repository, the environment and the
+directory, that the words do not carry. The gh api case had also passed with its pin removed: its
+stub answered the same state pinned or not, so it tested the state and not the pin.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-134 — the session's and the change's cost readings agree
+
+- **PR**: #266
+- **Session**: S12, started 2026-10-25 13:32 ET
+- **Review**: 3 rounds, peak medium, cap 3 (rounds 2 and 3 peaked low; round 2's two lows fixed and re-reviewed in round 3; round 3's one low, the `find` stand-in running its command on an empty list, is on a path the test cannot reach, left)
+- **Gate**: 39 min (the full run on e2af9de6, after a wait for the lease behind panel-57-lane-close's gate)
+- **Cost**: $11.59 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 8012546 tokens, 32 min
+
+#### What happened
+
+#253 reported that `usage-report.sh` read session 08c9d8f2 (OPS-109) as $40.30 and build-change's
+report summed to $110.51. **usage-report was right**: 836 messages, $41.65 by now. Build-change
+wrote `groups[].costUsd` from `change-cost.sh`, which reads the change's running total, so the
+four workflow runs' entries (22.65, 30.16, 40.15, 47.71) were cumulative and their sum counted
+early groups up to four times. `change-cost.sh ops-109-doctor` reads $50.25 for the change, both
+sessions included.
+
+- **build-change.js**: each group entry carries `changeCostUsd` (the running total) and `groupUsd`
+  (this reading less the one before it, the first from preflight's). An unknown reading on either
+  side, or one below the reading before it, gives `null`, and a fall is a warning in the report
+  and the log. `costUsd` per group is gone; nothing in the repo read it.
+- **lib/usage.sh** (#207): `usage_tag` and `USAGE_TAGGED`, one reader that tags each line with its
+  own file. A cut-off last line of the lead's transcript is no longer joined to its first agent's
+  first line, and a cut-off `meta.json` loses only its own agent's role. `change-cost.sh` reads
+  through the same pair.
+- **change-cost.sh** (#249 item 4): a counted lane no longer counts whole. A lead's messages there
+  on a named other branch, after its last on the change's (or all of them, from a session that
+  never recorded it there), are the next work. OPS-118 reads $206.37, from $214.17, against
+  build-change's $200.24. Items 1–3 of #249 stay with OPS-138.
+
+Every new test failed first: the agreement fixture (usage-report 11 against change-cost 12 on the
+old `usage.sh`), the cut-off line and meta, the live-worktree and lead-moved-on lanes on the old
+`change-cost.sh`, and build-change's null and falling readings with the carry and the guard
+removed.
+
+#### Decisions
+
+- **Two fields, not a corrected `costUsd`.** A field that changed meaning in place would read as
+  right in every old report; `changeCostUsd` and `groupUsd` say which figure each is.
+- **A falling reading is `null` and a warning, never a negative spend.** The reading is a sum over
+  transcripts, so it falls only when one moved or was lost, which is worth a reader's eye.
+- **A lane is cut at its lead's last message on the change's branch, not at the merge.** The
+  transcripts carry the branch per message and no merge time, and an agent records no branch of
+  its own: an agent run there after the lead moved on still counts, a known limit in the header.
+
+#### Surprises
+
+The cut-off-meta test of round 1 caught the old reader only on this Mac: `find` lists a directory
+in the file system's order, and the test needed a broken meta listed before the builder's. A
+`find` stand-in that lists in name order, `-exec CMD {} +` included, makes it fail on every
+machine. Exercising that stand-in by hand first looked like it did not sort: zsh had
+`/usr/bin/find` hashed, so a PATH stand-in run from the interactive shell never ran.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-135 — the CLI's lows: one error print, a disabled launchd label, doctor's three
+
+- **PR**: #263
+- **Session**: S12, started 2026-10-25 13:09 ET
+- **Review**: 1 round, peak low, cap 3 (three lows, all fixed after it, not re-reviewed)
+- **Gate**: CANNOT CHECK — no full gate ran before this commit; the final gate follows it
+- **Cost**: $3.46 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 125314 tokens, 1 min
+
+#### What happened
+
+Three issues, each shown failing first. (1) #251: the root command sets `SilenceErrors`, and its
+`PersistentPreRun` sets `SilenceUsage` once flags and arguments have passed, so `Main` prints a
+command's error once and only a mistyped command line prints usage; `Main` keeps cobra's
+`Run 'clauductor --help' for usage.` after an unknown command, which `SilenceErrors` also silenced.
+`TestMain`'s helper now runs `Main` itself instead of a hand copy of it, which is why it could never
+have caught the double print. A test refuses a subcommand's own `PersistentPreRun`, which would
+replace the root's. (2) #202: `clauductor panel install` reads `launchctl print-disabled` before it
+changes anything and, when launchd holds the panel's label as disabled, stops with an error naming
+the `launchctl enable gui/<uid>/com.clauductor.panel` to run; it never runs it. `docs/panel.md`'s
+install steps say so. (3) #255: doctor says git is not on PATH when it is not, rather than "not in a
+git repository"; DOCTOR-1-S5's AND clause is cited by the test that drives it; DOCTOR-1-S7's printed
+fix is proven by `panel install --project`'s own path (a new `panelInstallExec` seam, launchd
+stood in), not by `AddProject`'s options.
+
+#### Decisions
+
+- #202 stops and names the command instead of running `launchctl enable`: the row says so, and
+  enabling a label launchd holds is the owner's to do. The check runs before the binary copy and the
+  token rotation, so a stopped install leaves nothing changed; a failing `print-disabled` lets the
+  install go on as before.
+- Usage is silenced in the root's `PersistentPreRun` rather than with `SilenceUsage` on the root, so
+  a wrong flag or argument count still prints it.
+
+#### Surprises
+
+- In this lane's Bash sandbox Go's default build cache was unreadable (`operation not permitted`),
+  so tests ran with `GOCACHE=$TMPDIR/gocache`; a test that binds a local port panics there.
+
+#### Insights
+
+None.
+
+### OPS-136 — the template scripts' lows: verify's path claims, the clean-room docs gate, no-silent-wait, the sh -c child class, a validate test off the network
+
+- **PR**: #264
+- **Session**: S12, started 2026-10-25 13:09 ET
+- **Review**: 2 rounds, peak medium, cap 3 (round 2 peaked low: its three lows fixed after it, not re-reviewed)
+- **Gate**: CANNOT CHECK — no full gate ran before this commit: this repo's `.claude/hooks/` and `.claude/skills/` copies waited on the owner's copy, so the root hooks check was red; the final gate follows this commit
+- **Cost**: $8.99 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 125478 tokens, 1 min
+
+#### What happened
+
+The row closes five open bugs in the template's scripts.
+
+- **#252, verify-change's path claims.** A backticked token in a ticked task now counts as a path
+  claim only when it is a path of the repo (in the diff, a directory of a changed file, or an
+  object at HEAD), or has a directory part and an extension. A code identifier
+  (`config.LoadProjects`), an absolute path or a bare name that is no file no longer fails a
+  finished task. A task whose tokens are all dropped prints a `NOTE` saying it was not judged. The
+  diff is read with `--no-renames`, so a task removing a renamed file's old name is judged.
+- **#235, the docs gate in a clean room.** `run-local.sh --docs` reads the working tree only
+  under `--dirty`. A clean-room run (`GATE_CLEAN_ROOM=archive`) tests the commit, so an untracked
+  file beside it no longer refuses a docs-only gate. `--dirty` still refuses one.
+- **#156, no-silent-wait.**
+  - A launch clears the agent's old end marker, so a resumed agent's stale marker can't release
+    its launcher.
+  - The refusal says to re-run the wait while the agent runs, and to end the turn once it no
+    longer does.
+  - A new test covers a launcher whose agent was stopped: its end is allowed.
+- **#232, the plugin's `sh -c` child.** The rewrite passes `CLAUDUCTOR_FW` to `-ce`, `-e -c` and a
+  body over several lines, run over the whole script, not line by line. The test's detector reads
+  the line before a child as the shell does (`commandWords`). It no longer reports a correct child
+  inside `"$( … )"`. It does report any shell by any path with any unquoted options, so a form the
+  rewrite misses fails the test.
+- **#254, TestClaudePluginValidate off the network.** Its throwaway config sets
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and `DISABLE_TELEMETRY=1`. It ran in the sandbox
+  with no denied connection.
+
+Every new case was run against the old code and failed there.
+
+#### Decisions
+
+- **The fork-point rule went, instead of getting a test.** Round 1 found that no test failed
+  without `git cat-file -e "$base:$q"`. A file at the fork point and not at HEAD is in the diff,
+  and one at both is caught by the HEAD rule, so the rule was dead. Round 2 then found the
+  exception, a rename, and `--no-renames` closed it the way `docs-gate.sh` already does.
+- **The detector is wider than the rewrite on purpose.** The rewrite handles the forms the
+  template uses. The detector reports every shell, path and option form, so a new spelling in the
+  template fails `TestShellChildGetsPluginRoot` rather than shipping an empty variable.
+- **A stopped agent's launcher ends its turn.** Round 1's medium was this row's own wording: the
+  first fix told a launcher to wait for a marker that a stopped agent never writes. The refusal
+  now gives the old release path back beside the re-run.
+
+#### Surprises
+
+`clauductor update` was refused on `.claude/hooks/no-silent-wait.sh` and later on
+`.claude/skills/verify-change/SKILL.md`, which the lane's sandbox may not write. The owner copied
+them by hand each time a review round changed them. Until then, the root hooks check tested the new
+hook against the old copy and failed.
+
+The rename case first renamed a file the branch had itself added. Under `--no-renames`, an add
+followed by a rename nets to the new name alone, so the case failed for both scripts and showed
+nothing. A second try renamed `.claude/change-cost.sh`, which `TestNoProjectPathsLeft` refuses in
+a project check. The case now renames a plain fixture file of the fork point.
+
+The new gate.sh case committed a receipt that the later stale-origin case read as its own, until the
+case removed it (`rm -f "$REC"`).
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-137 — the panel's three lows: a restart's waiting re-notice, the hangup's wiring, the quota harness
+
+- **PR**: #278
+- **Session**: S12, started 2026-10-25 20:59 ET
+- **Review**: 2 rounds, peak medium, cap 3 (round 1: one medium and four lows, all fixed; round 2: none)
+- **Gate**: CANNOT CHECK — no full gate ran before this commit: it waited for #276 on main; the final gate follows it
+- **Cost**: $8.05 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: 7107972 tokens, 14 min
+
+#### What happened
+
+Three issues, each shown failing first. (1) #231: a waiting alert's Since is the moment this panel
+first saw the wait (or, with stalls on, the carried ask), so after a restart it never matched the
+notified mark, and while `claude agents` had not answered, or the wait was inside its threshold,
+the alert was absent and the mark was deleted as cleared; a restart past `MinInterval` re-notified
+it. The notifier now keeps a waiting mark it restored until an agents answer has bound a session
+(`View.WaitsPending`; an answer before the worktrees are read binds none). The model names, by
+session, the Since of a wait already under way when it first listed the session
+(`View.WaitsCarried`). The notifier takes an alert with that Since as the stretch already
+notified. A prompt a hook raises after the restart has its own Since and notifies (review round 1's
+medium). (2) #162: `clauductor panel --launchd` runs as a
+subprocess with its run stubbed, from a terminal and under `nohup`. It catches the wiring in
+`panel.go` either way (always taking the hangup, never taking it); a test run that itself ignores
+the hangup skips the terminal case. `docs/panel.md` says how the panel stops. (3) #160: the quota harness loads `panel.js`'s own `el`, `key`, `pct`, `bullet` and
+`num`, and stubs only the clock's helpers. A changed `pct` and a changed `num` each fail the test.
+
+#### Decisions
+
+- A wait that ended and began again while the panel was down reads as the stretch notified before:
+  the panel cannot tell the two apart, and one missed re-notice is the lesser fault than a repeated
+  one on every restart.
+- The rename of `lane_test.go`'s `gitIn` to `laneGitIn`, which `origin/main` needed for
+  `internal/cmd`'s tests to build, stayed out of this row: the orchestrator filed it as #276 and
+  landed it from its own fix branch.
+
+#### Surprises
+
+- `origin/main` at PANEL-57 did not build `internal/cmd`'s tests: PANEL-57 and OPS-135 each declared
+  a `gitIn` (#276).
+- Running `session-start/marker.sh` to read the session opened the row's draft PR (#278).
+
+#### Insights
+
+None.
+
+### OPS-138 — merge-pr's step-5 guard reads every fragment, and a hook refuses a main-checkout move while catch-up is on
+
+- **PR**: #283
+- **Session**: S12, started 2026-10-25 20:43 ET
+- **Review**: 3 rounds, peak medium, cap 3 (rounds 1 and 2 peaked medium, both fixed; round 3 peaked low: its test gap fixed with two rows, its four under-reads in the hook's KNOWN LIMITS under #280)
+- **Gate**: CANNOT CHECK — no full gate ran before this commit: the branch was rebased twice onto a moving main, and this repo's `.claude/hooks/` and `.claude/skills/` copies waited on the owner each time; the final gate follows this commit
+- **Cost**: $22.83 (usage-report.sh, this session, at the fragment's commit)
+- **Session start**: CANNOT CHECK — the session started from the orchestrator's brief, not session-start, so no marker recorded its cost
+
+#### What happened
+
+Three of #249's items; OPS-134 (#266) closed the fourth.
+
+- **Every merge-pr fragment is read.** `checks/change-process.sh` runs step 5's outside-step-5 rules
+  over each fragment `extensions.sh fragments merge-pr` could emit, counting every module enabled.
+  It also asserts the list includes each shipped one.
+- **A runtime control, `hooks/catch-up-guard.sh`.** While `clauductor panel catch-up --project
+  <main>` prints `on`, it refuses a git command that moves the main checkout: run there, aimed there,
+  or re-aimed in a way it cannot follow. Refs are shared, so `update-ref` and `fetch -u` count from a
+  lane too.
+  - It reads commands with `lib/gate-reader.awk` in a new `-v gits=1` mode, which follows a `cd` the
+    way the shell would: certain, possible (conditional, piped, backgrounded, in a case arm) or ended
+    by a subshell's `)`.
+  - A lane's own catch-up merge runs. Without clauductor, or with catch-up off, it allows the command
+    and says so.
+- **Two false refusals are gone:** prose `cd`, and a plain `cd <subdir>`.
+
+The tests went in first: 39, 34, 25 and 2 hook rows over the first commit and three review rounds,
+each red row failed against the hook before its fix.
+
+#### Decisions
+
+- **A runtime hook, not a longer denylist.** No static read of a skill sees Bash's working directory
+  persist between calls, so the control has to read the command when it runs.
+- **What it cannot follow counts as aimed at main.** A computed path, `eval`, `GIT_DIR=` or a cd to
+  a directory that does not exist yet is refused while catch-up is on. That over-read is listed in
+  the hook's header, and it costs nothing while catch-up is off.
+- **Round 3's four lows merge under KNOWN LIMITS, owned by #280.** They take five forms, each a
+  rare spelling: a bundled `-fu`, a git-core program by path, a case pattern inside `$( … )`, a
+  lane's `checkout --ignore-other-worktrees main` followed by a reset (which moves the shared
+  `refs/heads/main`), and a heredoc's `$( … )`. No medium is left (the owner's bar, OPS-139).
+
+#### Surprises
+
+- **The new hook caught its own author.** Once synced, catch-up-guard refused this session's
+  `git -C $R` and a `worktree add` followed by `-C` to the new directory in one command. Both are
+  listed over-reads, worked around with literal paths and two commands.
+- **Main moved twice under the branch** (OPS-137 and OPS-132's #268). Each rebase ran in a scratch
+  worktree and moved here by an index-only reset, because the sandbox cannot write this repo's
+  `.claude/hooks/` or `.claude/skills/`. The owner restored those files by hand.
+- **The first `clauductor update` read the wrong template**: origin/main's, through the installed
+  binary. The update reads the template beside the binary, so a binary built from this checkout was
+  needed.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### PANEL-57 — clauductor lane close: an agent closes a finished lane, never a working one
+
+- **PR**: #250
+- **Session**: S12, started 2026-10-24 22:29 ET
+- **Review**: 13 rounds, peak high, cap 3 (per group 7, 2, 1 and 3; the owner raised group 1's cap to 6, then allowed a narrow 7th on Fable; group 4's two lows at its cap are #265's)
+- **Gate**: CANNOT CHECK — no full gate completed before this commit; the final gate follows it
+- **Cost**: $133.67 (usage-report.sh, this session: the proposal and the build, at the fragment's commit)
+- **Session start**: 65187792 tokens, 227 min
+
+#### What happened
+
+`clauductor lane close <id>` asks the running panel to close a lane through Close lane's own plan
+and guards. With no flag it prints the plan and changes nothing; with `--yes` it closes, with the
+plan's offers as consent. The panel serves it on `~/.clauductor/panel/cli.sock` (mode 0600, the one
+route, named in `owner.json`), and an interrupted command leaves the close finished. One verdict,
+`closeHeld`, decides whether a lane's work has ended: no gate lease held or waited for, then claude
+exited or gone, or idle with its own session at rest (no subagent, workflow, shell, monitor,
+teammate or wakeup in flight). Both the command and auto-close (PANEL-20) read it, and the close
+re-reads tmux under the lane lock, so it decides nothing from a value read before the lock. The
+command also needs the branch merged unless claude exited, and refuses the caller's own lane.
+session-close's *Close the lanes* rule is its production caller, and the template allows
+`Bash(clauductor lane close *)` and nothing wider. docs/panel.md lists every refusal word for word,
+and `TestEveryCloseWordIsDocumented` holds that list to the reasons `closeheld.go` returns.
+
+#### Decisions
+
+- D1–D7 as recommended (the owner, 2026-10-24), with proposal review round 3's four findings and
+  merge-pr's two as build tasks rather than design edits, so the approval covered design.md as
+  reviewed.
+- Group 1's cap: the owner raised it to 6 after round 3, with wakeups added to D2's background
+  work, then allowed a narrow 7th round on Fable after round 6.
+- Round 1 of group 4 asked the skill to report the result's Kept lines; the builder kept the plan's
+  Keeps, which design.md D5 names word for word. Changing it would void the approval, so it stands
+  as D5 words it (tasks.md's Decision log); a design amendment is the owner's if wanted.
+- Group 4 stopped at its cap with two lows in the docs test's own coverage (derived words, every
+  `CloseHeld` write): #265 owns them.
+
+#### Surprises
+
+- Each review round of group 1 found one more "unknown or earlier state read as current": a poll
+  that straddles a `/clear`, a re-listed session that lost its last `Stop`, a lease source not yet
+  read, a tmux value read before the lock. The fix that converged was one list of what the verdict
+  will not judge without.
+- `clauductor update` run with `!` has no stdin: it merged settings.json, then cancelled the skill's
+  review. The owner copied the template's skill by hand (it matched byte for byte at HEAD).
+- Three tests flaked under gate load and passed alone: #260 owns the two in claudecall,
+  `TestGateStoppedCallHoldsTheSlotUntilItExits` and now `TestGateStopsATimedOutClaudeWithSIGTERM`;
+  #234 owns the stall test that failed group 4's first quick gate.
+- verify-change failed on a task naming `lane.go` bare; it matches a backticked path against the
+  diff's full paths, so the task now names `framework/internal/cmd/lane.go`.
+- The merge broke main. #250 merged 10 commits behind `origin/main`, on GitHub's CLEAN and a
+  receipt for its own head; pr-merge-guard said so as an advisory, and rule 8 (journal and
+  insights only) did not block. OPS-135 (#263) had landed a `gitIn` in `doctor_test.go` too, so
+  `internal/cmd`'s tests stopped compiling on main (#276, fixed by #277). The branch's green
+  full gate could not see it: it judged the branch's own tree.
+- A builder replaced two lines of docs/panel.md with a scripted exact-match replace; the
+  no-blind-source-rewrite hook did not block it. Both swaps were reviewed in round 2.
+
+#### Insights
+
+4 row(s), moved to the insights log.
+
+### The close (2026-10-26)
+
+Fifteen rows folded, and with PANEL-58's proposal (#259) sixteen landed: S12 ran three days, not
+the "2–3 sessions" its cell estimated before #261 pulled eight more rows in. The plan row now says
+what happened. On the evening of 2026-10-25, running low on tokens, Rich held PANEL-58's build for
+S13 and moved the four OPS rows not yet started (OPS-133, OPS-139, OPS-123, OPS-86) there too; S13
+now opens with those four, then PANEL-58's build (no budget, his decision) and PANEL-59. OPS-139
+had been in no session's Rows since #279, which no check catches. S12's owner cell lost its two
+void PANEL-58 items.
+
+Merges past the guard's reach. #250 and #240 each declared `gitIn` in `internal/cmd`'s tests, each
+gated green on its own base, and main stopped compiling at a6e9d6b3 (#276), until #277 renamed one.
+A new file against an existing one overlaps in no file, so OPS-77's row now asks the owner to
+widen its overlap to a Go package. OPS-131 merged after round 12's fixes with no 13th round, on
+Rich's word: #284 owns the post-merge review of that delta (OPS-143). OPS-132's A/B choice went to
+A (Rich, 2026-10-26).
+
+The open issues no row owned got rows in S13: OPS-140 (the Go lows: #269, #281, #274), OPS-141 (the
+guards': #280, #282), OPS-142 (#285, filed at the close, team-queue and bug: the harness's empty
+`template/.claude/.cc-writes/` failing `gate/harness-dirs`, the second time) and OPS-143 (#284).
+
+Two items went to the owner queue: each clone needs `--start-log Rich` before its first delegated
+approval, since OPS-131's log fails closed (this Mac's has none yet); and whether to loosen the
+sandbox, which made Rich sync, reset or rebase lanes over `.claude/hooks` and `.claude/skills` by
+hand about six times.
+
+### Compound
+
+The fold brought the rows' insights to the top of the log, and none has waited a full session.
+Logged at the close: `sandbox/lane-sync` (Raw: the decision is the owner's, in the queue),
+`merge/skew-per-package` (→ owned by OPS-77), `gh/delete-branch-worktree` and
+`agents/no-hand-back` (Raw), and `update/installed-binary` (an instance of CLAUDE.md's "with the
+binary built from this checkout"). Decided: `gate/harness-dirs` → owned by OPS-142;
+`merge/behind-is-untested` → owned by OPS-77; `sandbox/claude-dir-writes` superseded by
+`sandbox/lane-sync`. Thirty-four rows stay Raw while young.
+
+### Flow and cost
+
+Flow 30d to 2026-10-26: cycle 1.4h median, lead 2.4h, 41.5 merges/wk, change-fail 5.3%, approval
+wait 3.2h, review rounds 2, spend $1040.93/wk, 27 in flight (excludes unpriced models:
+claude-haiku-5-5). The orchestrating session 10c3e1da (usage-report.sh, this machine, as the close
+was written): ~$58.65, of it session $31.85, merge $13.66 and fix $7.37 (claude-opus-5-5), merge
+$2.26 and reviewer-docs $0.46 (claude-sonnet-5-5), reviewer $0.64 and this close $2.42
+(claude-opus-5-5). The rows' own costs are above, $438.37 in all.
+
+The standing finding stays: seven changes sit proposed at once (ops-109-doctor's one unchecked
+task, ops-42-routines, panel-25, panel-30, panel-31, panel-46, panel-58-plan-runner), against at
+most one. panel-58 builds in S13; the others wait behind PANEL-46 and OPS-42's re-approval.
+
 ## Session 11 — 2026-10-24 — Rich — lanes start and close themselves; the gate's docs path; check and test lows
 
 **Totals.** Gate 26 min (a row's gate was CANNOT CHECK, so this is a floor); cost $53.47.
