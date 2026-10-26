@@ -289,6 +289,84 @@ func TestNotifierRestartPastMinIntervalKeepsAWaitNotified(t *testing.T) {
 	}
 }
 
+// #231's carry is the restored stretch's alone. A prompt a hook raises after the
+// restart is one the panel saw begin, whether it came before `claude agents` answered
+// or after a carried wait was answered with no busy poll between, and it notifies. An
+// answer that comes before the worktrees are read binds no session, so it judges no
+// restored mark.
+func TestNotifierRestartCarriesOnlyTheRestoredStretch(t *testing.T) {
+	t.Parallel()
+	const cfg = `,"alerts":{"waiting_seconds":60,"stall_minutes":0}`
+	wts := []signals.Worktree{{Path: "/repo", Branch: "main"}, {Path: "/repo/w/x", Branch: "change/x"}}
+	waiting := []signals.Agent{{SessionID: "s", Cwd: "/repo/w/x", Status: "waiting", WaitingFor: "input needed", PID: 7}}
+	ask := signals.HookEvent{SessionID: "s", Cwd: "/repo/w/x", Event: "PermissionRequest", ToolName: "Bash"}
+	start := t0.Add(20 * time.Minute)
+	at := func(d time.Duration) time.Time { return start.Add(d) }
+	// restarted is a notifier restored from one that notified s's wait before the restart,
+	// and the restarted panel's model.
+	restarted := func(readWorktrees bool) (*Model, *Notifier) {
+		a := NewModel(v2Config(t, cfg), "/repo", t0)
+		a.ApplyWorktrees(wts, nil, t0)
+		a.ApplyAgents(waiting, nil, t0)
+		a.ApplyAgents(waiting, nil, t0.Add(2*time.Minute))
+		n := &Notifier{MinInterval: 5 * time.Minute}
+		if out := n.ProcessView(a.Snapshot(t0.Add(2*time.Minute)), nil, t0.Add(2*time.Minute)); len(out) != 1 {
+			t.Fatalf("before the restart: %d notices, want 1", len(out))
+		}
+		b := NewModel(v2Config(t, cfg), "/repo", start)
+		if readWorktrees {
+			b.ApplyWorktrees(wts, nil, start)
+		}
+		n2 := &Notifier{MinInterval: 5 * time.Minute}
+		n2.Restore(n.State())
+		return b, n2
+	}
+	notices := func(m *Model, n *Notifier, d time.Duration) int {
+		return len(n.ProcessView(m.Snapshot(at(d)), nil, at(d)))
+	}
+
+	t.Run("a prompt before the first answer", func(t *testing.T) {
+		b, n := restarted(true)
+		b.ApplyHook(ask, at(time.Second))
+		b.ApplyAgents(waiting, nil, at(2*time.Second))
+		if c := notices(b, n, 3*time.Second); c != 0 {
+			t.Fatalf("inside the waiting threshold: %d notices", c)
+		}
+		b.ApplyAgents(waiting, nil, at(70*time.Second))
+		if c := notices(b, n, 70*time.Second); c != 1 {
+			t.Fatalf("a prompt the panel saw asked: %d notices, want 1", c)
+		}
+	})
+	t.Run("a prompt after the carried wait, no busy poll between", func(t *testing.T) {
+		b, n := restarted(true)
+		b.ApplyAgents(waiting, nil, at(2*time.Second))
+		if c := notices(b, n, 3*time.Second); c != 0 {
+			t.Fatalf("inside the waiting threshold: %d notices", c)
+		}
+		b.ApplyHook(ask, at(10*time.Second))
+		b.ApplyAgents(waiting, nil, at(75*time.Second))
+		if c := notices(b, n, 75*time.Second); c != 1 {
+			t.Fatalf("a prompt asked after the restart: %d notices, want 1", c)
+		}
+	})
+	t.Run("an answer before the worktrees are read", func(t *testing.T) {
+		b, n := restarted(false)
+		b.ApplyAgents(waiting, nil, at(time.Second))
+		if c := notices(b, n, time.Second); c != 0 {
+			t.Fatalf("an answer that bound nothing: %d notices", c)
+		}
+		b.ApplyWorktrees(wts, nil, at(2*time.Second))
+		b.ApplyAgents(waiting, nil, at(3*time.Second))
+		if c := notices(b, n, 3*time.Second); c != 0 {
+			t.Fatalf("inside the waiting threshold: %d notices", c)
+		}
+		b.ApplyAgents(waiting, nil, at(70*time.Second))
+		if c := notices(b, n, 70*time.Second); c != 0 {
+			t.Fatalf("the restart re-notified a wait still active: %d notices", c)
+		}
+	})
+}
+
 // stalledAt is a stalled alert of lane-a since since, as applyStalls raises it.
 func stalledAt(since time.Time, approx bool) AlertView {
 	return AlertView{Key: AlertStalled + ":/repo/w/a", Kind: AlertStalled, Severity: signals.SevBlock, Lane: "/repo/w/a",

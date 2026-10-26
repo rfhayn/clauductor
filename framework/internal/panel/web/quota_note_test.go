@@ -33,7 +33,7 @@ func quotaSource(t *testing.T) string {
 // jsFunction is the source of panel.js's top-level function name, from its declaration
 // to its closing brace, so a harness runs the page's own helpers rather than copies of
 // them that would keep passing when the page's changed (#160). Braces inside a string
-// are skipped; the helpers it reads hold no regular expression.
+// or a comment are skipped; the helpers it reads hold no regular expression.
 func jsFunction(t *testing.T, js, name string) string {
 	t.Helper()
 	i := strings.Index(js, "\nfunction "+name+"(")
@@ -53,6 +53,14 @@ func jsFunction(t *testing.T, js, name string) string {
 			}
 		case c == '"' || c == '\'' || c == '`':
 			quote = c
+		case strings.HasPrefix(js[j:], "//"):
+			if k := strings.IndexByte(js[j:], '\n'); k >= 0 {
+				j += k
+			}
+		case strings.HasPrefix(js[j:], "/*"):
+			if k := strings.Index(js[j+2:], "*/"); k >= 0 {
+				j += k + 3
+			}
 		case c == '{':
 			depth++
 		case c == '}':

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"slices"
 	"strings"
 	"syscall"
@@ -63,7 +64,11 @@ func TestPanelHangupWiringFromATerminalAndUnderNohup(t *testing.T) {
 		}
 		return cliResult{strings.TrimSpace(stdout.String()), stderr.String(), code}
 	}
-	if r := run(false, testwait.Scale(30*time.Second)); r.code != 0 || r.stdout != "stopped by the hangup" {
+	// A test run that ignores the hangup itself (`nohup go test`) passes the ignored state
+	// on to the helper, which is then no terminal's.
+	if signal.Ignored(syscall.SIGHUP) {
+		t.Log("this test run ignores the hangup: the case from a terminal is not run")
+	} else if r := run(false, testwait.Scale(30*time.Second)); r.code != 0 || r.stdout != "stopped by the hangup" {
 		t.Errorf("from a terminal: exit %d, %q (stderr %q), want the hangup to stop the run", r.code, r.stdout, r.stderr)
 	}
 	if r := run(true, 500*time.Millisecond); r.code != 0 || r.stdout != "stopped by SIGTERM" {

@@ -113,8 +113,8 @@ clauductor panel uninstall                    # stop and remove the login agent
 ```
 
 One panel serves every registered project. Stop a hand-started panel with Ctrl-C or `SIGTERM`.
-Closing its terminal stops it the same way, through its shutdown: the hangup reaches the panel
-alone, since its `claude` calls run in sessions of their own (OPS-81). Started under `nohup`, it
+Closing its terminal stops it the same way, through its shutdown: its `claude` calls run in
+sessions of their own (OPS-81), so the hangup never reaches them. Started under `nohup`, it
 keeps the hangup ignored and runs on after the terminal closes. Stopping the panel never stops a
 lane: lanes belong to tmux.
 
