@@ -192,7 +192,13 @@ case "$1 $2" in
   "pr checks") echo '[]' ;;
   "pr view")
     case "$*" in
-      *closingIssuesReferences*) [ -n "${FAKE_PR:-}" ] && printf '%s\n' "$FAKE_PR" ;;
+      # Named (-R or a URL): FAKE_PR. Bare: gh's default repository's PR, FAKE_PR_DEFAULT if set,
+      # and only from FAKE_PR_CWD if set: a bare read resolves through the directory it runs in.
+      *closingIssuesReferences*)
+        case "$3 $*" in http* | *" -R "*) p=${FAKE_PR:-} ;; *) p=${FAKE_PR_DEFAULT-${FAKE_PR:-}} ;; esac
+        case "$3 $*" in http* | *" -R "*) ;; *) [ -z "${FAKE_PR_CWD:-}" ] || [ "$(pwd -P)" = "$FAKE_PR_CWD" ] || p="" ;; esac
+        [ -n "$p" ] && printf '%s\n' "$p" ;;
+      *"--json state "*) echo OPEN ;;
       *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "$GH_BRANCH" "$GH_HEAD" ;;
       *headRefOid*) echo "$GH_HEAD" ;;
     esac ;;
@@ -212,8 +218,9 @@ prjson() {
 merge() {
   _w=$1 _l=$2 _b=$3 _c=${4-239} _t=${5:-Fix the closed card} _br=${6:-fix/card}
   _pr=$(prjson "$_b" "$_c" "$_t")
+  _def=${DEFBODY+$(prjson "$DEFBODY" "$_c" "$_t")}
   rc=0
-  out=$(payload "${MCMD:-gh pr merge 290 --squash}" "$G" | (cd "$G" && env PATH="$d/bin:$PATH" GH_HEAD="$GH" GH_BRANCH="$_br" FAKE_PR="$_pr" sh "$G/.claude/hooks/pr-merge-guard.sh" 2>"$d/err")) || rc=$?
+  out=$(payload "${MCMD:-gh pr merge 290 --squash}" "$G" | (cd "$G" && env PATH="$d/bin:$PATH" GH_HEAD="$GH" GH_BRANCH="$_br" FAKE_PR="$_pr" ${_def:+FAKE_PR_DEFAULT="$_def"} sh "$G/.claude/hooks/pr-merge-guard.sh" 2>"$d/err")) || rc=$?
   expect_rc "$_w" "$rc" "guard rule: $( [ "$_w" = 2 ] && echo blocks || echo allows ) $_l"
   [ "$rc" = "$_w" ] || sed 's/^/       /' "$d/err" | head -4
 }
@@ -228,7 +235,7 @@ rulep() {
   [ -n "${RAW+x}" ] && _pr=$RAW
   payload "${MCMD:-gh pr merge 290 --squash}" "$G" > "$d/payload"
   rc=0
-  out=$(cd "$G" && env PATH="$d/bin:$PATH" FAKE_PR="$_pr" ROOT="$G" GUARD_PR=290 GUARD_BRANCH="$_br" GUARD_REPO=acme/app \
+  out=$(cd "$G" && env PATH="$d/bin:$PATH" FAKE_PR="$_pr" ROOT="${RROOT:-$G}" GUARD_PR=290 GUARD_PR_REF="${PREF-290}" GUARD_PR_REPO="${PREPO-acme/app}" GUARD_BRANCH="$_br" GUARD_REPO=acme/app \
     GUARD_BASE="$GH" GUARD_HEAD="${RHEAD:-$GH}" GUARD_COMMAND="${MCMD:-gh pr merge 290 --squash}" GUARD_PAYLOAD="$d/payload" \
     sh "$G/.claude/modules/premise-check/guard.d/premise.sh" 2>"$d/err") || rc=$?
   expect_rc "$_w" "$rc" "guard rule: $( [ "$_w" = 2 ] && echo blocks || echo allows ) $_l"
@@ -243,6 +250,32 @@ merge 0 "a fix/ PR with a receipt for its issue" "Fixes it.
 
 $RCPT"
 has yes "premise check present for every issue PR #290 fixes: #239" "$(cat "$d/err")$out" "guard rule: ...and says so as an advisory"
+# The rule reads the PR the merge names, not gh's default repository's PR 290 (a fork's checkout
+# after `gh repo set-default`), whichever has the receipt (#267).
+DEFBODY="Fixes it.
+
+$RCPT"
+MCMD='gh pr merge 290 -R acme/app --squash'
+merge 2 "-R names a PR with no receipt; gh's default repo's PR 290 has one" "Fixes the closed card."
+MCMD='gh pr merge https://github.com/acme/app/pull/290 --squash'
+merge 2 "a URL names a PR with no receipt; gh's default repo's PR 290 has one" "Fixes the closed card."
+DEFBODY="Fixes the closed card."
+MCMD='gh pr merge 290 -R acme/app --squash'
+merge 0 "-R names a PR with a receipt; gh's default repo's PR 290 has none" "Fixes it.
+
+$RCPT"
+unset DEFBODY; MCMD=
+PREF=; rulep 2 "when the guard passes no GUARD_PR_REF (an older guard; fails closed)" "$RCPT"
+has yes "did not pass GUARD_PR_REF" "$(cat "$d/err")" "guard rule: ...and says what is missing"
+unset PREF
+# A bare read resolves through the directory, so the rule reads from the one the guard checked the
+# merge's against (its own), not from ROOT, the hooks' checkout, which can be another.
+cp -R "$G" "$d/rootcopy"
+PREPO= RROOT=$d/rootcopy; FAKE_PR_CWD=$(cd "$G" && pwd -P); export FAKE_PR_CWD
+rulep 0 "a bare read from the guard's directory, ROOT another checkout" "Fixes it.
+
+$RCPT"
+unset PREPO RROOT FAKE_PR_CWD; rm -rf "$d/rootcopy"
 MCMD='gh pr merge 290 --squash --body "Fixes #239: the closed card."'
 merge 2 "a squash whose --body closes an issue the PR does not name (the merge command reaches the rule)" "Tidy." "" "Tidy the card"
 has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the merge's --body closes it"
@@ -255,6 +288,13 @@ MCMD='gh pr merge 290 --squash --body-file nowhere.md'
 rulep 2 "a squash whose --body-file cannot be read (fails closed)" "$RCPT" "239" "Tidy the card"
 has yes "cannot read this merge's --body/--body-file" "$(cat "$d/err")" "guard rule: ...and says it cannot read the merge's body"
 printf 'Tidy the card.\n' > "$G/tidy.md"
+# After a cd, a relative --body-file is the one gh reads there (sub/tidy.md closes #239), not the
+# payload directory's: the rule cannot read it, so it refuses.
+mkdir -p "$G/sub"; printf 'Resolves #239.\n' > "$G/sub/tidy.md"
+MCMD='cd sub && gh pr merge 290 -R acme/app --squash --body-file tidy.md'
+rulep 2 "a relative --body-file after a cd (fails closed)" "Tidy." "" "Tidy the card"
+has yes "relative --body-file after another command" "$(cat "$d/err")" "guard rule: ...and says why"
+rm -rf "$G/sub"
 MCMD='gh pr merge 290 --squash --subject "Fixes #239: card" --body-file tidy.md'
 merge 2 "a squash whose --subject closes an issue (through the guard)" "Tidy." "" "Tidy the card"
 has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the squash subject closes it"

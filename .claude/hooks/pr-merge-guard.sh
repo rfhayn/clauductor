@@ -39,6 +39,8 @@
 #      outright: the owner's decision, which no receipt excuses. A receipt must also have been
 #      scored on the head's suite. Scope: ACCIDENTAL drift; a receipt is self-reported, so a
 #      deliberate forger is review's and the owner's to catch (lib/change-guard.sh, SCOPE).
+#  14. A merge is blocked unless the PR's state is OPEN, read before any evidence; a state gh cannot
+#      read blocks too. A close is how one session tells another not to land a PR (OPS-132).
 #   Rules 9–13 live in lib/change-guard.sh.
 #   (Numbering follows the rules this was extracted from; 5 and 6 were project-specific, and so
 #   was the other half of 8, which the artifacts module adds as an extension rule.)
@@ -46,7 +48,9 @@
 # A MERGE IN ANOTHER REPOSITORY is not policed beyond rule 1, but it passes only when the whole
 # command matches one allowlisted plain shape (foreign_shape, below) and its -R owner/name differs
 # from this repo's origin; any other command naming another repo blocks. A merge of THIS repo whose
-# PR is not a number or PR URL (flag-first forms, or no PR at all) BLOCKS.
+# PR is not a number or PR URL (flag-first forms, or no PR at all) BLOCKS, and so does one whose
+# words leave gh to resolve the repository from something the guard does not read (an allowlist, at
+# ghpr). The environment a shell profile sets is not read: it is the session's, not the command's.
 #
 # Known residual, accepted: a merge clicked on the website never runs this.
 #
@@ -305,8 +309,18 @@ scan=$(merge_scan); scan_ok=$?
 
 # Every text parser below (the backstop, rule 1, foreign_shape, merge_argv) reads the command with
 # each backslash-newline deleted, as the shell joins them: `gh pr mer\<newline>ge 5` is `merge`.
-# A backslash that is itself escaped is joined too — that only ever ADDS text matches.
-cmd=$(printf '%s' "$cmd" | awk '{ b = b $0 "\n" } END { s = substr(b, 1, length(b) - 1); gsub(/\\\n/, "", s); printf "%s", s }')
+# Only a line ending in an ODD run of backslashes joins: in "a\\<newline>" or x\\<newline> the
+# backslash is escaped, and joining there read the closing quote as escaped, or a comment on the
+# next line as the merge's -R (#271). In single quotes the shell joins nothing, but the quotes
+# still close where they did, so only the text inside them reads differently.
+cmd=$(printf '%s' "$cmd" | awk '
+  { l[NR] = $0 }
+  END {
+    for (i = 1; i <= NR; i++) {
+      if (i < NR && match(l[i], /\\+$/) && RLENGTH % 2) printf "%s", substr(l[i], 1, length(l[i]) - 1)
+      else printf "%s%s", l[i], (i < NR ? "\n" : "")
+    }
+  }')
 
 # Step 2 — the backstop: the old literal match, and merge_hint.
 hint=""
@@ -356,8 +370,11 @@ nsites=$((${plain:-0} + $(printf '%s' "$apis" | grep -c .)))
 # A `gh api` merge: the reader found `gh api … PUT repos/<o>/<n>/pulls/<pr>/merge`, with
 # every word it needs plain. Policed below exactly as `gh pr merge <pr>` — `.` is this repo
 # ({owner}/{repo}); any other repo takes the foreign rules, with its own allowlisted shape.
-api_repo=""; api_pr=""
-if [ -n "$apis" ]; then api_repo=${apis% *}; api_pr=${apis##* }; fi
+api_repo=""; api_pr=""; api_host=""
+if [ -n "$apis" ]; then read -r api_repo api_pr api_host <<EOF
+$apis
+EOF
+fi
 
 # WHICH REPO AND WHICH PR — both from ONE parse of the merge's argv, AFTER rule 1, which is merge
 # safety anywhere.
@@ -380,6 +397,15 @@ if [ -n "$apis" ]; then api_repo=${apis% *}; api_pr=${apis##* }; fi
 # `$`, a backtick or `(` is dropped, never kept cut short: its reading would be a shorter number than
 # the shell merges (OPS-57). A repo flag glued to such a word still reads as a repo, unconfirmed:
 #   - more than one `gh pr merge` (any blanks between the words) BLOCKS;
+#   - the read ends only at a separator, or at redirects that alone, each with one plain target,
+#     run to the end of the command (> f 2>&1); <(…) is a word, not a redirect. Any other stop BLOCKS
+#     unless it is "$name" or "${name}", with only letters, digits and _./- around the closing
+#     quote, in the command's last word (a trailing 2>&1 or 2>/dev/null aside; no "$(…)", whose )
+#     a zsh comment can hide),
+#     as the value of --body, --subject or another value flag: anything the read never saw could
+#     be the -R gh merges in (#271). So does an unquoted character outside letters, digits,
+#     _./:@%+=,- and non-ASCII (a brace, glob or tilde expands into words the read never sees);
+#   - --auto or --admin as a word, its quotes taken out, BLOCKS (rule 1, which reads raw text);
 #   - a repo named (-R X, -RX, -sR X, --repo X, --repo=X, or a PR URL) that is not this repo,
 #     outside the allowlisted shape, BLOCKS and shows the shape;
 #   - the PR is the first positional word (values of gh's value-taking flags skipped, `--` ends
@@ -391,7 +417,8 @@ if [ -n "$apis" ]; then api_repo=${apis% *}; api_pr=${apis##* }; fi
 # github.com, and an ssh alias (`git@github-work:o/n`) is still this repo. THIS repo is the origin
 # remote (https, ssh or scp form), never a hard-coded name; if it cannot be read, nothing is
 # foreign. A merge naming no repo is this repo's (`cd ../other && gh pr merge 2` is policed — pass
-# -R). GH_REPO / GH_HOST are not read.
+# -R). What may come before a merge of this repo depends on what its words leave gh to resolve
+# (GH_REPO, GH_HOST, the directory): an allowlist, at ghpr.
 #
 # repo_key — lowercased owner/name of an owner/name, host/owner/name, https/ssh/scp URL or PR URL.
 repo_key() {
@@ -404,11 +431,24 @@ repo_key() {
       }'
 }
 # merge_argv — one line per finding: `M` more than one merge, `R <repo>` per repo named, `P <word>`
-# the PR argument. For POLICING only: it decides which PR rules 2-8 check and whether a foreign repo
+# the PR argument, `U` words it cannot read that gh still gets, `A` an --auto/--admin word. For POLICING only: it decides which PR rules 2-8 check and whether a foreign repo
 # is named at all. It never decides that a merge is foreign — foreign_shape does, by allowlist.
 # LC_ALL=C for the reason merge_scan has it (#100): it, too, matches one character at a time.
 merge_argv() {
   printf '%s' "$cmd" | LC_ALL=C awk '
+    # cut(ch, quoted, rest, tok) — the read stops at ch with rest unread, which gh still gets, and gh
+    # merges in the LAST -R (#271). Matching rest for a -R loses to quoting (-\R, --re""po), so a
+    # stop passes only by allowlist: a `$` inside double quotes whose word ends the command (a
+    # trailing 2>&1 or 2>/dev/null aside) and is the value of a flag, glued (--body=...) or confirmed
+    # by the parse below (VCUT); never a word of its own, which gh reads as a flag (-Racme/app).
+    # Only "$name" or "${name}", with letters, digits and _./- before or after the closing quote
+    # ("$TMPDIR/body.md", "$TMPDIR"/body.md), is one closed word in bash and zsh alike: zsh splits
+    # "$a[@]" as "$@", reads :h or :s after a name as a modifier, and takes a # inside "$(…)" for a
+    # comment, so the ) the read sees can sit in it.
+    function cut(ch, quoted, rest, tok) {
+      if (ch != "$" || !quoted || rest !~ /^([A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})[A-Za-z0-9_.\/-]*"[A-Za-z0-9_.\/-]*[ \t]*([ \t]2>(&1|\/dev\/null))?[ \t]*([\n;|]|&$|&[^>]|$)/) { print "U"; return }
+      LAST = 1; GLUED = (tok ~ /^--(body|body-file|subject|match-head-commit|author-email)=/)
+    }
     { buf = buf $0 "\n" }
     END {
       rest = buf; count = 0; off = 0; start = 0
@@ -426,6 +466,7 @@ merge_argv() {
         if (c == "$" || c == "`") {
           # A repo flag glued to a cut value still names a repo: one that cannot be confirmed.
           if (tok ~ /^(-[dmrs]*R|--repo=)/) t[++nt] = "-R"
+          cut(c, q == "\"", substr(s, j + 1), tok)
           have = 0; break
         }
         if (c == "\\" && j < n) { j++; if (substr(s, j, 1) != "\n") { tok = tok substr(s, j, 1); have = 1 }; continue }
@@ -433,13 +474,35 @@ merge_argv() {
         if (c == "#" && !have) break
         if (c == "\047" || c == "\"") { q = c; have = 1; continue }
         if (c == " " || c == "\t") { if (have) { t[++nt] = tok; tok = ""; have = 0 }; continue }
-        if (c ~ /[\n;&|()<>]/) {
-          if ((c == "<" || c == ">") && tok ~ /^[0-9]*$/) have = 0
+        # A redirect ends the read only when redirects alone, each with one plain target, run to the
+        # end of the command: a word after a target (&>f -R o/n), a process substitution <(…) or a
+        # heredoc is something gh still gets (#271). A target holds no $( or backtick: inside one,
+        # quotes nest, so a ) the read takes for the end may sit inside the target. Digits before
+        # the operator are its descriptor (2>&1); any other glued text is a word (--squash>f).
+        if (c == "<" || c == ">" || (c == "&" && substr(s, j + 1, 1) == ">")) {
+          if (have && tok !~ /^[0-9]+$/) t[++nt] = tok
+          r = substr(s, j); fine = 0; have = 0
+          while (match(r, /^[0-9]*(&>>?|>>?|>&|>\||<&|<>|<)/)) {
+            r = substr(r, RLENGTH + 1)
+            if (!match(r, /^[ \t]*("([^"\\$`]|\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\})*"|\047[^\047]*\047|\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\}|[^ \t\n;&|()<>"\047\\$`])+/)) break
+            r = substr(r, RLENGTH + 1); sub(/^[ \t]*/, "", r)
+            if (r == "" || r ~ /^(#|[\n;|)]|&$|&[^>])/) { fine = 1; break }
+          }
+          if (!fine) print "U"
+          break
+        }
+        if (c ~ /[\n;&|()]/) {
           # In zsh a `(` inside a word is a glob qualifier: dropping the word covers one that
           # empties a PR word, not one that rewrites it into other words.
           if (c == "(" && have) have = 0
+          # A glob qualifier ends the read, not the command: words follow it.
+          if (c == "(") print "U"
           break
         }
+        # Unquoted, only characters that stay as written: a brace, glob or tilde ({-R,o/n}, -[R], -?)
+        # expands into words this read never sees, so anything else is `U` (#271). A byte of a
+        # non-ASCII character is no shell syntax (#100: a body file named with a 🤖).
+        if (c !~ /[A-Za-z0-9_.\/:@%+=,-]/ && c < "\200") { print "U"; have = 0; break }
         tok = tok c; have = 1
       }
       if (q == "" && have) t[++nt] = tok
@@ -448,9 +511,11 @@ merge_argv() {
         x = t[k]; gsub(/\n/, " ", x)
         if (!endopts && x == "--") { endopts = 1; continue }
         if (!endopts && x ~ /^-/) {
+          # Rule 1 matches the raw text; the shell takes the quotes out of --au""to first.
+          if (x ~ /^--(auto|admin)(=|$)/) print "A"
           if (x == "-R" || x == "--repo") { if (k < nt) { y = t[++k]; gsub(/\n/, " ", y); print "R " y } else print "R ?"; continue }
           if (x ~ /^--repo=/) { print "R " substr(x, 8); continue }
-          if (x ~ /^(--body|--body-file|--subject|--match-head-commit|--author-email)$/) { k++; continue }
+          if (x ~ /^(--body|--body-file|--subject|--match-head-commit|--author-email)$/) { if (k == nt) VCUT = 1; k++; continue }
           if (x ~ /^--/) continue
           # A cluster of shorthands, as gh reads it: on/off letters (-d -m -r -s) in turn, until one
           # that takes a value (-R -A -b -F -t) takes the rest of the word, or the next word.
@@ -459,7 +524,7 @@ merge_argv() {
             if (ch ~ /[dmrs]/) continue
             if (ch !~ /[RAbFt]/) break
             v = substr(x, p + 1); sub(/^=/, "", v)
-            if (substr(x, p + 1) == "") { if (k < nt) { v = t[++k]; gsub(/\n/, " ", v) } else v = "?" }
+            if (substr(x, p + 1) == "") { if (k < nt) { v = t[++k]; gsub(/\n/, " ", v) } else { v = "?"; if (ch != "R") VCUT = 1 } }
             if (ch == "R") print "R " v
             break
           }
@@ -467,6 +532,7 @@ merge_argv() {
         }
         if (!pos) { pos = 1; print "P " x }
       }
+      if (LAST && !VCUT && !GLUED) print "U"
     }'
 }
 # foreign_shape — the -R value when the WHOLE command, blanks squeezed, is exactly
@@ -543,21 +609,37 @@ if [ -n "$this_repo" ] && [ -n "$shaped" ] && [ "$shaped" != "$this_repo" ]; the
 fi
 
 if [ -n "$api_pr" ]; then
+  # `gh api --hostname H` sends the merge to H, so the reads name H too (-R H/<owner>/<name>): read
+  # on the default host, they would judge another server's PR. The reader takes H from the flag's
+  # own word (`-` none, `?` one it cannot read), never from text that merely says --hostname, and
+  # an absolute https://api.github.com/ endpoint goes to github.com whatever H or GH_HOST says.
+  case "$api_host" in
+    - | '') ;;
+    '?') block "this gh api merge names --hostname in a form this guard cannot read (computed, repeated, or not a plain host name), so it cannot read the PR on the host the merge goes to. Name it once, plainly: gh api --hostname <host> -X PUT repos/<owner>/<name>/pulls/<n>/merge" ;;
+    *)
+      [ "$api_repo" != "." ] || block "this gh api merge goes to $api_host (its --hostname or an absolute endpoint) and names {owner}/{repo}, which gh fills from this directory's repository. Name the repository: gh api --hostname $api_host -X PUT repos/<owner>/<name>/pulls/$api_pr/merge"
+      api_repo="$api_host/$api_repo" ;;
+  esac
   argv="P $api_pr"
   [ "$api_repo" = "." ] || argv="R $api_repo
 $argv"
 else
   argv=$(merge_argv)
 fi
-many=""; own=""; other=""; unparsed=""; pr_arg=""; pr=""
+many=""; hidden=""; own=""; own_repo=""; other=""; unparsed=""; pr_arg=""; pr=""
 while IFS= read -r line; do
   case "$line" in
     M) many=1 ;;
+    U) hidden=1 ;;
+    A) block "this merge passes --auto or --admin, quoted or escaped (rule 1): neither waits for checks to settle. Watch checks green first, then merge explicitly: gh pr merge <n> --squash --delete-branch" ;;
     "R "* | "P http://"* | "P https://"*)
       named=${line#? }
       key=$(repo_key "$named")
-      if [ -z "$key" ]; then unparsed=$named
-      elif [ "$key" = "$this_repo" ]; then own=1
+      # An empty -R "" overrides nothing: gh falls back to GH_REPO or the directory, past the -R before it.
+      if [ -z "$key" ]; then unparsed=${named:-an empty -R}
+      elif [ "$key" = "$this_repo" ]; then
+        own=1
+        case "$line" in "R "*) own_repo=$named ;; esac
       else other=$key
       fi
       case "$line" in "P "*) pr_arg=$named ;; esac
@@ -581,10 +663,97 @@ fi
 
 # The PR: a number, or this repo's PR URL. Nothing else can be checked, so nothing else merges.
 case "$pr_arg" in
-  http://* | https://*) pr=$(printf '%s\n' "$pr_arg" | sed -n 's|^[^?#]*/pull/\([0-9][0-9]*\)\([/?#].*\)\{0,1\}$|\1|p') ;;
+  # The first /pull/<n> after OWNER/NAME, as gh reads it: a greedy match took .../pull/5/files/x/pull/6 as 6.
+  http://* | https://*) pr=$(printf '%s\n' "$pr_arg" | sed -n 's|^[a-z]*://[^/?#]*/[^/?#]*/[^/?#]*/pull/\([0-9][0-9]*\)\([/?#].*\)\{0,1\}$|\1|p') ;;
   *) case "$pr_arg" in '' | *[!0-9]*) ;; *) pr=$pr_arg ;; esac ;;
 esac
 [ -n "$pr" ] || block "cannot tell which PR this merges${pr_arg:+ ('$pr_arg' is not a PR number or PR URL)}, so its CI evidence cannot be checked. Name it: gh pr merge <n> --squash --delete-branch"
+# The PR and its repo read whole, but the read stopped short of words gh still gets (#271).
+[ -z "$hidden" ] || block "this merge has words this guard cannot read (a \$ or backtick expansion, a glob, a brace or tilde expansion) that could name another repository (-R), which gh would merge in instead of the one the checks read. Pass the text in a file, its path written out with no \$ (rule 12 reads it): gh pr merge <n> --squash --delete-branch --body-file <file>"
+
+# ghpr SUBCOMMAND [ARGS...] — `gh pr SUBCOMMAND` for the PR this merge names, named the way the merge
+# names it: its PR URL, or its number with the merge's own -R word. A bare number resolves through
+# gh's default repository (`gh repo set-default`), which in a fork's checkout is not origin, so a
+# read without the merge's -R can judge another repo's PR #n (OPS-132).
+# run_repo is the same repository for `gh run list`, which takes no PR URL: the URL's host/owner/name.
+gh_sel=$pr gh_repo="" run_repo=""
+case "$pr_arg" in
+  http://* | https://*) gh_sel=$pr_arg; run_repo=$(printf '%s\n' "$pr_arg" | sed -e 's|^[a-z]*://||' -e 's|/pull/.*$||') ;;
+  *) gh_repo=$own_repo; run_repo=$own_repo ;;
+esac
+pr_ref="$gh_sel${gh_repo:+ -R $gh_repo}"
+ghpr() {
+  _sub=$1; shift
+  if [ -n "$gh_repo" ]; then gh pr "$_sub" "$gh_sel" -R "$gh_repo" "$@"; else gh pr "$_sub" "$gh_sel" "$@"; fi
+}
+
+# THE READS RESOLVE AS THE MERGE DOES, BY ALLOWLIST. Whatever the merge's words leave open, gh fills
+# from its environment and directory, which the command before the merge can change in more ways
+# than any list of them (GH_REPO=, GIT_DIR=, `cd;`, `c\d`, `export "GH_""REPO=…"`, a sourced file:
+# round 3 of OPS-132 passed each past a text match). So what may come before the merge depends on
+# what its words leave open:
+#   - a PR URL, or -R HOST/OWNER/NAME: nothing. Anything may come before it, so long as the reader
+#     can read the merge's words (not after eval, or env or sudo with a flag outside the reader's
+#     short list, as env -S and sudo -s parse them again: merge-reader.awk heads()), and a
+#     --body-file after it is written out in full (rule 12 cannot know the directory: cg_field).
+#   - -R OWNER/NAME: the host, which gh takes from GH_HOST. Only `cd <path> && ` may come before it.
+#   - no repo (the bare number, gh api's {owner}/{repo}): the repository, from GH_REPO and the
+#     directory's remotes. Nothing may come before it, and the payload's cwd (the Bash tool's
+#     directory, not necessarily this hook's) must be in this repository: a worktree of it shares
+#     its remotes and gh's default repo.
+# Either way the reads run here, with the session's environment, which is also the merge's unless the
+# Bash tool's shell adds to it (a profile exporting GH_REPO): that, no hook can see.
+# merge_prefix — what comes before the merge's gh word, blank runs and newlines squeezed to one
+# space, the ends trimmed; `?` when the command runs gh api more than once (which one merges is the
+# reader's to know, not this text match's).
+merge_prefix() {
+  printf '%s' "$cmd" | LC_ALL=C awk -v api="${api_pr:+1}" '
+    { b = b $0 "\n" }
+    END {
+      re = api ? "gh[ \t\n]+api[ \t\n]" : "gh[ \t]+pr[ \t]+merge"
+      if (!match(b, re)) { print "?"; exit }
+      p = substr(b, 1, RSTART - 1); rest = substr(b, RSTART + RLENGTH)
+      if (api && match(rest, re)) { print "?"; exit }
+      gsub(/[ \t\n]+/, " ", p); sub(/^ /, "", p); sub(/ $/, "", p); print p
+    }'
+}
+# common_dir DIR — the physical path of the git directory DIR's worktree shares; empty if none.
+common_dir() {
+  (cd "$1" 2>/dev/null || exit 1
+   g=$(git rev-parse --git-common-dir 2>/dev/null) && [ -n "$g" ] && cd "$g" 2>/dev/null && pwd -P)
+}
+pin_hint="Name the repo, and run the merge on its own: gh pr merge $pr -R ${this_repo:-<owner>/<name>} --squash --delete-branch"
+prefix=$(merge_prefix)
+# A prefix ending in / is a path glued to gh (/usr/local/bin/gh): say so, not "before it: …/bin/".
+case "$prefix" in */) pin_hint="gh named by a path ($prefix) is not run on its own; call it plain gh. $pin_hint" ;; esac
+case "$pr_arg/$gh_repo" in
+  http://* | https://* | */*/*/*) ;;
+  */?*)
+    case "$prefix" in
+      '') ;;
+      *)
+        printf '%s\n' "$prefix" | grep -Eq '^cd [A-Za-z0-9_./~@:+-]+ &&$' \
+          || block "this merge names its repo without a host (-R $gh_repo), so gh takes the host from GH_HOST, which what comes before it ($prefix) can set while this guard reads without it. Run it on its own or after only 'cd <path> && ', or name the host: gh pr merge $pr -R github.com/$gh_repo --squash --delete-branch" ;;
+    esac ;;
+  *)
+    [ -z "$prefix" ] || block "this merge names no repository and does not run on its own (before it: $prefix), so gh may resolve PR #$pr in another repository than the one this guard reads. $pin_hint"
+    pcwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
+    [ -n "$pcwd" ] || block "this merge names no repository, and the hook payload names no cwd, so which repository gh resolves PR #$pr in cannot be checked. $pin_hint"
+    here_git=$(common_dir .); there_git=$(common_dir "$pcwd")
+    [ -n "$there_git" ] && [ "$there_git" = "$here_git" ] \
+      || block "this merge names no repository and runs in $pcwd, which is not a worktree of the repository this guard reads PR #$pr in ($(pwd -P)), so gh may resolve another repository's PR #$pr. $pin_hint" ;;
+esac
+
+# Rule 14 — only an OPEN PR merges (OPS-132). A close is how one session tells another "do not land
+# this", and the lane that opened the PR is not told: #215, closed as a duplicate, landed twelve
+# minutes later through its own lane's merge. First, before any evidence is read: none of it matters
+# for a PR that must not land. Anything but OPEN blocks, and so does no answer: gh failing, or
+# answering with nothing, has told us nothing, which is not "open".
+state_errf=$(mktemp "${TMPDIR:-/tmp}/guard-state.XXXXXX") || block "cannot make a temp file to read PR #$pr's state"
+pr_state=$(ghpr view --json state --jq .state 2>"$state_errf") || pr_state=""
+state_err=$(grep . "$state_errf" | head -n 1); rm -f "$state_errf"
+[ -n "$pr_state" ] || block "cannot read PR #$pr's state (gh: ${state_err:-no answer}), so whether it is still open cannot be checked. Fix what gh reports (gh auth status, the PR number), then retry."
+[ "$pr_state" = OPEN ] || block "PR #$pr is $pr_state, not OPEN (rule 14). A closed PR is another session's 'do not land this': find out why it was closed (gh pr view $pr_ref --comments) before anything else. If it should land after all, reopen it first; a merged one has nothing left to merge."
 
 # Rule 2 — gate evidence for the exact head commit.
 #
@@ -599,7 +768,7 @@ esac
 # prints it), whatever gh also wrote to stderr: GH_DEBUG or a notice there must not hide a red check.
 # Otherwise stderr is gh saying why it has none, kept for GATE_PR_CHECKS below.
 checks_errf=$(mktemp "${TMPDIR:-/tmp}/guard-checks.XXXXXX") || block "cannot make a temp file to read PR #$pr's checks"
-checks_out=$(gh pr checks "$pr" --json name,state,bucket 2>"$checks_errf")
+checks_out=$(ghpr checks --json name,state,bucket 2>"$checks_errf")
 checks_stderr=$(cat "$checks_errf"); rm -f "$checks_errf"
 if printf '%s' "$checks_out" | jq -e 'type == "array"' >/dev/null 2>&1; then
   checks=$checks_out checks_err=""
@@ -618,7 +787,7 @@ if [ -n "$checks" ] && [ "$checks" != "[]" ]; then
       '[ .[] | select(.name | test($d) | not)
              | select(.bucket as $b | ["pass","skipping"] | index($b) | not)
              | "\(.name)=\(.bucket)" ] | join(", ")')
-    block "PR #$pr has non-passing checks: $summary. Wait for green (gh pr checks $pr --watch), then merge."
+    block "PR #$pr has non-passing checks: $summary. Wait for green (gh pr checks $pr_ref --watch), then merge."
   fi
 fi
 
@@ -640,8 +809,8 @@ if [ -n "${GATE_PR_CHECKS:-}" ]; then
       '[ .[] | select(.name == $w or (.name | startswith($w + " ("))) | select(.bucket != "pass") | "\(.name)=\(.bucket)" ] | join(", ")')
     [ -z "$bad" ] || notgreen="${notgreen:+$notgreen, }$bad"
   done
-  [ -z "$missing" ] || block "PR #$pr has not reported the checks GATE_PR_CHECKS requires:$missing (CI has not registered them for the head commit yet, or the names in .claude/project.conf are wrong: compare gh pr checks $pr). Wait (gh pr checks $pr --watch), then merge."
-  [ -z "$notgreen" ] || block "PR #$pr's required checks (GATE_PR_CHECKS) are not green: $notgreen. Wait for green (gh pr checks $pr --watch), then merge."
+  [ -z "$missing" ] || block "PR #$pr has not reported the checks GATE_PR_CHECKS requires:$missing (CI has not registered them for the head commit yet, or the names in .claude/project.conf are wrong: compare gh pr checks $pr_ref). Wait (gh pr checks $pr_ref --watch), then merge."
+  [ -z "$notgreen" ] || block "PR #$pr's required checks (GATE_PR_CHECKS) are not green: $notgreen. Wait for green (gh pr checks $pr_ref --watch), then merge."
   say "GATE_PR_CHECKS ($GATE_PR_CHECKS) reported and passed on PR #$pr."
 fi
 
@@ -651,7 +820,7 @@ fi
 # compiled a line. So: the named remote workflow's success on this SHA, or a local receipt. Naming
 # the workflow is the authority, not a list of jobs; renamed, it stops finding runs and blocks,
 # which is the safe direction. GATE_REMOTE_WORKFLOW="" means the local receipt is the only evidence.
-head_sha=$(gh pr view "$pr" --json headRefOid --jq .headRefOid 2>/dev/null)
+head_sha=$(ghpr view --json headRefOid --jq .headRefOid 2>/dev/null)
 if [ -z "$head_sha" ]; then
   # gh failed. We have learned nothing; do not read that as "no evidence needed".
   block "cannot read PR #$pr's head SHA (gh error?), so the gate evidence cannot be checked. Fix gh auth, then retry."
@@ -659,8 +828,11 @@ fi
 
 ci_runs=0
 if [ -n "$REMOTE_WF" ]; then
-  ci_runs=$(gh run list --workflow "$REMOTE_WF" --commit "$head_sha" --json conclusion \
-    --jq '[ .[] | select(.conclusion == "success") ] | length' 2>/dev/null)
+  # In the PR's own repository (run_repo, at ghpr): a fork's default repo has runs of its own.
+  set -- run list --workflow "$REMOTE_WF" --commit "$head_sha" --json conclusion \
+    --jq '[ .[] | select(.conclusion == "success") ] | length'
+  [ -z "$run_repo" ] || set -- "$@" -R "$run_repo"
+  ci_runs=$(gh "$@" 2>/dev/null)
 fi
 if [ "${ci_runs:-0}" -gt 0 ]; then
   say "$REMOTE_WF succeeded for $(printf %.9s "$head_sha")…: gate evidence satisfied."
@@ -694,9 +866,9 @@ case "$behind" in
 esac
 
 # Rules 3, 4, 7 and 8 read the PR's head branch and its tree at the head SHA.
-head_json=$(gh pr view "$pr" --json headRefName,headRefOid 2>/dev/null)
+head_json=$(ghpr view --json headRefName,headRefOid 2>/dev/null)
 branch=$(printf '%s' "$head_json" | jq -r '.headRefName // empty' 2>/dev/null)
-[ -n "$branch" ] || block "could not read PR #$pr's head branch, so rules 3, 7 and 8 cannot be evaluated. Retry once 'gh pr view $pr --json headRefName' answers."
+[ -n "$branch" ] || block "could not read PR #$pr's head branch, so rules 3, 7 and 8 cannot be evaluated. Retry once 'gh pr view $pr_ref --json headRefName' answers."
 
 # The head commit, locally: rules 3, 7 and 8 read files at it from local git objects (no API size cap,
 # nothing remote-tracking to be stale). Fetched once if missing; fails CLOSED if still missing.
@@ -939,7 +1111,10 @@ if [ -n "$rules" ]; then
     (
       GUARD_PR="$pr" GUARD_HEAD="$head_sha" GUARD_BRANCH="$branch" GUARD_BASE="$base9" GUARD_REPO="$this_repo"
       GUARD_COMMAND="$cmd" GUARD_PAYLOAD="$gtmp/payload" ROOT="$ROOT_HOOK"
-      export GUARD_PR GUARD_HEAD GUARD_BRANCH GUARD_BASE GUARD_REPO GUARD_COMMAND GUARD_PAYLOAD ROOT MAIN_BRANCH
+      # How ghpr names the PR, so a rule reads the PR the merge names (#267): the URL or number,
+      # and the merge's -R word (empty for a URL).
+      GUARD_PR_REF="$gh_sel" GUARD_PR_REPO="$gh_repo"
+      export GUARD_PR GUARD_HEAD GUARD_BRANCH GUARD_BASE GUARD_REPO GUARD_COMMAND GUARD_PAYLOAD ROOT MAIN_BRANCH GUARD_PR_REF GUARD_PR_REPO
       # shellcheck disable=SC2046
       with_timeout "${GUARD_RULE_TIMEOUT:-60}" $(shebang_interp "$gf") "$gf" <"$gtmp/payload" >"$gtmp/out" 2>"$gtmp/err"
     )

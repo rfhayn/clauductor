@@ -49,7 +49,11 @@ If the line above shows as literal text instead of output, run
 
 ### 1. Resolve the PR
 Use the argument if given, else the current branch's PR. If there is none, push the branch and
-open one (`gh pr create --fill`, or a body that says what a user can now do). Check it is yours.
+open one (`gh pr create --fill`, or a body that says what a user can now do). Check it is yours,
+and that it is OPEN (`gh pr view <n> --json state`; the context shows only the current branch's
+PR). A closed PR is another session's "do not land this":
+find out why it was closed (`gh pr view <n> --comments`) and stop. Do not reopen it to merge it
+unless that reason is gone. `pr-merge-guard` rule 14 refuses a merge of anything not open.
 
 ### 2. Gate evidence for the head commit (blocking)
 Run the full gate from the branch's checkout, with no flags:
@@ -154,6 +158,10 @@ and, if `attribution.enabled` is true, `attribution.trailer` as its last line. T
 ```bash
 gh pr merge <n> --squash --delete-branch --body-file <file>
 ```
+Run it on its own, from a checkout of this repository: with no repo named, anything before it in
+the command (a change of directory, an environment assignment) is refused. From elsewhere, name
+the repo with a hosted -R HOST/OWNER/NAME or the PR's URL; a bare -R OWNER/NAME allows only a
+change of directory before it. After any command, write the `--body-file` path out in full.
 The guard reads the file; a `--body "$(…)"` it cannot read is refused. If it names a different
 `Session:` value, use the one it names: it is the session the hook sees.
 

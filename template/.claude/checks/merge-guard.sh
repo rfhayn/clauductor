@@ -39,20 +39,41 @@ git -C "$R" checkout -q main
 
 cat > "$d/bin/gh" <<'EOF'
 #!/bin/sh
+# Every PR read answers from the repo it names. *_DEFAULT: the same number in gh's DEFAULT repo, which
+# a read naming no repo (no -R, no URL) gets: a fork's checkout after `gh repo set-default <upstream>`.
+# GH_STATE_HOSTED: the state a read naming a host (-R <host>/<owner>/<name>) gets.
+case "$3 $*" in
+  http://* | https://* | *" -R "*) named=1 ;;
+  *) named="" ;;
+esac
+hosted=""
+case "$(printf '%s\n' "$*" | sed -n 's/.* -R \([^ ]*\).*/\1/p')" in */*/*) hosted=1 ;; esac
 case "$1 $2" in
   "pr checks")
     # GH_CHECKS_ERR: gh itself fails (auth, network). GH_CHECKS=none: gh's own "no checks" answer.
     # GH_CHECKS_NOISE: gh writes to stderr beside a valid answer (GH_DEBUG=1, an upgrade notice).
     [ -n "${GH_CHECKS_ERR:-}" ] && { echo "$GH_CHECKS_ERR" >&2; exit 1; }
     [ -n "${GH_CHECKS_NOISE:-}" ] && echo "$GH_CHECKS_NOISE" >&2
-    [ "${GH_CHECKS:-}" = none ] && { echo "no checks reported on the 'fix/1-x' branch" >&2; exit 1; }
-    echo "${GH_CHECKS:-[]}" ;;
+    checks=${GH_CHECKS:-[]}
+    [ -n "$named" ] || checks=${GH_CHECKS_DEFAULT-$checks}
+    [ "$checks" = none ] && { echo "no checks reported on the 'fix/1-x' branch" >&2; exit 1; }
+    echo "$checks" ;;
   "pr view")
+    head=$GH_HEAD branch=${GH_BRANCH:-fix/1-x}
+    [ -n "$named" ] || { head=${GH_HEAD_DEFAULT-$head}; branch=${GH_BRANCH_DEFAULT-$branch}; }
     case "$*" in
-      *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "${GH_BRANCH:-fix/1-x}" "$GH_HEAD" ;;
-      *headRefOid*) echo "$GH_HEAD" ;;
+      # GH_STATE_ERR: gh itself fails. GH_STATE set but empty: gh answers with nothing.
+      *"--json state "*)
+        [ -n "${GH_STATE_ERR:-}" ] && { echo "$GH_STATE_ERR" >&2; exit 1; }
+        if [ -n "$hosted" ]; then echo "${GH_STATE_HOSTED-${GH_STATE-OPEN}}"
+        elif [ -n "$named" ]; then echo "${GH_STATE-OPEN}"
+        else echo "${GH_STATE_DEFAULT-${GH_STATE-OPEN}}"
+        fi ;;
+      *headRefName*) printf '{"headRefName":"%s","headRefOid":"%s"}\n' "$branch" "$head" ;;
+      *headRefOid*) echo "$head" ;;
     esac ;;
-  "run list") echo "${GH_RUNS:-0}" ;;
+  # GH_RUNS_DEFAULT: the successes gh's default repo has for that commit, which a list naming no repo gets.
+  "run list") case "$*" in *" -R "*) echo "${GH_RUNS:-0}" ;; *) echo "${GH_RUNS_DEFAULT-${GH_RUNS:-0}}" ;; esac ;;
   *) exit 1 ;;
 esac
 EOF
@@ -63,7 +84,7 @@ receipt() { printf '%s\tfull\t%s\t%s\n' "$1" "${2:-clean}" "${3:-all}" > "$R/.gi
 guard() {  # guard WANT LABEL COMMAND [env assignments...]
   want=$1 label=$2 c=$3; shift 3
   rc=0
-  out=$(payload "$c" "$R" | (cd "$R" && env PATH="$d/bin:$PATH" GH_HEAD="${GH_HEAD:-$MAINSHA}" "$@" sh "$R/.claude/hooks/pr-merge-guard.sh" 2>"$d/err")) || rc=$?
+  out=$(payload "$c" "${PCWD-$R}" | (cd "$R" && env PATH="$d/bin:$PATH" GH_HEAD="${GH_HEAD:-$MAINSHA}" "$@" sh "$R/.claude/hooks/pr-merge-guard.sh" 2>"$d/err")) || rc=$?
   expect_rc "$want" "$rc" "merge-guard $( [ "$want" = 2 ] && echo blocks || echo allows ): $label"
   [ "$rc" = "$want" ] || sed 's/^/       /' "$d/err" | head -3
 }
@@ -77,6 +98,196 @@ guard 2 "no evidence at all" "gh pr merge 5 --squash --delete-branch"
 receipt "$MAINSHA"
 guard 0 "a full clean receipt for the head" "gh pr merge 5 --squash --delete-branch"
 case "$out" in *'"additionalContext"'*"passed in full"*) ok "merge-guard: its confirmation reaches Claude as additionalContext" ;; *) fail "merge-guard: no additionalContext on an allowed merge: $out" ;; esac
+# Rule 14 — only an OPEN PR merges (OPS-132, #217): a close is how one session tells another "do
+# not land this", and #215 landed twelve minutes after its close. Everything else here is green.
+guard 2 "a CLOSED PR with full evidence" "gh pr merge 5 --squash" GH_STATE=CLOSED
+grep -q 'CLOSED' "$d/err" && ok "merge-guard: ...naming the state it read" || fail "merge-guard: closed refusal does not name CLOSED: $(head -3 "$d/err")"
+guard 2 "a MERGED PR" "gh pr merge 5 --squash" GH_STATE=MERGED
+guard 2 "gh cannot read the PR's state (fails closed)" "gh pr merge 5 --squash" GH_STATE_ERR="HTTP 401: Bad credentials"
+grep -q 'HTTP 401' "$d/err" && ok "merge-guard: ...naming gh's own error" || fail "merge-guard: state refusal hides gh's error: $(head -3 "$d/err")"
+guard 2 "gh answers the state with nothing (fails closed)" "gh pr merge 5 --squash" GH_STATE=
+guard 0 "...and an OPEN one, the same in every other way" "gh pr merge 5 --squash" GH_STATE=OPEN
+# ...in every form the guard polices as this repo's merge, and read from the repo the merge NAMES:
+# with -R or a URL, a read of the bare number would judge gh's default repo's PR #5 instead.
+guard 2 "a CLOSED PR merged by this repo's PR URL" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_STATE=CLOSED
+guard 2 "a CLOSED PR merged through gh api, its number OPEN in gh's default repo" "gh api -X PUT repos/acme/app/pulls/5/merge" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 "an OPEN PR merged through gh api, its number CLOSED in gh's default repo" "gh api -X PUT repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_DEFAULT=CLOSED
+guard 2 "a CLOSED PR named by -R, its number OPEN in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a CLOSED PR named by URL, its number OPEN in gh's default repo" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+# gh takes the number from the first /pull/<n> after owner/name, not the last.
+guard 2 "a CLOSED PR named by a URL with a later /pull/<n> in its path" "gh pr merge https://github.com/acme/app/pull/5/files/x/pull/6 --squash" GH_STATE=CLOSED
+grep -q 'PR #5 is CLOSED' "$d/err" && ok "merge-guard: ...named as #5, as gh reads it" || fail "merge-guard: a URL's later /pull/<n> was read as the PR: $(head -3 "$d/err")"
+guard 0 "an OPEN PR named by -R, its number CLOSED in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=OPEN GH_STATE_DEFAULT=CLOSED
+# Every read, not only the state: the checks, the head and the head branch each come from the PR the
+# merge names, so each is red (or unevidenced) there and green in gh's default repo, and the inverse.
+RED='[{"name":"test","state":"FAILURE","bucket":"fail"}]'
+guard 2 "red checks on the PR named by -R, green in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_CHECKS="$RED" GH_CHECKS_DEFAULT='[]'
+guard 2 "red checks on the PR named by URL, green in gh's default repo" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_CHECKS="$RED" GH_CHECKS_DEFAULT='[]'
+guard 0 "green checks on the PR named by -R, red in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_CHECKS='[]' GH_CHECKS_DEFAULT="$RED"
+guard 2 "the PR named by -R has a head with no receipt; gh's default repo's has one" "gh pr merge 5 -R acme/app --squash" GH_HEAD="$SLICE" GH_HEAD_DEFAULT="$MAINSHA"
+guard 0 "the PR named by -R has the head with the receipt; gh's default repo's has none" "gh pr merge 5 -R acme/app --squash" GH_HEAD="$MAINSHA" GH_HEAD_DEFAULT="$SLICE"
+receipt "$NOSLICE"
+guard 2 "the PR named by -R is a change branch with no slice; gh's default repo's is a fix" "gh pr merge 5 -R acme/app --squash" GH_HEAD="$NOSLICE" GH_BRANCH=change/add-x GH_BRANCH_DEFAULT=fix/1-x
+guard 0 "the PR named by -R is a fix; gh's default repo's is a change branch with no slice" "gh pr merge 5 -R acme/app --squash" GH_HEAD="$NOSLICE" GH_BRANCH=fix/1-x GH_BRANCH_DEFAULT=change/add-x
+receipt "$MAINSHA"
+# What the merge's words leave open, gh fills from its environment and directory, which what runs
+# before the merge can change in more ways than a list could name. So what may come before it is an
+# allowlist, by what the words leave open (#271): nothing before a merge naming no repo, only
+# `cd <path> && ` before -R OWNER/NAME (the host is GH_HOST's), anything before a URL or a hosted -R.
+guard 2 "GH_REPO before a merge naming no repo" "GH_REPO=acme/app gh pr merge 5 --squash"
+grep -q 'GH_REPO' "$d/err" && ok "merge-guard: ...naming what comes before it" || fail "merge-guard: the refusal does not name what comes before the merge: $(head -3 "$d/err")"
+guard 2 "export GH_REPO, then a merge naming no repo" "export GH_REPO=acme/app; gh pr merge 5 --squash"
+guard 2 "GIT_DIR before a merge naming no repo" "GIT_DIR=../other/.git gh pr merge 5 --squash"
+guard 2 "cd; then a merge naming no repo" "cd; gh pr merge 5 --squash"
+guard 2 "an escaped cd before a merge naming no repo" 'c\d /tmp && gh pr merge 5 --squash'
+guard 2 "a split GH_REPO exported before a merge naming no repo" 'export "GH_""REPO=other/x"; gh pr merge 5 --squash'
+guard 2 "a sourced file before a merge naming no repo" ". ./env.sh; gh pr merge 5 --squash"
+guard 2 "a cd before a merge naming no repo" "cd /tmp && gh pr merge 5 --squash"
+guard 2 "an earlier line before a merge naming no repo" "true
+gh pr merge 5 --squash"
+guard 2 "a cd before a gh api merge of {owner}/{repo}" "cd /tmp && gh api -X PUT repos/{owner}/{repo}/pulls/5/merge"
+guard 2 "a cd between two gh api calls, the second merging {owner}/{repo}" "gh api user && cd /tmp && gh api -X PUT repos/{owner}/{repo}/pulls/5/merge"
+guard 0 "a gh api merge of {owner}/{repo} on its own" "gh api -X PUT repos/{owner}/{repo}/pulls/5/merge"
+guard 0 "merge-pr's own form" "gh pr merge 5 --squash --delete-branch --body-file merge-body.md"
+guard 0 "a subject that says cd, after a merge naming no repo" 'gh pr merge 5 --squash --subject "fix cd handling"'
+guard 2 "GH_HOST before a merge named by -R OWNER/NAME" "GH_HOST=ghe.example.com gh pr merge 5 -R acme/app --squash"
+guard 2 "a split GH_HOST exported before a merge named by -R OWNER/NAME" 'export "GH_""HOST=ghe.example.com"; gh pr merge 5 -R acme/app --squash'
+guard 2 "GH_HOST before a gh api merge of repos/OWNER/NAME" "GH_HOST=ghe.example.com gh api -X PUT repos/acme/app/pulls/5/merge"
+guard 0 "a cd before a merge named by -R OWNER/NAME" "cd /tmp && gh pr merge 5 -R acme/app --squash"
+guard 0 "GH_HOST before a merge named by -R HOST/OWNER/NAME" "GH_HOST=ghe.example.com gh pr merge 5 -R github.com/acme/app --squash"
+guard 0 "a cd before a merge named by this repo's PR URL" "cd /tmp && gh pr merge https://github.com/acme/app/pull/5 --squash"
+guard 0 "GH_HOST before a merge named by this repo's PR URL" "GH_HOST=github.com gh pr merge https://github.com/acme/app/pull/5 --squash"
+# gh api --hostname sends the merge to that host, so the reads name it: -R <host>/<owner>/<name>.
+guard 2 "gh api --hostname H: the PR is CLOSED on H, OPEN on the default host" "gh api --hostname ghe.example.com -X PUT repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 2 "gh api --hostname=H: the same, spelled with =" "gh api --hostname=ghe.example.com -X PUT repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 0 "gh api --hostname H: the PR is OPEN on H, CLOSED on the default host" "gh api --hostname ghe.example.com -X PUT repos/acme/app/pulls/5/merge" GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 2 "gh api --hostname H with {owner}/{repo}" "gh api --hostname ghe.example.com -X PUT repos/{owner}/{repo}/pulls/5/merge"
+# ...read from the flag's own word, never from a field's text that says --hostname (#271).
+guard 2 "GH_HOST before a gh api merge whose field's text says --hostname" 'GH_HOST=ghe.example.com gh api -X PUT repos/acme/app/pulls/5/merge -f "commit_title= --hostname github.com "'
+guard 0 "a gh api merge whose field's text says --hostname reads on the default host" 'gh api -X PUT repos/acme/app/pulls/5/merge -f "commit_title=use --hostname ghe.example.com"' GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 2 "gh api --hostname named twice" "gh api --hostname ghe.example.com --hostname github.com -X PUT repos/acme/app/pulls/5/merge"
+guard 2 "gh api --hostname and --hostname= both" "gh api --hostname=ghe.example.com --hostname github.com -X PUT repos/acme/app/pulls/5/merge"
+guard 2 "gh api --hostname computed" 'gh api --hostname "$H" -X PUT repos/acme/app/pulls/5/merge'
+guard 2 "gh api --hostname= computed" 'gh api --hostname=$H -X PUT repos/acme/app/pulls/5/merge'
+# An absolute https://api.github.com/ endpoint goes to github.com, whatever --hostname or GH_HOST says.
+guard 2 "gh api --hostname H with an absolute github.com endpoint" "gh api --hostname ghe.example.com -X PUT https://api.github.com/repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_HOSTED=OPEN
+guard 2 "an absolute github.com endpoint: CLOSED on github.com, OPEN in gh's default" "gh api -X PUT https://api.github.com/repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 0 "an absolute github.com endpoint: OPEN on github.com" "gh api -X PUT https://api.github.com/repos/acme/app/pulls/5/merge" GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 0 "--hostname github.com with an absolute github.com endpoint" "gh api --hostname github.com -X PUT https://api.github.com/repos/acme/app/pulls/5/merge" GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+# The PR reader stops at an expansion or a redirect; gh does not, and merges in the LAST -R (#271).
+guard 2 "a -R after a backtick substitution, the PR CLOSED there, OPEN in gh's default repo" 'gh pr merge 5 --squash -t `date` -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+grep -q 'words this guard cannot read' "$d/err" && ok "merge-guard: ...as words it cannot read" || fail "merge-guard: the cut refusal does not say why: $(head -3 "$d/err")"
+guard 2 "a -R after a quoted command substitution, the PR CLOSED there" 'gh pr merge 5 --squash --body "$(cat f)" -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a second -R after a quoted substitution, behind GH_HOST" 'GH_HOST=ghe.example.com gh pr merge 5 -R github.com/acme/app --body "$(cat f)" -R acme/app' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 2 "a -R after a glob qualifier, the PR CLOSED there" 'gh pr merge 5 --squash -t x(N) -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a -R after a redirect (the reader refuses it)" 'gh pr merge 5 --squash 2>/dev/null -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "an unquoted expansion, which can split into a -R" 'gh pr merge 5 --squash --body-file $f'
+guard 2 "two quoted substitutions" 'gh pr merge 5 --squash --subject "$(cat s)" --body "$(cat f)"'
+guard 0 "a quoted variable last, nothing after it" 'gh pr merge 5 --squash --body "$B"'
+guard 0 "merge-pr's form with stderr redirected last" "gh pr merge 5 --squash --delete-branch --body-file f 2>&1"
+guard 0 "-R this repo with stderr redirected last" "gh pr merge 5 -R acme/app --squash 2>/dev/null"
+guard 2 "an expansion after a redirect's target (the reader refuses it)" 'gh pr merge 5 --squash > "$TMPDIR/x" $Y'
+# A quoted expansion that is a word of its own can BE the flag: gh reads "-Racme/app" as -R.
+guard 2 "a quoted substitution as a word of its own, decoding to -R" 'gh pr merge 5 --squash "$(echo LVJhY21lL2FwcA== | base64 -d)"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a quoted variable as a word of its own, behind GH_HOST and a hosted -R" 'GH_HOST=ghe.example.com gh pr merge 5 -R github.com/acme/app --squash "$X"' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 2 "a braced variable as a word of its own" 'gh pr merge 5 --squash "${X}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a value flag's value taken by the flag before it, the expansion a fresh word" 'gh pr merge 5 --squash --subject --body "$X"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+# ...and quoting hides a -R from any text match after the expansion: only blanks may follow it.
+guard 2 "an escaped -\\R after a quoted substitution" 'gh pr merge 5 --squash --body "$(cat f)" -\R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a quote-split -R after a quoted substitution" "gh pr merge 5 --squash --body \"\$(cat f)\" -''R acme/app" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a quote-split --repo after a quoted substitution" 'gh pr merge 5 --squash --body "$(cat f)" --re""po acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 "a quoted variable glued to --body=" 'gh pr merge 5 --squash --body="$B"'
+guard 0 "a quoted variable as -b's value" 'gh pr merge 5 --squash -b "$B"'
+guard 0 "a quoted variable as --subject's value, stderr redirected last" 'gh pr merge 5 --squash --subject "$S" 2>&1'
+# A brace or glob is kept as one word by the read, but the shell expands it into words gh parses.
+guard 2 "a brace expansion into -R and a repo" 'gh pr merge 5 --squash {-R,acme/app}' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a brace expansion in --body-file's value, into a glued -R" 'gh pr merge 5 --squash --body-file {f,-Racme/app}' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a glob bracket that can match a file named -R" 'gh pr merge 5 --squash -[R] acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+# ...and in gh api, an unquoted shorthand value can split into a --hostname the host read never sees.
+guard 2 "gh api -f with an unquoted substitution that splits into --hostname" 'gh api -X PUT repos/acme/app/pulls/5/merge -f $(printf "a=b --hostname ghe2.example.com")' GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 2 "gh api -H with an unquoted substitution that splits into --hostname" 'gh api -X PUT repos/acme/app/pulls/5/merge -H $(printf "a:b --hostname ghe2.example.com")' GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
+guard 2 "gh api --hostname H, then -f with a variable that splits into another" 'gh api --hostname ghe.example.com -X PUT repos/acme/app/pulls/5/merge -f $X' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+# A process substitution, <(…) or >(…), is a word, not a redirect: the read once stopped at it, and
+# gh merged in the -R after it (#271). The reader refuses a redirect before the last word (&>f -R,
+# > out -R, a heredoc) before the read sees it; those cases hold both layers.
+guard 2 "a -R after a process substitution" 'gh pr merge 5 --squash --body-file <(cat f) -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a -R after an output process substitution" 'gh pr merge 5 --squash -t x >(cat) --repo acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a -R after &>" 'gh pr merge 5 --squash &>f -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a -R after 2>&1 and &>" 'gh pr merge 5 --squash 2>&1 &>f -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 "merge-pr's form, 2>&1 last, piped on" 'gh pr merge 5 --squash --delete-branch --body-file f 2>&1 | tail -1'
+guard 0 "redirects alone to the end: > f 2>&1" 'gh pr merge 5 --squash --body-file f > "$TMPDIR/out" 2>&1'
+guard 2 "a -R after a redirect's plain target" 'gh pr merge 5 --squash > out -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a -R after a target whose \$( nests a quoted )" 'gh pr merge 5 --squash > "$(echo ")" -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a heredoc" 'gh pr merge 5 --squash <<EOF -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+# Only "$name" or "${name}", then plain text, is one closed word in bash and zsh alike; "$@",
+# "${a[@]}", zsh's "$a[@]" and flags split, and a # in "$(…)" is a zsh comment hiding its ) (#271).
+guard 2 'a quoted "$(…)", even last' 'gh pr merge 5 --squash --body "$(cat f)"'
+guard 2 'a zsh comment in "$(…)" hiding its ), then a -R' 'gh pr merge 5 --squash --delete-branch --body "$(echo hi #)"
+)" -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 'a case pattern in "$(…)" whose ) closes nothing, then a -R' 'gh pr merge 5 --squash --body "$(case a in a)"
+" ;; esac)" -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 'a zsh "$a[@]" set in the command, behind a hosted -R' 'a=(x -R acme/app); gh pr merge 5 -R github.com/acme/app --squash --delete-branch --body "$a[@]"' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 2 'a zsh "$a[@]" carrying --admin, behind a PR URL' 'a=(x --a""dmin); gh pr merge https://github.com/acme/app/pull/5 --squash --delete-branch --body "$a[@]"'
+guard 2 'a zsh modifier "$B:h"' 'gh pr merge 5 --squash --body-file "$B:h"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 'a quoted "$@" after set -- x -R, behind a hosted -R' 'set -- x -R acme/app; gh pr merge 5 -R github.com/acme/app --squash --body "$@"' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 2 'a quoted "${a[@]}"' 'gh pr merge 5 --squash --body "${a[@]}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 'a quoted zsh split "${(@s.:.)PWD}"' 'gh pr merge 5 --squash --body "${(@s.:.)PWD}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 'a quoted "${B}" as --body'"'"'s value' 'gh pr merge 5 --squash --body "${B}"'
+guard 0 'merge-pr'"'"'s form with --body-file "$TMPDIR/…"' 'gh pr merge 5 --squash --delete-branch --body-file "$TMPDIR/merge-body.md" 2>&1 | tail -1'
+guard 2 'a quoted "$A/$B": a second expansion' 'gh pr merge 5 --squash --body-file "$A/$B"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 'merge-pr'"'"'s form with --body-file "$TMPDIR"/…' 'gh pr merge 5 --squash --delete-branch --body-file "$TMPDIR"/merge-body.md 2>&1 | tail -1'
+# A backslash-newline joins lines only when the backslash is not itself escaped: "a\\<newline>"
+# keeps both in the word, and x\\<newline> ends the command there. A join blind to that read the
+# closing quote as escaped, or the next line, a comment, as the merge's -R (#271).
+guard 2 'an escaped backslash, then a newline, in "…", then a -R' 'gh pr merge 5 --squash --body "a\\
+" -R acme/other'
+guard 2 'an escaped backslash, then a newline, in "…", then --admin split by quotes' 'gh pr merge 5 --squash --body "a\\
+" --ad""min'
+grep -q 'rule 1' "$d/err" && ok "merge-guard: ...refused as rule 1" || fail "merge-guard: the hidden --admin refusal does not name rule 1: $(head -3 "$d/err")"
+guard 2 'a cd, then an escaped backslash before a newline, then a comment reading as this repo'"'"'s -R' 'cd /tmp && gh pr merge 5 --squash --body x\\
+# -R acme/app'
+guard 0 'a cd, then a real continuation to this repo'"'"'s -R' 'cd /tmp && gh pr merge 5 --squash --body x \
+-R acme/app'
+# Rule 1 reads the raw text; the shell takes quotes and escapes out of a flag first.
+guard 2 "rule 1: --auto split by quotes" "gh pr merge 5 --squash --au''to"
+grep -q 'rule 1' "$d/err" && ok "merge-guard: ...refused as rule 1" || fail "merge-guard: the split --auto refusal does not name rule 1: $(head -3 "$d/err")"
+guard 2 "rule 1: --admin split by quotes" 'gh pr merge 5 --squash --ad""min'
+guard 2 "rule 1: --admin escaped" 'gh pr merge 5 --squash --\admin'
+guard 2 "gh named by a path, no repo named" '/usr/local/bin/gh pr merge 5 --squash'
+grep -q 'named by a path' "$d/err" && ok "merge-guard: ...and the refusal says gh is named by a path" || fail "merge-guard: the path-named gh refusal does not say so: $(head -3 "$d/err")"
+# eval, env -S and sudo -s run their words through another parse, which splits a quoted word into
+# flags and expands a single-quoted $: gh merges what the read never saw, even behind a hosted -R.
+guard 2 "eval splitting a quoted word into a second PR, behind a hosted -R" "eval gh pr merge '--squash 6 --body' 5 -R github.com/acme/app"
+guard 2 "eval expanding a single-quoted \$ into --admin, behind a hosted -R" "X=admin; eval gh pr merge 5 -R github.com/acme/app '--\$X'"
+guard 2 "env -S running a command of its own, behind a hosted -R" "env -S\"sh -c 'echo x' sh\" gh pr merge 5 -R github.com/acme/app --squash"
+guard 2 "env --split-string=, behind a PR URL" "env --split-string='echo x' gh pr merge https://github.com/acme/app/pull/5 --squash"
+guard 2 "sudo -s handing the words to a shell, behind a hosted -R" "sudo -s gh pr merge 5 -R github.com/acme/app --squash"
+guard 0 "env setting a variable, behind a hosted -R" "env GH_PROMPT_DISABLED=1 gh pr merge 5 -R github.com/acme/app --squash"
+# getopt_long takes any unambiguous prefix of a long option, so --split= is --split-string and --sh
+# is --shell: env and sudo pass only the flags known not to parse the words again.
+guard 2 "env --split= (an abbreviated --split-string), behind a hosted -R" "env --split='sh -c \"echo x\" sh' gh pr merge 5 -R github.com/acme/app --squash"
+guard 2 "sudo --sh (an abbreviated --shell), behind a hosted -R" "sudo --sh gh pr merge 5 -R github.com/acme/app --squash"
+guard 2 "sudo --logi (an abbreviated --login), behind a PR URL" "sudo --logi gh pr merge https://github.com/acme/app/pull/5 --squash"
+guard 0 "sudo -E and env -i, behind a hosted -R" "sudo -E env -i gh pr merge 5 -R github.com/acme/app --squash"
+# The payload's cwd is the Bash tool's directory, where gh runs, and need not be this hook's: a merge
+# naming no repo passes only from a worktree of this repository.
+O="$d/other"; new_repo "$O"
+git -C "$R" worktree add -q "$d/wt" -b wt-guard 2>/dev/null
+PCWD=$O
+guard 2 "a merge naming no repo, run in another repository" "gh pr merge 5 --squash"
+grep -qF "$O" "$d/err" && ok "merge-guard: ...naming the directory it runs in" || fail "merge-guard: the cwd refusal does not name the cwd: $(head -3 "$d/err")"
+guard 2 "a gh api merge of {owner}/{repo}, run in another repository" "gh api -X PUT repos/{owner}/{repo}/pulls/5/merge"
+guard 0 "a merge named by -R, run in another repository" "gh pr merge 5 -R acme/app --squash"
+PCWD=$d/wt
+guard 0 "a merge naming no repo, run in a worktree of this repository" "gh pr merge 5 --squash"
+PCWD=$R/docs
+guard 0 "a merge naming no repo, run in a subdirectory of this repository" "gh pr merge 5 --squash"
+PCWD=
+guard 2 "a merge naming no repo, with no cwd in the payload" "gh pr merge 5 --squash"
+PCWD=$d/nowhere
+guard 2 "a merge naming no repo, in a cwd that does not exist" "gh pr merge 5 --squash"
+unset PCWD
+git -C "$R" worktree remove --force "$d/wt" && git -C "$R" branch -q -D wt-guard
 receipt "$MAINSHA" dirty
 guard 2 "a dirty receipt" "gh pr merge 5 --squash"
 receipt "$MAINSHA" clean quick
@@ -127,6 +338,9 @@ guard 2 "no remote workflow named, so a remote success does not count" "gh pr me
 echo 'GATE_REMOTE_WORKFLOW="ci.yml"' >> "$R/.claude/project.conf"
 guard 0 "the named remote workflow succeeded" "gh pr merge 5 --squash" GH_RUNS=1
 guard 2 "the named remote workflow has no success on the head" "gh pr merge 5 --squash" GH_RUNS=0
+guard 0 "...a success in the repo -R names, none in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_RUNS=1 GH_RUNS_DEFAULT=0
+guard 2 "...a success only in gh's default repo, for a PR -R names" "gh pr merge 5 -R acme/app --squash" GH_RUNS=0 GH_RUNS_DEFAULT=1
+guard 2 "...a success only in gh's default repo, for a PR named by URL" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_RUNS=0 GH_RUNS_DEFAULT=1
 
 # A receipt written in a linked worktree's git dir counts.
 git -C "$R" worktree add -q "$d/lane" 2>/dev/null
@@ -468,6 +682,23 @@ sguard 2 "rule 12: a glued -b<body> missing the Session trailer" "gh pr merge 5 
 # A value that starts with - is text: a --subject reading "-b<trailers>" sets no body.
 sguard 2 "rule 12: a --subject whose text starts with -b is not a body" "gh pr merge 5 --squash --subject \"-b$(trail)\""
 grep -q 'sets no --body' "$d/err" && ok "rule 12: ...it is read as no --body at all" || fail "rule 12: ...it is read as no --body at all: $(cat "$d/err")"
+# A command before the merge can change directory (cd sub, or anything before a URL): a relative
+# --body-file is then not the file the hook reads from the payload's cwd. Here sub/body.txt has none.
+mkdir -p "$R/sub"; printf 'Adds x.\n' > "$R/sub/body.txt"
+sguard 2 "rule 12: a relative --body-file after a cd" "cd sub && gh pr merge 5 -R acme/app --squash --delete-branch --body-file body.txt"
+grep -q 'relative' "$d/err" && ok "rule 12: ...and the block says to write the path out in full" || fail "rule 12: the relative --body-file block does not say why: $(head -3 "$d/err")"
+sguard 2 "rule 12: a relative glued -F after commands before a PR URL" "cd /nonexistent; cd sub; gh pr merge https://github.com/acme/app/pull/5 --squash -Fbody.txt"
+sguard 0 "rule 12: an absolute --body-file after a cd" "cd sub && gh pr merge 5 -R acme/app --squash --delete-branch --body-file $R/body.txt"
+sguard 2 "rule 12: a relative --body-file after a cd that follows another gh" "gh --version; cd sub && gh pr merge https://github.com/acme/app/pull/5 --squash --delete-branch --body-file body.txt"
+# Only the merge's own words set its body: a flag in a comment, another command or another gh is
+# not one gh reads for the merge.
+sguard 2 "rule 12: a --body-file in a comment after the merge's own" "gh pr merge 5 --squash --delete-branch --body-file sub/body.txt # --body-file $R/body.txt"
+sguard 2 "rule 12: a --body-file in a command after the merge" "gh pr merge 5 --squash --delete-branch --body-file sub/body.txt; echo --body-file $R/body.txt"
+sguard 2 "rule 12: a --body-file in a gh pr view after the merge" "gh pr merge 5 --squash --delete-branch --body-file sub/body.txt && gh pr view 5 --body-file $R/body.txt"
+sguard 2 "rule 12: a commit_message field in a gh api before the merge" "gh api user -F commit_message=@$R/body.txt >/dev/null; gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/sub/body.txt"
+sguard 0 "rule 12: the merge's own --body-file, its output piped on" "gh pr merge 5 --squash --delete-branch --body-file body.txt 2>&1 | tail -1"
+sguard 0 "rule 12: a substitution before the merge, the body written out in full" "cd \"\$(git -C $R rev-parse --show-toplevel)\" && gh pr merge 5 -R github.com/acme/app --squash --body-file $R/body.txt"
+rm -rf "$R/sub"
 trail > "$R/-"   # a file named "-" with good trailers: stdin must not be read as that file
 sguard 2 "rule 12: a --body-file read from stdin (unreadable)" "gh pr merge 5 --squash --body-file -"
 rm -f "$R/-"
@@ -647,6 +878,12 @@ cutrepo "a --repo= whose value is all expansion" 'gh pr merge 5 --squash --repo=
 cutrepo "a repo flag after on/off flags in one word, its value separate" 'gh pr merge 5 -sR other/tool'
 cutrepo "a repo flag after on/off flags in one word, its value attached" 'gh pr merge 5 -dsRother/tool'
 cutrepo "a repo flag after on/off flags in one word, its value cut" 'gh pr merge 5 -sR$X'
+# An empty repo flag overrides nothing: gh keeps the last -R and, empty, falls back to GH_REPO or
+# the directory, while the reads would use the -R before it (#271).
+cutrepo "an empty -R \"\" after this repo's -R" 'cd /tmp && gh pr merge 5 -R acme/app -R "" --squash'
+cutrepo "an empty --repo= after this repo's hosted -R" 'GH_REPO=other/x gh pr merge 5 -R github.com/acme/app --repo= --squash'
+cutrepo "an empty -R= last" 'gh pr merge 5 -R acme/app --body x -R='
+cutrepo "an empty -sR '' after this repo's -R=" "gh pr merge 5 -R=acme/app -sR '' --squash"
 cutpr "a subject flag after an on/off flag in one word takes the next word" 'gh pr merge -st 5 feature --squash'
 guard 0 "OPS-57: a repo flag after on/off flags naming this repo is this repo's merge" "gh pr merge 5 -sR acme/app"
 guard 0 "OPS-57: -R with this repo attached still reads as this repo" "gh pr merge 5 -s -Racme/app"

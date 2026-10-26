@@ -11,7 +11,9 @@
 #
 # Output, one line per finding:
 #   PLAIN <n>        n readable `gh pr merge` sites — all three words plain, adjacent
-#   API <repo> <pr>  a readable `gh api -X PUT repos/<o>/<n>/pulls/<pr>/merge` (repo `.` = this one)
+#   API <repo> <pr> <host>  a readable `gh api -X PUT repos/<o>/<n>/pulls/<pr>/merge` (repo `.` =
+#                    this one); host its --hostname, `-` none, `?` one it cannot read (computed,
+#                    repeated, or not a plain host name)
 #   ODD <why>        a merge, or a construct around one, this reader cannot read: the hook blocks
 #   MENTION          merge words inside ONE word or heredoc body: prose, or code for an evaluator
 #   UNSAFE <word>    with a MENTION, a command not on the inert list (prose_safe)
@@ -457,13 +459,24 @@ function git_sub(c, j,   x, w) {
 # api or merge, is ODD. (One that cannot — `grep "gh" --include=*.ts` — is left alone.)
 # heads(c, k) — the words before k leave k in command position: assignments, and only prefixes that
 # run the rest of the line AS WRITTEN (sudo, env, nice, time, …) with their flags and numbers. xargs,
-# find -exec, parallel and the like ADD or SUBSTITUTE words, so gh after them is not.
-function heads(c, k,   x, w) {
+# find -exec, parallel and the like ADD or SUBSTITUTE words, so gh after them is not. Nor is gh after
+# eval, env -S (--split-string) or sudo -s/-i (--shell, --login): each hands the words to a parse of
+# their own, which splits '--squash 6 --body' into flags and expands a single-quoted $ (OPS-132).
+# env, sudo and doas pass only the flags listed here: getopt_long takes any unambiguous prefix of a
+# long option (--split= is --split-string, --sh is --shell), so a list of the bad ones misses some.
+function heads(c, k,   x, w, r) {
+  r = ""
   for (x = 1; x < k; x++) {
     w = W[c, x]
     if (!provable(c, x)) return 0
-    if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^-/ || w ~ /^[0-9]+[smhd]?$/) continue
-    if (w ~ /^(then|do|else|elif|if|while|until|!|\{|time|command|builtin|exec|nohup|sudo|doas|env|nice|timeout|eval|noglob|nocorrect|stdbuf)$/) continue
+    if (w ~ /^-/) {
+      if (r == "env" && w !~ /^(-[i0v]+|-|--ignore-environment|--null|--debug)$/) return 0
+      if (r == "sudo" && w !~ /^(-[EHknPSb]+|--(preserve-env|non-interactive|set-home|reset-timestamp|stdin|background|preserve-groups))$/) return 0
+      if (r == "doas" && w != "-n") return 0
+      continue
+    }
+    if (w ~ /^[A-Za-z_][A-Za-z0-9_]*=/ || w ~ /^[0-9]+[smhd]?$/) continue
+    if (w ~ /^(then|do|else|elif|if|while|until|!|\{|time|command|builtin|exec|nohup|sudo|doas|env|nice|timeout|noglob|nocorrect|stdbuf)$/) { r = w; continue }
     return 0
   }
   return 1
@@ -505,8 +518,8 @@ function ghword(c, k, n,   j, x, m) {
 # gh api — a PUT to repos/<o>/<n>/pulls/<pr>/merge merges exactly like `gh pr merge <pr>`, so it is
 # reported (API) for the hook to police the same way. One whose endpoint or method cannot be read
 # and that names a merge is ODD, as is a GraphQL call naming a merge or reading its query from a file.
-function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M) {
-  m = ""; mw = 0; ep = ""; ew = 0; ei = 0; men = 0; gq = 0; nf = 0
+function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M, h, hw) {
+  m = ""; mw = 0; ep = ""; ew = 0; ei = 0; men = 0; gq = 0; nf = 0; h = ""; hw = 0
   for (j = k + 2; j <= n; j++) {
     w = W[c, j]
     if (tolower(w) ~ /merge/) men = 1
@@ -520,8 +533,12 @@ function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M
       if (w == "--input") gq = 1
       if (w ~ /^--(field|raw-field|input)$/) nf = 1
       if (++j <= n) { if (tolower(W[c, j]) ~ /merge/) men = 1; if (W[c, j] ~ /^[^=]*=@/) gq = 1; if (!provable(c, j)) mw = 1 }
+      # The host the merge goes to, read only from the flag's own word (#271): text that says
+      # --hostname inside a field's value is not one.
+      if (w == "--hostname") { if (j > n || !provable(c, j) || h != "") hw = 1; else h = W[c, j] }
       continue
     }
+    if (w ~ /^--hostname=/) { if (h != "") hw = 1; else h = substr(w, 12); continue }
     if (w ~ /^--/) {
       if (w ~ /^--input=/ || w ~ /^--(field|raw-field)=[^=]*=@/) gq = 1
       if (w ~ /^--(field|raw-field|input)=/) nf = 1
@@ -533,7 +550,9 @@ function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M
         x = substr(w, pos, 1)
         if (x !~ /[XfFHqtp]/) continue
         r = substr(w, pos + 1); sub(/^=/, "", r)
-        if (r == "" && ++j <= n) { r = W[c, j]; if (tolower(r) ~ /merge/) men = 1; if (!provable(c, j)) { if (x == "X") mw = 1; r = "" } }
+        # An unprovable value can split into more words (-f $X: "a=b --hostname h2"), as in the long
+        # form: any of them, not only -X, leaves the merge unread.
+        if (r == "" && ++j <= n) { r = W[c, j]; if (tolower(r) ~ /merge/) men = 1; if (!provable(c, j)) { mw = 1; r = "" } }
         if (x == "X") m = r
         if (x ~ /[fF]/) nf = 1
         if (x ~ /[fF]/ && r ~ /^[^=]*=@/) gq = 1
@@ -544,7 +563,10 @@ function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M
     if (ep == "") { ep = w; ei = j }
   }
   # GitHub routes …/merge?x=1 and …/merge#x to the merge endpoint: the query and fragment go first.
-  e = tolower(ep); sub(/[?#].*$/, "", e); sub(/^https:\/\/api\.github\.com\//, "", e); sub(/^\//, "", e)
+  e = tolower(ep); sub(/[?#].*$/, "", e)
+  # gh sends an absolute endpoint where it says, whatever --hostname or GH_HOST names: github.com.
+  if (sub(/^https:\/\/api\.github\.com\//, "", e)) { if (h != "" && tolower(h) != "github.com") hw = 1; else h = "github.com" }
+  sub(/^\//, "", e)
   # The method gh sends: -X, else POST when any field or --input is given, else GET.
   M = toupper(m); if (M == "" && nf) M = "POST"
   if (ew) { if (men || M == "PUT" || mw) odd("gh api with a computed endpoint (" ep ") that may merge"); return }
@@ -556,12 +578,13 @@ function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M
   } else {
     # Anything else that WRITES (or may) and names a merge — a POST to …/merges, a PATCH, a method
     # it cannot read — is not the one form this guard can police, so it is refused.
-    if (men && (mw || (M != "" && M != "GET"))) odd("gh api " (mw ? "with a computed method" : M) " that names a merge, outside the one form this guard reads (-X PUT repos/<o>/<n>/pulls/<pr>/merge)")
+    if (men && (mw || (M != "" && M != "GET"))) odd("gh api " (mw ? "with a computed method or flag value" : M) " that names a merge, outside the one form this guard reads (-X PUT repos/<o>/<n>/pulls/<pr>/merge)")
     return
   }
   split(e, q, "/")
   r = q[2] "/" q[3]; if (r ~ /^(\{owner\}|:owner)\/(\{repo\}|:repo)$/) r = "."
-  APIS[++NA] = r " " q[5]; SITE[c] = 1
+  if (h != "" && h !~ /^[A-Za-z0-9.-]+$/) hw = 1
+  APIS[++NA] = r " " q[5] " " (hw ? "?" : (h == "" ? "-" : h)); SITE[c] = 1
 }
 
 { buf = buf $0 "\n" }

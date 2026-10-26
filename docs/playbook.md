@@ -348,7 +348,7 @@ Haiku for the reviewer or the planner: economy mode never drops them either.
 
 | Guard | When | What it does |
 |---|---|---|
-| `pr-merge-guard.sh` | every Bash call | blocks `--auto`/`--admin`, a merge without gate evidence for its head, a change PR with no slice line, a duplicate journal session, a build with open tasks, an uncited scenario, an archive of an unfinished change, a squash body without provenance trailers, a changed model, agent or workflow without a passing eval receipt |
+| `pr-merge-guard.sh` | every Bash call | blocks `--auto`/`--admin`, a merge of a PR that is not open, a merge without gate evidence for its head, a change PR with no slice line, a duplicate journal session, a build with open tasks, an uncited scenario, an archive of an unfinished change, a squash body without provenance trailers, a changed model, agent or workflow without a passing eval receipt |
 | `no-blind-source-rewrite.sh` | every Bash call | blocks `sed -i`/`perl -pi`/python read-modify-write on tracked source: use the Edit tool |
 | `worktree-hook-drift.sh` | every agent spawn | blocks a worktree agent while the main checkout's hooks lag `origin/main` |
 | `focus-staleness.sh` | every prompt | nudges when the status-line focus is stale |
