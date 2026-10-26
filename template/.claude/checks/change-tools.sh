@@ -14,8 +14,10 @@
 #   change-cost.sh      sums a branch's messages from transcripts (subagents included), once per
 #                       message id, at .prices; ignores another branch and another repo; says OVER
 #                       BUDGET past the proposal's budget; reports the budget's kind (hard, soft,
-#                       unreadable); names a model it cannot price; and says CANNOT CHECK, never $0,
-#                       when no transcript ran on the branch, still reporting the budget.
+#                       unreadable); names a model it cannot price; leaves out a lead's messages on
+#                       another branch after its last on the change's (#249); says CANNOT CHECK,
+#                       never $0, when no transcript ran on the branch, still reporting the budget;
+#                       and reads one build's dollars as usage-report.sh reads its session (#253).
 . "$(dirname "$0")/lib.sh"
 need git jq
 
@@ -25,9 +27,10 @@ R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/changes" "$R/specs" "$R/docs"
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$ROOT/.claude/lib/usage.sh" "$R/.claude/lib/"
 cp "$ROOT/.claude/change-approval.sh" "$ROOT/.claude/verify-change.sh" "$ROOT/.claude/scenario-trace.sh" \
-   "$ROOT/.claude/change-cost.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
+   "$ROOT/.claude/change-cost.sh" "$ROOT/.claude/usage-report.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
 cp "$ROOT/.claude/roadmap-queue.sh" "$R/.claude/"
 cp -R "$EX/specs/greeting" "$R/specs/"
+echo "notes" > "$R/docs/notes.md"  # a file of the fork point for a task to rename away
 # roadmap CHANGE: the example's row 1.1 with CHANGE as its Change cell.
 roadmap() { printf '| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | %s | `src/home/` | — | ⬜ queued |\n' "$1" > "$R/docs/roadmap.md"; }
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
@@ -461,6 +464,32 @@ V; rc=$?; expect_rc 0 "$rc" "verify-change passes a finished change"
 [ "$rc" = 0 ] || sed 's/^/       /' "$d/out"
 grep -q '^verify-change: add-greeting-name verified against main at [0-9a-f]' "$d/out" && ok "its verdict names the change, the base and the commit" || fail "verdict line: $(tail -1 "$d/out")"
 
+# A code identifier, an absolute path and a bare name that is no path of the repo claim nothing
+# (#252): a task naming them beside a changed file passes, and one naming only them is not judged.
+cp "$C/tasks.md" "$d/tasks.bak"
+printf -- '- [x] 9.1 Call `config.LoadProjects` from `src/home/greeting.ts` under `/bin/sh`, beside `doctor_test.go`\n- [x] 9.2 Wire `template.Resolve` into `pkg.Func`\n' >> "$C/tasks.md"
+V; rc=$?; expect_rc 0 "$rc" "verify-change reads no code identifier as a path claim"
+[ "$rc" = 0 ] || sed 's/^/       /' "$d/out"
+grep -q '^NOTE task names no path of the repo, so it is not judged (template.Resolve pkg.Func): - \[x\] 9.2' "$d/out" \
+  && ok "...and says the task it could not judge was not judged" || fail "no not-judged note for 9.2: $(grep 9.2 "$d/out")"
+cp "$d/tasks.bak" "$C/tasks.md"
+printf -- '- [x] 9.4 Read `/etc/x.conf`\n' >> "$C/tasks.md"
+V; expect_rc 0 $? "verify-change reads no absolute path as a claim, one with an extension included"
+printf -- '- [x] 9.3 Write `src/home/never.ts`\n' >> "$C/tasks.md"
+V; expect_rc 1 $? "...but still fails a task naming a new path the diff never wrote"
+cp "$d/tasks.bak" "$C/tasks.md"
+# A path of the repo the diff never touched is a claim even with no extension: a directory.
+printf -- '- [x] 9.5 Update `specs/greeting`\n' >> "$C/tasks.md"
+V; expect_rc 1 $? "verify-change fails a task naming an unchanged path of the repo, a directory with no extension"
+cp "$d/tasks.bak" "$C/tasks.md"
+# A rename's old name is a changed path: a task removing it names what the diff did.
+built=$(git -C "$R" rev-parse HEAD)
+git -C "$R" mv docs/notes.md docs/old-notes.md && git -C "$R" commit -qm "rename"
+printf -- '- [x] 9.6 Remove `docs/notes.md`\n' >> "$C/tasks.md"
+V; rc=$?; expect_rc 0 "$rc" "verify-change reads a rename's old name as a path the diff changed"
+[ "$rc" = 0 ] || sed 's/^/       /' "$d/out"
+git -C "$R" reset -q --hard "$built"
+
 sed 's/- \[x\] 1.2/- [ ] 1.2/' "$C/tasks.md" > "$d/t" && cp "$d/t" "$C/tasks.md"
 V; expect_rc 1 $? "verify-change fails on an open task"
 sed 's/- \[ \] 1.2/- [x] 1.2/' "$C/tasks.md" > "$d/t" && cp "$d/t" "$C/tasks.md"
@@ -588,9 +617,9 @@ msg e1 claude-haiku-4-5-20251001 main "$main/.claude/worktrees/live" 1000000 0 >
 cost --json
 [ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 33 ] && ok "change-cost: an agent in a live worktree on the branch counts though no message recorded the branch there" || fail "change-cost, live worktree: $(cat "$d/out")"
 { msg e2 claude-haiku-4-5-20251001 "$B" "$main/.claude/worktrees/live" 1000000 0                 # $1.00
-  msg e3 claude-haiku-4-5-20251001 "ops/foreign" "$main/.claude/worktrees/live" 1000000 0; } > "$P/$slug/s5.jsonl"  # $1.00
+  msg e3 claude-haiku-4-5-20251001 "ops/foreign" "$main/.claude/worktrees/live" 1000000 0; } > "$P/$slug/s5.jsonl"  # $1.00, not the change's (#249)
 cost --json
-[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 35 ] && [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/other\"]" ] && ok "change-cost: a live worktree on the branch counts, and is not called rejected, though a session recorded another branch there last" || fail "change-cost, live worktree with a foreign branch: $(cat "$d/out")"
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 34 ] && [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/other\"]" ] && ok "change-cost: a live worktree on the branch counts, and is not called rejected, though a session recorded another branch there last; that lead's message on the other branch, after its last on the change's, does not count" || fail "change-cost, live worktree with a foreign branch: $(cat "$d/out")"
 git -C "$R" worktree remove -f "$main/.claude/worktrees/live" 2>/dev/null
 # Votes by session (sessionId) and in time order, from the LEAD's records only. An agent records its
 # lead's CURRENT branch: the lead left lane v1 for v1-next and ops/next, its agent still in v1 then
@@ -619,9 +648,15 @@ cost; case "$(cat "$d/out")" in *"; rejected lanes: live, other, v2, v4 (another
 # OPS-124 (#214): a lead that moves on in the lane after the merge (OPS-118's build lead archived it
 # there on ops/ops-118-archive) recorded the branch most, so v5 is the change's and its agent's $1
 # counts. v6's lead recorded ops/six most and ops/six-close last: the branch is neither, so v6 is not.
+# #249, item 4: the lane counts, but not WHOLE: the lead's own message on ops/archive, after its last
+# on the change's branch, is the archive's work (OPS-118 read $214.17 against its build's $200.24).
 { msg w1 claude-haiku-4-5-20251001 "$B" "${V}5" 0 0 L5 "${T}:01Z"
   msg w2 claude-haiku-4-5-20251001 "$B" "${V}5" 0 0 L5 "${T}:02Z"
-  msg w3 claude-haiku-4-5-20251001 "ops/archive" "${V}5" 0 0 L5 "${T}:03Z"; } > "$P/$slug/L5.jsonl"
+  msg w3 claude-haiku-4-5-20251001 "ops/archive" "${V}5" 1000000 0 L5 "${T}:03Z"; } > "$P/$slug/L5.jsonl"  # $1.00, not the change's (#249)
+# A second session in v5 that never recorded the branch there: its message on ops/reuse is that
+# work, not the change's; its detached HEAD there is no other branch, and counts (a known limit).
+{ msg wj claude-haiku-4-5-20251001 "ops/reuse" "${V}5" 1000000 0 L5b "${T}:05Z"           # $1.00, not the change's
+  msg wk claude-haiku-4-5-20251001 HEAD "${V}5" 1000000 0 L5b "${T}:06Z"; } > "$P/$slug/L5b.jsonl"  # $1.00
 mkdir -p "$P/$slug/L5/subagents"
 msg w4 claude-haiku-4-5-20251001 "ops/archive" "${V}5" 1000000 0 L5 "${T}:04Z" > "$P/$slug/L5/subagents/agent-w.jsonl"  # $1.00
 { msg w5 claude-haiku-4-5-20251001 "ops/six" "${V}6" 0 0 L6 "${T}:01Z"
@@ -644,9 +679,9 @@ mkdir -p "$P/$slug/L7/subagents" "$P/$slug/L8/subagents"
 msg wh claude-haiku-4-5-20251001 "ops/seven" "${V}7" 1000000 0 L7 "${T}:05Z" > "$P/$slug/L7/subagents/agent-w.jsonl"  # $1.00, not the change's
 msg wi claude-haiku-4-5-20251001 "ops/v8" "${V}8" 1000000 0 L8 "${T}:05Z" > "$P/$slug/L8/subagents/agent-w.jsonl"     # $1.00, not the change's
 cost --json
-[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 34 ] && ok "change-cost: a lane whose lead recorded the branch most, then moved on there, is still the change's; one where the branch was neither last nor most, tied for most, or ended in the lane named after another branch is not" || fail "change-cost, lead moved on: $(cat "$d/out")"
+[ "$(jq -r .costUsd "$d/out" 2>/dev/null)" = 35 ] && ok "change-cost: a lane whose lead recorded the branch most, then moved on there, is still the change's, less its lead's and another session's messages on other branches; one where the branch was neither last nor most, tied for most, or ended in the lane named after another branch is not" || fail "change-cost, lead moved on: $(cat "$d/out")"
 [ "$(jq -c .rejectedLanes "$d/out" 2>/dev/null)" = "[\"$main/.claude/worktrees/live\",\"$main/.claude/worktrees/other\",\"${V}2\",\"${V}4\",\"${V}6\",\"${V}7\",\"${V}8\"]" ] && ok "change-cost: ...and names v6, v7 and v8, not v5, as rejected" || fail "change-cost, lead moved on, rejected: $(cat "$d/out")"
-rm -rf "$P/$slug/L5.jsonl" "$P/$slug/L5" "$P/$slug/L6.jsonl" "$P/$slug/L6" "$P/$slug/L7.jsonl" "$P/$slug/L7" "$P/$slug/L8.jsonl" "$P/$slug/L8"
+rm -rf "$P/$slug/L5.jsonl" "$P/$slug/L5b.jsonl" "$P/$slug/L5" "$P/$slug/L6.jsonl" "$P/$slug/L6" "$P/$slug/L7.jsonl" "$P/$slug/L7" "$P/$slug/L8.jsonl" "$P/$slug/L8"
 # OPS-120: a teammate lane's own agents record the hub session's cwd (the main checkout) and branch,
 # never the lane's: OPS-93's reviewers and their /code-review agents did. Each names its parent in
 # its .meta.json, so a descendant of an agent that counts whole counts whole, at any depth; an agent
@@ -696,6 +731,28 @@ case "$(cat "$d/out")" in "CANNOT CHECK"*) ok "...and says CANNOT CHECK, not \$0
 cost --json
 jq -e '.costUsd == null and .budgetUsd == 15 and .budgetKind == "hard" and (.cannot | length > 0)' "$d/out" >/dev/null 2>&1 \
   && ok "...and its --json still reports the budget and its kind, so build-change knows what it cannot enforce" || fail "change-cost --json, CANNOT CHECK: $(cat "$d/out")"
+# OPS-134 (#253): the two readings of one build agree. Session RS built the change in lane rs alone:
+# a workflow stopped and resumed (two runs, wf_a and wf_b), an agent one of them spawned (recording
+# the main checkout, as a nested agent does), and a lead transcript still being written, which ends
+# in a cut-off line read before the agents (#207). usage-report on the session and change-cost on
+# the change sum the same messages, so they read the same dollars.
+P="$d/projects-resumed"; RS=rs-session; T=2026-10-20T10:00
+RD="$P/$slug--claude-worktrees-rs"; mkdir -p "$RD/$RS/subagents/workflows/wf_a" "$RD/$RS/subagents/workflows/wf_b"
+{ msg r1 claude-opus-5-5 "$B" "$main/.claude/worktrees/rs" 1000000 0 "$RS" "${T}:01Z"          # $4.00
+  msg r1 claude-opus-5-5 "$B" "$main/.claude/worktrees/rs" 1000000 0 "$RS" "${T}:01Z"          # streamed again: once
+  msg r2 claude-haiku-4-5-20251001 "$B" "$main/.claude/worktrees/rs/framework" 1000000 0 "$RS" "${T}:05Z"  # $1.00
+  printf '{"type":"assistant","mess'; } > "$RD/$RS.jsonl"
+msg ra claude-haiku-4-5-20251001 main "$main/.claude/worktrees/rs" 1000000 0 "$RS" "${T}:02Z" > "$RD/$RS/subagents/workflows/wf_a/agent-wa1.jsonl"  # $1.00
+printf '{"agentType":"workflow-subagent","workflowPhase":"Build"}\n' > "$RD/$RS/subagents/workflows/wf_a/agent-wa1.meta.json"
+msg rb claude-haiku-4-5-20251001 main "$main/.claude/worktrees/rs" 0 1000000 "$RS" "${T}:03Z" > "$RD/$RS/subagents/workflows/wf_b/agent-wb1.jsonl"  # $5.00
+printf '{"agentType":"workflow-subagent","workflowPhase":"Review"}\n' > "$RD/$RS/subagents/workflows/wf_b/agent-wb1.meta.json"
+msg rn claude-haiku-4-5-20251001 main "$main" 1000000 0 "$RS" "${T}:04Z" > "$RD/$RS/subagents/agent-rn1.jsonl"  # $1.00, wb1's own agent
+printf '{"agentType":"general-purpose","parentAgentId":"wb1"}\n' > "$RD/$RS/subagents/agent-rn1.meta.json"
+cost --json; cc=$(jq -r .costUsd "$d/out" 2>/dev/null)
+(cd "$R" && CLAUDE_PROJECTS_DIR="$P" sh .claude/usage-report.sh --session "$RS" --json) > "$d/ur" 2>&1
+ur=$(jq -r '.total_usd * 100 | round / 100' "$d/ur" 2>/dev/null)
+[ "$cc" = 12 ] && [ "$ur" = 12 ] && ok "usage-report on the session and change-cost on its change both read \$12: a resumed workflow's runs, a nested agent, a cut-off lead line, a streamed repeat" \
+  || fail "the readings disagree, or both are wrong (want 12): change-cost $cc, usage-report $ur: $(cat "$d/out" "$d/ur")"
 
 # CHANGE_RECORD_EXTRA (P1.7): the project's own required sections, as checks/changes.sh and rule 9
 # read them (lib/change.sh change_extra_missing).

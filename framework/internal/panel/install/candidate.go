@@ -130,19 +130,32 @@ func mainRoot(ctx context.Context, run signals.Runner, path string) (root string
 	if rerr != nil && !errors.Is(rerr, io.EOF) {
 		return "", refuse("unreadable", "%s cannot be read by the panel's user", path)
 	}
-	top, err := gitOut(ctx, run, resolved, "rev-parse", "--show-toplevel")
+	main, top, err := MainWorktree(ctx, run, path)
+	if err != nil {
+		return "", err
+	}
+	if main != top {
+		return "", refuse("linked-worktree", "%s is a linked worktree of %s; add that instead (a project is its main worktree)", top, main)
+	}
+	return top, nil
+}
+
+// MainWorktree is the main worktree of the repository path is in, and the top of the
+// worktree path itself is in (the two differ in a linked worktree), both resolved:
+// git's top level for path, then the first worktree git lists for it. A path in no
+// repository with a working tree is a "not-git" *Refusal. It is how `panel add` and
+// `clauductor lane close` (PANEL-57) find a project from any of its checkouts.
+func MainWorktree(ctx context.Context, run signals.Runner, path string) (main, top string, err error) {
+	top, err = gitOut(ctx, run, signals.ResolvePath(path), "rev-parse", "--show-toplevel")
 	if err != nil || top == "" {
-		return "", refuse("not-git", "%s is not in a git repository with a working tree", path)
+		return "", "", refuse("not-git", "%s is not in a git repository with a working tree", path)
 	}
 	top = signals.ResolvePath(top)
 	wts, err := signals.ReadWorktrees(ctx, run, top)
 	if err != nil || len(wts) == 0 {
-		return "", refuse("not-git", "git lists no worktree for %s", top)
+		return "", "", refuse("not-git", "git lists no worktree for %s", top)
 	}
-	if main := wts[0].Path; main != top {
-		return "", refuse("linked-worktree", "%s is a linked worktree of %s; add that instead (a project is its main worktree)", top, main)
-	}
-	return top, nil
+	return wts[0].Path, top, nil
 }
 
 // registeredAs says which registered project is this repository already: the same

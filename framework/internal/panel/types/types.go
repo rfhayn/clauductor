@@ -90,6 +90,15 @@ type TmuxLane struct {
 	DeadStatus string
 }
 
+// LiveLane is what tmux says of a lane at the moment a close acts, read under the lane
+// lock (lanes.CloseIf, PANEL-57): the panel's last tmux poll can be older than a
+// Restart or a Resume that ran under that lock just before.
+type LiveLane struct {
+	Read    bool // tmux answered (a socket with no server answers: no lane runs)
+	Running bool // the lane's tmux session runs
+	Dead    bool // its program exited (remain-on-exit keeps the pane); Running only
+}
+
 // LaneRecord is one registered lane.
 type LaneRecord struct {
 	ID        string `json:"id"`

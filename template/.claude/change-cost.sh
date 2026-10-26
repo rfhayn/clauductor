@@ -34,19 +34,22 @@
 # session votes for the change when its lead recorded the branch there last, or more often than
 # any other branch (a tie falls back to last), unless the lane is NAMED after the branch it ended
 # on: PANEL-48's close lane, session-3-close, recorded PANEL-48's branch 168 times and
-# ops/session-3-close 86, and is the close's lane, not the change's. Known limits: a counted lane
-# counts whole, the work its lead did there after moving on included (OPS-118 reads $214.17
-# against build-change's $200.24); a close lane named otherwise that recorded the stale branch most
-# is taken.
+# ops/session-3-close 86, and is the close's lane, not the change's. A counted lane does not count
+# WHOLE (#249): a lead's own messages there on a named other branch, after its last on the change's
+# in that lane, or from a session that never recorded it there, are the next work (OPS-118 read
+# $214.17 with its archive's, $206.37 without, against build-change's $200.24). Known limits: an
+# agent the lead ran there after moving on still counts, recording no branch of its own; a close
+# lane named otherwise that recorded the stale branch most is taken.
 # The lanes it rejected are named (the one line's "rejected lanes:", --json's rejectedLanes), so a
 # collapse of the figure is visible. Known limits: a lane reused by two sessions, one ending on the
-# branch, counts whole for it; once removed, a lane is lost whose only session switched away from
-# the branch, or in which only agents, never a lead, recorded it; one in which nothing recorded the
-# branch is not found. A lane whose OWN branch its lead never recorded (session 33570cf0 worked in
-# fix-93 recording only other lanes' branches) goes to whichever change its lead recorded last. An agent counts whole once ANY of its messages ran in the
-# change's worktree, so an unrelated agent passing through (a reviewer of another PR, a
-# session-close sweep) is billed whole. And a lead in the MAIN checkout that records the change's
-# stale branch counts, though its work there is not the change's.
+# branch, counts the other's messages there on main, a detached HEAD or no branch, and its agents;
+# once removed, a lane is lost whose only session switched away from the branch, or in which only
+# agents, never a lead, recorded it; one in which nothing recorded the branch is not found. A lane
+# whose OWN branch its lead never recorded (session 33570cf0 worked in fix-93 recording only other
+# lanes' branches) goes to whichever change its lead recorded last. An agent counts whole once ANY
+# of its messages ran in the change's worktree, so an unrelated agent passing through (a reviewer
+# of another PR, a session-close sweep) is billed whole. And a lead in the MAIN checkout that
+# records the change's stale branch counts, though its work there is not the change's.
 # AN AGENT'S OWN AGENTS (OPS-120) record the lead's cwd and branch too, never the parent's, so a
 # reviewer a teammate lane spawned may never touch the worktree: each agent descended (by its
 # .meta.json's parentAgentId, anywhere in its session's subagents/) from one that counts whole
@@ -103,14 +106,11 @@ projects=${CLAUDE_PROJECTS_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects}
 slug=$(printf '%s' "$main" | sed 's/[^A-Za-z0-9]/-/g')
 dirs=$(find "$projects" -maxdepth 1 -type d -name "$slug*" 2>/dev/null)
 bfiles=$(for p in $dirs; do grep -rlF --include='*.jsonl' "\"gitBranch\":\"$branch\"" "$p" 2>/dev/null; done)
-# Every transcript is read tagged: each line as `<file>\t<json>`, every file's last line ended, and
-# $tagged undoing it into one record with $file in scope. A transcript still being written ends in a
-# cut-off line: jq reading the files stops there, dropping every file after it, and `jq -R` joins it
-# to the next file's first line. awk ends each file's lines apart, and a cut-off one is skipped. One
-# awk per file, since awk stops at a file it cannot open (one deleted since it was listed). The
-# split is at the LAST tab, since a JSON line holds none raw (the file lists split on blanks anyway).
-tag() { for f in "$@"; do awk '{ print FILENAME "\t" $0 }' "$f" 2>/dev/null; done; }
-tagged='split("\t") | (.[:-1] | join("\t")) as $file | .[-1] | fromjson? // empty'
+# Every transcript is read tagged, lib/usage.sh's one way (usage_tag, USAGE_TAGGED): each line as
+# `<file>\t<json>`, so a cut-off line is skipped and every file after it still read. The file lists
+# here split on blanks anyway.
+tag() { usage_tag "$@"; }
+tagged=$USAGE_TAGGED
 # The change's worktrees (see the header): git's live ones on the branch, and each lane directory a
 # message recorded the branch in. Never the main checkout, which stays on main and holds every lane.
 wt="$main/.claude/worktrees/"
@@ -183,15 +183,24 @@ files=$(printf '%s\n%s\n' "$files" "$nested" | grep -v '^$' | sort -u)
 # shellcheck disable=SC2086
 tag $files | jq -cR --arg b "$branch" --arg root "$main" --arg lanes "$wt" --argjson wts "$rootsjson" "$tagged"'
   | select(.type == "assistant" and .message.usage != null) | (.cwd // "") as $cwd
-  | any($wts[] as $w | $cwd == $w or ($cwd | startswith($w + "/")); .) as $inwt
+  | (first($wts[] as $w | select($cwd == $w or ($cwd | startswith($w + "/"))) | $w) // null) as $wr
   | {f: $file, id: (.message.id // .uuid), model: (.message.model // ""), u: .message.usage,
      onb: (.gitBranch == $b and ($cwd == $root or ($cwd | startswith($root + "/")))
-           and ($inwt or ($cwd | startswith($lanes) | not))),
-     inwt: $inwt}' 2>/dev/null \
-| jq -s --slurpfile r "$roles" --arg c "$id" --argjson budget "$budgetUsd" --arg kind "$budgetKind" --argjson rej "$rejectedjson" --argjson agents "$agentsjson" "$USAGE_JQ_DEFS"'
+           and (($wr != null) or ($cwd | startswith($lanes) | not))),
+     inwt: ($wr != null), r: $wr, lead: ($file | contains("/subagents/") | not),
+     s: (.sessionId // $file), t: (.timestamp // ""), b: (.gitBranch // "")}' 2>/dev/null \
+| jq -s --slurpfile r "$roles" --arg c "$id" --arg b "$branch" --arg m "$MAIN_BRANCH" --argjson budget "$budgetUsd" --arg kind "$budgetKind" --argjson rej "$rejectedjson" --argjson agents "$agentsjson" "$USAGE_JQ_DEFS"'
   ($r[0].prices) as $p
-  | [ group_by(.f)[] | (.[0].f | IN($agents[])) as $agent
-      | .[] | select(.onb or .inwt or $agent) ]
+  | [ to_entries[] | .value + {n: .key} ] as $all
+  # A lead that moved on in a counted lane (#249): its messages there on a named other branch, after
+  # its last on $b in that lane (or with none there at all), are the next work, not this change.
+  | ([ $all[] | select(.lead and .inwt) ] | group_by([.s, .r])
+      | map(sort_by(.t) | (map(.b == $b) | rindex(true)) as $last
+            | to_entries[] | select((.value.b | IN($b, $m, "HEAD", "")) | not)
+            | select($last == null or .key > $last) | {key: (.value.n | tostring), value: true})
+      | from_entries) as $moved
+  | [ $all | group_by(.f)[] | (.[0].f | IN($agents[])) as $agent
+      | .[] | select(.onb or (.inwt and ($moved[.n | tostring] | not)) or $agent) ]
   | (map({key: .id, value: .}) | from_entries | [.[]]) as $msgs
   | [ $msgs[] | . as $x | usd($p; $x.model; $x.u) as $usd
     | { model: $x.model, priced: ($usd != null), usd: ($usd // 0) } ]

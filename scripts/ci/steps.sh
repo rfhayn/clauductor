@@ -29,7 +29,7 @@ gofmt_clean() {
 #   template/                internal/cmd (install/update tests read it via CLAUDUCTOR_FRAMEWORK;
 #                            TestCommittedPluginIsCurrent), internal/plugin, internal/template
 #   plugin/, .claude-plugin/ internal/cmd (TestCommittedPluginIsCurrent), internal/plugin
-#   docs/panel.md            internal/template, internal/panel/{config,install,lease,metrics,web}
+#   docs/panel.md            internal/template, internal/panel/{config,install,lease,metrics,state,web}
 #   docs/panel.schema.json   internal/panel/config
 #   docs/guide.md            internal/panel/web
 #   install.sh               internal/cmd (installsh_test.go runs it)
@@ -66,7 +66,7 @@ race_select() {
         [ -n "$_full" ] || _full=$_p ;;
       template/*) _pkgs="$_pkgs ./internal/brand ./internal/cmd ./internal/plugin ./internal/template ./internal/panel/install ./internal/panel/lease" ;;
       plugin/*|.claude-plugin/*) _pkgs="$_pkgs ./internal/cmd ./internal/plugin" ;;
-      docs/panel.md) _pkgs="$_pkgs ./internal/template ./internal/panel/config ./internal/panel/install ./internal/panel/lease ./internal/panel/metrics ./internal/panel/web" ;;
+      docs/panel.md) _pkgs="$_pkgs ./internal/template ./internal/panel/config ./internal/panel/install ./internal/panel/lease ./internal/panel/metrics ./internal/panel/state ./internal/panel/web" ;;
       docs/panel.schema.json) _pkgs="$_pkgs ./internal/panel/config" ;;
       docs/guide.md) _pkgs="$_pkgs ./internal/panel/web" ;;
       install.sh) _pkgs="$_pkgs ./internal/cmd" ;;

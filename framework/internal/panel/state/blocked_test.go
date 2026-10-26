@@ -269,13 +269,13 @@ func TestSlowPollIsNotStale(t *testing.T) {
 	m := alertModel(t, "")
 	// Poll 1 took 7 s (it included the filter cross-check) and finished at t0. The
 	// loop sleeps the 5 s interval, then poll 2 takes 7 s: it lands at t0+12s.
-	m.ApplyAgentsTimed(waitingAgent("waiting", "permission prompt"), nil, 7*time.Second, t0)
+	m.ApplyAgentsTimed(waitingAgent("waiting", "permission prompt"), nil, t0.Add(-7*time.Second), 7*time.Second, t0)
 	for _, at := range []time.Duration{9 * time.Second, 11 * time.Second} {
 		if nd := blockedNeeds(m.Snapshot(t0.Add(at))); len(nd) != 1 || nd[0].Approx {
 			t.Fatalf("at +%s, between two slow polls, the reading was called stale: %+v", at, nd)
 		}
 	}
-	m.ApplyAgentsTimed(waitingAgent("waiting", "permission prompt"), nil, 7*time.Second, t0.Add(12*time.Second))
+	m.ApplyAgentsTimed(waitingAgent("waiting", "permission prompt"), nil, t0.Add(5*time.Second), 7*time.Second, t0.Add(12*time.Second))
 	// Silence well past interval + duration is still stale.
 	if nd := blockedNeeds(m.Snapshot(t0.Add(12*time.Second + time.Minute))); len(nd) != 1 || !nd[0].Approx {
 		t.Fatalf("a minute of silence was not stale: %+v", nd)
@@ -319,7 +319,7 @@ func TestAgentsFreshAllowsForTheQuietInterval(t *testing.T) {
 	t.Parallel()
 	m := NewModel(v2Config(t, ""), "/p", t0)
 	m.agentsNext = agentsQuiet
-	m.ApplyAgentsTimed(nil, nil, 100*time.Millisecond, t0)
+	m.ApplyAgentsTimed(nil, nil, t0.Add(-100*time.Millisecond), 100*time.Millisecond, t0)
 	if !m.agentsFresh(t0.Add(agentsQuiet + time.Second)) {
 		t.Fatal("a reading one quiet interval old counts as stale")
 	}

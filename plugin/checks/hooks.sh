@@ -349,8 +349,11 @@ nsw 0 "a subagent's background Agent call is recorded" "$(swp PostToolUse s1 a11
 nsw 2 "a subagent's stop before the agent it launched has started" "$(swp SubagentStop s1 a11 "$(abt running)")"
 nsw 0 "the agent it launched starts" "$(swp SubagentStart s1 ab12)"
 nsw 2 "a subagent's stop while the agent it launched runs" "$(swp SubagentStop s1 a11 "$(abt running)")"
-case $nsw_out in *"Wait for each agent"*"$WS/s1/ended/ab12"*"try to end your turn"*) ok "no-silent-wait: the refusal says to wait for the agent's end marker, and to retry the end if the wait times out" ;;
-  *) fail "no-silent-wait: the refusal does not name $WS/s1/ended/ab12 as the agent's wait, or the retry: $nsw_out" ;; esac
+case $nsw_out in *"Wait for each agent"*"$WS/s1/ended/ab12"*"Re-run the wait"*"while the agent still runs"*"no longer runs"*"end your turn"*) ok "no-silent-wait: the refusal says to wait for the agent's end marker, to re-run the wait while it runs, and to end the turn once it no longer does" ;;
+  *) fail "no-silent-wait: the refusal does not name $WS/s1/ended/ab12 as the agent's wait, or the re-run: $nsw_out" ;; esac
+# A launcher whose agent was stopped (TaskStop: a terminal status, and no marker) may end (#156).
+nsw 0 "another subagent launches the same agent" "$(swp PostToolUse s1 a14 "$agent_bg")"
+nsw 0 "a subagent's stop once the agent it launched was stopped (no marker)" "$(swp SubagentStop s1 a14 "$(abt killed)")"
 case $nsw_out in *"Wait for each command"*) fail "no-silent-wait: an agent-only refusal tells the agent to wait on a command's output file" ;; *) ok "no-silent-wait: an agent-only refusal gives no command wait" ;; esac
 nsw 0 "the launched agent's own stop (the list names it, but it started nothing)" "$(swp SubagentStop s1 ab12 "$(abt running)")"
 { [ ! -e "$WS/s1/agents/ab12" ] && [ -e "$WS/s1/ended/ab12" ]; } && ok "no-silent-wait: the launched agent's stop removes its record and writes its end marker" \
@@ -360,6 +363,10 @@ nsw 0 "the subagent's stop once the agent it launched ended, though still listed
 nsw 0 "a resumed agent starts again" "$(swp SubagentStart s1 ab12)"
 [ -e "$WS/s1/ended/ab12" ] && fail "no-silent-wait: a resumed agent kept its end marker" || ok "no-silent-wait: a resumed agent's start clears its end marker"
 nsw 0 "the resumed agent's stop" "$(swp SubagentStop s1 ab12 "$(abt completed)")"
+# Its end marker is now stale: a new launch of it clears the marker, so a launcher ending its turn
+# before a SubagentStart (never probed for a resumed agent) is still held (#156).
+nsw 0 "a subagent resumes that agent in the background" "$(swp PostToolUse s1 a13 "$agent_bg")"
+nsw 2 "the launcher's stop while the resumed agent runs, its old end marker notwithstanding" "$(swp SubagentStop s1 a13 "$(abt running)")"
 nsw 0 "a foreground Agent call that completed is not recorded" "$(swp PostToolUse s1 a12 '{"tool_name":"Agent","tool_response":{"status":"completed","agentId":"cd34"}}')"
 [ -e "$WS/s1/tasks/a12" ] && fail "no-silent-wait recorded a foreground Agent call" || ok "no-silent-wait records nothing for a foreground Agent call"
 # The output file's end line ends a task, whatever status background_tasks still shows.

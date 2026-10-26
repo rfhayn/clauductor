@@ -183,6 +183,39 @@ func TestStalePanelRecordDoesNotBlockAStart(t *testing.T) {
 	}
 }
 
+// PANEL-57 D1: RunningPanel hands back the command socket owner.json names, the path
+// `clauductor lane close` dials; an owner.json from before the socket has no field, and
+// comes back with none.
+func TestRunningPanelNamesItsSocket(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, socket string
+	}{
+		{"owner.json names a socket", "/Users/me/.clauductor/panel/cli.sock"},
+		{"owner.json from before the socket", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			home := t.TempDir()
+			pid := otherProcess(t)
+			writePanelFiles(t, home, pid, 4395, &install.PanelOwner{PID: pid, PStart: lease.ProcStart(pid), Project: "/work/p", Port: 4395, Socket: tc.socket})
+			if tc.socket == "" {
+				b, _ := os.ReadFile(ownerPath(home))
+				if strings.Contains(string(b), "socket") {
+					t.Fatalf("an owner.json from before the socket carries the field: %s", b)
+				}
+			}
+			o := install.RunningPanel(context.Background(), home, os.Getpid(), lease.LiveProc)
+			if o == nil {
+				t.Fatal("the live panel is not found")
+			}
+			if o.Socket != tc.socket || o.PID != pid || o.Port != 4395 {
+				t.Fatalf("RunningPanel = %+v, want socket %q", o, tc.socket)
+			}
+		})
+	}
+}
+
 // runPanel runs a panel and returns its port and a client.
 func runPanel(t *testing.T, o Options) (int, liveClient, func()) {
 	t.Helper()
