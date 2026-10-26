@@ -183,8 +183,8 @@ func registerProjects(t *testing.T, home string, idRoots ...string) {
 	}
 }
 
-// gitIn runs git in dir, failing the test if it fails.
-func gitIn(t *testing.T, dir string, args ...string) {
+// laneGitIn runs git in dir with a commit identity, failing the test if it fails.
+func laneGitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	c := exec.Command("git", args...)
 	c.Dir = dir
@@ -365,7 +365,7 @@ func TestLaneCloseAsksAboutTheMainCheckoutsProject(t *testing.T) {
 	claimAs(t, w.home, install.PanelOwner{PID: stubPID, PStart: stubStart, Port: 1, Projects: []string{beta, w.root}, Socket: w.stub.sock})
 
 	linked := filepath.Join(t.TempDir(), "a")
-	gitIn(t, w.root, "worktree", "add", "-q", "-b", "change/a", linked)
+	laneGitIn(t, w.root, "worktree", "add", "-q", "-b", "change/a", linked)
 	sub := filepath.Join(w.root, "deep", "er")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
