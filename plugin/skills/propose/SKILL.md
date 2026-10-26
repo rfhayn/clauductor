@@ -114,9 +114,11 @@ If the line above shows as literal text instead of output, run
    touches no path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt`
    lists, nor `ADR_DIR` or `PRACTICES_DIR`; the proposal has no `**Approval:**` line (in a list
    or a quote too), nor one its history shows removed; its roadmap row, the one row of
-   `origin/<MAIN_BRANCH>`'s roadmap that names the change, is a line of the `| # | Change | … |`
+   `origin/<MAIN_BRANCH>`'s roadmap that names the change (the table row whose first backticked
+   id is the change's, whatever a `ROADMAP_PARSER` says), is a line of the `| # | Change | … |`
    table and the proposal's `**Roadmap row:**`, has no `Approval:` in its Change cell (however
-   marked up; only a backticked whole marker, `` `Approval: owner` ``, is a mention) and no Risk
+   marked up, read as rendered, so a tag or an entity colon hides none; only a backticked whole
+   marker, `` `Approval: owner` ``, is a mention) and no Risk
    other than `Risk: low|normal|high`; its `**Risk:**` is not
    below that row's `Risk:` (a row with none is normal); and it was never approved before (a standing Approved
    line, a Status line `--revoke` marked `(revoked; was approved by …)`, or an Approved line in

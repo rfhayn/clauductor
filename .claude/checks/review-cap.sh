@@ -25,6 +25,9 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | 1.9 | `ops/pipe` — a \| b. Risk: high | s | — | ⬜ queued |
 | 1.10 | `ops/tick` — trims 5` of padding. Risk: high | `s` | — | ⬜ queued |
 | 1.11 | `ops/keyspan` — `Risk:` high | s | — | ⬜ queued |
+| 1.12 | `ops/odd` — Risk: very high | s | — | ⬜ queued |
+| 1.13 | `ops/caps` — Risk: High | s | — | ⬜ queued |
+| 1.14 | `ops/entity` — Risk&#58; high | s | — | ⬜ queued |
 EOF
 printf '# add-low\n\n**Risk:** low\n' > "$F/changes/add-low/proposal.md"
 printf '# add-bad\n\n**Risk:** medium\n' > "$F/changes/add-bad/proposal.md"
@@ -56,6 +59,9 @@ is 4 "only the Change cell's Risk counts, not the Scope's" ops/cell
 is 4 "an escaped pipe does not end the Change cell" ops/pipe
 is 4 "a stray backtick does not pair with the Scope's" ops/tick
 is 4 "a span holding only the key does not hide the Risk" ops/keyspan
+refuses "a Risk that is not" "a Risk word that is not a tier, never normal" ops/odd
+refuses "a Risk that is not" "a Risk tier in another case, never normal" ops/caps
+is 4 "a Risk read as rendered (an entity colon)" ops/entity
 printf 'REVIEW_CAPS="low:1 normal:4 high:5"\n' > "$F/.claude/project.conf"
 is 1 "REVIEW_CAPS sets the rounds (low:1)" add-low
 is 4 "REVIEW_CAPS sets the rounds (normal:4)" 1.5

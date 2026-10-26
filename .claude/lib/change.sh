@@ -56,16 +56,43 @@ row_is_table() {
   } END { exit !ok }'
 }
 
+# table_rows_naming CHANGE: the line numbers of the queue table's rows (row_is_table's shape) on
+# stdin whose Change cell's first backticked token is CHANGE, as the built-in parser reads a row's
+# change id. A guard checks the line a ROADMAP_PARSER chose against this: the parser runs from the
+# branch's disk, so a branch could point it at a laxer row.
+table_rows_naming() {
+  awk -v ch="$1" '/^\|/ {
+    s = $0; gsub(/\\\|/, " ", s); n = split(s, c, "|"); t = c[7]; gsub(/[ \t]/, "", t)
+    if (n == 7 && t == "" && match(c[3], /`[^`]+`/) && substr(c[3], RSTART + 1, RLENGTH - 2) == ch) print NR
+  }'
+}
+
+# marker_plain: stdin as a reader sees it rendered, for finding a marker (`Approval:`, `Risk:`):
+# an HTML tag goes (`Appro<b></b>val`), as do invisible characters (zero-width, soft hyphen, BOM),
+# and a colon written as an entity (`&#58;`, `&#x3a;`, `&colon;`) or a look-alike (`：`, `∶`) is a
+# colon. A tag never spans a `|`, so the cells of a table line stay where they were. Bytes, not
+# characters (LC_ALL=C), so it reads the same in every locale.
+marker_plain() {
+  LC_ALL=C awk 'BEGIN {
+    zw = "\342\200[\213-\217]|\342\201[\240-\244]|\357\273\277|\302\255"
+    co = "\357\274\232|\357\271\225|\357\270\223|\352\236\211|\342\210\266|\313\270"
+  } {
+    gsub(/<[^<>|]*>/, ""); gsub(zw, "")
+    gsub(/&#0*58;?|&#[xX]0*3[aA];?|&colon;/, ":"); gsub(co, ":"); print
+  }'
+}
+
 # row_change_cell: the Change cell (cell 2 of `| # | Change | Scope | Deps | Status |`) of the
-# roadmap table line on stdin (row_is_table), as plain text. A backticked span holding a whole
-# marker, key, colon and value (`Risk: high`, `Approval: owner`), is the row talking ABOUT a marker,
-# not stating its own, so it goes; every other span stays, and then the markdown marks (`*`, `_`,
-# backticks) go, so emphasis or a span around only part of a marker (Risk: `high`, `Approval:`
-# owner) cannot hide it. The cells are split as roadmap-queue.sh splits them, an escaped `\|`
-# being text, and the spans read only after, so a stray backtick cannot pair with one in the next
-# cell. review-cap.sh reads a row's Risk from it, and change-approval.sh its Risk and `Approval:`.
+# roadmap table line on stdin (row_is_table), as plain text (marker_plain first). A backticked span
+# holding a whole marker, key, colon and value (`Risk: high`, `Approval: owner`), is the row talking
+# ABOUT a marker, not stating its own, so it goes; every other span stays, and then the markdown
+# marks (`*`, `_`, backticks) go, so emphasis or a span around only part of a marker (Risk:
+# `high`, `Approval:` owner) cannot hide it. The cells are split as roadmap-queue.sh splits them,
+# an escaped `\|` being text, and the spans read only after, so a stray backtick cannot pair with
+# one in the next cell. review-cap.sh reads a row's Risk from it, and change-approval.sh its Risk
+# and `Approval:`.
 row_change_cell() {
-  awk '{
+  marker_plain | awk '{
     gsub(/\\\|/, " "); split($0, c, "|"); x = c[3]; y = ""
     while (match(x, /`[^`]*`/)) {
       s = substr(x, RSTART, RLENGTH); y = y substr(x, 1, RSTART - 1)
@@ -79,6 +106,18 @@ row_change_cell() {
 # row_risks: each distinct `Risk: low|normal|high` in the Change cell of the roadmap line on stdin,
 # one per line (none: the row is normal; more than one: its risk cannot be read).
 row_risks() { row_change_cell | grep -oE 'Risk: (low|normal|high)' | sed 's/^Risk: //' | sort -u; }
+
+# row_risk_odd: the first Risk in the Change cell of the roadmap line on stdin that is not read as
+# `Risk: low|normal|high`, or nothing. Any other Risk key (`Risk: High`, `Risk: critical`, `Risk:
+# very high`, `Risk -: high`), or a lowercase one naming a tier (`risk:high`), is a floor the row
+# meant to set, so a reader refuses it rather than read the row as normal. Lowercase prose naming no
+# tier (`the risk: a stale cache`) is not a Risk. change-approval.sh and review-cap.sh refuse on it.
+row_risk_odd() {
+  _ro_c=$(row_change_cell)
+  { printf '%s\n' "$_ro_c" | grep -oiE 'risk[^[:alnum:]]*:[^[:alnum:]]*(low|normal|high)[[:alnum:]]*'
+    printf '%s\n' "$_ro_c" | grep -oE 'R[Ii][Ss][Kk][^[:alnum:]]*:[^[:alnum:]]*[[:alnum:]]*'; } \
+    | grep -vxE 'Risk: (low|normal|high)' | head -1
+}
 
 # spec_scenarios FILE: one line per scenario header, tab-separated:
 #   <section> <requirement name> <id or -> <whole header text>

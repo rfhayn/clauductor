@@ -12,8 +12,9 @@
 #   a change with a proposal   its `**Risk:**` line (CHANGES_DIR/<id>/proposal.md), which the owner
 #                              approved with the design;
 #   an ops or fix row          a `Risk: low|normal|high` in its Change cell, outside backticks (a
-#                              backticked one is the row talking ABOUT a risk), else normal; a row
-#                              line not of the queue table (a ROADMAP_PARSER's own shape) refuses;
+#                              backticked one is the row talking ABOUT a risk), else normal; any
+#                              other Risk (`Risk: High`, `Risk: critical`; row_risk_odd), or a row
+#                              line not of the queue table (a ROADMAP_PARSER's own shape), refuses;
 #   no row and no proposal     normal, said on --why (a fix/<n>-<slug> from an issue has no row).
 # The rounds per risk are REVIEW_CAPS (.claude/project.conf; low 2, normal 3, high 3 by default).
 ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
@@ -62,6 +63,11 @@ if [ -n "$row" ]; then
   rl=$(sed -n "${line}p" "$ROOT/$ROADMAP")
   printf '%s\n' "$rl" | row_is_table "$rid" || {
     echo "ERROR: row $rid is not a line of the | # | Change | Scope | Deps | Status | table (a ROADMAP_PARSER of the project's own?), so its Risk and the review cap are UNKNOWN" >&2
+    exit 1
+  }
+  odd=$(printf '%s\n' "$rl" | row_risk_odd)
+  [ -z "$odd" ] || {
+    echo "ERROR: row $rid's Change cell says '$odd', a Risk that is not Risk: low, normal or high, so the review cap is UNKNOWN" >&2
     exit 1
   }
   risks=$(printf '%s\n' "$rl" | row_risks)

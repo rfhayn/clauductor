@@ -165,11 +165,13 @@ risk_rank() { case $1 in low) echo 1 ;; normal) echo 2 ;; high) echo 3 ;; *) ech
 # authority, read as origin/<main> has it like the key, and found by the change id it names, never
 # by the proposal's say: a proposal naming another row would choose its own floor. One row must name
 # the change, it must be the proposal's `**Roadmap row:**`, and its line must be a row of the
-# `| # | Change | Scope | Deps | Status |` table (row_is_table); anything else refuses.
+# `| # | Change | Scope | Deps | Status |` table (row_is_table) whose first backticked id is the
+# change's (table_rows_naming, whatever the parser said); anything else refuses.
 kept() {
   prop="$dir/proposal.md"
-  # Any spelling of the line counts (`**Approval**: owner`, `- __approval:__ owner`), as for the row.
-  mark=$(grep -iE "^$approval_line" "$prop" | head -1)
+  # Any spelling of the line counts (`**Approval**: owner`, `- __approval:__ owner`,
+  # `Appro<b></b>val:`, `Approval&#58;`), read as rendered (marker_plain), as for the row.
+  mark=$(marker_plain < "$prop" | grep -iE "^$approval_line" | head -1)
   [ -z "$mark" ] || { echo "proposal.md says $mark"; return; }
   # A hand edit takes the marker out of proposal.md, not out of its history.
   why=$(history_holds "^-$approval_line" "a removed **Approval:** line")
@@ -183,7 +185,8 @@ kept() {
   if tsv=$(roadmap_queue --tsv "$rmf"); then
     rows=$(printf '%s\n' "$tsv" | awk -F'\t' -v c="$id" '$5 == c { print $1 "\t" $4 }')
     n=$(printf '%s\n' "$rows" | grep -c .)
-    line=""; [ "$n" != 1 ] || line=$(sed -n "$(printf '%s\n' "$rows" | cut -f1)p" "$rmf")
+    ln=$(printf '%s\n' "$rows" | cut -f1); line=""; [ "$n" != 1 ] || line=$(sed -n "${ln}p" "$rmf")
+    tl=$(table_rows_naming "$id" < "$rmf")
     rm -f "$rmf"
   else
     rm -f "$rmf"; echo "$ROADMAP${main_ref:+ on $main_ref} did not parse, so row $rid cannot be read"; return
@@ -194,18 +197,17 @@ kept() {
   [ "$row" = "$rid" ] || { echo "proposal.md names row $rid, but row $row${main_ref:+ on $main_ref} is the one that names $id"; return; }
   printf '%s\n' "$line" | row_is_table "$rid" \
     || { echo "row $rid${main_ref:+ on $main_ref} is not a line of the | # | Change | Scope | Deps | Status | table (a ROADMAP_PARSER of the project's own?), so its Risk and Approval cannot be read"; return; }
+  # The parser runs from the branch's disk, the roadmap from main's: the line it chose must be the
+  # one table row on main whose change id is this change (table_rows_naming), or the branch chose.
+  [ "$tl" = "$ln" ] || { echo "the roadmap parser names line $ln of $ROADMAP${main_ref:+ on $main_ref} for the change $id, but the table rows whose change id is $id are at line(s) $(echo ${tl:-none}), so its Risk and Approval cannot be read"; return; }
   cell=$(printf '%s\n' "$line" | row_change_cell)
   # Any Approval: in the Change cell's text (row_change_cell) keeps the change, however it is spelled
   # (`approval:owner`, `Approval - : owner`): a marker the script cannot read must not read as none.
   mk=$(printf '%s\n' "$cell" | grep -oiE 'approval[^[:alnum:]]*:[^[:alnum:]]*[[:alnum:]]*' | head -1)
   [ -z "$mk" ] || { echo "row $rid${main_ref:+ on $main_ref} says $mk"; return; }
-  # A Risk is read only as `Risk: low|normal|high`. Any other Risk key (`Risk: High`, `Risk:
-  # critical`, `Risk: very high`, `Risk -: high`), or a lowercase one naming a tier (`risk:high`),
-  # is a floor the row meant to set: refuse it rather than read the row as normal. Lowercase prose
-  # that names no tier (`the risk: a stale cache`) is not a Risk.
-  odd=$({ printf '%s\n' "$cell" | grep -oiE 'risk[^[:alnum:]]*:[^[:alnum:]]*(low|normal|high)[[:alnum:]]*'
-          printf '%s\n' "$cell" | grep -oE 'R[Ii][Ss][Kk][^[:alnum:]]*:[^[:alnum:]]*[[:alnum:]]*'; } \
-    | grep -vxE 'Risk: (low|normal|high)' | head -1)
+  # A Risk is read only as `Risk: low|normal|high` (row_risk_odd): any other is a floor the row meant
+  # to set, so it refuses rather than read the row as normal.
+  odd=$(printf '%s\n' "$line" | row_risk_odd)
   [ -z "$odd" ] || { echo "row $rid${main_ref:+ on $main_ref} says '$odd', a Risk the floor cannot read (Risk: low, normal or high)"; return; }
   rr=$(printf '%s\n' "$line" | row_risks)
   case $(printf '%s\n' "$rr" | grep -c .) in
@@ -316,7 +318,7 @@ history_holds() {
       # branch a merge discarded (`-s ours`) in the walk.
       log=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --no-color --no-ext-diff --text --no-textconv --format= -p "$r" -- "$p" 2>&1) \
         || { echo "its history on $where cannot be read: $log"; return; }
-      ! printf '%s\n' "$log" | grep -Eiq "$1" || { echo "its history on $where holds $2"; return; }
+      ! printf '%s\n' "$log" | marker_plain | grep -Eiq "$1" || { echo "its history on $where holds $2"; return; }
       adds=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --format=%H --diff-filter=A "$r" -- "$p" 2>&1) \
         || { echo "its history on $where cannot be read: $adds"; return; }
       for c in $adds; do

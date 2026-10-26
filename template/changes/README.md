@@ -63,11 +63,15 @@ every open change against the shape below.
   whose roadmap row has any `Approval:` in its Change cell (`Approval: owner`, `**Approval:** owner`,
   `_Approval_: owner`, `` `Approval:` owner ``, `approval:owner`; only a backticked span holding a
   whole marker, key, colon and value, is a mention), or any Risk other than `Risk: low`, `normal` or
-  `high` (`Risk: High`, `Risk: very high`, `Risk: critical`); or whose `**Risk:**` is below the
-  row's `Risk:` (a row with none is normal). The row is the one row of `origin/<main>`'s roadmap
+  `high` (`Risk: High`, `Risk: very high`, `Risk: critical`; `review-cap.sh` refuses it too); or
+  whose `**Risk:**` is below the row's `Risk:` (a row with none is normal). A marker is read as it
+  renders: an HTML tag (`Appro<b></b>val:`), an invisible character, an entity colon (`&#58;`) or a
+  look-alike one (`：`) hides none. The row is the one row of `origin/<main>`'s roadmap
   that names the change's id, and the proposal's `**Roadmap row:**` must be it: no such row, two of
   them, a proposal naming another, or a row that is not a line of the `| # | Change | … |` table (a
-  `ROADMAP_PARSER` of the project's own may name one; `review-cap.sh` refuses it too) refuses.
+  `ROADMAP_PARSER` of the project's own may name one; `review-cap.sh` refuses it too) refuses. A
+  project's parser runs from the branch, so the line it names must be the table row whose first
+  backticked id is the change's, or it refuses.
   And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>`, holds an
   Approved line; the check fails a delegated line whose history shows an Approved line removed. So
   once the revoke is on `origin/<main>`, a hand edit of a revoked Status line, or of the Approved
