@@ -114,6 +114,9 @@ guard 2 "a CLOSED PR merged through gh api, its number OPEN in gh's default repo
 guard 0 "an OPEN PR merged through gh api, its number CLOSED in gh's default repo" "gh api -X PUT repos/acme/app/pulls/5/merge" GH_STATE=OPEN GH_STATE_DEFAULT=CLOSED
 guard 2 "a CLOSED PR named by -R, its number OPEN in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 "a CLOSED PR named by URL, its number OPEN in gh's default repo" "gh pr merge https://github.com/acme/app/pull/5 --squash" GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+# gh takes the number from the first /pull/<n> after owner/name, not the last.
+guard 2 "a CLOSED PR named by a URL with a later /pull/<n> in its path" "gh pr merge https://github.com/acme/app/pull/5/files/x/pull/6 --squash" GH_STATE=CLOSED
+grep -q 'PR #5 is CLOSED' "$d/err" && ok "merge-guard: ...named as #5, as gh reads it" || fail "merge-guard: a URL's later /pull/<n> was read as the PR: $(head -3 "$d/err")"
 guard 0 "an OPEN PR named by -R, its number CLOSED in gh's default repo" "gh pr merge 5 -R acme/app --squash" GH_STATE=OPEN GH_STATE_DEFAULT=CLOSED
 # Every read, not only the state: the checks, the head and the head branch each come from the PR the
 # merge names, so each is red (or unevidenced) there and green in gh's default repo, and the inverse.
@@ -232,6 +235,19 @@ guard 2 'a quoted zsh split "${(@s.:.)PWD}"' 'gh pr merge 5 --squash --body "${(
 guard 0 'a quoted "${B}" as --body'"'"'s value' 'gh pr merge 5 --squash --body "${B}"'
 guard 0 'merge-pr'"'"'s form with --body-file "$TMPDIR/…"' 'gh pr merge 5 --squash --delete-branch --body-file "$TMPDIR/merge-body.md" 2>&1 | tail -1'
 guard 2 'a quoted "$A/$B": a second expansion' 'gh pr merge 5 --squash --body-file "$A/$B"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 'merge-pr'"'"'s form with --body-file "$TMPDIR"/…' 'gh pr merge 5 --squash --delete-branch --body-file "$TMPDIR"/merge-body.md 2>&1 | tail -1'
+# A backslash-newline joins lines only when the backslash is not itself escaped: "a\\<newline>"
+# keeps both in the word, and x\\<newline> ends the command there. A join blind to that read the
+# closing quote as escaped, or the next line, a comment, as the merge's -R (#271).
+guard 2 'an escaped backslash, then a newline, in "…", then a -R' 'gh pr merge 5 --squash --body "a\\
+" -R acme/other'
+guard 2 'an escaped backslash, then a newline, in "…", then --admin split by quotes' 'gh pr merge 5 --squash --body "a\\
+" --ad""min'
+grep -q 'rule 1' "$d/err" && ok "merge-guard: ...refused as rule 1" || fail "merge-guard: the hidden --admin refusal does not name rule 1: $(head -3 "$d/err")"
+guard 2 'a cd, then an escaped backslash before a newline, then a comment reading as this repo'"'"'s -R' 'cd /tmp && gh pr merge 5 --squash --body x\\
+# -R acme/app'
+guard 0 'a cd, then a real continuation to this repo'"'"'s -R' 'cd /tmp && gh pr merge 5 --squash --body x \
+-R acme/app'
 # Rule 1 reads the raw text; the shell takes quotes and escapes out of a flag first.
 guard 2 "rule 1: --auto split by quotes" "gh pr merge 5 --squash --au''to"
 grep -q 'rule 1' "$d/err" && ok "merge-guard: ...refused as rule 1" || fail "merge-guard: the split --auto refusal does not name rule 1: $(head -3 "$d/err")"

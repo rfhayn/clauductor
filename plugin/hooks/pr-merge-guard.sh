@@ -310,8 +310,18 @@ scan=$(merge_scan); scan_ok=$?
 
 # Every text parser below (the backstop, rule 1, foreign_shape, merge_argv) reads the command with
 # each backslash-newline deleted, as the shell joins them: `gh pr mer\<newline>ge 5` is `merge`.
-# A backslash that is itself escaped is joined too — that only ever ADDS text matches.
-cmd=$(printf '%s' "$cmd" | awk '{ b = b $0 "\n" } END { s = substr(b, 1, length(b) - 1); gsub(/\\\n/, "", s); printf "%s", s }')
+# Only a line ending in an ODD run of backslashes joins: in "a\\<newline>" or x\\<newline> the
+# backslash is escaped, and joining there read the closing quote as escaped, or a comment on the
+# next line as the merge's -R (#271). In single quotes the shell joins nothing, but the quotes
+# still close where they did, so only the text inside them reads differently.
+cmd=$(printf '%s' "$cmd" | awk '
+  { l[NR] = $0 }
+  END {
+    for (i = 1; i <= NR; i++) {
+      if (i < NR && match(l[i], /\\+$/) && RLENGTH % 2) printf "%s", substr(l[i], 1, length(l[i]) - 1)
+      else printf "%s%s", l[i], (i < NR ? "\n" : "")
+    }
+  }')
 
 # Step 2 — the backstop: the old literal match, and merge_hint.
 hint=""
@@ -390,8 +400,9 @@ fi
 #   - more than one `gh pr merge` (any blanks between the words) BLOCKS;
 #   - the read ends only at a separator, or at redirects that alone, each with one plain target,
 #     run to the end of the command (> f 2>&1); <(…) is a word, not a redirect. Any other stop BLOCKS
-#     unless it is "$name" or "${name}", then only letters, digits and _./-, in the command's last
-#     word (a trailing 2>&1 or 2>/dev/null aside; no "$(…)", whose ) a zsh comment can hide),
+#     unless it is "$name" or "${name}", with only letters, digits and _./- around the closing
+#     quote, in the command's last word (a trailing 2>&1 or 2>/dev/null aside; no "$(…)", whose )
+#     a zsh comment can hide),
 #     as the value of --body, --subject or another value flag: anything the read never saw could
 #     be the -R gh merges in (#271). So does an unquoted character outside letters, digits,
 #     _./:@%+=,- and non-ASCII (a brace, glob or tilde expands into words the read never sees);
@@ -431,11 +442,12 @@ merge_argv() {
     # stop passes only by allowlist: a `$` inside double quotes whose word ends the command (a
     # trailing 2>&1 or 2>/dev/null aside) and is the value of a flag, glued (--body=...) or confirmed
     # by the parse below (VCUT); never a word of its own, which gh reads as a flag (-Racme/app).
-    # Only "$name" or "${name}", then letters, digits and _./- ("$TMPDIR/body.md"), is one closed
-    # word in bash and zsh alike: zsh splits "$a[@]" as "$@", reads :h or :s after a name as a
-    # modifier, and takes a # inside "$(…)" for a comment, so the ) the read sees can sit in it.
+    # Only "$name" or "${name}", with letters, digits and _./- before or after the closing quote
+    # ("$TMPDIR/body.md", "$TMPDIR"/body.md), is one closed word in bash and zsh alike: zsh splits
+    # "$a[@]" as "$@", reads :h or :s after a name as a modifier, and takes a # inside "$(…)" for a
+    # comment, so the ) the read sees can sit in it.
     function cut(ch, quoted, rest, tok) {
-      if (ch != "$" || !quoted || rest !~ /^([A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})[A-Za-z0-9_.\/-]*"[ \t]*([ \t]2>(&1|\/dev\/null))?[ \t]*([\n;|]|&$|&[^>]|$)/) { print "U"; return }
+      if (ch != "$" || !quoted || rest !~ /^([A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})[A-Za-z0-9_.\/-]*"[A-Za-z0-9_.\/-]*[ \t]*([ \t]2>(&1|\/dev\/null))?[ \t]*([\n;|]|&$|&[^>]|$)/) { print "U"; return }
       LAST = 1; GLUED = (tok ~ /^--(body|body-file|subject|match-head-commit|author-email)=/)
     }
     { buf = buf $0 "\n" }
@@ -652,12 +664,13 @@ fi
 
 # The PR: a number, or this repo's PR URL. Nothing else can be checked, so nothing else merges.
 case "$pr_arg" in
-  http://* | https://*) pr=$(printf '%s\n' "$pr_arg" | sed -n 's|^[^?#]*/pull/\([0-9][0-9]*\)\([/?#].*\)\{0,1\}$|\1|p') ;;
+  # The first /pull/<n> after OWNER/NAME, as gh reads it: a greedy match took .../pull/5/files/x/pull/6 as 6.
+  http://* | https://*) pr=$(printf '%s\n' "$pr_arg" | sed -n 's|^[a-z]*://[^/?#]*/[^/?#]*/[^/?#]*/pull/\([0-9][0-9]*\)\([/?#].*\)\{0,1\}$|\1|p') ;;
   *) case "$pr_arg" in '' | *[!0-9]*) ;; *) pr=$pr_arg ;; esac ;;
 esac
 [ -n "$pr" ] || block "cannot tell which PR this merges${pr_arg:+ ('$pr_arg' is not a PR number or PR URL)}, so its CI evidence cannot be checked. Name it: gh pr merge <n> --squash --delete-branch"
 # The PR and its repo read whole, but the read stopped short of words gh still gets (#271).
-[ -z "$hidden" ] || block "this merge has words this guard cannot read (a \$ or backtick expansion, a glob, a brace or tilde expansion) that could name another repository (-R), which gh would merge in instead of the one the checks read. Pass the text in a file, its name plain or quoted: gh pr merge <n> --squash --delete-branch --body-file <file>"
+[ -z "$hidden" ] || block "this merge has words this guard cannot read (a \$ or backtick expansion, a glob, a brace or tilde expansion) that could name another repository (-R), which gh would merge in instead of the one the checks read. Pass the text in a file named plainly, or as \"\$NAME\" with plain text around its closing quote, as the command's last word: gh pr merge <n> --squash --delete-branch --body-file \"\$TMPDIR/body.md\""
 
 # ghpr SUBCOMMAND [ARGS...] — `gh pr SUBCOMMAND` for the PR this merge names, named the way the merge
 # names it: its PR URL, or its number with the merge's own -R word. A bare number resolves through
