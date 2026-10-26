@@ -60,6 +60,10 @@
           {
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cd-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/catch-up-guard.sh"
           }
         ]
       },
