@@ -54,14 +54,15 @@ every open change against the shape below.
   (the project's own). "Touches" means a task line of `tasks.md` names the path or, on the change's
   branch, its diff changes it (both sides of a rename). The key and both lists are read from
   `origin/<main>`; only a repository with no remote reads them from disk. Where neither can be read
-  (outside a repository, as in a `GATE_CLEAN_ROOM="archive"` gate, or a CI checkout without
-  `origin/<main>`) a delegated approval does not hold. It is refused, and fails, too (OPS-131) for
+  (outside a repository, as in a `GATE_CLEAN_ROOM="archive"` gate, a shallow clone, whose history
+  stops at its depth, or a CI checkout without `origin/<main>`) a delegated approval does not hold. It is refused, and fails, too (OPS-131) for
   a change that touches `ADR_DIR` or `PRACTICES_DIR`; whose proposal has a line
   `**Approval:** owner — <why>` (`/clauductor:propose` step 3a writes it for a change that is money, legal or
-  business, outward, irreversible or needs the owner at the computer; any `**Approval:**` line
-  counts, and so does one its history shows removed); whose roadmap row has any `Approval:` in its
-  Change cell outside backticks (`Approval: owner`, `**Approval:** owner`, `approval:owner`), or a
-  Risk tier spelled other than `Risk: low`, `normal` or `high` (`Risk: High`); or whose
+  business, outward, irreversible or needs the owner at the computer; any `Approval:` line counts,
+  however it is marked up, and so does one its history shows removed); whose roadmap row has any
+  `Approval:` in its Change cell (`Approval: owner`, `**Approval:** owner`, `_Approval_: owner`,
+  `approval:owner`; only a backticked span holding the key and its colon is a mention, not a
+  marker), or a Risk tier spelled other than `Risk: low`, `normal` or `high` (`Risk: High`); or whose
   `**Risk:**` is below the row's `Risk:` (a row with none is normal). The row
   is the one row of `origin/<main>`'s roadmap that names the change's id, and the proposal's
   `**Roadmap row:**` must be it: no such row, two of them, or a proposal naming another refuses.

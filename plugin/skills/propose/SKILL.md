@@ -115,7 +115,8 @@ If the line above shows as literal text instead of output, run
    lists, nor `ADR_DIR` or `PRACTICES_DIR`; the proposal has no `**Approval:**` line, nor one its
    history shows removed; its roadmap row, the one row of `origin/<MAIN_BRANCH>`'s roadmap that
    names the change, is the proposal's `**Roadmap row:**`, has no `Approval:` in its Change cell
-   outside backticks and spells any Risk tier `Risk: low|normal|high`; its `**Risk:**` is not
+   (however marked up; a backticked `Approval:` is a mention) and spells any Risk tier
+   `Risk: low|normal|high`; its `**Risk:**` is not
    below that row's `Risk:` (a row with none is normal); and it was never approved before (a standing Approved
    line, a Status line `--revoke` marked `(revoked; was approved by …)`, or an Approved line in
    `proposal.md`'s history on the branch or `origin/<MAIN_BRANCH>`, across a move of its whole

@@ -29,7 +29,8 @@
 # proposal's history, and only --record clears it; the check fails a delegated line whose history
 # shows an Approved line removed. So an edit after any approval, which voids it, goes to the owner.
 # The history is followed across a move of the change's whole directory only, so another change's
-# history is never read as this one's. It is firm on origin/<MAIN_BRANCH>; the branch's own can be
+# history is never read as this one's. It is firm on origin/<MAIN_BRANCH> in a full clone (a
+# shallow one refuses, its history cut at its depth); the branch's own can be
 # rewritten, so --record, --delegate and --revoke also add a line to the approval log,
 # <git common dir>/clauductor/approvals.log, which no branch carries, and --delegate refuses a change
 # the log names. A revoke the log cannot take still revokes, and exits 1 to say so. The log keys on
@@ -103,15 +104,19 @@ rewrite() {
 
 # ── Delegation (OPS-127) ───────────────────────────────────────────────────────────────────────
 delegated='^\*\*Approved:\*\* [0-9-]+ by Claude \(delegated by (.+)\) · '
+# A proposal's `**Approval:**` line in any spelling, read case-insensitively after a line start.
+approval_line='[[:space:]]*[*_]*approval[*_]*[[:space:]]*:'
 # claude_name NAME: true when NAME is Claude's (its first word, any case) and not OWNER_NAME's.
 claude_name() { printf '%s\n' "$1" | grep -Eiq '^[[:space:]]*claude([^[:alnum:]_]|$)' && [ "$1" != "$OWNER_NAME" ]; }
 # The authority is origin/<main> in a clone of a remote, and the disk only in a repository with no
 # remote. Anywhere else delegation cannot be judged, so it does not hold (fail closed): outside a
-# repository (a GATE_CLEAN_ROOM="archive" copy), or a remote with no origin/<main> (a shallow CI
-# checkout; fetch it).
+# repository (a GATE_CLEAN_ROOM="archive" copy), a shallow clone, whose history ends where its
+# depth does, or a remote with no origin/<main> (a CI checkout; fetch it).
 main_ref="" gap=""
 if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" != "$(cd "$ROOT" && pwd -P)" ]; then
   gap="$ROOT is not a git repository's root (a GATE_CLEAN_ROOM=\"archive\" copy?), so origin/$MAIN_BRANCH cannot be read"
+elif [ "$(git -C "$ROOT" rev-parse --is-shallow-repository 2>/dev/null)" != false ]; then
+  gap="this clone is shallow, so a proposal's history cannot be read whole (git fetch --unshallow; a CI checkout needs fetch-depth: 0)"
 elif git -C "$ROOT" rev-parse -q --verify "refs/remotes/origin/$MAIN_BRANCH" >/dev/null 2>&1; then
   main_ref="origin/$MAIN_BRANCH"
 elif [ -n "$(git -C "$ROOT" remote 2>/dev/null)" ]; then
@@ -152,8 +157,9 @@ risk_rank() { case $1 in low) echo 1 ;; normal) echo 2 ;; high) echo 3 ;; *) ech
 # kept: say why the owner keeps this change though no guarded path names it (OPS-131), or nothing:
 # a proposal line `**Approval:** …` (propose step 3a writes `owner — <why>` for a change that is
 # money, legal or business, outward, irreversible or needs the owner at the computer; any other
-# value is read as that too) or one its history shows removed, its roadmap row's `Approval:` (any
-# spelling, outside backticks), a Risk tier the row spells oddly, or a `**Risk:**` below the row's
+# value is read as that too, in any spelling) or one its history shows removed, its roadmap row's
+# `Approval:` (any spelling; only a backticked span holding the key and its colon is a mention, not
+# a marker), a Risk tier the row spells oddly, or a `**Risk:**` below the row's
 # (a row with no Risk: is normal), which would lower the review cap the row set. The row is the
 # authority, read as origin/<main> has it like the key, and found by the change id it names, never
 # by the proposal's say: a proposal naming another row would choose its own floor. One row must name
@@ -161,10 +167,11 @@ risk_rank() { case $1 in low) echo 1 ;; normal) echo 2 ;; high) echo 3 ;; *) ech
 # roadmap whose table is not `| <id> | Change | … |`.
 kept() {
   prop="$dir/proposal.md"
-  mark=$(grep -E '^\*\*Approval:\*\*' "$prop" | head -1)
+  # Any spelling of the line counts (`**Approval**: owner`, ` __approval:__ owner`), as for the row.
+  mark=$(grep -iE "^$approval_line" "$prop" | head -1)
   [ -z "$mark" ] || { echo "proposal.md says $mark"; return; }
   # A hand edit takes the marker out of proposal.md, not out of its history.
-  why=$(history_holds '^-\*\*Approval:\*\*' "a removed **Approval:** line")
+  why=$(history_holds "^-$approval_line" "a removed **Approval:** line")
   [ -z "$why" ] || { echo "proposal.md: $why"; return; }
   rid=$(proposal_field "$prop" "Roadmap row")
   [ -n "$rid" ] || { echo "proposal.md names no **Roadmap row:**, so its row's Risk and Approval cannot be read"; return; }
@@ -184,14 +191,14 @@ kept() {
   [ -n "$line" ] || { echo "no row of $ROADMAP${main_ref:+ on $main_ref} names the change $id, so its Risk and Approval cannot be read"; return; }
   row=$(printf '%s\n' "$rows" | cut -f2)
   [ "$row" = "$rid" ] || { echo "proposal.md names row $rid, but row $row${main_ref:+ on $main_ref} is the one that names $id"; return; }
-  # Any Approval: in the Change cell outside backticks keeps the change, however it is spelled
-  # (`**Approval:** owner`, `approval:owner`): a marker the script cannot read must not read as none.
-  mk=$(printf '%s\n' "$line" | row_change_cell | grep -oiE 'approval[*[:space:]]*:[*[:space:]]*[[:alnum:]]*' | head -1)
+  # Any Approval: in the Change cell's text (row_change_cell) keeps the change, however it is spelled
+  # (`approval:owner`, `Approval - : owner`): a marker the script cannot read must not read as none.
+  mk=$(printf '%s\n' "$line" | row_change_cell | grep -oiE 'approval[^[:alnum:]]*:[^[:alnum:]]*[[:alnum:]]*' | head -1)
   [ -z "$mk" ] || { echo "row $rid${main_ref:+ on $main_ref} says $mk"; return; }
-  # A Risk tier spelled any other way (`Risk: High`, `risk:high`, `**Risk:** high`) is a floor the
+  # A Risk tier spelled any other way (`Risk: High`, `risk:high`, `Risk -: high`) is a floor the
   # row meant to set: refuse it rather than read the row as normal. Prose (`the risk: a stale
   # cache`) names no tier, so it is not one.
-  odd=$(printf '%s\n' "$line" | row_change_cell | grep -oiE 'risk[*[:space:]]*:[*[:space:]]*(low|normal|high)[[:alnum:]]*' | grep -vxE 'Risk: (low|normal|high)' | head -1)
+  odd=$(printf '%s\n' "$line" | row_change_cell | grep -oiE 'risk[^[:alnum:]]*:[^[:alnum:]]*(low|normal|high)[[:alnum:]]*' | grep -vxE 'Risk: (low|normal|high)' | head -1)
   [ -z "$odd" ] || { echo "row $rid${main_ref:+ on $main_ref} says '$odd', a Risk the floor cannot read (Risk: low, normal or high)"; return; }
   rr=$(printf '%s\n' "$line" | row_risks)
   case $(printf '%s\n' "$rr" | grep -c .) in
@@ -302,7 +309,7 @@ history_holds() {
       # branch a merge discarded (`-s ours`) in the walk.
       log=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --no-color --no-ext-diff --text --no-textconv --format= -p "$r" -- "$p" 2>&1) \
         || { echo "its history on $where cannot be read: $log"; return; }
-      ! printf '%s\n' "$log" | grep -Eq "$1" || { echo "its history on $where holds $2"; return; }
+      ! printf '%s\n' "$log" | grep -Eiq "$1" || { echo "its history on $where holds $2"; return; }
       adds=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --format=%H --diff-filter=A "$r" -- "$p" 2>&1) \
         || { echo "its history on $where cannot be read: $adds"; return; }
       for c in $adds; do

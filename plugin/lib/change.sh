@@ -45,12 +45,24 @@ design_hash() {
 }
 
 # row_change_cell: the Change cell (cell 2 of `| # | Change | Scope | Deps | Status |`) of the
-# roadmap table line on stdin, backticked spans removed: a backticked `Risk: high` is the row
-# talking ABOUT a risk, not stating its own. The cells are split as roadmap-queue.sh splits them,
-# an escaped `\|` being text, and the spans removed only after, so a stray backtick cannot pair
-# with one in the next cell and swallow the rest of this one. review-cap.sh reads a row's Risk from
-# it, and change-approval.sh its Risk and its `Approval: owner`.
-row_change_cell() { awk '{ gsub(/\\\|/, " "); split($0, c, "|"); x = c[3]; gsub(/`[^`]*`/, "", x); print x }'; }
+# roadmap table line on stdin, as plain text. A backticked span holding a key and its colon
+# (`Risk: high`, `Approval: owner`) is the row talking ABOUT a marker, not stating its own, so it
+# goes; every other span stays, and then the markdown marks (`*`, `_`, backticks) go, so emphasis
+# or a span around only part of a marker (Risk: `high`, `Approval`: owner) cannot hide it. The
+# cells are split as roadmap-queue.sh splits them, an escaped `\|` being text, and the spans read
+# only after, so a stray backtick cannot pair with one in the next cell. review-cap.sh reads a
+# row's Risk from it, and change-approval.sh its Risk and its `Approval:`.
+row_change_cell() {
+  awk '{
+    gsub(/\\\|/, " "); split($0, c, "|"); x = c[3]; y = ""
+    while (match(x, /`[^`]*`/)) {
+      s = substr(x, RSTART, RLENGTH); y = y substr(x, 1, RSTART - 1)
+      if (tolower(s) !~ /(risk|approval)[^A-Za-z0-9]*:/) y = y s
+      x = substr(x, RSTART + RLENGTH)
+    }
+    y = y x; gsub(/[`*_]/, "", y); print y
+  }'
+}
 
 # row_risks: each distinct `Risk: low|normal|high` in the Change cell of the roadmap line on stdin,
 # one per line (none: the row is normal; more than one: its risk cannot be read).

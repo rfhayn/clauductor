@@ -98,12 +98,16 @@ grep -q 'Approval:\*\* owner' "$d/out" && ok "...and names the marker" || fail "
 awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** the Owner, as signer" }' "$d/fresh.md" > "$C/proposal.md"
 startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line in other words"
 grep -q 'proposal.md says \*\*Approval:\*\* the Owner' "$d/out" && ok "...and quotes the line" || fail "no Approval-line reason in: $(cat "$d/out")"
+for spelt in '**Approval**: owner' ' **Approval:** owner' '__approval:__ owner'; do
+  awk -v m="$spelt" '{ print } /^\*\*Risk:\*\*/ { print m }' "$d/fresh.md" > "$C/proposal.md"
+  startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line spelt '$spelt'"
+done
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. Approval: owner'
 D; expect_rc 1 $? "change-approval --delegate refuses a change whose row says Approval: owner"
 grep -q 'row 1.1.*Approval: owner' "$d/out" && ok "...and names the row" || fail "no row marker in: $(cat "$d/out")"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. approval: Owner'
 D; expect_rc 1 $? "change-approval --delegate refuses a row marker in any case"
-for spelt in '**Approval:** owner' 'Approval:owner' 'Approval: the owner'; do
+for spelt in '**Approval:** owner' 'Approval:owner' 'Approval: the owner' '_Approval_: owner' '__Approval__: owner' '`Approval`: owner'; do
   roadmap "\`add-greeting-name\` — greet a member by name. Risk: low. $spelt"
   D; expect_rc 1 $? "change-approval --delegate refuses a row marker spelt '$spelt'"
 done
@@ -154,11 +158,20 @@ grep -q 'says Approval: owner' "$d/out" && ok "...and names the marker" || fail 
 roadmap '`add-greeting-name` — greet a member by a \| b name. Risk: high'
 D; expect_rc 1 $? "change-approval --delegate reads the row's Risk past an escaped pipe in the Change cell"
 grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no escaped-pipe floor reason in: $(cat "$d/out")"
-for spelt in 'Risk: High' 'risk:high' '**Risk:** high'; do
+for spelt in 'Risk: High' 'risk:high' 'Risk -: high'; do
   roadmap "\`add-greeting-name\` — greet a member by name. $spelt"
   D; expect_rc 1 $? "change-approval --delegate refuses a row whose Risk is spelt '$spelt'"
   grep -q "a Risk the floor cannot read" "$d/out" && ok "...and says the floor cannot be read" || fail "no spelling reason in: $(cat "$d/out")"
 done
+# Markup is not a spelling: emphasis or a backticked tier still sets the floor.
+for spelt in '**Risk:** high' 'Risk: `high`' 'Risk: _high_' '__Risk__: high'; do
+  roadmap "\`add-greeting-name\` — greet a member by name. $spelt"
+  D; expect_rc 1 $? "change-approval --delegate reads the row's Risk marked up as '$spelt'"
+  grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no marked-up floor reason in: $(cat "$d/out")"
+done
+# A backticked mention of a Risk is not the row's Risk.
+roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row may say `Risk: high` instead'
+D; expect_rc 0 $? "change-approval --delegate passes a row that only names a Risk in backticks"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. The main risk: a stale cache'
 D; expect_rc 0 $? "change-approval --delegate passes a row whose prose says 'risk:' with no tier"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
@@ -324,7 +337,8 @@ git -C "$R" reset -q --hard "$s0"; rm -rf "$R/changes/greeting-a" "$R/changes/gr
 git -C "$R" reset -q --hard "$b0"; rm -rf "$R/changes/greeting-renamed"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 # A proposal's Approval line removed by hand stays in its history: the owner keeps the change.
-awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a signer" }' "$d/fresh.md" > "$C/proposal.md"
+# (Spelt oddly, so the history is read in any spelling too.)
+awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval**: owner — it names a signer" }' "$d/fresh.md" > "$C/proposal.md"
 git -C "$R" add "$C" && git -C "$R" commit -qm "proposal: kept for the owner"
 cp "$d/fresh.md" "$C/proposal.md"; git -C "$R" commit -qm "proposal: marker removed by hand" -- "$C/proposal.md"
 startlog; F; expect_rc 1 $? "change-approval --delegate refuses a proposal whose history shows its Approval line removed"
@@ -342,6 +356,12 @@ expect_rc 1 $? "change-approval --delegate reads a side branch a merge discarded
 grep -q 'history on this branch holds an Approved line' "$d/out" && ok "...and finds its Approved line" || fail "no side-branch reason in: $(cat "$d/out")"
 git -C "$R" reset -q --hard "$b0"; git -C "$R" branch -q -D side; rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
 A; expect_rc 0 $? "change-tools: the delegated approval holds again once the history cases are undone"
+# A shallow clone's history stops at its depth, so it cannot show what was removed: nothing holds.
+git -C "$R" rev-parse HEAD > "$R/.git/shallow"
+A; expect_rc 1 $? "change-approval: a delegated approval does not hold in a shallow clone"
+grep -q 'this clone is shallow' "$d/out" && ok "...and says the clone is shallow" || fail "no shallow reason in: $(cat "$d/out")"
+cp "$d/fresh.md" "$C/proposal.md"; startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses in a shallow clone"
+rm -f "$R/.git/shallow"; rm -rf "$C"; cp -R "$d/c.bak" "$C"
 # On the change's own branch, its diff counts, not only what its tasks name.
 mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"
 A; expect_rc 1 $? "change-approval: a delegated approval fails once the branch's diff touches a guarded path no task names"
