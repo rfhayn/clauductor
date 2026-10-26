@@ -205,6 +205,28 @@ guard 2 "a glob bracket that can match a file named -R" 'gh pr merge 5 --squash 
 guard 2 "gh api -f with an unquoted substitution that splits into --hostname" 'gh api -X PUT repos/acme/app/pulls/5/merge -f $(printf "a=b --hostname ghe2.example.com")' GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
 guard 2 "gh api -H with an unquoted substitution that splits into --hostname" 'gh api -X PUT repos/acme/app/pulls/5/merge -H $(printf "a:b --hostname ghe2.example.com")' GH_STATE=OPEN GH_STATE_HOSTED=CLOSED
 guard 2 "gh api --hostname H, then -f with a variable that splits into another" 'gh api --hostname ghe.example.com -X PUT repos/acme/app/pulls/5/merge -f $X' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+# A process substitution, <(…) or >(…), is a word, not a redirect: the read once stopped at it, and
+# gh merged in the -R after it (#271). The reader refuses a redirect before the last word (&>f -R,
+# > out -R, a heredoc) before the read sees it; those cases hold both layers.
+guard 2 "a -R after a process substitution" 'gh pr merge 5 --squash --body-file <(cat f) -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a -R after an output process substitution" 'gh pr merge 5 --squash -t x >(cat) --repo acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a -R after &>" 'gh pr merge 5 --squash &>f -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a -R after 2>&1 and &>" 'gh pr merge 5 --squash 2>&1 &>f -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 "merge-pr's form, 2>&1 last, piped on" 'gh pr merge 5 --squash --delete-branch --body-file f 2>&1 | tail -1'
+guard 0 "redirects alone to the end: > f 2>&1" 'gh pr merge 5 --squash --body-file f > "$TMPDIR/out" 2>&1'
+guard 2 "a -R after a redirect's plain target" 'gh pr merge 5 --squash > out -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a -R after a target whose \$( nests a quoted )" 'gh pr merge 5 --squash > "$(echo ")" -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 "a heredoc" 'gh pr merge 5 --squash <<EOF -R acme/app' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+# Only "$name", "${name}" and "$(…)" stay one word in quotes; "$@", "${a[@]}" and zsh flags split.
+guard 2 'a quoted "$@" after set -- x -R, behind a hosted -R' 'set -- x -R acme/app; gh pr merge 5 -R github.com/acme/app --squash --body "$@"' GH_STATE=CLOSED GH_STATE_HOSTED=OPEN
+guard 2 'a quoted "${a[@]}"' 'gh pr merge 5 --squash --body "${a[@]}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 2 'a quoted zsh split "${(@s.:.)PWD}"' 'gh pr merge 5 --squash --body "${(@s.:.)PWD}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
+guard 0 'a quoted "${B}" as --body'"'"'s value' 'gh pr merge 5 --squash --body "${B}"'
+# Rule 1 reads the raw text; the shell takes quotes and escapes out of a flag first.
+guard 2 "rule 1: --auto split by quotes" "gh pr merge 5 --squash --au''to"
+grep -q 'rule 1' "$d/err" && ok "merge-guard: ...refused as rule 1" || fail "merge-guard: the split --auto refusal does not name rule 1: $(head -3 "$d/err")"
+guard 2 "rule 1: --admin split by quotes" 'gh pr merge 5 --squash --ad""min'
+guard 2 "rule 1: --admin escaped" 'gh pr merge 5 --squash --\admin'
 guard 2 "gh named by a path, no repo named" '/usr/local/bin/gh pr merge 5 --squash'
 grep -q 'named by a path' "$d/err" && ok "merge-guard: ...and the refusal says gh is named by a path" || fail "merge-guard: the path-named gh refusal does not say so: $(head -3 "$d/err")"
 # The payload's cwd is the Bash tool's directory, where gh runs, and need not be this hook's: a merge

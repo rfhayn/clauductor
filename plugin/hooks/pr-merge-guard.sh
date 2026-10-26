@@ -388,11 +388,13 @@ fi
 # `$`, a backtick or `(` is dropped, never kept cut short: its reading would be a shorter number than
 # the shell merges (OPS-57). A repo flag glued to such a word still reads as a repo, unconfirmed:
 #   - more than one `gh pr merge` (any blanks between the words) BLOCKS;
-#   - a stop BLOCKS unless it is a `$` in double quotes, in the command's last word (a trailing
-#     2>&1 or 2>/dev/null aside), as the value of --body, --subject or another value flag: anything
-#     the read never saw could be the -R gh merges in (#271); so does an unquoted character
-#     outside letters, digits, _./:@%+=,- and non-ASCII (a brace, glob or tilde expands into
-#     words the read never sees);
+#   - the read ends only at a separator, or at redirects that alone, each with one plain target,
+#     run to the end of the command (> f 2>&1); <(…) is a word, not a redirect. Any other stop BLOCKS
+#     unless it is "$name", "${name}" or "$(…)" in the command's last word (that redirect aside),
+#     as the value of --body, --subject or another value flag: anything the read never saw could
+#     be the -R gh merges in (#271). So does an unquoted character outside letters, digits,
+#     _./:@%+=,- and non-ASCII (a brace, glob or tilde expands into words the read never sees);
+#   - --auto or --admin as a word, its quotes taken out, BLOCKS (rule 1, which reads raw text);
 #   - a repo named (-R X, -RX, -sR X, --repo X, --repo=X, or a PR URL) that is not this repo,
 #     outside the allowlisted shape, BLOCKS and shows the shape;
 #   - the PR is the first positional word (values of gh's value-taking flags skipped, `--` ends
@@ -418,7 +420,7 @@ repo_key() {
       }'
 }
 # merge_argv — one line per finding: `M` more than one merge, `R <repo>` per repo named, `P <word>`
-# the PR argument, `U` words it cannot read that gh still gets. For POLICING only: it decides which PR rules 2-8 check and whether a foreign repo
+# the PR argument, `U` words it cannot read that gh still gets, `A` an --auto/--admin word. For POLICING only: it decides which PR rules 2-8 check and whether a foreign repo
 # is named at all. It never decides that a merge is foreign — foreign_shape does, by allowlist.
 # LC_ALL=C for the reason merge_scan has it (#100): it, too, matches one character at a time.
 merge_argv() {
@@ -428,8 +430,9 @@ merge_argv() {
     # stop passes only by allowlist: a `$` inside double quotes whose word ends the command (a
     # trailing 2>&1 or 2>/dev/null aside) and is the value of a flag, glued (--body=...) or confirmed
     # by the parse below (VCUT); never a word of its own, which gh reads as a flag (-Racme/app).
+    # Only $name, ${name} and $(…) stay one word in quotes: "$@", "${a[@]}", zsh "${(@s: :)x}" split.
     function cut(ch, quoted, rest, tok) {
-      if (ch != "$" || !quoted || rest !~ /^[^"$`\\\047]*"[ \t]*([ \t]2>(&1|\/dev\/null))?[ \t\n]*$/) { print "U"; return }
+      if (ch != "$" || !quoted || rest !~ /^(\([^"$`\\\047]*\)|[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})"[ \t]*([ \t]2>(&1|\/dev\/null))?[ \t\n]*$/) { print "U"; return }
       LAST = 1; GLUED = (tok ~ /^--(body|body-file|subject|match-head-commit|author-email)=/)
     }
     { buf = buf $0 "\n" }
@@ -457,13 +460,28 @@ merge_argv() {
         if (c == "#" && !have) break
         if (c == "\047" || c == "\"") { q = c; have = 1; continue }
         if (c == " " || c == "\t") { if (have) { t[++nt] = tok; tok = ""; have = 0 }; continue }
-        if (c ~ /[\n;&|()<>]/) {
-          if ((c == "<" || c == ">") && tok ~ /^[0-9]*$/) have = 0
+        # A redirect ends the read only when redirects alone, each with one plain target, run to the
+        # end of the command: a word after a target (&>f -R o/n), a process substitution <(…) or a
+        # heredoc is something gh still gets (#271). A target holds no $( or backtick: inside one,
+        # quotes nest, so a ) the read takes for the end may sit inside the target. Digits before
+        # the operator are its descriptor (2>&1); any other glued text is a word (--squash>f).
+        if (c == "<" || c == ">" || (c == "&" && substr(s, j + 1, 1) == ">")) {
+          if (have && tok !~ /^[0-9]+$/) t[++nt] = tok
+          r = substr(s, j); fine = 0; have = 0
+          while (match(r, /^[0-9]*(&>>?|>>?|>&|>\||<&|<>|<)/)) {
+            r = substr(r, RLENGTH + 1)
+            if (!match(r, /^[ \t]*("([^"\\$`]|\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\})*"|\047[^\047]*\047|\$[A-Za-z_][A-Za-z0-9_]*|\$\{[A-Za-z_][A-Za-z0-9_]*\}|[^ \t\n;&|()<>"\047\\$`])+/)) break
+            r = substr(r, RLENGTH + 1); sub(/^[ \t]*/, "", r)
+            if (r == "" || r ~ /^(#|[\n;|)]|&$|&[^>])/) { fine = 1; break }
+          }
+          if (!fine) print "U"
+          break
+        }
+        if (c ~ /[\n;&|()]/) {
           # In zsh a `(` inside a word is a glob qualifier: dropping the word covers one that
           # empties a PR word, not one that rewrites it into other words.
           if (c == "(" && have) have = 0
-          # A glob qualifier ends the read, not the command: words follow it. (A redirect before
-          # the last word the reader refuses as ODD, so one here has only its target after it.)
+          # A glob qualifier ends the read, not the command: words follow it.
           if (c == "(") print "U"
           break
         }
@@ -479,6 +497,8 @@ merge_argv() {
         x = t[k]; gsub(/\n/, " ", x)
         if (!endopts && x == "--") { endopts = 1; continue }
         if (!endopts && x ~ /^-/) {
+          # Rule 1 matches the raw text; the shell takes the quotes out of --au""to first.
+          if (x ~ /^--(auto|admin)(=|$)/) print "A"
           if (x == "-R" || x == "--repo") { if (k < nt) { y = t[++k]; gsub(/\n/, " ", y); print "R " y } else print "R ?"; continue }
           if (x ~ /^--repo=/) { print "R " substr(x, 8); continue }
           if (x ~ /^(--body|--body-file|--subject|--match-head-commit|--author-email)$/) { if (k == nt) VCUT = 1; k++; continue }
@@ -597,6 +617,7 @@ while IFS= read -r line; do
   case "$line" in
     M) many=1 ;;
     U) hidden=1 ;;
+    A) block "this merge passes --auto or --admin, quoted or escaped (rule 1): neither waits for checks to settle. Watch checks green first, then merge explicitly: gh pr merge <n> --squash --delete-branch" ;;
     "R "* | "P http://"* | "P https://"*)
       named=${line#? }
       key=$(repo_key "$named")

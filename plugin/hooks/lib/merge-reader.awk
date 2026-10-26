@@ -567,7 +567,7 @@ function api(c, k, n,   j, w, x, m, mw, ep, ew, ei, men, gq, e, r, q, pos, nf, M
   } else {
     # Anything else that WRITES (or may) and names a merge — a POST to …/merges, a PATCH, a method
     # it cannot read — is not the one form this guard can police, so it is refused.
-    if (men && (mw || (M != "" && M != "GET"))) odd("gh api " (mw ? "with a computed method" : M) " that names a merge, outside the one form this guard reads (-X PUT repos/<o>/<n>/pulls/<pr>/merge)")
+    if (men && (mw || (M != "" && M != "GET"))) odd("gh api " (mw ? "with a computed method or flag value" : M) " that names a merge, outside the one form this guard reads (-X PUT repos/<o>/<n>/pulls/<pr>/merge)")
     return
   }
   split(e, q, "/")
