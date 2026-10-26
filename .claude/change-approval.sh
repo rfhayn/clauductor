@@ -33,9 +33,10 @@
 # rewritten, so --record, --delegate and --revoke also add a line to the approval log,
 # <git common dir>/clauductor/approvals.log, which no branch carries, and --delegate refuses a change
 # the log names. A revoke the log cannot take still revokes, and exits 1 to say so. The log keys on
-# the change's id, so a change filed again under a new id is new to it. The log guards the act, not the merge: the check never reads it, since a CI runner
-# has none. It is per clone (every worktree of a clone shares it): another machine, or a fresh clone,
-# starts its own, so a revoke made only on a branch elsewhere is not seen here (#272).
+# the change's id, so a change filed again under a new id is new to it. The log guards the act, not
+# the merge: the check never reads it, since a CI runner has none. It is per clone (every worktree
+# of a clone shares it): another machine, or a fresh clone, starts its own, so a revoke made only on
+# a branch elsewhere is not seen here (#272).
 #
 # The Approved line reads `**Approved:** YYYY-MM-DD by <owner> · design <hash>`, or for a delegated
 # one `by Claude (delegated by <owner>)`. A delegated approval holds only while the key is on and the
@@ -88,6 +89,12 @@ hash=$(design_hash "$dir")
 approved='^\*\*Approved:\*\* [0-9]{4}-[0-9]{2}-[0-9]{2} by .+ · design [0-9a-f]{12}$'
 
 # rewrite LINE: replace the Approved or Status line with LINE, keeping every other line.
+# rewritable: exit unless proposal.md has a line rewrite can replace. --record and --delegate ask it
+# before they log, so a proposal they cannot write never enters the log as approved.
+rewritable() {
+  grep -qE '^\*\*(Approved|Status):\*\*' "$dir/proposal.md" 2>/dev/null \
+    || { echo "change-approval: proposal.md has no **Approved:** or **Status:** line to replace" >&2; exit 1; }
+}
 rewrite() {
   awk -v new="$1" '!done && (/^\*\*Approved:\*\*/ || /^\*\*Status:\*\*/) { print new; done = 1; next } { print } END { if (!done) exit 3 }' "$dir/proposal.md" > "$dir/proposal.md.tmp" \
     && mv "$dir/proposal.md.tmp" "$dir/proposal.md" \
@@ -175,6 +182,10 @@ kept() {
   [ "$row" = "$rid" ] || { echo "proposal.md names row $rid, but row $row${main_ref:+ on $main_ref} is the one that names $id"; return; }
   printf '%s\n' "$line" | row_change_cell | grep -Eiq '(^|[^[:alnum:]])Approval: owner([^[:alnum:]]|$)' \
     && { echo "row $rid${main_ref:+ on $main_ref} says Approval: owner"; return; }
+  # A Risk spelled any other way (`Risk: High`, `risk:high`) is a floor the row meant to set: refuse
+  # it rather than read the row as normal.
+  odd=$(printf '%s\n' "$line" | row_change_cell | grep -oiE 'risk[[:space:]]*:[[:space:]]*[[:alnum:]]*' | grep -vxE 'Risk: (low|normal|high)' | head -1)
+  [ -z "$odd" ] || { echo "row $rid${main_ref:+ on $main_ref} says '$odd', a Risk the floor cannot read (Risk: low, normal or high)"; return; }
   rr=$(printf '%s\n' "$line" | row_risks)
   case $(printf '%s\n' "$rr" | grep -c .) in
     0) rr=normal ;;
@@ -316,14 +327,14 @@ case "${1:-}" in
     # A revoke adds to a log the owner has not started: that log cannot say "never approved" either.
     [ "$(printf '%s\n' "$seen" | tail -1)" != unstarted ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log was never started by the $OWNER_ROLE, so this clone cannot tell whether it was approved before: 'sh .claude/change-approval.sh --start-log <owner>' on their word (or approves this change: --record)" >&2; exit 1; }
     [ -z "$seen" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: this clone's approval log $approval_log shows it before ($(printf '%s\n' "$seen" | tail -1)), so only the $OWNER_ROLE approves it again: 'sh .claude/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
-    log_append delegate "Claude (delegated by $owner)" || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
+    rewritable; log_append delegate "Claude (delegated by $owner)" || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by Claude (delegated by $owner) · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by Claude, delegated by $owner, design $hash"
     ;;
   --record)
     owner=${2:-}; [ -n "$owner" ] || { echo "change-approval: --record needs the owner's name" >&2; exit 64; }
     claude_name "$owner" && { echo "change-approval: Claude's approval is recorded with --delegate, which checks the delegation (an owner named Claude sets OWNER_NAME)" >&2; exit 64; }
-    log_append record "$owner" || { echo "change-approval: cannot record $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
+    rewritable; log_append record "$owner" || { echo "change-approval: cannot record $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by $owner · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by $owner, design $hash"
     ;;

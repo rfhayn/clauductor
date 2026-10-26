@@ -44,8 +44,10 @@ If the line above shows as literal text instead of output, run
    - **c. Re-measure the row.** If it was split off a larger row or has taken on items since, count
      its write surfaces and its MODIFIED requirements. If it now looks like what a split existed
      to prevent (more than about three write surfaces, more than one screen), split the row in the
-     roadmap first (*Size a change so one review round converges*).
-1. **Name it.** A kebab-case id from the row (`add-member-invites`). Work on `<BRANCH_CHANGE><id>`
+     roadmap first (*Size a change so one review round converges*), and land the split on
+     `origin/main` before proposing: step 3a reads the row from there.
+1. **Name it.** A kebab-case id from the row (`add-member-invites`): the row's backticked change
+   id, which step 3a looks the row up by. Work on `<BRANCH_CHANGE><id>`
    (`clauductor-model project-config.sh branch change <id>` prints it), cut from `origin/main`, in a lane worktree (never the main checkout).
 2. **Draft** `changes/<id>/proposal.md`, `design.md`, `tasks.md` and any
    `specs/<capability>/spec.md` deltas, in the shapes `changes/README.md` gives:

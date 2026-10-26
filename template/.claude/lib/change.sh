@@ -46,9 +46,10 @@ design_hash() {
 
 # row_change_cell: the Change cell (cell 2 of `| # | Change | Scope | Deps | Status |`) of the
 # roadmap table line on stdin, backticked spans removed: a backticked `Risk: high` is the row
-# talking ABOUT a risk, not stating its own. review-cap.sh reads a row's Risk from it, and
-# change-approval.sh its Risk and its `Approval: owner`.
-row_change_cell() { sed 's/`[^`]*`//g' | awk -F'|' '{ print $3 }'; }
+# talking ABOUT a risk, not stating its own. An escaped `\|` is text, as roadmap-queue.sh reads it,
+# so it does not end the cell. review-cap.sh reads a row's Risk from it, and change-approval.sh its
+# Risk and its `Approval: owner`.
+row_change_cell() { sed 's/`[^`]*`//g; s/\\|/ /g' | awk -F'|' '{ print $3 }'; }
 
 # row_risks: each distinct `Risk: low|normal|high` in the Change cell of the roadmap line on stdin,
 # one per line (none: the row is normal; more than one: its risk cannot be read).

@@ -134,6 +134,32 @@ grep -q 'names no \*\*Roadmap row' "$d/out" && ok "...and says no row can be rea
 roadmap '`add-greeting-name` — greet a member by name. Risk: low, not Risk: high'
 D; expect_rc 1 $? "change-approval --delegate refuses a row whose Change cell says two risks"
 grep -q 'more than one risk' "$d/out" && ok "...and says the floor cannot be read" || fail "no two-risk reason in: $(cat "$d/out")"
+# An escaped pipe is text in a cell (roadmap-queue.sh reads it so), so it hides neither marker.
+roadmap '`add-greeting-name` — greet a member by a \| b name. Approval: owner'
+D; expect_rc 1 $? "change-approval --delegate reads Approval: owner past an escaped pipe in the Change cell"
+grep -q 'says Approval: owner' "$d/out" && ok "...and names the marker" || fail "no escaped-pipe marker reason in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — greet a member by a \| b name. Risk: high'
+D; expect_rc 1 $? "change-approval --delegate reads the row's Risk past an escaped pipe in the Change cell"
+grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no escaped-pipe floor reason in: $(cat "$d/out")"
+for spelt in 'Risk: High' 'risk:high'; do
+  roadmap "\`add-greeting-name\` — greet a member by name. $spelt"
+  D; expect_rc 1 $? "change-approval --delegate refuses a row whose Risk is spelt '$spelt'"
+  grep -q "a Risk the floor cannot read" "$d/out" && ok "...and says the floor cannot be read" || fail "no spelling reason in: $(cat "$d/out")"
+done
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
+# A proposal --delegate cannot write never enters the log as approved.
+startlog; grep -v '^\*\*Status:\*\*' "$d/fresh.md" > "$C/proposal.md"; A --delegate Ana
+expect_rc 1 $? "change-approval --delegate refuses a proposal with no Status line to replace"
+grep -q "	add-greeting-name	delegate	" "$L" && fail "--delegate logged a change it could not approve: $(cat "$L")" || ok "...and logs nothing for it"
+# --start-log is the owner's word, at a repository's root.
+cp "$R/.claude/project.conf" "$d/conf.bak"; echo 'OWNER_NAME="Bea"' >> "$R/.claude/project.conf"; rm -f "$L"
+(cd "$R" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1; expect_rc 64 $? "change-approval --start-log refuses a name that is not OWNER_NAME"
+[ -e "$L" ] && fail "--start-log by someone not OWNER_NAME wrote the log" || ok "...and writes no log"
+cp "$d/conf.bak" "$R/.claude/project.conf"
+mkdir -p "$R/sub" && cp -R "$R/.claude" "$R/sub/"
+(cd "$R/sub" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1; expect_rc 1 $? "change-approval --start-log refuses below a repository's root"
+grep -q "not a git repository's root" "$d/out" && ok "...and says why" || fail "no root reason in: $(cat "$d/out")"
+rm -rf "$R/sub"
 # A history git cannot read refuses: a shim fails only git log -p, the history read.
 mkdir -p "$d/shim"; printf '#!/bin/sh\ncase " $* " in *" log "*" -p "*) echo "fatal: no history" >&2; exit 128 ;; esac\nexec %s "$@"\n' "$(command -v git)" > "$d/shim/git"; chmod +x "$d/shim/git"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
