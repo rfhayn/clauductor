@@ -44,20 +44,32 @@ design_hash() {
   { cat "$1/design.md" 2>/dev/null; grep -E '^\*\*Risk:\*\*' "$1/proposal.md" 2>/dev/null; } | sha256_hex | cut -c1-12
 }
 
+# row_is_table ID: whether the roadmap line on stdin is row ID of the built-in queue table, as
+# roadmap-queue.sh reads one: a leading `|`, exactly five cells (an escaped `\|` being text), and ID
+# in the first. A project's own ROADMAP_PARSER may name a line of another shape, whose cells
+# row_change_cell cannot find: a reader of a row's Risk or Approval refuses it, never reads none.
+row_is_table() {
+  awk -v r="$1" '{
+    gsub(/\\\|/, " "); n = split($0, c, "|"); id = c[2]; t = c[7]
+    gsub(/^[ \t]+|[ \t]+$/, "", id); gsub(/[ \t]/, "", t)
+    ok = ($0 ~ /^\|/ && n == 7 && t == "" && id == r)
+  } END { exit !ok }'
+}
+
 # row_change_cell: the Change cell (cell 2 of `| # | Change | Scope | Deps | Status |`) of the
-# roadmap table line on stdin, as plain text. A backticked span holding a key and its colon
-# (`Risk: high`, `Approval: owner`) is the row talking ABOUT a marker, not stating its own, so it
-# goes; every other span stays, and then the markdown marks (`*`, `_`, backticks) go, so emphasis
-# or a span around only part of a marker (Risk: `high`, `Approval`: owner) cannot hide it. The
-# cells are split as roadmap-queue.sh splits them, an escaped `\|` being text, and the spans read
-# only after, so a stray backtick cannot pair with one in the next cell. review-cap.sh reads a
-# row's Risk from it, and change-approval.sh its Risk and its `Approval:`.
+# roadmap table line on stdin (row_is_table), as plain text. A backticked span holding a whole
+# marker, key, colon and value (`Risk: high`, `Approval: owner`), is the row talking ABOUT a marker,
+# not stating its own, so it goes; every other span stays, and then the markdown marks (`*`, `_`,
+# backticks) go, so emphasis or a span around only part of a marker (Risk: `high`, `Approval:`
+# owner) cannot hide it. The cells are split as roadmap-queue.sh splits them, an escaped `\|`
+# being text, and the spans read only after, so a stray backtick cannot pair with one in the next
+# cell. review-cap.sh reads a row's Risk from it, and change-approval.sh its Risk and `Approval:`.
 row_change_cell() {
   awk '{
     gsub(/\\\|/, " "); split($0, c, "|"); x = c[3]; y = ""
     while (match(x, /`[^`]*`/)) {
       s = substr(x, RSTART, RLENGTH); y = y substr(x, 1, RSTART - 1)
-      if (tolower(s) !~ /(risk|approval)[^A-Za-z0-9]*:/) y = y s
+      if (tolower(s) !~ /(risk|approval)[^a-z0-9]*:[^a-z0-9]*[a-z0-9]/) y = y s
       x = substr(x, RSTART + RLENGTH)
     }
     y = y x; gsub(/[`*_]/, "", y); print y

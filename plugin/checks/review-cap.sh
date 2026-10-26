@@ -3,7 +3,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # review-cap.sh prints a row's review-round cap from the one place its risk is written: a change's
 # proposal (`**Risk:**`, an archived one included), else an ops or fix row's Change cell (`Risk:`
 # outside backticks), else normal; REVIEW_CAPS turns the risk into rounds. It refuses, rather than
-# guess, a change row with no proposal, an unreadable Risk, and a Change cell naming two risks.
+# guess, a change row with no proposal, an unreadable Risk, a Change cell naming two risks, and a
+# row line its parser names that is not a line of the queue table.
 # Also: build-change's maxRounds and merge-pr step 3 ask it (the callers, rule 3).
 . "$(dirname "$0")/lib.sh"
 
@@ -24,6 +25,7 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | 1.8 | `ops/cell` — the row, Risk: high | the Scope says Risk: low | — | ⬜ queued |
 | 1.9 | `ops/pipe` — a \| b. Risk: high | s | — | ⬜ queued |
 | 1.10 | `ops/tick` — trims 5` of padding. Risk: high | `s` | — | ⬜ queued |
+| 1.11 | `ops/keyspan` — `Risk:` high | s | — | ⬜ queued |
 EOF
 printf '# add-low\n\n**Risk:** low\n' > "$F/changes/add-low/proposal.md"
 printf '# add-bad\n\n**Risk:** medium\n' > "$F/changes/add-bad/proposal.md"
@@ -54,11 +56,20 @@ refuses "more than one risk" "a Change cell naming two risks" fix/7-two
 is 4 "only the Change cell's Risk counts, not the Scope's" ops/cell
 is 4 "an escaped pipe does not end the Change cell" ops/pipe
 is 4 "a stray backtick does not pair with the Scope's" ops/tick
+is 4 "a span holding only the key does not hide the Risk" ops/keyspan
 printf 'REVIEW_CAPS="low:1 normal:4 high:5"\n' > "$F/.claude/project.conf"
 is 1 "REVIEW_CAPS sets the rounds (low:1)" add-low
 is 4 "REVIEW_CAPS sets the rounds (normal:4)" 1.5
 printf 'REVIEW_CAPS="normal:3"\n' > "$F/.claude/project.conf"
 refuses "has no 'low:<rounds>'" "a risk REVIEW_CAPS has no rounds for" add-low
+# A project's own parser (ROADMAP_PARSER) may name a line of another shape, whose Change cell cannot
+# be found: its Risk is unknown, never normal.
+printf -- '- 2.1 `ops/listed` — a list row. Risk: high\n' >> "$F/docs/roadmap.md"
+ln=$(wc -l < "$F/docs/roadmap.md" | tr -d ' '); lt=$(grep -n '^| 1.9 ' "$F/docs/roadmap.md" | cut -d: -f1)
+printf '#!/bin/sh\nprintf "%s\\t1\\t\\t1.9\\tops/pipe\\tops\\tqueued\\t\\t\\tp\\t\\t\\t\\t\\t\\n%s\\t1\\t\\t2.1\\tops/listed\\tops\\tqueued\\t\\t\\tl\\t\\t\\t\\t\\t\\n"\n' "$lt" "$ln" > "$(dirname "$F")/own.sh"
+printf 'REVIEW_CAPS="low:2 normal:3 high:4"\nROADMAP_PARSER="sh %s/own.sh"\n' "$(dirname "$F")" > "$F/.claude/project.conf"
+is 4 "a table row a project's own parser names" 1.9
+refuses "is not a line of the" "a row a project's own parser names in another shape" 2.1
 
 # The callers: a capability no real process asks is not shipped (rule 3).
 grep -q 'review-cap\.sh' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \

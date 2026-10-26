@@ -59,13 +59,15 @@ every open change against the shape below.
   a change that touches `ADR_DIR` or `PRACTICES_DIR`; whose proposal has a line
   `**Approval:** owner — <why>` (`/propose` step 3a writes it for a change that is money, legal or
   business, outward, irreversible or needs the owner at the computer; any `Approval:` line counts,
-  however it is marked up, and so does one its history shows removed); whose roadmap row has any
-  `Approval:` in its Change cell (`Approval: owner`, `**Approval:** owner`, `_Approval_: owner`,
-  `approval:owner`; only a backticked span holding the key and its colon is a mention, not a
-  marker), or a Risk tier spelled other than `Risk: low`, `normal` or `high` (`Risk: High`); or whose
-  `**Risk:**` is below the row's `Risk:` (a row with none is normal). The row
-  is the one row of `origin/<main>`'s roadmap that names the change's id, and the proposal's
-  `**Roadmap row:**` must be it: no such row, two of them, or a proposal naming another refuses.
+  however it is marked up, in a list or a quote too, and so does one its history shows removed);
+  whose roadmap row has any `Approval:` in its Change cell (`Approval: owner`, `**Approval:** owner`,
+  `_Approval_: owner`, `` `Approval:` owner ``, `approval:owner`; only a backticked span holding a
+  whole marker, key, colon and value, is a mention), or any Risk other than `Risk: low`, `normal` or
+  `high` (`Risk: High`, `Risk: very high`, `Risk: critical`); or whose `**Risk:**` is below the
+  row's `Risk:` (a row with none is normal). The row is the one row of `origin/<main>`'s roadmap
+  that names the change's id, and the proposal's `**Roadmap row:**` must be it: no such row, two of
+  them, a proposal naming another, or a row that is not a line of the `| # | Change | … |` table (a
+  `ROADMAP_PARSER` of the project's own may name one; `review-cap.sh` refuses it too) refuses.
   And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>`, holds an
   Approved line; the check fails a delegated line whose history shows an Approved line removed. So
   once the revoke is on `origin/<main>`, a hand edit of a revoked Status line, or of the Approved

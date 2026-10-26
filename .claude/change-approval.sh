@@ -104,8 +104,9 @@ rewrite() {
 
 # ── Delegation (OPS-127) ───────────────────────────────────────────────────────────────────────
 delegated='^\*\*Approved:\*\* [0-9-]+ by Claude \(delegated by (.+)\) · '
-# A proposal's `**Approval:**` line in any spelling, read case-insensitively after a line start.
-approval_line='[[:space:]]*[*_]*approval[*_]*[[:space:]]*:'
+# A proposal's `**Approval:**` line in any spelling or place, read case-insensitively from a line
+# start: the word approval, then only marks before a colon (`- **Approval**: owner`, `> approval:`).
+approval_line='(.*[^[:alnum:]])?approval[^[:alnum:]]*:'
 # claude_name NAME: true when NAME is Claude's (its first word, any case) and not OWNER_NAME's.
 claude_name() { printf '%s\n' "$1" | grep -Eiq '^[[:space:]]*claude([^[:alnum:]_]|$)' && [ "$1" != "$OWNER_NAME" ]; }
 # The authority is origin/<main> in a clone of a remote, and the disk only in a repository with no
@@ -157,17 +158,17 @@ risk_rank() { case $1 in low) echo 1 ;; normal) echo 2 ;; high) echo 3 ;; *) ech
 # kept: say why the owner keeps this change though no guarded path names it (OPS-131), or nothing:
 # a proposal line `**Approval:** …` (propose step 3a writes `owner — <why>` for a change that is
 # money, legal or business, outward, irreversible or needs the owner at the computer; any other
-# value is read as that too, in any spelling) or one its history shows removed, its roadmap row's
-# `Approval:` (any spelling; only a backticked span holding the key and its colon is a mention, not
-# a marker), a Risk tier the row spells oddly, or a `**Risk:**` below the row's
-# (a row with no Risk: is normal), which would lower the review cap the row set. The row is the
+# value is read as that too, in any spelling or place) or one its history shows removed, its
+# roadmap row's `Approval:` (any spelling; only a backticked span holding a whole marker is a
+# mention), a Risk the row spells other than `Risk: low|normal|high`, or a `**Risk:**` below the
+# row's (a row with no Risk: is normal), which would lower the review cap the row set. The row is the
 # authority, read as origin/<main> has it like the key, and found by the change id it names, never
 # by the proposal's say: a proposal naming another row would choose its own floor. One row must name
-# the change, and it must be the proposal's `**Roadmap row:**`; anything else refuses, as does a
-# roadmap whose table is not `| <id> | Change | … |`.
+# the change, it must be the proposal's `**Roadmap row:**`, and its line must be a row of the
+# `| # | Change | Scope | Deps | Status |` table (row_is_table); anything else refuses.
 kept() {
   prop="$dir/proposal.md"
-  # Any spelling of the line counts (`**Approval**: owner`, ` __approval:__ owner`), as for the row.
+  # Any spelling of the line counts (`**Approval**: owner`, `- __approval:__ owner`), as for the row.
   mark=$(grep -iE "^$approval_line" "$prop" | head -1)
   [ -z "$mark" ] || { echo "proposal.md says $mark"; return; }
   # A hand edit takes the marker out of proposal.md, not out of its history.
@@ -191,14 +192,20 @@ kept() {
   [ -n "$line" ] || { echo "no row of $ROADMAP${main_ref:+ on $main_ref} names the change $id, so its Risk and Approval cannot be read"; return; }
   row=$(printf '%s\n' "$rows" | cut -f2)
   [ "$row" = "$rid" ] || { echo "proposal.md names row $rid, but row $row${main_ref:+ on $main_ref} is the one that names $id"; return; }
+  printf '%s\n' "$line" | row_is_table "$rid" \
+    || { echo "row $rid${main_ref:+ on $main_ref} is not a line of the | # | Change | Scope | Deps | Status | table (a ROADMAP_PARSER of the project's own?), so its Risk and Approval cannot be read"; return; }
+  cell=$(printf '%s\n' "$line" | row_change_cell)
   # Any Approval: in the Change cell's text (row_change_cell) keeps the change, however it is spelled
   # (`approval:owner`, `Approval - : owner`): a marker the script cannot read must not read as none.
-  mk=$(printf '%s\n' "$line" | row_change_cell | grep -oiE 'approval[^[:alnum:]]*:[^[:alnum:]]*[[:alnum:]]*' | head -1)
+  mk=$(printf '%s\n' "$cell" | grep -oiE 'approval[^[:alnum:]]*:[^[:alnum:]]*[[:alnum:]]*' | head -1)
   [ -z "$mk" ] || { echo "row $rid${main_ref:+ on $main_ref} says $mk"; return; }
-  # A Risk tier spelled any other way (`Risk: High`, `risk:high`, `Risk -: high`) is a floor the
-  # row meant to set: refuse it rather than read the row as normal. Prose (`the risk: a stale
-  # cache`) names no tier, so it is not one.
-  odd=$(printf '%s\n' "$line" | row_change_cell | grep -oiE 'risk[^[:alnum:]]*:[^[:alnum:]]*(low|normal|high)[[:alnum:]]*' | grep -vxE 'Risk: (low|normal|high)' | head -1)
+  # A Risk is read only as `Risk: low|normal|high`. Any other Risk key (`Risk: High`, `Risk:
+  # critical`, `Risk: very high`, `Risk -: high`), or a lowercase one naming a tier (`risk:high`),
+  # is a floor the row meant to set: refuse it rather than read the row as normal. Lowercase prose
+  # that names no tier (`the risk: a stale cache`) is not a Risk.
+  odd=$({ printf '%s\n' "$cell" | grep -oiE 'risk[^[:alnum:]]*:[^[:alnum:]]*(low|normal|high)[[:alnum:]]*'
+          printf '%s\n' "$cell" | grep -oE 'R[Ii][Ss][Kk][^[:alnum:]]*:[^[:alnum:]]*[[:alnum:]]*'; } \
+    | grep -vxE 'Risk: (low|normal|high)' | head -1)
   [ -z "$odd" ] || { echo "row $rid${main_ref:+ on $main_ref} says '$odd', a Risk the floor cannot read (Risk: low, normal or high)"; return; }
   rr=$(printf '%s\n' "$line" | row_risks)
   case $(printf '%s\n' "$rr" | grep -c .) in

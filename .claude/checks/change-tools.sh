@@ -100,7 +100,7 @@ grep -q 'Approval:\*\* owner' "$d/out" && ok "...and names the marker" || fail "
 awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** the Owner, as signer" }' "$d/fresh.md" > "$C/proposal.md"
 startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line in other words"
 grep -q 'proposal.md says \*\*Approval:\*\* the Owner' "$d/out" && ok "...and quotes the line" || fail "no Approval-line reason in: $(cat "$d/out")"
-for spelt in '**Approval**: owner' ' **Approval:** owner' '__approval:__ owner'; do
+for spelt in '**Approval**: owner' ' **Approval:** owner' '__approval:__ owner' '- **Approval:** owner' '> **Approval:** owner'; do
   awk -v m="$spelt" '{ print } /^\*\*Risk:\*\*/ { print m }' "$d/fresh.md" > "$C/proposal.md"
   startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line spelt '$spelt'"
 done
@@ -109,7 +109,7 @@ D; expect_rc 1 $? "change-approval --delegate refuses a change whose row says Ap
 grep -q 'row 1.1.*Approval: owner' "$d/out" && ok "...and names the row" || fail "no row marker in: $(cat "$d/out")"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. approval: Owner'
 D; expect_rc 1 $? "change-approval --delegate refuses a row marker in any case"
-for spelt in '**Approval:** owner' 'Approval:owner' 'Approval: the owner' '_Approval_: owner' '__Approval__: owner' '`Approval`: owner'; do
+for spelt in '**Approval:** owner' 'Approval:owner' 'Approval: the owner' '_Approval_: owner' '__Approval__: owner' '`Approval`: owner' '`Approval:` owner'; do
   roadmap "\`add-greeting-name\` — greet a member by name. Risk: low. $spelt"
   D; expect_rc 1 $? "change-approval --delegate refuses a row marker spelt '$spelt'"
 done
@@ -160,13 +160,15 @@ grep -q 'says Approval: owner' "$d/out" && ok "...and names the marker" || fail 
 roadmap '`add-greeting-name` — greet a member by a \| b name. Risk: high'
 D; expect_rc 1 $? "change-approval --delegate reads the row's Risk past an escaped pipe in the Change cell"
 grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no escaped-pipe floor reason in: $(cat "$d/out")"
-for spelt in 'Risk: High' 'risk:high' 'Risk -: high'; do
+# The proposal is at normal, so only the spelling can refuse: a row read as having no Risk passes.
+for spelt in 'Risk: High' 'risk:high' 'Risk -: high' 'Risk: very high' 'Risk: critical' 'Risk: hi' 'Risk:'; do
   roadmap "\`add-greeting-name\` — greet a member by name. $spelt"
-  D; expect_rc 1 $? "change-approval --delegate refuses a row whose Risk is spelt '$spelt'"
+  startlog; sed 's/^\*\*Risk:\*\* low$/**Risk:** normal/' "$d/fresh.md" > "$C/proposal.md"
+  A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a row whose Risk is spelt '$spelt'"
   grep -q "a Risk the floor cannot read" "$d/out" && ok "...and says the floor cannot be read" || fail "no spelling reason in: $(cat "$d/out")"
 done
 # Markup is not a spelling: emphasis or a backticked tier still sets the floor.
-for spelt in '**Risk:** high' 'Risk: `high`' 'Risk: _high_' '__Risk__: high'; do
+for spelt in '**Risk:** high' 'Risk: `high`' 'Risk: _high_' '__Risk__: high' '`Risk:` high'; do
   roadmap "\`add-greeting-name\` — greet a member by name. $spelt"
   D; expect_rc 1 $? "change-approval --delegate reads the row's Risk marked up as '$spelt'"
   grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no marked-up floor reason in: $(cat "$d/out")"
@@ -176,6 +178,17 @@ roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row may sa
 D; expect_rc 0 $? "change-approval --delegate passes a row that only names a Risk in backticks"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. The main risk: a stale cache'
 D; expect_rc 0 $? "change-approval --delegate passes a row whose prose says 'risk:' with no tier"
+# A project's own parser (ROADMAP_PARSER) may name a line of another shape, whose cells cannot be
+# found: its Risk and Approval are unknown, never none. The row is line 3 in both shapes.
+printf '#!/bin/sh\nprintf "3\\t1\\t\\t1.1\\tadd-greeting-name\\tchange\\tqueued\\t\\t\\tgreet\\t\\t\\t\\t\\t\\n"\n' > "$d/own.sh"
+cp "$R/.claude/project.conf" "$d/conf.bak"; echo "ROADMAP_PARSER=\"sh $d/own.sh\"" >> "$R/.claude/project.conf"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low'
+D; expect_rc 0 $? "change-approval --delegate reads a table row its project's own parser names"
+printf 'Rows:\n\n- 1.1 `add-greeting-name` — greet a member by name. Risk: high. Approval: owner\n' > "$R/docs/roadmap.md"
+startlog; sed 's/^\*\*Risk:\*\* low$/**Risk:** normal/' "$d/fresh.md" > "$C/proposal.md"
+A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a row its project's own parser names in another shape"
+grep -q 'is not a line of the' "$d/out" && ok "...and says the row cannot be read" || fail "no row-shape reason in: $(cat "$d/out")"
+cp "$d/conf.bak" "$R/.claude/project.conf"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 # A proposal --delegate cannot write never enters the log as approved.
 startlog; grep -v '^\*\*Status:\*\*' "$d/fresh.md" > "$C/proposal.md"; A --delegate Ana
