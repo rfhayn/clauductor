@@ -361,6 +361,9 @@ bypass() {
     strip='s/^$//'
     # The plugin's build spells the call "$CLAUDUCTOR_FW/roadmap-plan.sh"; both forms are cut.
     case $f in */skills/session-start/marker.sh) strip='s#sh "\$(ROOT/\.claude|CLAUDUCTOR_FW)/roadmap-plan\.sh" "\$ROOT/\$ROADMAP"##' ;; esac
+    # OPS-131: change-approval.sh copies main's roadmap to a file for roadmap_queue, and reads its
+    # row from the line roadmap_queue names, as review-cap.sh does. Only that copy is cut.
+    case $f in "$1"/change-approval.sh) strip='s#authority "\$ROOT/\$ROADMAP" > "\$rmf"##' ;; esac
     sed -E "$strip" "$f" | grep -nE 'roadmap-queue\.sh|\$\{?ROOT\}?"?/"?\$\{?ROADMAP([^A-Z_]|$)|cd[[:space:]]+"?\$\{?ROOT\}?"?[[:space:]].*"\$\{?ROADMAP\}?"|\^#*## Phase' \
       | grep -vE '^[0-9]+:[[:space:]]*#|^[0-9]+:[[:space:]]*cp |ROADMAP_BUILTIN=1|cp "\$ROOT/\.claude/roadmap-queue\.sh"' \
       | sed "s|^|${f#"$1"/}:|"
@@ -391,6 +394,10 @@ mkdir -p "$d/plant3/skills/session-start"
 printf '#!/bin/sh\nsn=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null)\nawk 1 "$ROOT/$ROADMAP"\nx=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP"; awk 1 "$ROOT/$ROADMAP")\n' > "$d/plant3/skills/session-start/marker.sh"
 p3=$(bypass "$d/plant3" | cut -d: -f1,2 | tr '\n' ' ')
 [ "$p3" = "skills/session-start/marker.sh:3 skills/session-start/marker.sh:4 " ] && ok "the marker's exemption covers only its roadmap-plan.sh call: a raw read added to it is flagged, on its own line or the call's" || fail "the marker plant flagged [$p3], want [skills/session-start/marker.sh:3 skills/session-start/marker.sh:4 ]"
+mkdir -p "$d/plant4"
+printf '#!/bin/sh\n  authority "$ROOT/$ROADMAP" > "$rmf"\nline=$(grep x "$ROOT/$ROADMAP")\n' > "$d/plant4/change-approval.sh"
+p4=$(bypass "$d/plant4" | cut -d: -f1,2 | tr '\n' ' ')
+[ "$p4" = "change-approval.sh:3 " ] && ok "change-approval.sh's exemption covers only its copy of main's roadmap: a raw read added to it is flagged" || fail "the change-approval plant flagged [$p4], want [change-approval.sh:3 ]"
 [ "$(cat "$d/skips2")" = "local/roadmap-tracker.sh" ] && ok "...and skips a path its own case allows, naming it" || fail "the allowlisted plant was not skipped and named: [$(cat "$d/skips2")]"
 : > "$d/skips"
 by=$(bypass "$fw" "$d/skips")

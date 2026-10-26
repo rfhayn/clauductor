@@ -44,8 +44,10 @@ If the line above shows as literal text instead of output, run
    - **c. Re-measure the row.** If it was split off a larger row or has taken on items since, count
      its write surfaces and its MODIFIED requirements. If it now looks like what a split existed
      to prevent (more than about three write surfaces, more than one screen), split the row in the
-     roadmap first (*Size a change so one review round converges*).
-1. **Name it.** A kebab-case id from the row (`add-member-invites`). Work on `<BRANCH_CHANGE><id>`
+     roadmap first (*Size a change so one review round converges*), and land the split on
+     `origin/main` before proposing: step 3a reads the row from there.
+1. **Name it.** A kebab-case id from the row (`add-member-invites`): the row's backticked change
+   id, which step 3a looks the row up by. Work on `<BRANCH_CHANGE><id>`
    (`clauductor-model project-config.sh branch change <id>` prints it), cut from `origin/main`, in a lane worktree (never the main checkout).
 2. **Draft** `changes/<id>/proposal.md`, `design.md`, `tasks.md` and any
    `specs/<capability>/spec.md` deltas, in the shapes `changes/README.md` gives:
@@ -95,20 +97,41 @@ If the line above shows as literal text instead of output, run
      rounds stopped first, `Review: NOT converged after <n> round(s), peak <sev>, open: <short
      list> at <short sha> · design <hash>`. Only the first lets `merge-pr` skip its review. When
      the owner approves, that hash must be the one in the Approved line. Nothing checks this line.
-3a. **A delegated approval** (OPS-127). Go to step 3 instead when any of these holds; the script
-   tests none of them, so this list is a skill step and nothing checks it:
-   - step 2b's rounds did not converge;
+3a. **A delegated approval** (OPS-127). Three stops are judgments the script cannot make, so they
+   are this skill step and nothing checks them:
+   - step 2b's rounds did not converge: go to step 3;
    - the change, or a decision in it, is money, legal or business, outward beyond this repo (a
-     public site, a payment, a signer, a release), irreversible, or needs the owner at the computer;
-   - it adds or amends an ADR or practice record, or its row says the owner approves it;
-   - its `**Risk:**` is lower than its row's own `Risk:` (a row with none is normal).
+     public site, a payment, a signer, a release), irreversible, or needs the owner at the
+     computer;
+   - its row, or the session plan's *The owner decides* cell for it, keeps the approval for the
+     owner in words other than an `Approval:` in the row's Change cell (the script reads only
+     that marker).
+   For the last two, add `**Approval:** owner — <why>` under the proposal's Risk line, so
+   `--delegate` refuses it from then on, and go to step 3.
    Otherwise run `clauductor-model change-approval.sh <id> --delegate "<OWNER_NAME>"`. It records
    `**Approved:** <date> by Claude (delegated by <owner>) · design <hash>` only while
-   `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote), the change
-   names no path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt` lists,
-   and it was never approved before (a standing Approved line, or a Status line `--revoke` marked
-   `(revoked; was approved by …)`, whoever approved it); otherwise it refuses and says why: go to
-   step 3. On success: run `clauductor-model checks/run.sh
+   `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote); the change
+   touches no path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt`
+   lists, nor `ADR_DIR` or `PRACTICES_DIR`; the proposal has no `Approval:` marker (in a list,
+   a quote or prose too), nor any version in its history one; its roadmap row, the one row of
+   `origin/<MAIN_BRANCH>`'s roadmap that names the change (the table row whose first backticked
+   id is the change's, whatever a `ROADMAP_PARSER` says), is a line of the `| # | Change | … |`
+   table and the proposal's `**Roadmap row:**`, has no `Approval:` in its Change cell (however
+   marked up, read as rendered, so emphasis, a tag, a comment, a link, an entity or a character
+   outside ASCII hides none, and a `<` that opens no tag is text; one outside ASCII after
+   `approval` or `risk` reads as a colon, so it refuses; look-alike letters are yours to catch;
+   only a backticked whole
+   marker, `` `Approval: owner` ``, is a mention) and no Risk
+   other than `Risk: low|normal|high`; its `**Risk:**` is not
+   below that row's `Risk:` (a row with none is normal); and it was never approved before (a standing Approved
+   line, a Status line `--revoke` marked `(revoked; was approved by …)`, or an Approved line in
+   `proposal.md`'s history on the branch or `origin/<MAIN_BRANCH>`, across a move of its whole
+   directory, or a line for it in this clone's approval log, whoever approved it). With no
+   approval log yet it refuses: the owner starts one on their word (`--start-log "<owner>"`,
+   `changes/README.md`).
+   Otherwise it refuses and says why: go to step 3, and quote the refusal line in the PR body
+   and the owner's notification, so the owner sees the cause (a log to start is theirs to do).
+   On success: run `clauductor-model checks/run.sh
    changes`, open the PR `proposal: <id>` with the decisions you took (each with the alternative it
    beat), the slice line, the `Review:` line and a line `Approved: by Claude on delegation · design
    <hash>`; then `PushNotification` the owner ONE line naming the change, its decisions and the PR,

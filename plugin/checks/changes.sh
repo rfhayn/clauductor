@@ -34,7 +34,7 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
     cp "$CLAUDUCTOR_FW/checks/lib.sh" "$F/.claude/checks/"
     cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$CLAUDUCTOR_FW/change-approval.sh" "$F/.claude/"
     cp -R "$EX/changes/add-greeting-name" "$F/changes/"; cp -R "$EX/specs/greeting" "$F/specs/"
-    printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-greeting-name` — a member sees their name | s · Budget: $15 | — | ⬜ queued |\n' > "$F/docs/roadmap.md"
+    printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-greeting-name` — a member sees their name. Risk: low | s · Budget: $15 | — | ⬜ queued |\n' > "$F/docs/roadmap.md"
     (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null)
   }
   run_on() { (ROOT="$F" CHANGES_SELFTEST=1 sh "$me" > "$(scratch)/selftest.out" 2>&1); }
@@ -72,7 +72,17 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk delegguard; delegate 1; printf -- '- [ ] 9.1 Edit `template/.claude/hooks/pr-merge-guard.sh`\n' >> "$F/$C/tasks.md"
   case_bad "a delegated approval of a change whose task names a guarded path" "touches a guarded path"
   mk delegsuffix; delegate 1; printf -- '- [ ] 9.1 Reword `AGENTS.md:40` and `AGENTS.md#who-decides`\n' >> "$F/$C/tasks.md"
-  case_bad "a delegated approval of a change whose task names a guarded path with a line or an anchor" "(approval-guarded.txt): AGENTS.md "
+  case_bad "a delegated approval of a change whose task names a guarded path with a line or an anchor" "PRACTICES_DIR): AGENTS.md "
+  # What the owner keeps beyond the lists (OPS-131) voids a standing delegated approval too.
+  mk delegkept; delegate 1; edit docs/roadmap.md 's/Risk: low |/Risk: low. Approval: owner |/'
+  case_bad "a delegated approval of a change whose row says Approval: owner" "row 1.1 says Approval: owner"
+  mk delegfloor; delegate 1; edit docs/roadmap.md 's/Risk: low |/Risk: high |/'
+  case_bad "a delegated approval whose Risk is below its row's" "below row 1.1's high"
+  mk delegnorow; delegate 1; edit $C/proposal.md '/^\*\*Roadmap row:\*\*/d'
+  case_bad "a delegated approval whose proposal names no roadmap row" "names no **Roadmap row:**"
+  mk delegotherrow; delegate 1; edit docs/roadmap.md 's/Risk: low |/Risk: high |/'
+  printf '| 1.2 | `other-thing` — x. Risk: low | s | — | ⬜ queued |\n' >> "$F/docs/roadmap.md"; edit $C/proposal.md 's/^\*\*Roadmap row:\*\* .*/**Roadmap row:** 1.2/'
+  case_bad "a delegated approval whose proposal names another change's laxer row" "names row 1.2, but row 1.1"
   mk delegnorepo; delegate 1; rm -rf "$F/.git"; case_bad "a delegated approval outside a git repository (an archive clean room)" "is not a git repository"
   mk delegnomain; delegate 1; git -C "$F" remote add origin "$F/nowhere"; case_bad "a delegated approval in a clone with no origin/main (a shallow CI checkout)" "no origin/main to read"
   mk delegown; delegate 1; mkdir -p "$F/.claude/local"; echo 'src/home' > "$F/.claude/local/approval-guarded.txt"

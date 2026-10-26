@@ -22,6 +22,7 @@ every open change against the shape below.
 **Roadmap row:** <row id>
 **Risk:** low | normal | high
 **Budget:** $N                                         ← when the roadmap row has `Budget: $N`; `$N, soft` if the owner made it soft
+**Approval:** owner — <why>                            ← only when the owner keeps it (`/clauductor:propose` step 3a)
 
 ## Why
 <the problem, and why now>
@@ -53,8 +54,61 @@ every open change against the shape below.
   (the project's own). "Touches" means a task line of `tasks.md` names the path or, on the change's
   branch, its diff changes it (both sides of a rename). The key and both lists are read from
   `origin/<main>`; only a repository with no remote reads them from disk. Where neither can be read
-  (outside a repository, as in a `GATE_CLEAN_ROOM="archive"` gate, or a CI checkout without
-  `origin/<main>`) a delegated approval does not hold.
+  (outside a repository, as in a `GATE_CLEAN_ROOM="archive"` gate, a shallow clone, whose history
+  stops at its depth, or a CI checkout without `origin/<main>`) a delegated approval does not hold. It is refused, and fails, too (OPS-131) for
+  a change that touches `ADR_DIR` or `PRACTICES_DIR`; whose proposal has a line
+  `**Approval:** owner — <why>` (`/clauductor:propose` step 3a writes it for a change that is money, legal or
+  business, outward, irreversible or needs the owner at the computer; any `Approval:` line counts,
+  however it is marked up, in a list, a quote or the middle of a paragraph too, and so does one
+  any version in its history holds: a proposal that ever said `owner approval: none` in prose goes
+  to the owner for good, the safe side to err on);
+  whose roadmap row has any `Approval:` in its Change cell (`Approval: owner`, `**Approval:** owner`,
+  `_Approval_: owner`, `` `Approval:` owner ``, `approval:owner`; only a backticked span holding a
+  whole marker, key, colon and value, is a mention), or any Risk other than `Risk: low`, `normal` or
+  `high` (`Risk: High`, `Risk: very high`, `Risk: critical`; `review-cap.sh` refuses it too); or
+  whose `**Risk:**` is below the row's `Risk:` (a row with none is normal); `Risk: low-ish` is a
+  Risk other than those. A marker is read as it renders (`marker_plain` in `${CLAUDE_PLUGIN_ROOT}/lib/change.sh`),
+  left to right as CommonMark reads it: emphasis or code inside the word (`**Appro*val*:**`), an
+  HTML tag or comment (`Appro<b></b>val:`), a link (`[Approval](x):`), text that is no link or a
+  reference label (`[x](Approval: owner)`, `[x][Risk: high]`), an entity, a letter (`Ri&#115;k:`),
+  a colon (`&#58;`, `&#65306;`) or a named one not listed (`Approval&ratio; owner`), a control
+  character, a look-alike colon (`：`, `ː`) or, in a proposal, a line break inside the marker hides
+  none. A `<` that opens no tag (`p95 < 50ms`) is text, and
+  so is a code span or an escape (`\<`), so neither starts a tag that hides a marker. What is not
+  ASCII and not a known space, dash, quote, bullet or arrow reads as nothing inside a word (an
+  invisible or combining character, `Appro&#847;val:`) and as a colon outside one or right after
+  `approval` or `risk` (`Approvalːowner`), so it refuses rather than miss a marker: the safe side.
+  Letters that only look Latin (a Cyrillic `А`) are not read: that is `/clauductor:propose` step 3a's
+  judgment. The row is the one row of `origin/<main>`'s roadmap
+  that names the change's id, and the proposal's `**Roadmap row:**` must be it: no such row, two of
+  them, a proposal naming another, or a row that is not a line of the `| # | Change | … |` table (a
+  `ROADMAP_PARSER` of the project's own may name one; `review-cap.sh` refuses it too) refuses. A
+  project's parser runs from the branch, so the line it names must be the table row whose first
+  backticked id is the change's, or it refuses.
+  And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>`, holds an
+  Approved line; the check fails a delegated line whose history shows an Approved line removed. So
+  once the revoke is on `origin/<main>`, a hand edit of a revoked Status line, or of the Approved
+  line back in, does not reopen it. Every version counts, a merge's own resolution included.
+  The history is followed across a move of the change's whole
+  directory, and only that: a commit that moves it and adds another change (a split), or leaves a
+  file of it behind, starts a new lineage, so no other change's history is read as this one's
+  (#272). It includes an earlier change's under the same id, so a new change takes a new id.
+- **The approval log** (OPS-131, #272) holds what a rewrite of the branch could take out of its
+  history. `--record`, `--delegate` and `--revoke` each add a line to
+  `<git common dir>/clauductor/approvals.log` (`git rev-parse --git-common-dir`, outside every
+  branch and shared by every worktree of the clone), and `--delegate` refuses a change the log
+  names, so a revoke made only on a branch still holds here after that branch is rewritten. A log
+  the owner never started (missing, or holding no `start` or `record` line), or one that is
+  unreadable or cannot be appended to, refuses too: a log that cannot vouch is not "never
+  approved". The owner starts it once per clone, on their word,
+  `clauductor-model change-approval.sh --start-log "<owner>"`, or their first `--record` does. A
+  `--revoke` the log cannot take still revokes, and exits 1 to say the log missed it. Three
+  limits: the log is **per clone**, so another machine or a fresh clone does not see this one's
+  revokes until they land on `origin/<main>`, where the history is firm; it keys on the change's
+  **id**, so a change filed again under a new id is new to it; and it **guards the act, not the
+  merge**: the check never reads it (a CI runner has none), so an Approved line written past
+  `--delegate` by hand is caught by the history once the revoke is on `origin/<main>`, and before
+  that only by review.
 - **Risk** picks the build's models: a role with a variant for the tier in
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.

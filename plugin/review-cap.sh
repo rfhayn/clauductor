@@ -13,7 +13,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #   a change with a proposal   its `**Risk:**` line (CHANGES_DIR/<id>/proposal.md), which the owner
 #                              approved with the design;
 #   an ops or fix row          a `Risk: low|normal|high` in its Change cell, outside backticks (a
-#                              backticked one is the row talking ABOUT a risk), else normal;
+#                              backticked one is the row talking ABOUT a risk), else normal; any
+#                              other Risk (`Risk: High`, `Risk: critical`; row_risk_odd), or a row
+#                              line not of the queue table (a ROADMAP_PARSER's own shape), refuses;
 #   no row and no proposal     normal, said on --why (a fix/<n>-<slug> from an issue has no row).
 # The rounds per risk are REVIEW_CAPS (.claude/project.conf; low 2, normal 3, high 3 by default).
 ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
@@ -56,8 +58,20 @@ if [ -n "$row" ]; then
   fi
   # The ROADMAP line itself, not the summary column: a parser of the project's own may shorten it.
   line=$(printf '%s\n' "$row" | cut -f1)
-  # The Change cell only (cell 3 of `| # | Change | Scope | Deps | Status |`), backticks out.
-  risks=$(sed -n "${line}p" "$ROOT/$ROADMAP" | sed 's/`[^`]*`//g' | awk -F'|' '{ print $3 }' | grep -oE 'Risk: (low|normal|high)' | sed 's/^Risk: //' | sort -u)
+  # The Change cell only, backticks out (lib/change.sh row_risks), of a line of the queue table: the
+  # cells of a line a project's own parser names in another shape cannot be found, and none is not
+  # normal.
+  rl=$(sed -n "${line}p" "$ROOT/$ROADMAP")
+  printf '%s\n' "$rl" | row_is_table "$rid" || {
+    echo "ERROR: row $rid is not a line of the | # | Change | Scope | Deps | Status | table (a ROADMAP_PARSER of the project's own?), so its Risk and the review cap are UNKNOWN" >&2
+    exit 1
+  }
+  odd=$(printf '%s\n' "$rl" | row_risk_odd)
+  [ -z "$odd" ] || {
+    echo "ERROR: row $rid's Change cell says '$odd', a Risk that is not Risk: low, normal or high, so the review cap is UNKNOWN" >&2
+    exit 1
+  }
+  risks=$(printf '%s\n' "$rl" | row_risks)
   case $(printf '%s\n' "$risks" | grep -c .) in
     0) say normal "row $rid (no Risk: in its Change cell)" ;;
     1) say "$risks" "row $rid's Change cell" ;;
