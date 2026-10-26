@@ -104,17 +104,19 @@ If the line above shows as literal text instead of output, run
      public site, a payment, a signer, a release), irreversible, or needs the owner at the
      computer;
    - its row, or the session plan's *The owner decides* cell for it, keeps the approval for the
-     owner in words other than `Approval: owner` (the script reads only that marker).
+     owner in words other than an `Approval:` in the row's Change cell (the script reads only
+     that marker).
    For the last two, add `**Approval:** owner — <why>` under the proposal's Risk line, so
    `--delegate` refuses it from then on, and go to step 3.
    Otherwise run `sh .claude/change-approval.sh <id> --delegate "<OWNER_NAME>"`. It records
    `**Approved:** <date> by Claude (delegated by <owner>) · design <hash>` only while
    `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote); the change
    touches no path `.claude/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt`
-   lists, nor `ADR_DIR` or `PRACTICES_DIR`; the proposal has no `**Approval:**` line; its roadmap
-   row, the one row of `origin/<MAIN_BRANCH>`'s roadmap that names the change, is the proposal's
-   `**Roadmap row:**` and does not say `Approval: owner`; its `**Risk:**` is not below that row's
-   `Risk:` (a row with none is normal); and it was never approved before (a standing Approved
+   lists, nor `ADR_DIR` or `PRACTICES_DIR`; the proposal has no `**Approval:**` line, nor one its
+   history shows removed; its roadmap row, the one row of `origin/<MAIN_BRANCH>`'s roadmap that
+   names the change, is the proposal's `**Roadmap row:**`, has no `Approval:` in its Change cell
+   outside backticks and spells any Risk tier `Risk: low|normal|high`; its `**Risk:**` is not
+   below that row's `Risk:` (a row with none is normal); and it was never approved before (a standing Approved
    line, a Status line `--revoke` marked `(revoked; was approved by …)`, or an Approved line in
    `proposal.md`'s history on the branch or `origin/<MAIN_BRANCH>`, across a move of its whole
    directory, or a line for it in this clone's approval log, whoever approved it). With no

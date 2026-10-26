@@ -102,6 +102,18 @@ D; expect_rc 1 $? "change-approval --delegate refuses a change whose row says Ap
 grep -q 'row 1.1.*Approval: owner' "$d/out" && ok "...and names the row" || fail "no row marker in: $(cat "$d/out")"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. approval: Owner'
 D; expect_rc 1 $? "change-approval --delegate refuses a row marker in any case"
+for spelt in '**Approval:** owner' 'Approval:owner' 'Approval: the owner'; do
+  roadmap "\`add-greeting-name\` — greet a member by name. Risk: low. $spelt"
+  D; expect_rc 1 $? "change-approval --delegate refuses a row marker spelt '$spelt'"
+done
+# A stray backtick in the Change cell pairs with nothing in the Scope's span, so it hides neither
+# marker.
+roadmap '`add-greeting-name` — trims 5` of padding. Approval: owner'
+D; expect_rc 1 $? "change-approval --delegate reads Approval: owner past a stray backtick"
+grep -q 'says Approval: owner' "$d/out" && ok "...and names the marker" || fail "no stray-backtick marker reason in: $(cat "$d/out")"
+roadmap '`add-greeting-name` — trims 5` of padding. Risk: high'
+D; expect_rc 1 $? "change-approval --delegate reads the row's Risk past a stray backtick"
+grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no stray-backtick floor reason in: $(cat "$d/out")"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row says `Approval: owner` to keep it'
 D; expect_rc 0 $? "change-approval --delegate passes a row that only names the marker in backticks"
 roadmap '`add-greeting-name` — greet a member by name'
@@ -141,11 +153,13 @@ grep -q 'says Approval: owner' "$d/out" && ok "...and names the marker" || fail 
 roadmap '`add-greeting-name` — greet a member by a \| b name. Risk: high'
 D; expect_rc 1 $? "change-approval --delegate reads the row's Risk past an escaped pipe in the Change cell"
 grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no escaped-pipe floor reason in: $(cat "$d/out")"
-for spelt in 'Risk: High' 'risk:high'; do
+for spelt in 'Risk: High' 'risk:high' '**Risk:** high'; do
   roadmap "\`add-greeting-name\` — greet a member by name. $spelt"
   D; expect_rc 1 $? "change-approval --delegate refuses a row whose Risk is spelt '$spelt'"
   grep -q "a Risk the floor cannot read" "$d/out" && ok "...and says the floor cannot be read" || fail "no spelling reason in: $(cat "$d/out")"
 done
+roadmap '`add-greeting-name` — greet a member by name. Risk: low. The main risk: a stale cache'
+D; expect_rc 0 $? "change-approval --delegate passes a row whose prose says 'risk:' with no tier"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 # A proposal --delegate cannot write never enters the log as approved.
 startlog; grep -v '^\*\*Status:\*\*' "$d/fresh.md" > "$C/proposal.md"; A --delegate Ana
@@ -257,6 +271,11 @@ roadmap '`greeting-renamed` — greet a member by name. Risk: low'
 (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-renamed --delegate Ana) > "$d/out" 2>&1
 expect_rc 1 $? "change-approval --delegate follows the proposal's history across a rename of its directory"
 grep -q 'history on this branch holds an Approved line' "$d/out" && ok "...and finds the Approved line before the rename" || fail "no history reason in: $(cat "$d/out")"
+# A move git cannot read refuses, as any history read does: a shim fails only git diff-tree.
+mkdir -p "$d/shim2"; printf '#!/bin/sh\ncase " $* " in *" diff-tree "*) echo "fatal: no tree" >&2; exit 128 ;; esac\nexec %s "$@"\n' "$(command -v git)" > "$d/shim2/git"; chmod +x "$d/shim2/git"
+(cd "$R" && PATH="$d/shim2:$PATH" GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-renamed --delegate Ana) > "$d/out" 2>&1
+expect_rc 1 $? "change-approval --delegate refuses when a move in the history cannot be read"
+grep -q 'cannot be read: a move at [0-9a-f]' "$d/out" && ok "...and names the move" || fail "no move-read reason in: $(cat "$d/out")"
 # Only a move of the whole directory continues a change (#272). A commit that moves it but adds a
 # second change is a split, and one that leaves a file behind is a new change: neither inherits the
 # history git's --follow would pair it with.
@@ -290,9 +309,37 @@ git -C "$R" commit -qm "move the change into greeting-d, file by file"
 roadmap '`greeting-d` — greet a member by name. Risk: low'
 startlog; (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-d --delegate Ana) > "$d/out" 2>&1
 expect_rc 0 $? "change-approval --delegate does not read the history of a change moved into another's directory"
-git -C "$R" reset -q --hard "$s0"; rm -rf "$R/changes/greeting-a" "$R/changes/greeting-b" "$R/changes/greeting-c" "$R/changes/greeting-d"
+# A history of more than 50 moves refuses rather than read on.
+git -C "$R" reset -q --hard "$s0"; prev=greeting-renamed
+for i in $(seq 1 51); do
+  git -C "$R" mv "changes/$prev" "changes/greeting-m$i" && git -C "$R" commit -qm "move $i" || fail "change-tools: move $i"
+  prev=greeting-m$i
+done
+roadmap '`greeting-m51` — greet a member by name. Risk: low'
+startlog; (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-m51 --delegate Ana) > "$d/out" 2>&1
+expect_rc 1 $? "change-approval --delegate refuses a history of more than 50 moves"
+grep -q 'more than 50 moves' "$d/out" && ok "...and says so" || fail "no move-cap reason in: $(cat "$d/out")"
+git -C "$R" reset -q --hard "$s0"; rm -rf "$R/changes/greeting-a" "$R/changes/greeting-b" "$R/changes/greeting-c" "$R/changes/greeting-d" "$R"/changes/greeting-m*
 git -C "$R" reset -q --hard "$b0"; rm -rf "$R/changes/greeting-renamed"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
+# A proposal's Approval line removed by hand stays in its history: the owner keeps the change.
+awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a signer" }' "$d/fresh.md" > "$C/proposal.md"
+git -C "$R" add "$C" && git -C "$R" commit -qm "proposal: kept for the owner"
+cp "$d/fresh.md" "$C/proposal.md"; git -C "$R" commit -qm "proposal: marker removed by hand" -- "$C/proposal.md"
+startlog; F; expect_rc 1 $? "change-approval --delegate refuses a proposal whose history shows its Approval line removed"
+grep -q 'history on this branch holds a removed \*\*Approval:\*\* line' "$d/out" && ok "...and says so" || fail "no removed-marker reason in: $(cat "$d/out")"
+cp "$d/delegated1.md" "$C/proposal.md"; A; expect_rc 1 $? "change-approval: a delegated approval of it does not hold"
+grep -q 'removed \*\*Approval:\*\* line' "$d/out" && ok "...and says why" || fail "no removed-marker reason in the check: $(cat "$d/out")"
+git -C "$R" reset -q --hard "$b0"; rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
+# A side branch a merge discarded (-s ours) is still history: its Approved line counts.
+{ git -C "$R" checkout -q -b side && cp "$d/delegated1.md" "$C/proposal.md" \
+  && git -C "$R" add "$C" && git -C "$R" commit -qm "side: delegated" \
+  && git -C "$R" checkout -q change/add-greeting-name && git -C "$R" merge -q -s ours --no-edit side; } > "$d/side" 2>&1 \
+  || fail "change-tools: the side branch did not merge: $(cat "$d/side")"
+rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"; startlog; F
+expect_rc 1 $? "change-approval --delegate reads a side branch a merge discarded"
+grep -q 'history on this branch holds an Approved line' "$d/out" && ok "...and finds its Approved line" || fail "no side-branch reason in: $(cat "$d/out")"
+git -C "$R" reset -q --hard "$b0"; git -C "$R" branch -q -D side; rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
 A; expect_rc 0 $? "change-tools: the delegated approval holds again once the history cases are undone"
 # On the change's own branch, its diff counts, not only what its tasks name.
 mkdir -p "$R/.claude/hooks"; echo '# loosened' > "$R/.claude/hooks/pr-merge-guard.sh"

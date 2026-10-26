@@ -21,6 +21,8 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | 1.6 | `ops/risky` — says how `Risk: low` would read, then Risk: high | s | — | ⬜ queued |
 | 1.7 | `fix/7-two` — Risk: low, then Risk: high | s | — | ⬜ queued |
 | 1.8 | `ops/cell` — the row, Risk: high | the Scope says Risk: low | — | ⬜ queued |
+| 1.9 | `ops/pipe` — a \| b. Risk: high | s | — | ⬜ queued |
+| 1.10 | `ops/tick` — trims 5` of padding. Risk: high | `s` | — | ⬜ queued |
 EOF
 printf '# add-low\n\n**Risk:** low\n' > "$F/changes/add-low/proposal.md"
 printf '# add-bad\n\n**Risk:** medium\n' > "$F/changes/add-bad/proposal.md"
@@ -49,6 +51,8 @@ refuses "is not here" "a change row with no proposal" add-none
 refuses "not low, normal or high" "a proposal whose Risk is not a tier" add-bad
 refuses "more than one risk" "a Change cell naming two risks" fix/7-two
 is 4 "only the Change cell's Risk counts, not the Scope's" ops/cell
+is 4 "an escaped pipe does not end the Change cell" ops/pipe
+is 4 "a stray backtick does not pair with the Scope's" ops/tick
 printf 'REVIEW_CAPS="low:1 normal:4 high:5"\n' > "$F/.claude/project.conf"
 is 1 "REVIEW_CAPS sets the rounds (low:1)" add-low
 is 4 "REVIEW_CAPS sets the rounds (normal:4)" 1.5

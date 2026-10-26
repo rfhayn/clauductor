@@ -59,8 +59,10 @@ every open change against the shape below.
   a change that touches `ADR_DIR` or `PRACTICES_DIR`; whose proposal has a line
   `**Approval:** owner — <why>` (`/propose` step 3a writes it for a change that is money, legal or
   business, outward, irreversible or needs the owner at the computer; any `**Approval:**` line
-  counts); whose roadmap row says `Approval: owner` (any case) in its Change cell, outside
-  backticks; or whose `**Risk:**` is below the row's `Risk:` (a row with none is normal). The row
+  counts, and so does one its history shows removed); whose roadmap row has any `Approval:` in its
+  Change cell outside backticks (`Approval: owner`, `**Approval:** owner`, `approval:owner`), or a
+  Risk tier spelled other than `Risk: low`, `normal` or `high` (`Risk: High`); or whose
+  `**Risk:**` is below the row's `Risk:` (a row with none is normal). The row
   is the one row of `origin/<main>`'s roadmap that names the change's id, and the proposal's
   `**Roadmap row:**` must be it: no such row, two of them, or a proposal naming another refuses.
   And `--delegate` refuses a proposal whose history, on the branch or `origin/<main>`, holds an
