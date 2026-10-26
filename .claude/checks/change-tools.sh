@@ -95,7 +95,8 @@ awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a sign
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal marked '**Approval:** owner'"
 grep -q 'Approval:\*\* owner' "$d/out" && ok "...and names the marker" || fail "no marker in: $(cat "$d/out")"
 awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** the Owner, as signer" }' "$d/fresh.md" > "$C/proposal.md"
-A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line in other words"
+startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line in other words"
+grep -q 'proposal.md says \*\*Approval:\*\* the Owner' "$d/out" && ok "...and quotes the line" || fail "no Approval-line reason in: $(cat "$d/out")"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. Approval: owner'
 D; expect_rc 1 $? "change-approval --delegate refuses a change whose row says Approval: owner"
 grep -q 'row 1.1.*Approval: owner' "$d/out" && ok "...and names the row" || fail "no row marker in: $(cat "$d/out")"
@@ -189,9 +190,22 @@ else F; expect_rc 1 $? "change-approval --delegate refuses an approval log it ca
   grep -q "approval log .* cannot be written" "$d/out" && ok "...and says it cannot be written" || fail "no unwritable reason in: $(cat "$d/out")"
   grep -q '^\*\*Approved:' "$C/proposal.md" && fail "--delegate wrote the Approved line though the log refused it" || ok "...and leaves the proposal unapproved"
   A --record Ana; expect_rc 1 $? "change-approval --record refuses when it cannot log the approval"
+  # A revoke fails toward the owner: it takes the approval away though the log cannot record it.
+  cp "$d/delegated1.md" "$C/proposal.md"; A --revoke; expect_rc 1 $? "change-approval --revoke exits 1 when it cannot log the revoke"
+  grep -q '^\*\*Status:\*\* awaiting approval (revoked' "$C/proposal.md" && ok "...but revokes the approval all the same" || fail "--revoke left: $(head -2 "$C/proposal.md")"
+  grep -q "approval log .* cannot be written, so this revoke is only on the branch" "$d/out" && ok "...and says the log did not take it" || fail "no unlogged-revoke reason in: $(cat "$d/out")"
 fi
 chmod 644 "$L"
 (cd "$R" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1; expect_rc 1 $? "change-approval --start-log refuses a log already started"
+# A log holding only a revoke was never started: the owner's start or record line is what lets the
+# log say "never approved", so --delegate refuses, and --start-log starts it.
+rm -f "$L"; cp "$d/delegated1.md" "$C/proposal.md"; A --revoke; expect_rc 0 $? "change-approval --revoke with no log creates it"
+grep -q "	add-greeting-name	revoke	" "$L" && ok "...and records the revoke" || fail "no revoke line in a log --revoke created: $(cat "$L" 2>&1)"
+cp "$d/fresh.md" "$C/proposal.md"; sed '/	add-greeting-name	/d' "$L" > "$d/log" && cp "$d/log" "$L"; echo "2026-01-01	other-change	revoke	Ana" >> "$L"
+F; expect_rc 1 $? "change-approval --delegate refuses a log the owner never started"
+grep -q "never started by the .*--start-log" "$d/out" && ok "...and names --start-log" || fail "no unstarted reason in: $(cat "$d/out")"
+(cd "$R" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1; expect_rc 0 $? "change-approval --start-log starts a log that holds only a revoke"
+F; expect_rc 0 $? "change-approval --delegate passes once the log is started"
 # Every worktree of a clone shares its log, in the common git dir.
 W="$d/wt"; git -C "$R" worktree add -q --detach "$W" HEAD; rm -f "$L"
 (cd "$W" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1; expect_rc 0 $? "change-approval --start-log in a worktree"
@@ -206,6 +220,11 @@ cp "$C/proposal.md" "$d/delegated0.md"; A --revoke; git -C "$R" commit -qm "prop
 cp "$d/delegated0.md" "$C/proposal.md"
 A; expect_rc 1 $? "change-approval: a delegated line put back by hand after a revoke does not hold"
 grep -q 'removed Approved line' "$d/out" && ok "...and says its history shows one removed" || fail "no removed-line reason in: $(cat "$d/out")"
+# An attribute that hides a diff (-diff, binary, a textconv) does not hide the history from it.
+echo 'changes/** -diff' > "$R/.git/info/attributes"
+A; expect_rc 1 $? "change-approval: a -diff attribute does not hide the history's removed Approved line"
+grep -q 'removed Approved line' "$d/out" && ok "...and it still says why" || fail "no removed-line reason under -diff in: $(cat "$d/out")"
+rm -f "$R/.git/info/attributes"
 cp "$d/fresh.md" "$C/proposal.md"; git -C "$R" commit -qm "proposal: Status reset by hand" -- "$C/proposal.md"
 git -C "$R" mv changes/add-greeting-name changes/greeting-renamed && git -C "$R" commit -qm "rename the change"
 roadmap '`greeting-renamed` — greet a member by name. Risk: low'
@@ -232,7 +251,20 @@ git -C "$R" diff-tree -r -M --name-status HEAD^ HEAD | grep -q "^D	changes/greet
 roadmap '`greeting-c` — greet a member by name. Risk: low'
 startlog; (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-c --delegate Ana) > "$d/out" 2>&1
 expect_rc 0 $? "change-approval --delegate does not read the history of a directory only partly moved"
-git -C "$R" reset -q --hard "$s0"; rm -rf "$R/changes/greeting-a" "$R/changes/greeting-b" "$R/changes/greeting-c"
+# A move into a directory that already held a change merges two changes: it continues neither.
+git -C "$R" reset -q --hard "$s0"
+mkdir -p "$R/changes/greeting-d" && echo "Notes for another change." > "$R/changes/greeting-d/notes.md" \
+  && git -C "$R" add changes/greeting-d && git -C "$R" commit -qm "another change's notes"
+for f in $(git -C "$R" ls-files changes/greeting-renamed); do
+  to="changes/greeting-d/${f#changes/greeting-renamed/}"; mkdir -p "$R/${to%/*}"
+  git -C "$R" mv "$f" "$to" || fail "change-tools: git mv $f"
+done
+git -C "$R" commit -qm "move the change into greeting-d, file by file"
+[ -z "$(git -C "$R" ls-files changes/greeting-renamed)" ] || fail "change-tools: the file-by-file move left greeting-renamed behind"
+roadmap '`greeting-d` — greet a member by name. Risk: low'
+startlog; (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh greeting-d --delegate Ana) > "$d/out" 2>&1
+expect_rc 0 $? "change-approval --delegate does not read the history of a change moved into another's directory"
+git -C "$R" reset -q --hard "$s0"; rm -rf "$R/changes/greeting-a" "$R/changes/greeting-b" "$R/changes/greeting-c" "$R/changes/greeting-d"
 git -C "$R" reset -q --hard "$b0"; rm -rf "$R/changes/greeting-renamed"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 A; expect_rc 0 $? "change-tools: the delegated approval holds again once the history cases are undone"

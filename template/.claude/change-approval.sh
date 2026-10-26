@@ -20,8 +20,8 @@
 #   sh .claude/change-approval.sh <id> --revoke            back to `**Status:** awaiting approval
 #                                                          (revoked; was approved by <who>)`
 #   sh .claude/change-approval.sh --start-log "<owner>"    start this clone's approval log, on the
-#                                                          owner's word: --delegate refuses until it
-#                                                          exists (or an --record creates it)
+#                                                          owner's word: --delegate refuses until a
+#                                                          start or record line is in it
 #
 # A revoke is final for delegation (OPS-128, the owner's ruling): once a change has been approved
 # and revoked, whoever approved it, only the owner approves it again. --revoke keeps who approved in
@@ -32,7 +32,8 @@
 # history is never read as this one's. It is firm on origin/<MAIN_BRANCH>; the branch's own can be
 # rewritten, so --record, --delegate and --revoke also add a line to the approval log,
 # <git common dir>/clauductor/approvals.log, which no branch carries, and --delegate refuses a change
-# the log names. The log guards the act, not the merge: the check never reads it, since a CI runner
+# the log names. A revoke the log cannot take still revokes, and exits 1 to say so. The log keys on
+# the change's id, so a change filed again under a new id is new to it. The log guards the act, not the merge: the check never reads it, since a CI runner
 # has none. It is per clone (every worktree of a clone shares it): another machine, or a fresh clone,
 # starts its own, so a revoke made only on a branch elsewhere is not seen here (#272).
 #
@@ -60,11 +61,10 @@ if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$ROOT" &
   common=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P) \
     && approval_log="$common/clauductor/approvals.log"
 fi
-# log_append VERB WHO: add a line for this change; fails when the log cannot take it. --record and
-# --start-log create the log, as the owner's word; the others only add to one that exists.
+# log_append VERB WHO: add a line for this change, creating the log; fails when it cannot. A log is
+# started only by a start or record line, the owner's word: --delegate refuses until one is there.
 log_append() {
   [ -n "$approval_log" ] || return 0
-  [ -e "$approval_log" ] || [ "$1" = record ] || [ "$1" = start ] || return 0
   mkdir -p "${approval_log%/*}" 2>/dev/null \
     && printf '%s\t%s\t%s\t%s\n' "${APPROVAL_DATE:-$(date +%Y-%m-%d)}" "${id:--}" "$1" "$2" 2>/dev/null >> "$approval_log"
 }
@@ -73,7 +73,8 @@ if [ "${1:-}" = --start-log ]; then
   owner=${2:-}; [ -n "$owner" ] || { echo "change-approval: --start-log needs the owner's name" >&2; exit 64; }
   [ -z "$OWNER_NAME" ] || [ "$owner" = "$OWNER_NAME" ] || { echo "change-approval: only OWNER_NAME ($OWNER_NAME) starts the approval log, not $owner" >&2; exit 64; }
   [ -n "$approval_log" ] || { echo "change-approval: $ROOT is not a git repository's root, so it has no approval log" >&2; exit 1; }
-  [ ! -e "$approval_log" ] || { echo "change-approval: the approval log is started already: $approval_log" >&2; exit 1; }
+  ! awk -F'\t' '$3 == "start" { found = 1 } END { exit !found }' "$approval_log" 2>/dev/null \
+    || { echo "change-approval: the approval log is started already: $approval_log" >&2; exit 1; }
   id=""; log_append start "$owner" || { echo "change-approval: cannot write the approval log $approval_log" >&2; exit 1; }
   echo "started: the approval log $approval_log, by $owner"
   exit 0
@@ -238,6 +239,10 @@ change_root() {
 # partial move or a merge into another change starts a new lineage, so its history is not this
 # change's (OPS-131, #272). Prints nothing then; fails when git cannot answer.
 renamed_from() {
+  # Paths split on newlines only and never glob: a name with a space is one path. It always runs in
+  # a command substitution, so neither setting reaches the caller.
+  set -f; IFS='
+'
   c=$1 p=$2 new=${2%/*}
   git -C "$ROOT" rev-parse -q --verify "$c^" >/dev/null 2>&1 || return 0
   diff=$(git -C "$ROOT" diff-tree -r -M --name-status "$c^" "$c" -- "$CHANGES_DIR/") || return 1
@@ -274,8 +279,9 @@ history_holds() {
 "}
       p=${r#* }; r=${r%% *}; n=$((n + 1))
       [ "$n" -le 50 ] || { echo "its history on $where cannot be read: more than 50 moves of its directory"; return; }
-      # log.follow would turn this single-path log back into --follow.
-      log=$(git -C "$ROOT" -c log.follow=false log --no-renames --no-color --no-ext-diff --format= -p "$r" -- "$p" 2>&1) \
+      # log.follow would turn this single-path log back into --follow; --text and --no-textconv keep
+      # a -diff, binary or textconv attribute from hiding the lines.
+      log=$(git -C "$ROOT" -c log.follow=false log --no-renames --no-color --no-ext-diff --text --no-textconv --format= -p "$r" -- "$p" 2>&1) \
         || { echo "its history on $where cannot be read: $log"; return; }
       ! printf '%s\n' "$log" | grep -Eq "$1" || { echo "its history on $where holds $2"; return; }
       adds=$(git -C "$ROOT" -c log.follow=false log --no-renames --format=%H --diff-filter=A "$r" -- "$p" 2>&1) \
@@ -305,8 +311,10 @@ case "${1:-}" in
     # or cannot be read is not "never approved": it refuses, and the owner starts it (OPS-131, #272).
     [ -n "$approval_log" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the repository's common git dir cannot be found, so its approval log cannot be read" >&2; exit 1; }
     [ -e "$approval_log" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: no approval log at $approval_log, so this clone cannot tell whether it was approved before; the $OWNER_ROLE starts it on their word: 'sh .claude/change-approval.sh --start-log <owner>' (or approves this change: --record)" >&2; exit 1; }
-    seen=$(awk -F'\t' -v id="$id" '$2 == id && $3 != "start" { print $1 " " $3 " by " $4 }' "$approval_log" 2>/dev/null) && [ -r "$approval_log" ] \
+    seen=$(awk -F'\t' -v id="$id" '$3 == "start" || $3 == "record" { started = 1 } $2 == id && $3 != "start" { print $1 " " $3 " by " $4 } END { if (!started) print "unstarted" }' "$approval_log" 2>/dev/null) && [ -r "$approval_log" ] \
       || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log cannot be read" >&2; exit 1; }
+    # A revoke adds to a log the owner has not started: that log cannot say "never approved" either.
+    [ "$(printf '%s\n' "$seen" | tail -1)" != unstarted ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log was never started by the $OWNER_ROLE, so this clone cannot tell whether it was approved before: 'sh .claude/change-approval.sh --start-log <owner>' on their word (or approves this change: --record)" >&2; exit 1; }
     [ -z "$seen" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: this clone's approval log $approval_log shows it before ($(printf '%s\n' "$seen" | tail -1)), so only the $OWNER_ROLE approves it again: 'sh .claude/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
     log_append delegate "Claude (delegated by $owner)" || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by Claude (delegated by $owner) · design $hash"
@@ -323,9 +331,12 @@ case "${1:-}" in
     line=$(grep -E '^\*\*Approved:\*\*' "$dir/proposal.md" | head -1)
     [ -n "$line" ] || { echo "revoked: $CHANGES_DIR/$id has no Approved line; it is awaiting approval already"; exit 0; }
     who=$(printf '%s\n' "$line" | sed -nE 's/^\*\*Approved:\*\* [0-9-]+ by (.+) · design .*/\1/p')
-    log_append revoke "${who:-an unreadable line}" || { echo "change-approval: cannot revoke $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
+    # A revoke takes the approval away even when the log cannot record it: failing toward the owner
+    # means the approval does not stand. It says so, since a rewrite of the branch could then undo it.
+    log_append revoke "${who:-an unreadable line}"; logged=$?
     rewrite "**Status:** awaiting approval (revoked; was approved by ${who:-an unreadable line})"
     echo "revoked: $CHANGES_DIR/$id is awaiting approval again; only the $OWNER_ROLE approves it now (--record)"
+    [ "$logged" = 0 ] || { echo "change-approval: but the approval log $approval_log cannot be written, so this revoke is only on the branch: fix the log, then commit the revoke before anything rewrites the branch" >&2; exit 1; }
     ;;
   '')
     line=$(grep -E '^\*\*Approved:\*\*' "$dir/proposal.md" | head -1)

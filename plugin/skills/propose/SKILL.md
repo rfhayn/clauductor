@@ -118,7 +118,9 @@ If the line above shows as literal text instead of output, run
    directory, or a line for it in this clone's approval log, whoever approved it). With no
    approval log yet it refuses: the owner starts one on their word (`--start-log "<owner>"`,
    `changes/README.md`).
-   Otherwise it refuses and says why: go to step 3. On success: run `clauductor-model checks/run.sh
+   Otherwise it refuses and says why: go to step 3, and quote the refusal line in the PR body
+   and the owner's notification, so the owner sees the cause (a log to start is theirs to do).
+   On success: run `clauductor-model checks/run.sh
    changes`, open the PR `proposal: <id>` with the decisions you took (each with the alternative it
    beat), the slice line, the `Review:` line and a line `Approved: by Claude on delegation · design
    <hash>`; then `PushNotification` the owner ONE line naming the change, its decisions and the PR,

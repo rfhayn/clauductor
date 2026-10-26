@@ -75,13 +75,17 @@ every open change against the shape below.
   `<git common dir>/clauductor/approvals.log` (`git rev-parse --git-common-dir`, outside every
   branch and shared by every worktree of the clone), and `--delegate` refuses a change the log
   names, so a revoke made only on a branch still holds here after that branch is rewritten. A log
-  that is missing, unreadable or cannot be appended to refuses too: a missing log is not "never
+  the owner never started (missing, or holding no `start` or `record` line), or one that is
+  unreadable or cannot be appended to, refuses too: a log that cannot vouch is not "never
   approved". The owner starts it once per clone, on their word,
-  `clauductor-model change-approval.sh --start-log "<owner>"`, or their first `--record` does. Two
+  `clauductor-model change-approval.sh --start-log "<owner>"`, or their first `--record` does. A
+  `--revoke` the log cannot take still revokes, and exits 1 to say the log missed it. Three
   limits: the log is **per clone**, so another machine or a fresh clone does not see this one's
-  revokes until they land on `origin/<main>`, where the history is firm; and it **guards the act,
-  not the merge**: the check never reads it (a CI runner has none), so an Approved line written
-  past `--delegate` by hand is caught by the history and the review, not by the log.
+  revokes until they land on `origin/<main>`, where the history is firm; it keys on the change's
+  **id**, so a change filed again under a new id is new to it; and it **guards the act, not the
+  merge**: the check never reads it (a CI runner has none), so an Approved line written past
+  `--delegate` by hand is caught by the history once the revoke is on `origin/<main>`, and before
+  that only by review.
 - **Risk** picks the build's models: a role with a variant for the tier in
   `.claude/model-roles.json` runs on it (the builder is sonnet for low risk, opus/xhigh for high).
 - **Budget** is the change's appetite in dollars, repeated from its roadmap row.
