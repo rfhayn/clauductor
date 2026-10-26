@@ -10,6 +10,7 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // Hub owns the model and fans snapshots out to SSE subscribers.
@@ -153,6 +154,20 @@ func (h *Hub) Read(fn func(m *state.Model, now time.Time)) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	fn(h.model, h.clock.Now())
+}
+
+// Lane is lane id's view with its close verdict, and whether the panel lists it, read
+// under the hub's lock without building a whole View (state.Model.LaneView). live is
+// what tmux says of the lane now (nil: the last tmux poll's word).
+func (h *Hub) Lane(id string, live *types.LiveLane) (tv state.TermLaneView, ok bool) {
+	h.Read(func(m *state.Model, now time.Time) { tv, ok = m.LaneView(id, now, live) })
+	return tv, ok
+}
+
+// LaneCloseHeld is lane id's close verdict, read as Lane reads it.
+func (h *Hub) LaneCloseHeld(id string, live *types.LiveLane) (why string) {
+	h.Read(func(m *state.Model, now time.Time) { why = m.LaneCloseHeld(id, now, live) })
+	return why
 }
 
 // View returns the current view as a value.

@@ -157,6 +157,27 @@ type session struct {
 
 	// PANEL-51 (stall.go): its own clock, its kept Stop, its last SubagentStops.
 	stall stallSession
+
+	// PANEL-57 (closeheld.go): endedAt is when the session last ended (s.end, or a
+	// SessionEnd hook); closeStop is its last Stop's lists as the close verdict reads
+	// them, kept past s.end (which drops the stall's) until a newer Stop or the
+	// session is forgotten.
+	endedAt   time.Time
+	closeStop *keptStop
+	// closePID and closeStarted are the process the session was last listed under
+	// (0: not known), kept past s.end; closeSince is that process's listed start once
+	// a listing named another process than the one before (a Restart resumes the id),
+	// so what the old one left is not read for the new one (never set from a start
+	// not listed); ownPromptAt is the session's last own UserPromptSubmit, which
+	// LastPromptAt is not: that one takes a teammate's prompt too (an AgentID under
+	// its lead's id), and a teammate's turn is not the lead's; firstPoll: the panel's
+	// first successful poll listed this process, so it may have run turns before the
+	// panel heard any.
+	closePID     int
+	closeStarted int64
+	closeSince   time.Time
+	ownPromptAt  time.Time
+	firstPoll    bool
 }
 
 // CardState is the last result of one card.
@@ -186,14 +207,17 @@ type Model struct {
 	worktrees    []signals.Worktree
 	worktreesSrc SourceStatus
 	agentsSrc    SourceStatus
-	agentsOKAt   time.Time        // the last `claude agents` poll that succeeded
-	agentsDurs   [8]time.Duration // the last poll iterations' wall times (ApplyAgentsTimed)
-	agentsDurN   int
-	agentsNext   time.Duration // how long the loop waits after its last poll (agentsFresh)
-	agentsSlow   time.Duration // the slow interval, the least agentsFresh allows for (0: AgentsSlow)
-	prs          []signals.PR
-	prsSrc       SourceStatus
-	cards        []*CardState
+	agentsOKAt   time.Time // the last `claude agents` poll that succeeded
+	// agentsPollStart is when that poll started (ApplyAgentsTimed): a session that
+	// ended after it may still be listed in it (PANEL-57, closeheld.go).
+	agentsPollStart time.Time
+	agentsDurs      [8]time.Duration // the last poll iterations' wall times (ApplyAgentsTimed)
+	agentsDurN      int
+	agentsNext      time.Duration // how long the loop waits after its last poll (agentsFresh)
+	agentsSlow      time.Duration // the slow interval, the least agentsFresh allows for (0: AgentsSlow)
+	prs             []signals.PR
+	prsSrc          SourceStatus
+	cards           []*CardState
 
 	sessions    map[string]*session
 	laneHookAt  map[string]time.Time
@@ -448,6 +472,7 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 	s.LastEvent = ev.Event
 	s.LastEventAt = now
 	m.stallHook(s, ev, now) // PANEL-51: the session's stall lifecycle (stall.go, L1)
+	closeHook(s, ev, now)   // PANEL-57: what the close verdict reads beyond it (closeheld.go)
 	switch ev.Event {
 	case "UserPromptSubmit", "Stop", "StopFailure", "SessionEnd":
 		// The turn moved on, so whatever the session was asking has been answered.
@@ -547,6 +572,7 @@ func (m *Model) ApplyHook(ev signals.HookEvent, now time.Time) bool {
 		detail = strings.TrimSpace(ev.NotificationType + " " + signals.OneLine(ev.Message))
 	case "SessionEnd":
 		s.HookStatus = "ended"
+		s.endedAt = now
 		s.clearSubagents(now)
 		s.Done, s.Compacting = nil, ""
 		detail = ev.Reason
@@ -691,6 +717,11 @@ func (m *Model) ApplyStatus(p signals.StatusPayload, now time.Time) bool {
 // ApplyAgents folds a `claude agents --json` poll. Entries outside the project are
 // ignored. On error, the previous session list is kept and the error shown.
 func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
+	m.applyAgents(agents, err, now, now)
+}
+
+// applyAgents is ApplyAgents for a poll that started at start.
+func (m *Model) applyAgents(agents []signals.Agent, err error, start, now time.Time) {
 	if err != nil {
 		m.agentsSrc = SourceStatus{OK: false, Error: err.Error(), At: ms(now)}
 		// The last reading is kept but is no longer current: agentReading stops
@@ -700,7 +731,7 @@ func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 	}
 	first := m.agentsOKAt.IsZero()
 	m.agentsSrc = SourceStatus{OK: true, At: ms(now)}
-	m.agentsOKAt = now
+	m.agentsOKAt, m.agentsPollStart = now, start
 	seen := map[string]bool{}
 	for i := range agents {
 		a := agents[i]
@@ -764,6 +795,7 @@ func (m *Model) ApplyAgents(agents []signals.Agent, err error, now time.Time) {
 			s.WaitingSince = time.Time{}
 		}
 		s.Agent = &a
+		closeListed(s, a, first)             // closeheld.go: the verdict's L8
 		m.stallListed(s, was, a, first, now) // stall.go, L2 to L8
 	}
 	m.stallPolled() // PANEL-51: what was saved or set aside is used by this poll or not at all
@@ -1419,6 +1451,9 @@ type TermLaneView struct {
 	PromptNote  string `json:"promptNote,omitempty"`
 	// Approx: Status is not a current `claude agents` reading (PANEL-5).
 	Approx bool `json:"approx,omitempty"`
+	// CloseHeld is why the lane's work has not ended, so that `clauductor lane close`
+	// and auto-close leave it running; "" when it may close (PANEL-57 D2, closeheld.go).
+	CloseHeld string `json:"closeHeld,omitempty"`
 }
 
 // ApplyRegistryProblems records registry records that could not be shown at all.
@@ -1460,7 +1495,16 @@ func (m *Model) ApplyTmux(lanes []types.TmuxLane, recs []types.LaneRecord, block
 	m.laneGone = gone
 }
 
+// TerminalViews is the project's lanes, each with its close verdict (CloseHeld).
 func (m *Model) TerminalViews(now time.Time) []TermLaneView {
+	out := m.terminalViews(now)
+	m.fillCloseHeld(out, now)
+	return out
+}
+
+// terminalViews is TerminalViews without the close verdict: leaseBinder builds on it,
+// and the verdict reads the leases, so the two cannot call each other.
+func (m *Model) terminalViews(now time.Time) []TermLaneView {
 	tmux := map[string]types.TmuxLane{}
 	for _, tl := range m.tmuxLanes {
 		tmux[tl.ID] = tl

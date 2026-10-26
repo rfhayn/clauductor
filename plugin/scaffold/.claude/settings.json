@@ -37,7 +37,8 @@
       "Bash(scripts/ci/gate.sh *)",
       "Bash(scripts/ci/gate-wait.sh)",
       "Bash(scripts/ci/gate-wait.sh *)",
-      "Bash(clauductor-model status-write.sh *)"
+      "Bash(clauductor-model status-write.sh *)",
+      "Bash(clauductor lane close *)"
     ],
     "deny": [
       "Read(./.env)",

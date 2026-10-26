@@ -163,7 +163,8 @@
       "Bash(scripts/ci/gate.sh *)",
       "Bash(scripts/ci/gate-wait.sh)",
       "Bash(scripts/ci/gate-wait.sh *)",
-      "Bash(sh .claude/status-write.sh *)"
+      "Bash(sh .claude/status-write.sh *)",
+      "Bash(clauductor lane close *)"
     ],
     "deny": [
       "Read(./.env)",

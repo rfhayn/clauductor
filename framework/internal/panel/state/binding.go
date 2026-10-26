@@ -135,6 +135,7 @@ func (m *Model) retire(id string, now time.Time) {
 // end clears everything that would show the session as live or asking.
 func (s *session) end(now time.Time) {
 	s.HookStatus = "ended"
+	s.endedAt = now
 	s.Agent = nil
 	s.Note, s.Done, s.Compacting = nil, nil, ""
 	s.BusySince, s.IdleSince, s.WaitingSince = time.Time{}, time.Time{}, time.Time{}

@@ -123,7 +123,7 @@ func TestSteadyPollingPushesOnlyOnTheTick(t *testing.T) {
 	}
 	for n := int64(1); n <= 10; n++ { // a poll every 2 s for 20 s
 		h.Update(func(m *state.Model, now time.Time) {
-			m.ApplyAgentsTimed(waitingAgent("idle", ""), nil, 40*time.Millisecond, now)
+			m.ApplyAgentsTimed(waitingAgent("idle", ""), nil, now.Add(-40*time.Millisecond), 40*time.Millisecond, now)
 			m.ApplyObs(state.Obs{AgentsPolls: n, AgentsPollMs: 30 + n})
 		})
 		f.BlockUntil(2) // the hub coalesces

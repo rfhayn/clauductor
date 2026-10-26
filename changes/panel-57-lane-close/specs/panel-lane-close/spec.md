@@ -101,6 +101,10 @@ refuse a lane's own id when run inside that lane.
   and the page still offers to restore it
 - **AND** when the idle lane's claude has exited instead, the close goes ahead: the lane is stopped
   and forgotten, and the **Kept** lines keep the branch, saying it is not merged
+- **AND** a lane the panel last read as exited or gone, whose tmux shows claude running when the
+  close takes the lane lock (a Restart or a Resume since), or whose tmux does not answer then, is
+  refused the same way, with nothing stopped: after taking the lock, the close decides nothing
+  from a tmux value read before it
 
 ### Requirement: Reach the panel only as the owner's user, never from a browser
 WHILE the panel runs THE SYSTEM SHALL serve the command's close on a Unix socket only the

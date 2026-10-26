@@ -11,12 +11,15 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/panel/types"
 )
 
 // Close a lane when its pull request merges (PANEL-20; lanes_auto_close "on_merge").
 // It is Close lane, planned exactly as the page's confirmation plans it, done by the
 // panel only when that plan removes the worktree and the branch (clean, and merged at
-// the branch's tip) and claude is idle or gone. Otherwise the lane asks in Needs you,
+// the branch's tip) and its work has ended (TermLaneView.CloseHeld, PANEL-57: claude idle
+// on a current reading with no background work, or gone, and no lease held or waited
+// for), checked again under the lane lock. Otherwise the lane asks in Needs you,
 // "PR merged: close lane?", with why. Nothing is forced, and each is notified once.
 //
 // A lane is checked for a merge when the panel first sees it, when its branch's open
@@ -65,9 +68,8 @@ func (r *Runtime) pollAutoClose(ctx context.Context, now time.Time) (update, tim
 			continue
 		}
 		var why []string
-		idle := !tv.Running || tv.Dead || (tv.Status == "idle" && !tv.Approx)
-		if !idle {
-			why = append(why, "claude is "+statusWords(tv.Status, tv.Approx))
+		if tv.CloseHeld != "" { // PANEL-57 D2: the verdict the command reads too
+			why = append(why, tv.CloseHeld)
 		}
 		plan, lerr := r.lanes.ClosePlan(ctx, tv.ID)
 		switch {
@@ -78,10 +80,17 @@ func (r *Runtime) pollAutoClose(ctx context.Context, now time.Time) (update, tim
 		}
 		key := fmt.Sprintf("%s#%d", tv.ID, pr)
 		if len(why) == 0 {
-			res, lerr := r.lanes.Close(ctx, tv.ID, lanes.CloseRequest{Worktree: true, Branch: true})
-			if lerr != nil {
+			// The verdict again under the lane lock: the plan took a while, and claude
+			// may have started work since the view above was read.
+			id, heldWhy := tv.ID, ""
+			held := func(live types.LiveLane) string { heldWhy = r.hub.LaneCloseHeld(id, &live); return heldWhy }
+			res, lerr := r.lanes.CloseIf(ctx, tv.ID, lanes.CloseRequest{Worktree: true, Branch: true}, held)
+			switch {
+			case lerr != nil && lerr.Code == "held" && heldWhy != "":
+				why = append(why, heldWhy) // the verdict's own words, as the view's are given
+			case lerr != nil:
 				why = append(why, "Close failed: "+lerr.Msg)
-			} else {
+			default:
 				delete(a.asks, tv.ID)
 				wt, id, detail := tv.Worktree, tv.ID, fmt.Sprintf("PR #%d merged; closed by lanes_auto_close: removed %s", pr, strings.Join(res.Removed, ", "))
 				notes = append(notes, func(m *state.Model, now time.Time) { m.NoteLane(wt, id, "Lane closed", detail, now) })
@@ -181,17 +190,6 @@ func keptReasons(p lanes.ClosePlan) []string {
 		out = append(out, "Close would not remove the worktree and the branch")
 	}
 	return out
-}
-
-func statusWords(st string, approx bool) string {
-	w := map[string]string{"busy": "working", "waiting": "waiting on you", "running": "starting"}[st]
-	if w == "" {
-		w = st
-	}
-	if approx {
-		w += " (not a current reading)"
-	}
-	return w
 }
 
 // notifyOnce sends one OS notification per key for this panel run, when notifications
