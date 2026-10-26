@@ -690,6 +690,8 @@ cug 2 "a pull through find -execdir" "find $M -maxdepth 1 -name .git -execdir gi
 cug 2 "a cd to a directory the command makes" "ln -s $M m && cd m && git pull" "$ML"
 cug 2 "a pull after a cd that may not run" "[ -d $d/no-such-dir ] && cd $ML; git pull" "$M"
 cug 2 "a pull after a cd under if" "if [ -d $d/no-such-dir ]; then cd $ML; fi; git pull" "$M"
+cug 2 "a pull after a cd under while" "while false; do cd $ML; done; git pull" "$M"
+cug 2 "a pull after a cd || skips (the pull still runs)" "true || cd $ML && git pull" "$M"
 cug 2 "a pull after a cd in a case arm" "case x in y) cd $ML;; esac; git pull" "$M"
 cug 2 "a pull after a case arm's cd in a subshell" "(case x in y) cd $ML;; esac; true); git pull" "$M"
 cug 2 "a pull after a cd in a pipeline" "cd $ML | cat; git pull" "$M"

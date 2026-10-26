@@ -55,6 +55,9 @@
 #   - Not a move here: a new commit on the checkout (commit, am, cherry-pick, revert, branch -f).
 #   - A computed command whose text names no move word, running an alias that moves (`c="git up";
 #     eval "$c"`), is not refused.
+#   - Not refused yet (#280): fetch's -u bundled with other short options (`-fu`); a git-core
+#     program run by path (`git-pull`); a case pattern's `)` inside `$( … )`, which ends it early;
+#     a lane's `checkout --ignore-other-worktrees main` and a move after it; a heredoc body's `$( … )`.
 #   - Read too widely, each refused only with catch-up on: a `git` word anywhere in a simple command
 #     starts a git invocation (`echo git pull` in the main checkout); a -C "$(…)" the shell computes
 #     is unknown even when it names the lane (`git -C "$(git rev-parse --show-toplevel)" merge`); a
