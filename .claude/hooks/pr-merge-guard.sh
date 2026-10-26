@@ -430,8 +430,9 @@ merge_argv() {
     # trailing 2>&1 or 2>/dev/null aside) and is the value of a flag, glued (--body=...) or confirmed
     # by the parse below (VCUT); never a word of its own, which gh reads as a flag (-Racme/app).
     # Only $name, ${name} and $(…) stay one word in quotes: "$@", "${a[@]}", zsh "${(@s: :)x}" split.
+    # Plain text after it stays in the word ("$TMPDIR/body.md"); a second expansion does not pass.
     function cut(ch, quoted, rest, tok) {
-      if (ch != "$" || !quoted || rest !~ /^(\([^"$`\\\047]*\)|[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})"[ \t]*([ \t]2>(&1|\/dev\/null))?[ \t\n]*$/) { print "U"; return }
+      if (ch != "$" || !quoted || rest !~ /^(\([^"$`\\\047]*\)|[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})[^"$`\\]*"[ \t]*([ \t]2>(&1|\/dev\/null))?[ \t]*([\n;|]|&$|&[^>]|$)/) { print "U"; return }
       LAST = 1; GLUED = (tok ~ /^--(body|body-file|subject|match-head-commit|author-email)=/)
     }
     { buf = buf $0 "\n" }
@@ -620,7 +621,8 @@ while IFS= read -r line; do
     "R "* | "P http://"* | "P https://"*)
       named=${line#? }
       key=$(repo_key "$named")
-      if [ -z "$key" ]; then unparsed=$named
+      # An empty -R "" overrides nothing: gh falls back to GH_REPO or the directory, past the -R before it.
+      if [ -z "$key" ]; then unparsed=${named:-an empty -R}
       elif [ "$key" = "$this_repo" ]; then
         own=1
         case "$line" in "R "*) own_repo=$named ;; esac

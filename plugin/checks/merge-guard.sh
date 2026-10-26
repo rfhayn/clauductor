@@ -222,6 +222,8 @@ guard 2 'a quoted "$@" after set -- x -R, behind a hosted -R' 'set -- x -R acme/
 guard 2 'a quoted "${a[@]}"' 'gh pr merge 5 --squash --body "${a[@]}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 2 'a quoted zsh split "${(@s.:.)PWD}"' 'gh pr merge 5 --squash --body "${(@s.:.)PWD}"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 guard 0 'a quoted "${B}" as --body'"'"'s value' 'gh pr merge 5 --squash --body "${B}"'
+guard 0 'merge-pr'"'"'s form with --body-file "$TMPDIR/…"' 'gh pr merge 5 --squash --delete-branch --body-file "$TMPDIR/merge-body.md" 2>&1 | tail -1'
+guard 2 'a quoted "$A/$B": a second expansion' 'gh pr merge 5 --squash --body-file "$A/$B"' GH_STATE=CLOSED GH_STATE_DEFAULT=OPEN
 # Rule 1 reads the raw text; the shell takes quotes and escapes out of a flag first.
 guard 2 "rule 1: --auto split by quotes" "gh pr merge 5 --squash --au''to"
 grep -q 'rule 1' "$d/err" && ok "merge-guard: ...refused as rule 1" || fail "merge-guard: the split --auto refusal does not name rule 1: $(head -3 "$d/err")"
@@ -821,6 +823,12 @@ cutrepo "a --repo= whose value is all expansion" 'gh pr merge 5 --squash --repo=
 cutrepo "a repo flag after on/off flags in one word, its value separate" 'gh pr merge 5 -sR other/tool'
 cutrepo "a repo flag after on/off flags in one word, its value attached" 'gh pr merge 5 -dsRother/tool'
 cutrepo "a repo flag after on/off flags in one word, its value cut" 'gh pr merge 5 -sR$X'
+# An empty repo flag overrides nothing: gh keeps the last -R and, empty, falls back to GH_REPO or
+# the directory, while the reads would use the -R before it (#271).
+cutrepo "an empty -R \"\" after this repo's -R" 'cd /tmp && gh pr merge 5 -R acme/app -R "" --squash'
+cutrepo "an empty --repo= after this repo's hosted -R" 'GH_REPO=other/x gh pr merge 5 -R github.com/acme/app --repo= --squash'
+cutrepo "an empty -R= last" 'gh pr merge 5 -R acme/app --body x -R='
+cutrepo "an empty -sR '' after this repo's -R=" "gh pr merge 5 -R=acme/app -sR '' --squash"
 cutpr "a subject flag after an on/off flag in one word takes the next word" 'gh pr merge -st 5 feature --squash'
 guard 0 "OPS-57: a repo flag after on/off flags naming this repo is this repo's merge" "gh pr merge 5 -sR acme/app"
 guard 0 "OPS-57: -R with this repo attached still reads as this repo" "gh pr merge 5 -s -Racme/app"
