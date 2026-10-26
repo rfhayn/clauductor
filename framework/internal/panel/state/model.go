@@ -145,6 +145,7 @@ type session struct {
 	Failure      *note     // the last StopFailure (error_type), until the next prompt
 	Compacting   string    // "auto" | "manual" while a compaction runs
 	WaitingSince time.Time // `claude agents` has reported waiting since
+	listedAt     time.Time // the first `claude agents` answer that listed it (#231, waitsCarried)
 	LastPromptAt time.Time // the last UserPromptSubmit
 	Unknown      string    // the last notification type the table does not know
 
@@ -208,6 +209,9 @@ type Model struct {
 	worktreesSrc SourceStatus
 	agentsSrc    SourceStatus
 	agentsOKAt   time.Time // the last `claude agents` poll that succeeded
+	// agentsFirst is the first one that could bind a session: before the worktrees are
+	// read it binds none, so it cannot judge a waiting mark a restart restored (#231).
+	agentsFirst time.Time
 	// agentsPollStart is when that poll started (ApplyAgentsTimed): a session that
 	// ended after it may still be listed in it (PANEL-57, closeheld.go).
 	agentsPollStart time.Time
@@ -730,6 +734,9 @@ func (m *Model) applyAgents(agents []signals.Agent, err error, start, now time.T
 		return
 	}
 	first := m.agentsOKAt.IsZero()
+	if m.agentsFirst.IsZero() && len(m.worktrees) > 0 {
+		m.agentsFirst = now
+	}
 	m.agentsSrc = SourceStatus{OK: true, At: ms(now)}
 	m.agentsOKAt, m.agentsPollStart = now, start
 	seen := map[string]bool{}
@@ -750,6 +757,9 @@ func (m *Model) applyAgents(agents []signals.Agent, err error, start, now time.T
 		wt := m.worktreeByPath(s.Lane)
 		s.goneAt = time.Time{}
 		was := s.Agent // PANEL-51: the reading before this one, for the stall lifecycle
+		if s.listedAt.IsZero() {
+			s.listedAt = now
+		}
 		prev := ""
 		if s.Agent != nil {
 			prev = s.Agent.Status
@@ -1251,6 +1261,21 @@ func (m *Model) stale(s *session, now time.Time) bool {
 	return m.laneHookAt[s.Lane].Before(s.BusySince.Add(-busySlack))
 }
 
+// waitsCarried is, by session, the Since of a wait `claude agents` listed the first time
+// it listed the session (or a restart restored, restoreKeep's askAt) and that has not
+// ended since: the panel did not see it begin, so after a restart it may be the stretch
+// notified before it. A hook's note is stamped as the panel receives it, so a waiting
+// alert with any other Since is a prompt the panel saw asked.
+func (m *Model) waitsCarried() map[string]int64 {
+	carried := map[string]int64{}
+	for id, s := range m.sessions {
+		if s.Agent != nil && s.Agent.Status == "waiting" && !s.WaitingSince.IsZero() && !s.WaitingSince.After(s.listedAt) {
+			carried[id] = ms(s.WaitingSince)
+		}
+	}
+	return carried
+}
+
 // Snapshot derives the View at `now`.
 func (m *Model) Snapshot(now time.Time) View {
 	v := View{
@@ -1722,6 +1747,12 @@ type ViewOrchestration struct {
 	// yet answered for their branch and HEAD: the notifier keeps their stalls' marks
 	// meanwhile (PANEL-51 D1, D10; stall.go). The notifier's, not the page's.
 	StallsUnjudged []string `json:"-"`
+	// WaitsPending: no `claude agents` answer has bound a session yet, so no restored
+	// waiting mark is judged. WaitsCarried is, by session, the Since of a wait already
+	// under way when the panel first listed it (waitsCarried): when this panel first saw
+	// the wait, not when it began. The notifier's, not the page's (#231).
+	WaitsPending bool             `json:"-"`
+	WaitsCarried map[string]int64 `json:"-"`
 }
 
 // ApplyClaudeVersion records `claude --version`.
@@ -2007,6 +2038,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 	}
 
 	v.Alerts = append(append(m.computeAlerts(v, th, now), m.metricsAlerts(v, th, now)...), stalled...)
+	v.WaitsPending, v.WaitsCarried = m.agentsFirst.IsZero(), m.waitsCarried()
 	sort.SliceStable(v.Alerts, func(i, j int) bool { return sevRank(v.Alerts[i].Severity) > sevRank(v.Alerts[j].Severity) })
 
 	v.Observe = ObsView{Obs: m.v2.obs, HookEvents: m.hookEvents, StatusPosts: m.statusPosts, DroppedForeign: m.dropped,

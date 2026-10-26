@@ -48,6 +48,11 @@ and `TestEveryCloseWordIsDocumented` holds that list to the reasons `closeheld.g
   #234 owns the stall test that failed group 4's first quick gate.
 - verify-change failed on a task naming `lane.go` bare; it matches a backticked path against the
   diff's full paths, so the task now names `framework/internal/cmd/lane.go`.
+- The merge broke main. #250 merged 10 commits behind `origin/main`, on GitHub's CLEAN and a
+  receipt for its own head; pr-merge-guard said so as an advisory, and rule 8 (journal and
+  insights only) did not block. OPS-135 (#263) had landed a `gitIn` in `doctor_test.go` too, so
+  `internal/cmd`'s tests stopped compiling on main (#276, fixed by #277). The branch's green
+  full gate could not see it: it judged the branch's own tree.
 - A builder replaced two lines of docs/panel.md with a scripted exact-match replace; the
   no-blind-source-rewrite hook did not block it. Both swaps were reviewed in round 2.
 
@@ -55,4 +60,5 @@ and `TestEveryCloseWordIsDocumented` holds that list to the reasons `closeheld.g
 
 | 2026-10-25 | Process | verdict/one-unknowns-list | A safety verdict built from several readings (a poll, a hook, a lease file, tmux) gets one new "an unknown or earlier state read as current" finding per review round when each reading's staleness is handled where it is read. Naming once what the verdict will not judge without (no reading yet, a reading older than an event, a value read before the lock) converged what seven rounds of local fixes did not. | PANEL-57 group 1: rounds 1–7 each found one; `closeHeld` in `state/closeheld.go` | Raw |
 | 2026-10-25 | Process | review/baseline-ref | Save the tree each review round sees as a ref before the fix round (`read-tree HEAD`, `add -A` and `commit-tree` under a temporary `GIT_INDEX_FILE`, since `git stash create` fails beside intent-to-add entries), so the next round reviews an exact delta, not "what changed since, roughly". | `refs/clauductor/panel-57-g4-r1..r3`; `git diff` between them | Raw |
+| 2026-10-25 | Process | merge/behind-is-untested | A code PR behind `origin/main` has gate evidence for a tree merging will not produce: GitHub's "no conflicts" is textual, and two branches that each add a same-named Go test helper merge clean and fail to compile. When main has moved under a code PR, merge it and gate again before the squash; a busy machine (several lanes merging an hour) makes this the common case, not the rare one. | #250 merged 10 behind; #276 (`gitIn` twice in `internal/cmd`); pr-merge-guard's behind line is advisory | Raw |
 | 2026-10-25 | Testing | docs/words-from-the-authority | Docs that hand-list a verdict's reasons drift from the code. A test that parses the source and requires every returned reason in the docs holds them, but only if it walks the returns, not a naming convention, and derives the words of built reasons rather than copying them. | `TestEveryCloseWordIsDocumented`; adding `return "claude is compacting"` fails it; #265's two gaps | Raw |

@@ -44,6 +44,7 @@
   this repo's copy, which matched it byte for byte at HEAD. No other drift. Round 1's finding 4
   stays as D5 words it (disputed, Decision log). Round 3's two lows, both about hardening
   `TestEveryCloseWordIsDocumented`, are #265's.
+- 2026-10-25 archived: actual cost $137.96 (no budget)
 
 ## Decision log
 - 2026-10-24: the owner directed all six round-3 findings fixed; finding 2 decided as the reviewer

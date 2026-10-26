@@ -67,6 +67,11 @@ func PushText(project string, a AlertView, now time.Time) (title, body string) {
 //     does any alert marked Approx (raised from a stale or hooks-only reading).
 //   - Its state (what was notified, when each lane last was) survives a restart
 //     through State/Restore, so a restart never re-notifies an alert still active.
+//     A waiting alert's Since does not survive one (it is when this panel first saw
+//     the wait), so a wait already under way when the panel first lists its session
+//     is taken as the stretch notified before (WaitsPending, WaitsCarried): a wait
+//     that ended and began again while the panel was down reads as that stretch too.
+//     A prompt a hook raises after the restart is one the panel saw asked, and notifies.
 type Notifier struct {
 	MinInterval time.Duration
 	Project     string
@@ -79,10 +84,21 @@ type Notifier struct {
 	// (View.StallsUnjudged, PANEL-51 D1 and D10): Process keeps their stalled: marks,
 	// so the "none" that brings back a stall cleared only by the wait is not sent again.
 	StallsUnjudged []string
+	// WaitsPending: no `claude agents` answer has bound a session since the start
+	// (View.WaitsPending). WaitsCarried is, by session, the Since of a wait under way
+	// when the panel first listed it (View.WaitsCarried). While either covers a waiting
+	// mark Restore loaded, Process keeps the mark rather than deleting it as cleared
+	// (the alert shows only past its threshold); an alert with the carried Since takes
+	// the mark rather than notifying (#231).
+	WaitsPending bool
+	WaitsCarried map[string]int64
 
 	// notified maps an alert key to the Since of the stretch it was notified for: the
 	// same key with another Since is a new stretch, and notifies again.
 	notified map[string]int64
+	// restored is the waiting marks Restore loaded, until their alert is next seen
+	// (exact) or they clear.
+	restored map[string]bool
 	lastSent map[string]time.Time
 	stats    NotifierStats
 }
@@ -121,9 +137,12 @@ func (n *Notifier) State() NotifierState {
 
 // Restore loads a saved state.
 func (n *Notifier) Restore(st NotifierState) {
-	n.notified, n.lastSent = map[string]int64{}, map[string]time.Time{}
+	n.notified, n.restored, n.lastSent = map[string]int64{}, map[string]bool{}, map[string]time.Time{}
 	for k, since := range st.Notified {
 		n.notified[k] = since
+		if strings.HasPrefix(k, AlertWaiting+":") {
+			n.restored[k] = true
+		}
 	}
 	for g, ms := range st.LastSent {
 		n.lastSent[g] = time.UnixMilli(ms)
@@ -161,6 +180,7 @@ func namesOf(g string, as []AlertView) []string {
 // for the notifier (StallsPending, StallsUnjudged), so no caller forgets one.
 func (n *Notifier) ProcessView(v View, focused map[string]bool, now time.Time) []Notice {
 	n.StallsPending, n.StallsUnjudged = v.StallsPending, v.StallsUnjudged
+	n.WaitsPending, n.WaitsCarried = v.WaitsPending, v.WaitsCarried
 	return n.Process(v.Alerts, focused, now)
 }
 
@@ -171,6 +191,10 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 	}
 	if day := now.Format("2006-01-02"); day != n.stats.Day {
 		n.stats = NotifierStats{Day: day}
+	}
+	carried := map[string]int64{}
+	for id, since := range n.WaitsCarried {
+		carried[AlertWaiting+":"+id] = since
 	}
 	active := map[string]bool{}
 	pending := map[string][]AlertView{}
@@ -184,7 +208,12 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		if !interrupts(a) {
 			continue
 		}
-		if since, ok := n.notified[a.Key]; ok && since == a.Since {
+		since, ok := n.notified[a.Key]
+		c, isCarried := carried[a.Key]
+		carry := n.restored[a.Key] && isCarried && c == a.Since
+		delete(n.restored, a.Key) // its first exact sighting since the restart judges it
+		if ok && (since == a.Since || carry) {
+			n.notified[a.Key] = a.Since
 			continue
 		}
 		g := groupOf(a)
@@ -195,9 +224,12 @@ func (n *Notifier) Process(alerts []AlertView, focused map[string]bool, now time
 		unjudged[AlertStalled+":"+lane] = true
 	}
 	for k := range n.notified {
-		kept := strings.HasPrefix(k, AlertStalled+":") && (n.StallsPending || unjudged[k])
+		_, isCarried := carried[k]
+		kept := strings.HasPrefix(k, AlertStalled+":") && (n.StallsPending || unjudged[k]) ||
+			n.restored[k] && (n.WaitsPending || isCarried)
 		if !active[k] && !kept {
 			delete(n.notified, k) // cleared: a recurrence notifies again
+			delete(n.restored, k)
 		}
 	}
 	groups := make([]string, 0, len(pending))
