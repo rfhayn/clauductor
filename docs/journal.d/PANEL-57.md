@@ -51,8 +51,8 @@ and `TestEveryCloseWordIsDocumented` holds that list to the reasons `closeheld.g
 - The merge broke main. #250 merged 10 commits behind `origin/main`, on GitHub's CLEAN and a
   receipt for its own head; pr-merge-guard said so as an advisory, and rule 8 (journal and
   insights only) did not block. OPS-135 (#263) had landed a `gitIn` in `doctor_test.go` too, so
-  `internal/cmd`'s tests stopped compiling on main (#276, fixed by #277). Three gates on the
-  branch were green and none of them saw it.
+  `internal/cmd`'s tests stopped compiling on main (#276, fixed by #277). The branch's green
+  full gate could not see it: it judged the branch's own tree.
 - A builder replaced two lines of docs/panel.md with a scripted exact-match replace; the
   no-blind-source-rewrite hook did not block it. Both swaps were reviewed in round 2.
 
