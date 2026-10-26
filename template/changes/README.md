@@ -59,14 +59,20 @@ every open change against the shape below.
   a change that touches `ADR_DIR` or `PRACTICES_DIR`; whose proposal has a line
   `**Approval:** owner — <why>` (`/propose` step 3a writes it for a change that is money, legal or
   business, outward, irreversible or needs the owner at the computer; any `Approval:` line counts,
-  however it is marked up, in a list or a quote too, and so does one its history shows removed);
+  however it is marked up, in a list, a quote or the middle of a paragraph too, and so does one
+  any version in its history holds: a proposal that ever said `owner approval: none` in prose goes
+  to the owner for good, the safe side to err on);
   whose roadmap row has any `Approval:` in its Change cell (`Approval: owner`, `**Approval:** owner`,
   `_Approval_: owner`, `` `Approval:` owner ``, `approval:owner`; only a backticked span holding a
   whole marker, key, colon and value, is a mention), or any Risk other than `Risk: low`, `normal` or
   `high` (`Risk: High`, `Risk: very high`, `Risk: critical`; `review-cap.sh` refuses it too); or
-  whose `**Risk:**` is below the row's `Risk:` (a row with none is normal). A marker is read as it
-  renders: an HTML tag (`Appro<b></b>val:`), an invisible character, an entity colon (`&#58;`) or a
-  look-alike one (`：`) hides none. The row is the one row of `origin/<main>`'s roadmap
+  whose `**Risk:**` is below the row's `Risk:` (a row with none is normal); `Risk: low-ish` is a
+  Risk other than those. A marker is read as it renders (`marker_plain` in `.claude/lib/change.sh`):
+  emphasis or code inside the word (`**Appro*val*:**`), an HTML tag or comment
+  (`Appro<b></b>val:`), a link (`[Approval](x):`), an invisible character, an entity, a letter
+  (`Ri&#115;k:`) or a colon (`&#58;`, `&#65306;`), a look-alike colon (`：`) or, in a proposal, a
+  line break inside the marker hides none. Letters that only look Latin (a Cyrillic `А`) are not
+  read: that is `/propose` step 3a's judgment. The row is the one row of `origin/<main>`'s roadmap
   that names the change's id, and the proposal's `**Roadmap row:**` must be it: no such row, two of
   them, a proposal naming another, or a row that is not a line of the `| # | Change | … |` table (a
   `ROADMAP_PARSER` of the project's own may name one; `review-cap.sh` refuses it too) refuses. A

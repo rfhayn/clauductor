@@ -67,19 +67,69 @@ table_rows_naming() {
   }'
 }
 
-# marker_plain: stdin as a reader sees it rendered, for finding a marker (`Approval:`, `Risk:`):
-# an HTML tag goes (`Appro<b></b>val`), as do invisible characters (zero-width, soft hyphen, BOM),
-# and a colon written as an entity (`&#58;`, `&#x3a;`, `&colon;`) or a look-alike (`：`, `∶`) is a
-# colon. A tag never spans a `|`, so the cells of a table line stay where they were. Bytes, not
-# characters (LC_ALL=C), so it reads the same in every locale.
+# marker_plain [--prose]: stdin as a reader sees it rendered, for finding a marker (`Approval:`,
+# `Risk:`). An HTML tag goes (`Appro<b></b>val`), as do a comment (`<!-- -->`, `<?…?>`, CDATA), a
+# link's destination (`[Approval](x)` is `[Approval]`) and invisible characters (zero-width, soft
+# hyphen, BOM); a colon look-alike (`：`, `∶`) is a colon. Every entity is decoded: a numeric one to
+# its ASCII character (`Ri&#115;k`), a colon or an invisible one as above, a markup character
+# (`` ` * _ | \ < > & ``, which renders as itself, never as markup) to a space, and anything else
+# to `?`; a named one is `&colon;` a colon, an invisible one nothing, any other a space. Letters
+# that only look Latin (`Аpproval`, a Cyrillic А) are not read: /propose step 3a's judgment.
+# A table line (the default) keeps its cells where they were: a tag may hold only an escaped `\|`.
+# --prose reads paragraphs, a blank line apart, each joined into one line as it renders, and strips
+# every tag. Bytes, not characters (LC_ALL=C), so it reads the same in every locale.
 marker_plain() {
-  LC_ALL=C awk 'BEGIN {
+  LC_ALL=C awk -v prose="$([ "${1:-}" = --prose ] && echo 1)" '
+  function dec(n) {
+    if (n == 124 || n == 96 || n == 42 || n == 95 || n == 92 || n == 60 || n == 62 || n == 38) return " "
+    if (n >= 32 && n < 127) return sprintf("%c", n)
+    if (n == 65306 || n == 65109 || n == 65043 || n == 42889 || n == 8758 || n == 760) return ":"
+    if ((n >= 8203 && n <= 8207) || (n >= 8288 && n <= 8292) || n == 65279 || n == 173) return ""
+    return "?"
+  }
+  function num(e,   i, v, h, d) {  # e: the digits after &#, decimal or x-prefixed hex
+    v = 0; h = (e ~ /^[xX]/); if (h) e = substr(e, 2)
+    for (i = 1; i <= length(e); i++) {
+      d = index("0123456789abcdef", tolower(substr(e, i, 1))) - 1
+      v = v * (h ? 16 : 10) + d; if (v > 1114111) return 1114112
+    }
+    return v
+  }
+  function cut(s, a, z,   i, j, b) {  # s without each a…z (a comment, an instruction, CDATA)
+    while ((i = index(s, a)) && (j = index(substr(s, i + length(a)), z))) {
+      b = substr(s, i + length(a), j - 1); gsub(/\\\|/, "", b)
+      if (!prose && index(b, "|")) break
+      s = substr(s, 1, i - 1) substr(s, i + length(a) + j - 1 + length(z))
+    }
+    return s
+  }
+  function plain(s,   o, e) {
+    s = cut(cut(cut(s, "<!--", "-->"), "<?", "?>"), "<![CDATA[", "]]>")
+    gsub(tag, "", s)
+    # A link reads as its text: `[Approval](x):` is `[Approval]:`, and the caller drops the brackets.
+    if (prose) { gsub(/\]\([^)]*\)/, "]", s); gsub(/\]\[[^]]*\]/, "]", s) }
+    else { gsub(/\]\([^)|]*\)/, "]", s); gsub(/\]\[[^]|]*\]/, "]", s) }
+    o = ""
+    while (match(s, /&(#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/)) {
+      e = substr(s, RSTART + 1, RLENGTH - 2); o = o substr(s, 1, RSTART - 1)
+      if (e ~ /^#/) o = o dec(num(substr(e, 2)))
+      else if (e == "colon") o = o ":"
+      else if (e !~ /^(shy|zwj|zwnj|lrm|rlm|NoBreak|ZeroWidthSpace|InvisibleTimes|it|InvisibleComma|ic|ApplyFunction|af|Negative(VeryThin|Thin|Medium|Thick)Space)$/) o = o " "
+      s = substr(s, RSTART + RLENGTH)
+    }
+    s = o s
+    gsub(zw, "", s); gsub(co, ":", s); return s
+  }
+  BEGIN {
     zw = "\342\200[\213-\217]|\342\201[\240-\244]|\357\273\277|\302\255"
     co = "\357\274\232|\357\271\225|\357\270\223|\352\236\211|\342\210\266|\313\270"
-  } {
-    gsub(/<[^<>|]*>/, ""); gsub(zw, "")
-    gsub(/&#0*58;?|&#[xX]0*3[aA];?|&colon;/, ":"); gsub(co, ":"); print
-  }'
+    # A tag, its quoted attributes whole (`<span title="a>b">`); in a table line no `|` but `\|`.
+    q = "\047"
+    if (prose) tag = "<([^<>\"" q "]|\"[^\"]*\"|" q "[^" q "]*" q ")*>"
+    else tag = "<([^<>\"" q "|]|\\\\\\||\"([^\"|]|\\\\\\|)*\"|" q "([^" q "|]|\\\\\\|)*" q ")*>"
+    if (prose) RS = ""
+  }
+  { if (prose) gsub(/\n/, " "); print plain($0) }'
 }
 
 # row_change_cell: the Change cell (cell 2 of `| # | Change | Scope | Deps | Status |`) of the
@@ -99,7 +149,7 @@ row_change_cell() {
       if (tolower(s) !~ /(risk|approval)[^a-z0-9]*:[^a-z0-9]*[a-z0-9]/) y = y s
       x = substr(x, RSTART + RLENGTH)
     }
-    y = y x; gsub(/[`*_]/, "", y); print y
+    y = y x; gsub(/[`*_]|\[|\]/, "", y); print y
   }'
 }
 
@@ -111,11 +161,13 @@ row_risks() { row_change_cell | grep -oE 'Risk: (low|normal|high)' | sed 's/^Ris
 # `Risk: low|normal|high`, or nothing. Any other Risk key (`Risk: High`, `Risk: critical`, `Risk:
 # very high`, `Risk -: high`), or a lowercase one naming a tier (`risk:high`), is a floor the row
 # meant to set, so a reader refuses it rather than read the row as normal. Lowercase prose naming no
-# tier (`the risk: a stale cache`) is not a Risk. change-approval.sh and review-cap.sh refuse on it.
+# tier (`the risk: a stale cache`) is not a Risk. A value runs to a space or a sentence's mark, so
+# `Risk: low-ish` and `Risk: low/high` are odd, `Risk: high.` is not. change-approval.sh and
+# review-cap.sh refuse on it.
 row_risk_odd() {
   _ro_c=$(row_change_cell)
-  { printf '%s\n' "$_ro_c" | grep -oiE 'risk[^[:alnum:]]*:[^[:alnum:]]*(low|normal|high)[[:alnum:]]*'
-    printf '%s\n' "$_ro_c" | grep -oE 'R[Ii][Ss][Kk][^[:alnum:]]*:[^[:alnum:]]*[[:alnum:]]*'; } \
+  { printf '%s\n' "$_ro_c" | grep -oiE 'risk[^[:alnum:]]*:[^[:alnum:]]*(low|normal|high)[^[:space:].,;:)]*'
+    printf '%s\n' "$_ro_c" | grep -oE 'R[Ii][Ss][Kk][^[:alnum:]]*:[^[:alnum:]]*[^[:space:].,;:)]*'; } \
     | grep -vxE 'Risk: (low|normal|high)' | head -1
 }
 

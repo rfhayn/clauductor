@@ -96,15 +96,17 @@ F() { cp "$d/fresh.md" "$C/proposal.md"; A --delegate Ana; }
 D() { startlog; F; }
 awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** owner — it names a signer" }' "$d/fresh.md" > "$C/proposal.md"
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal marked '**Approval:** owner'"
-grep -q 'Approval:\*\* owner' "$d/out" && ok "...and names the marker" || fail "no marker in: $(cat "$d/out")"
+grep -q 'says Approval: owner — it names a signer' "$d/out" && ok "...and names the marker" || fail "no marker in: $(cat "$d/out")"
 awk '{ print } /^\*\*Risk:\*\*/ { print "**Approval:** the Owner, as signer" }' "$d/fresh.md" > "$C/proposal.md"
 startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line in other words"
-grep -q 'proposal.md says \*\*Approval:\*\* the Owner' "$d/out" && ok "...and quotes the line" || fail "no Approval-line reason in: $(cat "$d/out")"
+grep -q 'proposal.md says Approval: the Owner, as signer' "$d/out" && ok "...and quotes the line" || fail "no Approval-line reason in: $(cat "$d/out")"
 # A marker reads as it renders: a tag, an invisible character, an entity or a look-alike colon (a
 # full-width one, as a CJK input method types it) hides none.
 fw=$(printf '\357\274\232'); zw=$(printf '\342\200\213')
 for spelt in '**Approval**: owner' ' **Approval:** owner' '__approval:__ owner' '- **Approval:** owner' '> **Approval:** owner' \
-  "**Approval$fw** owner" '**Appro<b></b>val:** owner' "**Appro${zw}val:** owner"; do
+  "**Approval$fw** owner" '**Appro<b></b>val:** owner' "**Appro${zw}val:** owner" '**Appro*val*:** owner' 'Appro`val`: owner' \
+  'Approval &#65306; owner' 'Approval<span title="a|b"></span>: owner' 'Approval<span title="a>b"></span>: owner' \
+  'Appro<!-- > -->val: owner' '[Approval](http://x): owner' '**Approval**\n: owner'; do
   awk -v m="$spelt" '{ print } /^\*\*Risk:\*\*/ { print m }' "$d/fresh.md" > "$C/proposal.md"
   startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line spelt '$spelt'"
 done
@@ -114,7 +116,8 @@ grep -q 'row 1.1.*Approval: owner' "$d/out" && ok "...and names the row" || fail
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. approval: Owner'
 D; expect_rc 1 $? "change-approval --delegate refuses a row marker in any case"
 for spelt in '**Approval:** owner' 'Approval:owner' 'Approval: the owner' '_Approval_: owner' '__Approval__: owner' '`Approval`: owner' '`Approval:` owner' \
-  'Appro<b></b>val: owner' 'Approval&#58; owner' "Approval${fw}owner" "Appro${zw}val: owner"; do
+  'Appro<b></b>val: owner' 'Approval&#58; owner' "Approval${fw}owner" "Appro${zw}val: owner" 'Approv&#97;l: owner' 'Approval&#65306; owner' \
+  'Approval<span title="a\|b"></span>: owner' '[Approval](x): owner' 'Appro<!-- x -->val: owner'; do
   roadmap "\`add-greeting-name\` — greet a member by name. Risk: low. $spelt"
   D; expect_rc 1 $? "change-approval --delegate refuses a row marker spelt '$spelt'"
 done
@@ -128,6 +131,8 @@ D; expect_rc 1 $? "change-approval --delegate reads the row's Risk past a stray 
 grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no stray-backtick floor reason in: $(cat "$d/out")"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row says `Approval: owner` to keep it'
 D; expect_rc 0 $? "change-approval --delegate passes a row that only names the marker in backticks"
+roadmap '`add-greeting-name` — greet a member by name &amp; title, under `changes/<id>/`. Risk: low'
+D; expect_rc 0 $? "change-approval --delegate passes a row holding an entity and a placeholder, no marker"
 roadmap '`add-greeting-name` — greet a member by name'
 D; expect_rc 1 $? "change-approval --delegate refuses a Risk below its row's, a row with none being normal"
 grep -q 'low.*below.*normal' "$d/out" && ok "...and names both tiers" || fail "no tiers in: $(cat "$d/out")"
@@ -173,7 +178,8 @@ for spelt in 'Risk: High' 'risk:high' 'Risk -: high' 'Risk: very high' 'Risk: cr
   grep -q "a Risk the floor cannot read" "$d/out" && ok "...and says the floor cannot be read" || fail "no spelling reason in: $(cat "$d/out")"
 done
 # Markup is not a spelling: emphasis or a backticked tier still sets the floor.
-for spelt in '**Risk:** high' 'Risk: `high`' 'Risk: _high_' '__Risk__: high' '`Risk:` high' 'Risk&#58; high' 'Ri<i></i>sk: high' "Risk${fw} high"; do
+for spelt in '**Risk:** high' 'Risk: `high`' 'Risk: _high_' '__Risk__: high' '`Risk:` high' 'Risk&#58; high' 'Ri<i></i>sk: high' "Risk${fw} high" \
+  'Ri&#115;k: high' 'Risk&#65306; high' '&#x52;isk&colon; high'; do
   roadmap "\`add-greeting-name\` — greet a member by name. $spelt"
   D; expect_rc 1 $? "change-approval --delegate reads the row's Risk marked up as '$spelt'"
   grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no marked-up floor reason in: $(cat "$d/out")"
@@ -364,14 +370,14 @@ git -C "$R" reset -q --hard "$b0"; rm -rf "$R/changes/greeting-renamed"; mkdir -
 roadmap '`add-greeting-name` — greet a member by name. Risk: low'
 # A proposal's Approval line removed by hand stays in its history: the owner keeps the change.
 # (Spelt oddly, so the history is read in any spelling too, and as rendered.)
-for spelt in '**Approval**: owner' '**Appro<b></b>val&#58;** owner'; do
+for spelt in '**Approval**: owner' '**Appro<b></b>val&#58;** owner' 'Approv&#97;l: owner' '**Approval**\n: owner'; do
   awk -v m="$spelt" '{ print } /^\*\*Risk:\*\*/ { print m " — it names a signer" }' "$d/fresh.md" > "$C/proposal.md"
   git -C "$R" add "$C" && git -C "$R" commit -qm "proposal: kept for the owner"
   cp "$d/fresh.md" "$C/proposal.md"; git -C "$R" commit -qm "proposal: marker removed by hand" -- "$C/proposal.md"
   startlog; F; expect_rc 1 $? "change-approval --delegate refuses a proposal whose history shows its Approval line, spelt '$spelt', removed"
-  grep -q 'history on this branch holds a removed \*\*Approval:\*\* line' "$d/out" && ok "...and says so" || fail "no removed-marker reason in: $(cat "$d/out")"
+  grep -q 'history on this branch holds an \*\*Approval:\*\* line' "$d/out" && ok "...and says so" || fail "no removed-marker reason in: $(cat "$d/out")"
   cp "$d/delegated1.md" "$C/proposal.md"; A; expect_rc 1 $? "change-approval: a delegated approval of it does not hold"
-  grep -q 'removed \*\*Approval:\*\* line' "$d/out" && ok "...and says why" || fail "no removed-marker reason in the check: $(cat "$d/out")"
+  grep -q 'holds an \*\*Approval:\*\* line' "$d/out" && ok "...and says why" || fail "no removed-marker reason in the check: $(cat "$d/out")"
   git -C "$R" reset -q --hard "$b0"; rm -rf "$C"; mkdir -p "$R/changes"; cp -R "$d/c.bak" "$C"
 done
 # A side branch a merge discarded (-s ours) is still history: its Approved line counts.

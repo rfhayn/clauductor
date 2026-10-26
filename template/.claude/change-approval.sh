@@ -104,9 +104,14 @@ rewrite() {
 
 # ── Delegation (OPS-127) ───────────────────────────────────────────────────────────────────────
 delegated='^\*\*Approved:\*\* [0-9-]+ by Claude \(delegated by (.+)\) · '
-# A proposal's `**Approval:**` line in any spelling or place, read case-insensitively from a line
-# start: the word approval, then only marks before a colon (`- **Approval**: owner`, `> approval:`).
-approval_line='(.*[^[:alnum:]])?approval[^[:alnum:]]*:'
+# proposal_marker: the first `Approval:` marker in the proposal text on stdin, in any spelling or
+# place, read as rendered (marker_plain --prose: a paragraph at a time, so a marker split across
+# lines is one) with emphasis, code and link brackets gone (`**Appro*val*:**`, ``Appro`val`:``):
+# the word approval, then only marks before a colon (`- **Approval**: owner`, `> approval:`).
+proposal_marker() {
+  marker_plain --prose | sed 's/[][*_`]//g' \
+    | grep -oiE '(^|[^[:alnum:]])approval[^[:alnum:]]*:.{0,40}' | head -1 | sed 's/^[^Aa]*//'
+}
 # claude_name NAME: true when NAME is Claude's (its first word, any case) and not OWNER_NAME's.
 claude_name() { printf '%s\n' "$1" | grep -Eiq '^[[:space:]]*claude([^[:alnum:]_]|$)' && [ "$1" != "$OWNER_NAME" ]; }
 # The authority is origin/<main> in a clone of a remote, and the disk only in a repository with no
@@ -171,10 +176,11 @@ kept() {
   prop="$dir/proposal.md"
   # Any spelling of the line counts (`**Approval**: owner`, `- __approval:__ owner`,
   # `Appro<b></b>val:`, `Approval&#58;`), read as rendered (marker_plain), as for the row.
-  mark=$(marker_plain < "$prop" | grep -iE "^$approval_line" | head -1)
+  mark=$(proposal_marker < "$prop")
   [ -z "$mark" ] || { echo "proposal.md says $mark"; return; }
-  # A hand edit takes the marker out of proposal.md, not out of its history.
-  why=$(history_holds "^-$approval_line" "a removed **Approval:** line")
+  # A hand edit takes the marker out of proposal.md, not out of its history: every version of it,
+  # read the same way.
+  why=$(history_holds --marker "an **Approval:** line")
   [ -z "$why" ] || { echo "proposal.md: $why"; return; }
   rid=$(proposal_field "$prop" "Roadmap row")
   [ -n "$rid" ] || { echo "proposal.md names no **Roadmap row:**, so its row's Risk and Approval cannot be read"; return; }
@@ -298,7 +304,8 @@ renamed_from() {
 }
 
 # history_holds PATTERN WHAT: say where proposal.md's history, on origin/<main> or this branch, has a
-# diff line matching PATTERN (WHAT names it), or that it cannot be read; nothing when neither. The
+# diff line matching PATTERN (WHAT names it), or that it cannot be read; nothing when neither. With
+# --marker for PATTERN, a version of proposal.md holding a marker (proposal_marker) instead. The
 # history crosses a move of the change's whole directory (renamed_from), not git's --follow, which
 # pairs the proposal with any similar one deleted in the same commit (OPS-131, #272). An unborn HEAD
 # (a repository with no commit yet) has no history to hold one.
@@ -318,7 +325,18 @@ history_holds() {
       # branch a merge discarded (`-s ours`) in the walk.
       log=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --no-color --no-ext-diff --text --no-textconv --format= -p "$r" -- "$p" 2>&1) \
         || { echo "its history on $where cannot be read: $log"; return; }
-      ! printf '%s\n' "$log" | marker_plain | grep -Eiq "$1" || { echo "its history on $where holds $2"; return; }
+      if [ "$1" = --marker ]; then
+        # Each version the walk reaches (a deletion has none), as a blob: no attribute rewrites it.
+        vs=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --format=%H --diff-filter=d "$r" -- "$p" 2>&1) \
+          || { echo "its history on $where cannot be read: $vs"; return; }
+        for c in $vs; do
+          v=$(git -C "$ROOT" cat-file blob "$c:$p" 2>&1) || { echo "its history on $where cannot be read: $v"; return; }
+          m=$(printf '%s\n' "$v" | proposal_marker)
+          [ -z "$m" ] || { echo "its history on $where holds $2 ($m, at $(git -C "$ROOT" rev-parse --short "$c"))"; return; }
+        done
+      else
+        ! printf '%s\n' "$log" | grep -Eq "$1" || { echo "its history on $where holds $2"; return; }
+      fi
       adds=$(git -C "$ROOT" -c log.follow=false log --full-history --no-renames --format=%H --diff-filter=A "$r" -- "$p" 2>&1) \
         || { echo "its history on $where cannot be read: $adds"; return; }
       for c in $adds; do
