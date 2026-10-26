@@ -542,7 +542,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
 | `quota_economy` | object |  | 4 | Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's. |
 | `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off. |
-| `lanes_auto_close` | string: "off" or "on_merge" | `"off"` | 5 | `"on_merge"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; otherwise Needs you asks "PR merged: close lane?" (see *Close a lane when its PR merges*). |
+| `lanes_auto_close` | string: "off" or "on_merge" | `"off"` | 5 | `"on_merge"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; every reason in `clauductor lane close`'s table of reasons but its last two (the branch and a cancelled request) holds it too, such as background work (a shell, a monitor, a teammate), a wakeup, a lease, and after a panel restart an idle lane until it ends a turn; otherwise Needs you asks "PR merged: close lane?" (see *Close a lane when its PR merges*). |
 | `quota_auto_resume` | boolean | `false` | 5 | Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*). |
 | `quota_resume_line` | string | `"continue"` | 5 | The line `quota_auto_resume` types. One line of plain text, at most 200 characters. |
 | `worktree_setup` | object |  | 5 | A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*). |
@@ -1352,6 +1352,95 @@ In order:
 
 The conversation is never removed: `claude --resume <session id>` still opens it.
 
+#### Close a lane from the command line
+
+PANEL-57: an agent, or you, can close a finished lane without the page:
+
+```
+clauductor lane close <id> [--yes]
+```
+
+Run it from the project's checkout: the main one, a lane's worktree or any directory below
+them. The project is the current directory's repository, resolved to its main checkout, and
+nothing else; there is no `--project`, so a session in one project cannot close another
+project's lane. It asks the running panel over its command socket (see *Security model*), and
+the panel decides with Close lane's own plan and guards.
+
+- **The plan first.** Without `--yes` it prints the plan and changes nothing: a first line
+  `lane <id> on <branch>`, then **Removes**, **Keeps** (each with why) and the notes, as the
+  page's confirmation lists them. Exit 0.
+- **`--yes` closes.** It asks for the plan again, closes with the plan's offers as the consent
+  (the worktree and the branch as the plan set them, as the page's **Confirm** sends them), and
+  prints **Removed** and **Kept**. Exit 0. A dirty worktree, or an unmerged branch of a lane
+  whose claude has exited, is not a refusal: the lane stops and those stay, each with why.
+- **Only a lane whose work has ended and landed.** Its work has ended: claude is idle on a
+  current `claude agents` reading, or has exited, and no queue lease is held or waited for by
+  the lane, and its session's last `Stop` lists no background work that may still run (a shell,
+  a monitor or a teammate; a subagent or a workflow in flight) and no wakeup still due. Where the
+  panel cannot know what a turn left running, the lane is held: a turn whose `Stop` was not
+  heard, a Claude Code whose `Stop` reports no background work, and a claude that ran before the
+  panel started and has ended no turn since. So **after a panel restart an idle lane is held
+  until it ends a turn**, and auto-close waits for that too. The table below lists every
+  reason, in the words the command prints. Its work
+  has landed: its branch is merged into the base or is the head of a merged pull request, **or**
+  its claude has exited (the program ended; its tmux pane still shows it). A lane whose tmux
+  session is gone closes only on a merged branch, so the page keeps its restore. The rest stay
+  the owner's, closed from the page.
+- **A lane does not close itself.** An id equal to `$CLAUDUCTOR_LANE` is refused before
+  anything is read, naming what does close it: the page's Close lane, or auto-close where it is
+  on for the lane's type.
+- **An interrupted `--yes` still finishes.** Once the panel begins the close it runs it under
+  its own context, so an agent's Bash timeout or a Ctrl-C leaves it finished, not half done.
+  Cut off before the close began, nothing changed. Cut off after, the command prints at most
+  the plan and the outcome is unknown to it. **The retry after a timeout:** run the dry run once
+  more. A plan means the panel still lists the lane (a close waiting for the lane lock may yet
+  close it). **Any** `no lane …` answer then, with or without a list of the project's lanes,
+  the manager's own `no lane "<id>"` among them, means **closed or closing**: the lane leaves
+  the panel's view when it stops, before its teardown. The list of lanes in that answer is a
+  cue to try another id only on a first call, never on a retry. A retry that times out too
+  leaves the outcome unknown.
+- **Where its line goes.** Each close through the socket writes one line to the panel's output:
+  `lane <id> (<project>) closed by clauductor lane close: removed …; kept …`, after the close
+  returns. Under launchd that is the panel's log in `~/.clauductor/panel/logs/`, with its other
+  lines.
+
+`session-close` calls it for each lane whose pull request merged while the lane stayed open,
+and the template allows `Bash(clauductor lane close *)` (and no other `clauductor` subcommand)
+so that runs without a prompt.
+
+A refused close exits 1 with `lane <id> is not closed: <reason>`, and nothing stops. Auto-close
+is held by every reason in this table but its last two: it reads the branch on its own, stricter
+terms (merged at the branch's tip, the worktree clean), and makes no request to cancel. The
+other refusals, after this table, are the command's alone.
+
+| `<reason>` | When |
+|---|---|
+| `the queues' leases have not been read` | Queues are declared and the panel has not read their leases yet (right after it starts). Holds an exited claude too. |
+| `the queues' leases are not answering` | Queues are declared and the last read of their leases failed. Holds an exited claude too. |
+| `it holds or waits for the <queue> lease` | The lane's worktree holds that queue's lease or waits for it, whether or not its claude has exited. |
+| `claude is working`, `claude is waiting on you`, `claude is starting`, `claude is <status> (not a current reading)` | claude runs and is not idle, or its status comes from hooks rather than a current `claude agents` reading; also a prompt or a permission request heard since the last reading's poll began, or work its hooks show under way. |
+| `its session ended while claude still runs (a /clear?): close it from the page` | A `/clear` gave the same claude a session no lane record holds. It stays until its claude exits. |
+| `claude has not been read yet` | claude runs, but no current `claude agents` reading lists its session (a session heard only from its hooks, as right after a panel start). |
+| `its last turn's Stop was not heard (interrupted, failed, or sent while the panel was down): what it left running is not known` | A turn ended with Esc, a `StopFailure`, or a `Stop` the panel was down for. Its next turn's `Stop` decides. |
+| `its Stop does not report background work (this Claude Code version): what it left running is not known` | The last `Stop` carries no `background_tasks` list. |
+| `no turn of it has ended since the panel started: what it left running is not known` | The panel-restart hold: its claude ran before the panel started and has ended no turn since. An idle lane is held until it ends a turn; before PANEL-57, auto-close (PANEL-20) closed it on merge. |
+| `its turn ended on background work: <tasks>` | The last `Stop` lists a shell, a monitor or a teammate (whatever its status), or a subagent or a workflow still in flight. |
+| `its turn ended with a wakeup scheduled (a cron or a one-shot still due)` | The last `Stop` lists a session cron or a wakeup still due. |
+| `tmux did not answer: whether its claude still runs is not known` | tmux does not answer when the close takes the lane lock, whatever the panel last read of the lane. |
+| `its claude runs again since the panel last read tmux (a Restart or a Resume): the next reading decides` | The panel read the lane's claude as exited or its session as gone, and tmux shows claude running when the close takes the lane lock. |
+| `the panel no longer lists lane <id>` | The lane left the panel's view between the plan and the lane lock (another close took it). |
+| `its branch is not merged: <why>` or `its branch is not known` | claude has not exited and the branch is not merged (`<why>` names the base and what `gh` said), or the plan could not tell. The page's Close lane, or its restore, still can. |
+| `the request was cancelled before the close began; nothing changed` | The command was cut off before the panel began the close. |
+
+The other refusals:
+
+| Situation | What happens |
+|---|---|
+| The id is `$CLAUDUCTOR_LANE` | Exit 1 before anything is read: `… a lane does not close itself …`. |
+| No live panel, or one with no command socket | Exit 1, saying which and naming `clauductor panel`. Nothing is asked. |
+| The current directory is in no project the panel serves | Exit 1, naming `clauductor panel list`. Nothing is asked. |
+| No such lane | Exit 1: `no lane "<id>"; this project's lanes: a (change/a), b (fix/12-b)`. |
+
 ### Close a lane when its PR merges
 
 PANEL-20, opt-in: `"lanes_auto_close": "on_merge"` (config version 5), or per lane type
@@ -1362,6 +1451,15 @@ the worktree (clean: no change, no untracked file) and the branch (merged: every
 base, or a merged pull request whose head is the branch's tip), and claude is idle, exited or
 gone (a current `claude agents` reading; an approximate one does not count). Nothing is forced.
 The close goes in the lane's **Activity** ("Lane closed: PR #12 merged; …").
+
+It reads the same verdict as `clauductor lane close` (PANEL-57), so every reason in that
+command's table of reasons but its last two (the branch and a cancelled request) holds it back
+too (see *Close a lane from the command line*): among
+them background work its session's last `Stop` lists (a shell, a monitor, a teammate; a
+subagent or a workflow in flight), a wakeup still due, a queue lease, a claude not yet read, a
+session ended while claude still runs (after a `/clear`: close it from the page), and a turn
+whose background work the panel cannot know. **After a panel restart an idle lane is held until
+it ends a turn**: before PANEL-57 it closed on merge.
 
 Otherwise the lane stays and **Needs you** asks **PR merged: close lane?**, with why (claude is
 working; the worktree has 2 uncommitted files; the branch has commits since the merge): **Close
@@ -2886,6 +2984,19 @@ send requests to `127.0.0.1`.
   offered to remove. It carries no path, no branch name and no command; the worktree and branch
   are the lane's own, from the registry and `git worktree list`, and each is removed only if a
   check made at that moment allows it (see [Close lane](#close-lane)). Nothing is forced.
+- **The command socket** (`~/.clauductor/panel/cli.sock`, PANEL-57) is how `clauductor lane
+  close` reaches the panel. It is a Unix socket made with mode 0600 in the 0700 panel directory,
+  so the kernel's file permissions are the credential: only your user can open it, no token is
+  written, read or sent, and no browser can open a Unix socket. It serves **one route**, `POST
+  /api/p/<project>/lanes/<id>/close` with Close lane's strict body; any other path is 404 and
+  any other method 405. The TCP server's guards above are unchanged and gain no exemption. The
+  route refuses a lane whose work has not ended or not landed (see *Close a lane from the
+  command line*), so the socket can do less than the page's Close lane, never more. `owner.json`
+  names it (`socket`); the command connects only to the socket the live panel's record names,
+  so a file a killed panel left is never taken for a live one. At start the panel removes a
+  stale socket file at the path (a file of any other kind is left, and the socket skipped); at
+  exit it removes its own. When the socket cannot be made (a path too long for a Unix socket, a
+  listen error), the panel starts without it and says why.
 - **Remove a worktree** (`POST /api/p/<project>/worktrees/remove`, PANEL-18) passes the same
   guards: the cookie, this page's `Origin`, a strict body (unknown fields are refused). It is
   served under `/api/p/<project>/` only. The body is `{"worktree": <key>, "dryRun": true}` for the
@@ -2987,6 +3098,7 @@ send requests to `127.0.0.1`.
 - **What the panel writes to disk:**
   - the marker `~/.clauductor/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
     while they are still its own;
+  - the command socket `~/.clauductor/panel/cli.sock` (0600, PANEL-57), removed at exit;
   - the hook install;
   - the lane registry;
   - the trusted config hash (with the note "trusted on arrival from #N" when catch-up trusted

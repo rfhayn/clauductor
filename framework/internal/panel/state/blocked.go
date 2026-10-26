@@ -226,13 +226,20 @@ const agentsPollCap = 30 * time.Second
 
 // ApplyAgentsTimed is ApplyAgents for a poll iteration that took dur of wall time,
 // the filter cross-check included. agentsFresh allows for it.
-func (m *Model) ApplyAgentsTimed(agents []signals.Agent, err error, dur time.Duration, now time.Time) {
+//
+// start is when the iteration began, kept beside the success time: a session that
+// ended after it may still be listed in this reading (PANEL-57). Zero takes now less
+// the uncapped dur.
+func (m *Model) ApplyAgentsTimed(agents []signals.Agent, err error, start time.Time, dur time.Duration, now time.Time) {
+	if start.IsZero() {
+		start = now.Add(-dur)
+	}
 	if dur > agentsPollCap {
 		dur = agentsPollCap
 	}
 	m.agentsDurs[m.agentsDurN%len(m.agentsDurs)] = dur
 	m.agentsDurN++
-	m.ApplyAgents(agents, err, now)
+	m.applyAgents(agents, err, start, now)
 }
 
 // slowestRecentPoll is the longest of the last few poll iterations.

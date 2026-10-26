@@ -696,7 +696,7 @@ func (r *Runtime) pollAgents(ctx context.Context, now time.Time) (update, time.D
 	slow := r.ticks.AgentsSlow
 	return func(m *state.Model, now time.Time) {
 		m.SetAgentsCadence(interval, slow) // agentsFresh allows for the wait until the next poll
-		m.ApplyAgentsTimed(agents, err, iter, now)
+		m.ApplyAgentsTimed(agents, err, iterStart, iter, now)
 	}, interval
 }
 

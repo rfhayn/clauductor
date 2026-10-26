@@ -454,6 +454,11 @@ func (m *Model) restoreKeep(s *session, k stallKeep, waiting bool) {
 		m.stall.restored[wayKey("turn", s.ID)] = restoredMark{moved: pre, approx: k.approx}
 	}
 	s.stall.moved, s.stall.stop, s.stall.stops, s.stall.unreported = k.moved, k.stop, k.stops, k.unreported
+	// PANEL-57: a Stop kept across a restart or a set-aside is the close verdict's too,
+	// unless the session has heard a newer one since (closeheld.go).
+	if k.stop != nil && (s.closeStop == nil || !k.stop.at.Before(s.closeStop.at)) {
+		s.closeStop = k.stop
+	}
 	// A way that held exact at the save is carried exact into the window (option B).
 	if k.stalled && !k.approx {
 		m.stall.carried[wayKey("turn", s.ID)] = true
@@ -512,6 +517,9 @@ func (m *Model) keepStop(s *session, ev signals.HookEvent, now time.Time) {
 	s.stall.stop = overlay(s.stall.stop, k)
 	s.stall.unreported = false
 	pairStops(s.stall.stop, s.stall.stops)
+	// PANEL-57: the close verdict's copy, laid over its own so that the stall's end
+	// (which drops the stall's copy) does not drop it (closeheld.go).
+	s.closeStop = overlay(s.closeStop, k)
 }
 
 // pairStops marks each kept subagent task of stop whose id is among the session's last
@@ -617,7 +625,7 @@ func absDur(d time.Duration) time.Duration {
 // movement, and a holder first seen dead or stale is the lease given up. The first
 // read after the start sets the baseline and is not movement.
 func (m *Model) stallQueues(now time.Time) {
-	held, dead := m.leases(now)
+	held, dead, _ := m.leases(now, false)
 	if m.stall.queuesRead {
 		for p := range held {
 			if !m.stall.leased[p] {
@@ -646,17 +654,32 @@ func (m *Model) stallQueues(now time.Time) {
 // leases reads the queues' leases bound to a lane: held is the lanes that hold (a
 // live holder, not stale) or wait for one; dead is each dead or stale holder bound to
 // a lane, by an identity of its lease. A project that declares no queue has none.
-func (m *Model) leases(now time.Time) (held map[string]bool, dead map[string]string) {
-	held, dead = map[string]bool{}, map[string]string{}
+// queue is each held lane's queue id, its first in the queues' order (PANEL-57: the
+// close verdict names it). registered binds a lane's id whether or not its tmux
+// session runs (leaseBinder).
+func (m *Model) leases(now time.Time, registered bool) (held map[string]bool, dead map[string]string, queue map[string]string) {
+	return m.leasesIn(m.terminalViews(now), registered)
+}
+
+// leasesIn is leases over lane views the caller already built (terminalViews': no
+// close verdict), so the verdict does not build them twice.
+func (m *Model) leasesIn(views []TermLaneView, registered bool) (held map[string]bool, dead map[string]string, queue map[string]string) {
+	held, dead, queue = map[string]bool{}, map[string]string{}, map[string]string{}
 	if len(m.cfg.Queues) == 0 {
-		return held, dead
+		return held, dead, queue
 	}
-	bind := m.leaseBinder(now)
+	bind := m.leaseBinder(views, registered)
+	hold := func(p, id string) {
+		held[p] = true
+		if _, ok := queue[p]; !ok {
+			queue[p] = id
+		}
+	}
 	for _, q := range m.v2.queues {
 		if h := q.Holder; h != nil {
 			if p := bind(h.Lane); p != "" {
 				if h.Alive && !h.Stale {
-					held[p] = true
+					hold(p, q.ID)
 				} else {
 					dead[q.ID+"\x00"+h.Nonce+"\x00"+strconv.Itoa(h.PID)+"\x00"+strconv.FormatInt(h.Started, 10)] = p
 				}
@@ -664,20 +687,22 @@ func (m *Model) leases(now time.Time) (held map[string]bool, dead map[string]str
 		}
 		for _, w := range q.Waiters {
 			if p := bind(w.Lane); p != "" {
-				held[p] = true
+				hold(p, q.ID)
 			}
 		}
 	}
-	return held, dead
+	return held, dead, queue
 }
 
 // leaseBinder returns the lane a lease's free-text lane names: a lane's tmux id, or
 // the basename of a worktree no other worktree of the project shares. Any other is no
-// lane's.
-func (m *Model) leaseBinder(now time.Time) func(string) string {
+// lane's. With registered, a registered lane's id binds too while its tmux session is
+// gone (the close verdict: a lease outlives its claude, PANEL-57). views are
+// terminalViews', not TerminalViews', whose verdict reads the leases.
+func (m *Model) leaseBinder(views []TermLaneView, registered bool) func(string) string {
 	terms := map[string]string{}
-	for _, tv := range m.TerminalViews(now) {
-		if tv.Running && tv.Worktree != "" {
+	for _, tv := range views {
+		if (tv.Running || registered && tv.Registered) && tv.Worktree != "" {
 			terms[tv.ID] = tv.Worktree
 		}
 	}
@@ -805,10 +830,13 @@ func (m *Model) sessionWorking(s *session, now time.Time) bool {
 // cron or a one-shot of neither shape while the list stands, a resolved one-shot until
 // wakeupGrace past its fire time.
 func (s *session) wakeupDue(now time.Time) bool {
-	if !s.live() || s.stall.stop == nil {
-		return false
-	}
-	for _, c := range s.stall.stop.crons {
+	return s.live() && s.stall.stop != nil && cronsDue(s.stall.stop, now)
+}
+
+// cronsDue: stop listed a wakeup still due, by wakeupDue's rule (the close verdict
+// reads its own kept Stop with it, PANEL-57).
+func cronsDue(stop *keptStop, now time.Time) bool {
+	for _, c := range stop.crons {
 		if c.fireAt.IsZero() || now.Before(c.fireAt.Add(wakeupGrace)) {
 			return true
 		}
@@ -1148,7 +1176,7 @@ func (m *Model) judgeStalls(now time.Time) map[string]*laneStall {
 	settling := now.Sub(m.startedAt) < T // the restart window (D1, option B; hold below)
 	agentsOK := !m.agentsOKAt.IsZero()
 	workJudged := m.workJudged()
-	leases, _ := m.leases(now)
+	leases, _, _ := m.leases(now, false)
 	byLane := map[string][]*session{}
 	for _, s := range m.sessions {
 		byLane[s.Lane] = append(byLane[s.Lane], s)

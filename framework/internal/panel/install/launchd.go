@@ -499,10 +499,10 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 		return err
 	}
 	dir := config.PanelDir(home)
-	// Everything the agent owns goes. port, pid and owner.json belong to a running
-	// panel, which bootout has just stopped.
+	// Everything the agent owns goes. port, pid, owner.json and the command socket
+	// belong to a running panel, which bootout has just stopped.
 	for _, p := range []string{PlistPath(home), TokenPath(home), filepath.Join(dir, "browser-opened"),
-		filepath.Join(dir, "pid"), ownerPath(home), MarkerPath(home), filepath.Join(dir, "bin"), LogDir(home)} {
+		filepath.Join(dir, "pid"), ownerPath(home), CLISocketPath(home), MarkerPath(home), filepath.Join(dir, "bin"), LogDir(home)} {
 		if err := os.RemoveAll(p); err != nil {
 			return err
 		}
