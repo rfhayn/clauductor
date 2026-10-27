@@ -556,7 +556,9 @@ func TestStallMergedPRNotPushedOnAnOldNone(t *testing.T) {
 	}
 	release()
 	n := w.mergedCalls("change/a")
-	waitFor(t, "lane a's merged read finding #152", func() bool { return w.mergedCalls("change/a") > n })
+	for w.mergedCalls("change/a") <= n {
+		p.polls.more(t, id+"/notify", 1)
+	}
 	p.polls.more(t, id+"/notify", 2)
 	if s := laneStall(p.state(t, ""), wt["a"]); s != nil {
 		t.Errorf("lane a, #152 read merged, stalled: %+v", *s)

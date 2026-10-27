@@ -94,9 +94,10 @@ func TestWheelOverALaneScrollsHistoryAndSendsNoKeys(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 	}
 	waitFor("copy mode", func() bool { return show("display-message", "-p", "-t", "=w:", "#{pane_in_mode}") == "1" })
-	if pos := show("display-message", "-p", "-t", "=w:", "#{scroll_position}"); pos == "" || pos == "0" {
-		t.Fatalf("copy mode did not scroll: scroll_position %q", pos)
-	}
+	waitFor("copy mode to scroll from the later wheel-ups", func() bool {
+		pos := show("display-message", "-p", "-t", "=w:", "#{scroll_position}")
+		return pos != "" && pos != "0"
+	})
 	// Leave copy mode, then type a marker: the pane gets the marker and nothing else.
 	show("send-keys", "-t", "=w:", "-X", "cancel")
 	ptmx.Write([]byte("END"))

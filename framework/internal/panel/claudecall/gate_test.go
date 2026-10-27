@@ -674,18 +674,21 @@ esac
 	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
 	}
-	time.Sleep(time.Second)
-	pctx, pcancel := context.WithTimeout(signals.WithPoll(context.Background()), 10*time.Second)
+	cs := g.calls()
+	if len(cs) != 1 || !running(cs[0]) || syscall.Kill(cs[0].pid, 0) != nil {
+		t.Fatalf("the stopped call must still run before a poll is refused: %+v", cs)
+	}
+	pctx, pcancel := context.WithTimeout(signals.WithPoll(context.Background()), testwait.Scale(10*time.Second))
 	defer pcancel()
 	if _, err := g.Run(pctx, t.TempDir(), []string{"claude", "--version"}); !errors.Is(err, ErrBusy) {
-		t.Fatalf("a poll 1 s after the timeout: %v, want ErrBusy", err)
+		t.Fatalf("a poll while the stopped call still holds the slot: %v, want ErrBusy", err)
 	}
 	lctx, lcancel := context.WithTimeout(context.Background(), testwait.Scale(10*time.Second))
 	defer lcancel()
 	if _, err := g.Run(lctx, t.TempDir(), []string{"claude", "--version"}); err != nil {
 		t.Fatalf("the lane action: %v", err)
 	}
-	cs := g.calls()
+	cs = g.calls()
 	if len(cs) != 2 || cs[1].spawned.Before(cs[0].ended) {
 		t.Fatalf("a second claude started before the first had exited: %+v", cs)
 	}
