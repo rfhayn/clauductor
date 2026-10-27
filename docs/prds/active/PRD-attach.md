@@ -1,5 +1,10 @@
 # PRD: Attach: the panel serves a repository with nothing installed in it, and Standing Tee stays independent
 
+> **Amended by the direction shift of 2026-10-27** (ADR-0011). ST-7 and ST-6 are cancelled with the browser
+> panel. Their phase, formerly Phase 5, is now Phase 8 and holds history only. PANEL-42's attach stays in the
+> engine. Standing Tee still keeps its own operating model; its practices are ported into the template as Phase 4's
+> rows.
+
 **Status:** decided 2026-10-12 by the owner. The rows are OPS-49, PANEL-42 (Phase 2, *Attach*, before MAPS), ST-7 and
 ST-6 (Phase 5, renamed "Standing Tee attaches"). PANEL-42 is a capability change: it is proposed just in time and
 approved on its own `design.md`. This PRD gives direction; it does not approve a design.
