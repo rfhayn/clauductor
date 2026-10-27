@@ -1,5 +1,9 @@
 # PRD: a panel that is good to use and good to look at
 
+> **Superseded by the direction shift of 2026-10-27** (ADR-0011, `docs/plans/direction-shift.md`). The local face
+> becomes a terminal UI, and PANEL-46 and the browser rows below are cancelled. PRD-tui (PANEL-60) replaces this
+> PRD and carries ADR-0009's colour rules. The text below is kept as it was decided.
+
 **Status:** decided 2026-10-14 by the owner (plan approved in session). Rows PANEL-45 and PANEL-46 are queued in
 `docs/roadmap.md` (Phase 2, *UI and Pulse*), ahead of OPS-42, PANEL-37 and PANEL-38, which build on them. Each row
 is still proposed just in time and approved on its own `design.md`. This PRD gives direction; it does not approve a
