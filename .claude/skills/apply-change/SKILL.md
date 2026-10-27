@@ -60,8 +60,11 @@ do one group alone. The loop is the same, and so are its stops.
    builder's summary (its blind spots must differ). Findings medium or worse go back to the builder
    to fix at their source, or to dispute with a reason; then gate again and review again. **Stop**
    if peak severity RISES between rounds, or at the cap without converging (`sh .claude/review-cap.sh
-   <id>`: its rounds for the proposal's `**Risk:**`), and name the builder's disputes for the owner to
-   rule on; what is left goes to the PR's `KNOWN LIMITS`, each with the issue or row that owns it.
+   <id> --why`: its rounds, and `REVIEW_AT_CAP`). When the cap's round still finds something medium
+   or worse, `stop` (the default) stops the run and names the disputes for the owner: raise the cap,
+   split the work, or send it back to design. Do not put those findings under `KNOWN LIMITS` or
+   merge. With `known-limits`, what is left goes to the PR's `KNOWN LIMITS`, each with the issue or
+   row that owns it. Lows still merge either way, each under `KNOWN LIMITS` with its owner.
 5. **Commit** the group once a round finds nothing medium or worse: add one line under
    `## Progress` in `tasks.md` (`- <date> group N (<title>) built and reviewed: converged in <n>
    round(s), peak <sev>`), check `git diff HEAD --name-status` for anything secret-looking,

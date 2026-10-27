@@ -122,10 +122,15 @@ Converged means **the last review round found nothing medium or worse.** By how 
 
 **The cap.** `sh .claude/review-cap.sh <row id or branch> --why` prints how many rounds this PR gets:
 its proposal's `**Risk:**`, or an ops or fix row's `Risk:` in its Change cell, against `REVIEW_CAPS`
-(low 2, normal 3, high 3 by default). An exit 1 is a stop: fix what it names. When the cap's round
-still finds something medium or worse, stop reviewing: put each finding left under `KNOWN LIMITS` in
-the PR body, with the issue or roadmap row that owns it (create one if none does: AGENTS.md rule 1),
-and merge; the owner may raise the cap for this PR instead. `build-change` reads the same cap.
+(low 2, normal 3, high 3 by default), and names `REVIEW_AT_CAP` (`stop` or `known-limits` in
+`.claude/project.conf`; the template's default is `stop`). An exit 1 is a stop: fix what it names.
+When the cap's round still finds something **medium or worse**, `REVIEW_AT_CAP stop` (the default)
+**STOPS** this step: notify the owner (raise the cap, split the work, or send it back to design);
+do not merge. With `REVIEW_AT_CAP known-limits`, stop reviewing instead: put each finding left
+under `KNOWN LIMITS` in the PR body, with the issue or roadmap row that owns it (create one if none
+does: AGENTS.md rule 1), and merge; the owner may raise the cap for this PR instead. **Low** findings
+still merge either way: each goes under `KNOWN LIMITS` with its owner. `build-change` reads the same
+cap and key.
 
 A reviewer spawn may come back as launched in the background (fork mode, the default, always
 does). Do any other work this step has. If there is none,
@@ -136,7 +141,9 @@ If the Agent tool offers `run_in_background` (fork mode off: `-p`, the Agent SDK
 there, a launcher that ends its turn has ended.
 
 Write the result into the PR body as one line: `Review: converged in <n> round(s), peak <sev>, at
-<short sha>` (or `Review: capped at <n> round(s), peak <sev>, at <short sha>; see KNOWN LIMITS`).
+<short sha>` (low findings only: add them under `KNOWN LIMITS`, each with its owner). With
+`known-limits` and medium or worse left at the cap: `Review: capped at <n> round(s), peak <sev>, at
+<short sha>; see KNOWN LIMITS`. Do not write that capped line when `stop` blocked the merge.
 Nothing checks this line; it is a skill step (AGENTS.md, *What executes*).
 
 ### 4. Squash-merge and prune

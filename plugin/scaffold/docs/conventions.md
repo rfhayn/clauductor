@@ -52,8 +52,9 @@ framing*). The build-change workflow does exactly that: it gates, reviews with a
 not told what the builder intended, fixes, and re-reviews until no finding is medium or worse; it
 stops for the owner if peak severity RISES between rounds or at the review cap without
 converging. The cap is per risk (`${CLAUDE_PLUGIN_ROOT}/review-cap.sh`: the proposal's `**Risk:**`, or an ops or
-fix row's `Risk:` in its Change cell, against `REVIEW_CAPS`, low 2, normal 3, high 3); past it, what
-is left goes to the PR's `KNOWN LIMITS` with the issue or row that owns it. A change built by hand gets the same loop from the `apply-change` skill. A PR whose
+fix row's `Risk:` in its Change cell, against `REVIEW_CAPS`, low 2, normal 3, high 3). At the cap,
+`REVIEW_AT_CAP` (`stop` by default) stops when the cap round still finds medium or worse; lows still
+merge, each under `KNOWN LIMITS` with its owner. A change built by hand gets the same loop from the `apply-change` skill. A PR whose
 diff is Markdown prose only gets the lighter `reviewer-docs` instead (`review-lane.sh`).
 
 ## Who decides, and what runs unattended
