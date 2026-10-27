@@ -115,4 +115,11 @@ fo2=$(JOURNAL=$bare INSIGHTS=$INSIGHTS ADR_INDEX=$ADR_INDEX PRAC_INDEX=$d/absent
 has "fixture: no What's next" "$fo2" "(this entry has no **What's next** paragraph)"
 has "fixture: missing index" "$fo2" "($d/absent.md unreadable)"
 
+# A path that is not there is unreadable. The empty-but-readable message is a different branch:
+# drop the journal's -r test and this missing path prints "has no ## Session entry" instead.
+missing=$d/no-journal.md
+fo3=$(JOURNAL=$missing INSIGHTS=$INSIGHTS ADR_INDEX=$ADR_INDEX PRAC_INDEX=$PRAC_INDEX digests)
+has "fixture: missing journal" "$fo3" "($missing unreadable)"
+hasnt "fixture: missing journal is not an empty session" "$fo3" "($missing has no ## Session entry)"
+
 finish
