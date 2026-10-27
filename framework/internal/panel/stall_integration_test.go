@@ -18,6 +18,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/testwait"
 )
 
 // PANEL-51 group 3, end to end: a panel with no page in view, its repositories real
@@ -556,7 +557,14 @@ func TestStallMergedPRNotPushedOnAnOldNone(t *testing.T) {
 	}
 	release()
 	n := w.mergedCalls("change/a")
+	// Notify ticks are what advance a merged read. The deadline is the same scaled
+	// bound waitFor used, so a read that never arrives fails here instead of spinning
+	// until go test's own timeout.
+	deadline := time.Now().Add(testwait.Scale(10 * time.Second))
 	for w.mergedCalls("change/a") <= n {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out after %v waiting for lane a's merged read after release", testwait.Scale(10*time.Second))
+		}
 		p.polls.more(t, id+"/notify", 1)
 	}
 	p.polls.more(t, id+"/notify", 2)

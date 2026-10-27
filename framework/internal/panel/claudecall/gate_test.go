@@ -661,8 +661,8 @@ func TestGateLaneActionWaitsForTheSlot(t *testing.T) {
 }
 
 // [CLAUDECALLS-2-S3] A stopped call holds the slot until it exits: a claude that
-// takes 5 s to exit after SIGTERM keeps a poll due 1 s after the timeout out, and a
-// lane action starts only once it has been reaped.
+// takes 5 s to exit after SIGTERM keeps the slot busy for a poll that runs while
+// that call is still alive, and a lane action starts only once it has been reaped.
 func TestGateStoppedCallHoldsTheSlotUntilItExits(t *testing.T) {
 	marks := filepath.Join(t.TempDir(), "marks")
 	fakeProgram(t, "claude", fmt.Sprintf(`case "$1" in
