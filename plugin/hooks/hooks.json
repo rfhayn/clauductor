@@ -57,6 +57,19 @@
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" catch-up-guard.sh",
             "type": "command"
+          },
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" read-by-range.sh",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" read-by-range.sh",
+            "type": "command"
           }
         ]
       },

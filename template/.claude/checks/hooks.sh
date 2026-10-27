@@ -786,6 +786,32 @@ case "$(fs)" in *"focus may be stale"*) ok "focus-staleness nudges when no focus
 case "$(fs)" in "") ok "focus-staleness is silent right after status-write" ;; *) fail "focus-staleness nudged on a fresh focus: $(fs)" ;; esac
 case "$(cd "$R" && HOME="$FH" FOCUS_STALE_SECONDS=-1 sh "$H/focus-staleness.sh" </dev/null)" in *"stale"*) ok "focus-staleness nudges past the age limit" ;; *) fail "focus-staleness: no nudge past the age limit" ;; esac
 
+# ── read-by-range ───────────────────────────────────────────────────────────────────────
+RBR="$d/rbr"; mkdir -p "$RBR"
+awk 'BEGIN{for(i=1;i<=401;i++) print "line " i}' > "$RBR/big.txt"
+echo 'short' > "$RBR/small.txt"
+
+rbr_read() {
+  if [ -n "${2:-}" ]; then
+    jq -cn --arg f "$1" --argjson lim "$2" '{tool_name:"Read", cwd:"'"$RBR"'", tool_input:{file_path:$f, limit:$lim}}'
+  else
+    jq -cn --arg f "$1" '{tool_name:"Read", cwd:"'"$RBR"'", tool_input:{file_path:$f}}'
+  fi
+}
+rbr_bash() { jq -cn --arg c "$1" '{tool_name:"Bash", cwd:"'"$RBR"'", tool_input:{command:$c}}'; }
+rbr() {
+  rc=0; printf '%s' "$3" | sh "$H/read-by-range.sh" >/dev/null 2>&1 || rc=$?
+  expect_rc "$1" "$rc" "read-by-range $( [ "$1" = 2 ] && echo blocks || echo allows ): $2"
+}
+rbr 2 "a whole Read of 401 lines" "$(rbr_read "$RBR/big.txt")"
+rbr 0 "Read with a limit" "$(rbr_read "$RBR/big.txt" 50)"
+rbr 2 "cat of that file" "$(rbr_bash "cat $RBR/big.txt")"
+rbr 0 "cat piped to grep" "$(rbr_bash "cat $RBR/big.txt | grep x")"
+rbr 0 "head -n 10" "$(rbr_bash "head -n 10 $RBR/big.txt")"
+rbr 2 "sed -n span over 400 lines" "$(rbr_bash "sed -n '1,500p' $RBR/big.txt")"
+rbr 0 "a missing file on Read" "$(rbr_read "$RBR/absent.txt")"
+rbr 0 "an empty payload" ""
+
 # ── format ─────────────────────────────────────────────────────────────────────────────
 rc=0; printf '{"tool_input":{"file_path":"%s"}}' "$R/$T" | sh "$H/format.sh" >/dev/null 2>&1 || rc=$?
 expect_rc 0 "$rc" "format.sh is a silent no-op with FORMAT_CMD unset"
@@ -874,6 +900,7 @@ no-silent-wait.sh	0	file:@REPO@/.git/clauductor-wait/hooks-check/tasks/check	{"h
 worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so
 cd-guard.sh	0	file:@REPO@/.git/clauductor-cd-guard/hooks-check/holds/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{"taskId":"check"}}	a build-change run is recorded as holding the worktree it started in
 catch-up-guard.sh	0	out:catch-up-guard: (no clauductor on PATH|catch-up is off)	{"tool_name":"Bash","tool_input":{"command":"git pull --ff-only origin main"}}	a pull in the main checkout, catch-up off or unaskable: allowed, and says so
+read-by-range.sh	2	out:BLOCKED by read-by-range:	{"tool_name":"Read","tool_input":{"file_path":"@REPO@/big.txt"}}	a whole Read of a file over 400 lines
 focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges
 format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written
 EOF
@@ -889,7 +916,8 @@ for e in "$ROOT"/.claude/* "$ROOT"/.claude/.[!.]*; do
   cp -R "$e" "$P/.claude/"
 done
 echo 'export const x = 1;' > "$P/src/tracked.ts"
-git -C "$P" add src/tracked.ts && git -C "$P" commit -qm seed
+awk 'BEGIN{for(i=1;i<=401;i++) print "line " i}' > "$P/big.txt"
+git -C "$P" add src/tracked.ts big.txt && git -C "$P" commit -qm seed
 P=$(cd "$P" && pwd -P)
 printf '#!/bin/sh\ntouch "%s/formatted.stamp"\n' "$P" > "$P/fmt.sh"
 { cat "$ROOT/.claude/project.conf" 2>/dev/null; printf '\nFORMAT_CMD="sh %s/fmt.sh"\nFORMAT_EXT="ts"\n' "$P"; } > "$P/.claude/project.conf"

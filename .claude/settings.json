@@ -64,6 +64,19 @@
           {
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/catch-up-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/read-by-range.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/read-by-range.sh"
           }
         ]
       },
@@ -200,6 +213,7 @@
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "allowUnsandboxedCommands": true,
+    "enableWeakerNetworkIsolation": true,
     "excludedCommands": [
       "git *",
       "gh *",
@@ -235,7 +249,6 @@
           "mode": "deny"
         }
       ]
-    },
-    "enableWeakerNetworkIsolation": true
+    }
   }
 }
