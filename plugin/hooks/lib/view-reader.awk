@@ -394,8 +394,10 @@ function view_of(av, n,   tool, i, w, rest, nrest, total, quiet, scripts, nscr, 
     if (nrest == 0 || count !~ /^[+-]?[0-9]+$/) return ""
     c = count + 0; if (c < 0) c = -c
     lines = 0
+    # line_count, not files_total(rest[i], 1): BSD awk treats a scalar passed as an array as empty.
     for (i = 1; i <= nrest; i++) {
-      total = files_total(rest[i], 1); if (total < 0) return ""
+      if (rest[i] == "-" || computed(rest[i])) return ""
+      total = line_count(rest[i]); if (total < 0) return ""
       if (tool == "head") {
         if (substr(count, 1, 1) == "-") lines += (total > c ? total - c : 0)
         else lines += (c < total ? c : total)

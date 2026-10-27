@@ -2,7 +2,7 @@
 
 - **PR**: #294
 - **Session**: S14, started 2026-10-27 15:59 ET
-- **Review**: 0 rounds, peak none, cap 2 (Risk low)
+- **Review**: 1 rounds, peak high, cap 2
 - **Gate**: CANNOT CHECK — full gate not run, lease held by ST-8
 - **Cost**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID in this shell
 - **Session start**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
