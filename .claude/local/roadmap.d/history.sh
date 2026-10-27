@@ -28,10 +28,11 @@ taken() {
       print id "\t" cid }
   ' "$h"
 }
-if [ "${1:-}" = --ids ]; then taken | cut -f1; exit 0; fi
 t=$(mktemp) || { echo "could not make a temporary file"; exit 1; }
 trap 'rm -f "$t"' EXIT
 taken > "$t" || { echo "docs/roadmap-history.md could not be read"; exit 1; }
+# A history that cannot be read is an error, never an empty list (OPS-147's review, L6).
+if [ "${1:-}" = --ids ]; then cut -f1 "$t"; exit; fi
 awk -F'\t' '
   FILENAME == ARGV[1] { cid[$1] = $2; next }
   NF >= 4 && ($4 in cid) && $5 != cid[$4] {
