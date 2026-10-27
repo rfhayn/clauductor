@@ -71,6 +71,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Claude merges only once review has CONVERGED; a proposal converges before the owner reads it | **`merge-pr`** step 3, **`propose`** step 2b: skill steps, **no hook checks them**; **`checks/change-process.sh`** holds the steps in place |
 | No scripted find-replace against tracked source | **`.claude/hooks/no-blind-source-rewrite.sh`** (blocking) |
 | No whole read of a file over 400 lines | **`.claude/hooks/read-by-range.sh`** (blocking; fails open) |
+| No forced worktree removal, no pattern kill | **`.claude/hooks/no-worktree-force-remove.sh`**, **`.claude/hooks/no-pattern-kill.sh`** (blocking); **`.claude/bin/pkill`** |
 | No gate ends where nobody hears it; a subagent waits for its gate in the foreground | **`.claude/hooks/no-background-gate.sh`** (blocking); **`scripts/ci/gate-wait.sh`**; **`checks/hooks.sh`**, **`checks/gate.sh`** |
 | No agent ends its turn while a command it started runs; no blocking question to the owner while work runs | **`.claude/hooks/no-silent-wait.sh`** (blocking: SubagentStop, AskUserQuestion, an agent's `&`; TeammateIdle unprobed); **`checks/hooks.sh`** |
 | A build-change run's agents work in its worktree: the session never `cd`s out while the run holds it | **`.claude/hooks/cd-guard.sh`** (blocking: the main session's Bash `cd`; the hold ends with the run's state file, a Stop not listing it, its worktree or its age); **`checks/hooks.sh`** |

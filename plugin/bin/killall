@@ -1,0 +1,4 @@
+#!/bin/sh
+# killall — refused, every invocation, by the same file as pkill (ST-14); see .claude/bin/pkill.
+# A file, not a symlink: the repo's walkers refuse to skip a symlink they cannot classify.
+PATTERN_KILL_NAME=killall exec sh "$(dirname -- "$0")/pkill" "$@"
