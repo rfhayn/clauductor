@@ -88,15 +88,15 @@ is B-6 absent "cancelled and not planned -> left out"
   && ok "a planned row takes its session, order, the owner's decision and its section's track" \
   || fail "B-1 reads $(jq -c '.[] | select(.id == "B-1")' "$O/roadmap.json")"
 # The phase number groups the tracker's sessions by phase; a row outside every phase is 0.
-[ "$(jq -r '[.[] | select(.id == "B-1" or .id == "E-1" or .id == "F-1") | "\(.id):\(.phase):\(.track)"] | sort | join(" ")' "$O/roadmap.json")" = "B-1:1:Second E-1:2:Phase 2 F-1:0:Outside the phases" ] \
+[ "$(jq -r '[.[] | select(.id == "B-1" or .id == "E-1" or .id == "F-1") | "\(.id):\(.phase):\(.phase | type):\(.track)"] | sort | join(" ")' "$O/roadmap.json")" = "B-1:1:number:Second E-1:2:number:Phase 2 F-1:0:number:Outside the phases" ] \
   && ok "each row carries its phase's number (0 outside every phase), beside its track" \
   || fail "phases read $(jq -c '[.[] | select(.id == "B-1" or .id == "E-1" or .id == "F-1") | {id, phase, track}]' "$O/roadmap.json")"
 [ "$(jq -r '[.[] | "\(.session)/\(.order)/\(.owner)"] | join(" ")' "$O/sessions.json")" = "S1/1/B-1: approve its design; nothing else S2–3/2/" ] \
   && ok "sessions.json holds each planned session in order" || fail "sessions.json: $(jq -c . "$O/sessions.json")"
 case $err in *"names Z-9, which is no roadmap row"*) ok "a planned id that is no row is named, not dropped silently" ;; *) fail "no warning for the unknown Z-9: $err" ;; esac
 
-# The Session plan is not queue rows: the parser's rows (through roadmap_queue) are exactly the nine
-# queue rows, none is a session, and in this repository's own roadmap no row sits in the section.
+# The Session plan is not queue rows: the parser's rows (through roadmap_queue) are exactly the
+# fixture's queue rows, none is a session, and in this repository's own roadmap no row sits in the section.
 # (Reading the section's lines is the one roadmap read here; the rows come from roadmap_queue.)
 tsv=$(cd "$F" && ROOT="$F" sh -c '. .claude/lib/conf.sh && roadmap_queue --tsv')
 [ "$(printf '%s\n' "$tsv" | cut -f4 | tr '\n' ' ')" = "A-1 A-2 A-3 B-1 B-2 B-3 B-4 B-5 B-6 B-7 E-1 F-1 " ] \

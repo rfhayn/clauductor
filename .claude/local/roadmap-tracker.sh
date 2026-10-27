@@ -157,7 +157,7 @@ jq -n --arg since "$since" --rawfile cloud "$out/.cloud" \
              elif $state == "cancelled" then $w != null
              else true end)
     | {id, title: (.summary | short),
-       phase: (if .phase != "-" then (.phase | tonumber) else 0 end),
+       phase: (if .phase == "-" then 0 else ($r.phase | tonumber? // error("row \($r.id): phase \($r.phase) is not a number; the tracker groups by phase number")) end),
        track: (if .section != "" then (.section | sub(" \\(.*$"; "")) elif .phase != "-" then "Phase \(.phase)" else "Outside the phases" end),
        kind,
        session: (if $w then $w.session elif $state == "parked" then "Parked" else "Unplanned" end),
