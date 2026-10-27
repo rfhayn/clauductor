@@ -3,11 +3,15 @@
 What `docs/roadmap.md` held before the reset of 2026-10-27 (OPS-147): every row that had merged or
 been cancelled, under the phase and section it sat in, and the session plan's sessions S4–S13,
 word for word. The rows the reset cancelled say so in their Status. The open rows, and the merged
-rows an open one depends on, moved to `docs/roadmap.md`, which holds their state; a table they
+rows an open one depends on, stayed in `docs/roadmap.md`, which holds their state; a table they
 emptied says so. The phase numbers are the old ones, which records before the reset use.
 
 Nothing parses this file as the queue. Its ids stay taken: `.claude/local/roadmap.d/history.sh`
-refuses a roadmap row that reuses one. Change it only to move more finished rows here.
+refuses a roadmap row that reuses one for another change, and `team-queue.sh --next-id` and
+archive-change's outcome numbering count them. Change it only to move more finished rows here. A
+new row cannot name a row here in its Deps, since Deps must be rows of the roadmap: what it builds
+on has merged, so it writes `—` and names the row in its Change cell, or moves the row back to the
+roadmap's *Merged rows the queue still depends on*.
 
 ## Phase 1 — Clauductor runs its own operating model
 **Owner:** Rich
