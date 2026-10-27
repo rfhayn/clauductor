@@ -119,6 +119,7 @@ case "$(validate "$d/two.json")" in *"2 values"*) ok "contract: the validator re
 R="$d/app"; new_repo "$R"; R=$(cd "$R" && pwd -P)
 mkdir -p "$R/.claude/lib" "$R/changes/archive" "$R/docs"
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/change.sh" "$ROOT/.claude/lib/usage.sh" "$R/.claude/lib/"
+cp "$ROOT/.claude/lib/usage-contributors.jq" "$R/.claude/lib/"
 cp "$ROOT/.claude/metrics.sh" "$ROOT/.claude/usage-report.sh" "$ROOT/.claude/roadmap-queue.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
 printf 'PROJECT_NAME="Fixture"\n' > "$R/.claude/project.conf"
 # A fixture step that fails is a FAIL naming the step and git's words, never a figure that comes out
@@ -417,6 +418,41 @@ printf '{"agentTy' > "$S/sid3/subagents/agent-a00.meta.json"
 jq -e '.total_usd == 3 and (.by_role | map(.name) | index("builder") != null) and (.by_role | map(.name) | index("?") == null)' "$d/u" >/dev/null \
   && ok "usage-report: a meta cut off mid-write loses no other agent's role" || fail "usage-report, cut-off meta: $(cat "$d/u")"
 rm -rf "$S/sid3" "$S/sid3.jsonl"
+
+# ── usage-report.sh --contributors (ST-8) ─────────────────────────────────────────────────────
+UC() { (cd "$R" && env CLAUDE_PROJECTS_DIR="$P" USAGE_NOW=$NOW sh .claude/usage-report.sh "$@") > "$d/u" 2>&1; }
+_contrib_body() { python3 -c "print('x'*48800)"; }
+_contrib_body > "$d/big.txt"
+_big=$(cat "$d/big.txt")
+mkdir -p "$S/sid-contrib"
+jq -nc --arg p "$R/docs/roadmap.md" \
+  '{type:"assistant",timestamp:"2026-09-29T16:00:00.000Z",message:{id:"cc1",model:"claude-opus-5-5",usage:{input_tokens:50000,output_tokens:100,cache_creation_input_tokens:50000},content:[{type:"tool_use",id:"tu-read",name:"Read",input:{file_path:$p}}]}}' > "$d/c1.json"
+jq -nc --arg c "$_big" '{type:"user",timestamp:"2026-09-29T16:00:01.000Z",message:{role:"user",content:[{type:"tool_result",tool_use_id:"tu-read",content:$c}]}}' > "$d/c2.json"
+jq -nc '{type:"assistant",timestamp:"2026-09-29T16:00:02.000Z",message:{id:"cc2",model:"claude-opus-5-5",usage:{input_tokens:1000,cache_read_input_tokens:200000,output_tokens:50}}}' > "$d/c3.json"
+jq -nc '{type:"assistant",timestamp:"2026-09-29T16:00:03.000Z",message:{id:"cc3",model:"claude-opus-5-5",usage:{input_tokens:500,cache_read_input_tokens:400000,output_tokens:20}}}' > "$d/c4.json"
+cat "$d/c1.json" "$d/c2.json" "$d/c3.json" "$d/c4.json" > "$S/sid-contrib.jsonl"
+UC --session sid-contrib --contributors; expect_rc 0 $? "usage-report --contributors"
+grep -q '^| Read docs/roadmap.md, whole |' "$d/u" \
+  && ok "usage-report --contributors: attributes a Read tool result by normalized path" \
+  || fail "usage-report --contributors: no Read row: $(grep '^| ' "$d/u" | head -5)"
+grep -q 're-read ~\$' "$d/u" && ok "usage-report --contributors: downstream re-read dollars are shown" \
+  || fail "usage-report --contributors: no re-read column: $(tail -8 "$d/u")"
+grep -q '^Cache rewrites' "$d/u" && ok "usage-report --contributors: cache rewrites line is present" \
+  || fail "usage-report --contributors: no cache rewrites line"
+(cd "$R" && env CLAUDE_PROJECTS_DIR="$P" USAGE_NOW=$NOW sh .claude/usage-report.sh --session sid-contrib --contributors 2>&1 | grep -q '^| Read docs/roadmap.md') \
+  && ok "usage-report --contributors: table is non-empty when attribution applies" \
+  || fail "usage-report --contributors: empty contributor table"
+rm -rf "$S/sid-contrib.jsonl" "$d/big.txt" "$d/c1.json" "$d/c2.json" "$d/c3.json" "$d/c4.json"
+# A rewrite whose previous call ended on `git -C …`: the waits clause must render (it used to
+# sort formatted strings and exit 2), and the key is the git subcommand, not the -C path.
+jq -nc '{type:"assistant",timestamp:"2026-09-29T17:00:00.000Z",message:{id:"rw1",model:"claude-opus-5-5",usage:{input_tokens:1000,cache_creation_input_tokens:1000,output_tokens:10},content:[{type:"tool_use",id:"tu-bash",name:"Bash",input:{command:"git -C /tmp diff"}}]}}' > "$d/r1.json"
+jq -nc '{type:"assistant",timestamp:"2026-09-29T17:00:02.000Z",message:{id:"rw2",model:"claude-opus-5-5",usage:{input_tokens:100,cache_creation_input_tokens:100000,output_tokens:10}}}' > "$d/r2.json"
+cat "$d/r1.json" "$d/r2.json" > "$S/sid-rewrite.jsonl"
+UC --session sid-rewrite --contributors; expect_rc 0 $? "usage-report --contributors with a cache rewrite still exits 0"
+grep -q 'waiting on Bash git diff' "$d/u" \
+  && ok "usage-report --contributors: a cache rewrite names the git subcommand it waited on" \
+  || fail "usage-report --contributors: rewrite wait: $(grep '^Cache rewrites' "$d/u")"
+rm -rf "$S/sid-rewrite.jsonl" "$d/r1.json" "$d/r2.json"
 
 # ── The health line ──────────────────────────────────────────────────────────────────────────
 out=$(CONTEXT_OFFLINE=1 sh "$ROOT/.claude/health/flow.sh")
