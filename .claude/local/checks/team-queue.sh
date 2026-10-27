@@ -21,6 +21,8 @@ mkdir -p "$F/.claude/lib" "$F/.claude/local/context.d/session-start" "$F/docs" "
 cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/modules.sh" "$ROOT/.claude/lib/change.sh" "$F/.claude/lib/"
 cp "$ROOT/.claude/roadmap-queue.sh" "$F/.claude/"
 cp "$ROOT/.claude/local/context.d/session-start/team-queue.sh" "$F/.claude/local/context.d/session-start/"
+mkdir -p "$F/.claude/local/roadmap.d"
+cp "$ROOT/.claude/local/roadmap.d/history.sh" "$F/.claude/local/roadmap.d/"   # --next-id reads its --ids
 cat > "$F/docs/roadmap.md" <<'EOF'
 # Roadmap
 
@@ -342,6 +344,10 @@ nexpect X-10 "--next-id: X-9a, X-9b and X-12a beside X-9 give X-10 (suffixes ski
 grep -vE '^\| X-(2|3|9|9a|9b|12a) ' "$S/roadmap.md" > "$F/docs/roadmap.md"
 nexpect X-4 "--next-id: an id on origin/main's roadmap counts though the working tree lacks it" "$S/n0.json"
 cp "$S/roadmap.md" "$F/docs/roadmap.md"
+# OPS-147: a row moved to the history keeps its id taken, though no roadmap holds it.
+printf '# Roadmap history\n\n## Phase 1 — Old\n\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| X-20 | `ops/x-20-old` — moved | x | — | ✅ merged (#1) |\n' > "$F/docs/roadmap-history.md"
+nexpect X-21 "--next-id: an id only docs/roadmap-history.md holds counts (OPS-147)" "$S/n0.json"
+rm "$F/docs/roadmap-history.md"
 ncannot() { # ncannot REASON MSG JSON [ENV=VALUE...]
   _r=$1 _m=$2; shift 2
   nid "$@"

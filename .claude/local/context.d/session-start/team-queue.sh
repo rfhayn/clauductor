@@ -66,7 +66,7 @@ if [ "${1:-}" = --hash ]; then
 fi
 # --next-id PREFIX (OPS-100): the id a PROPOSES ROW item's row takes, PREFIX-<max+1>. The max is
 # over every id taken or claimed: the roadmap's rows (the working tree's, origin/main's and each
-# open PR's own), the `Row:` lines of the open team-queue issues and the leading `PREFIX-N:` of
+# open PR's own), the history's (docs/roadmap-history.md, OPS-147), the `Row:` lines of the open team-queue issues and the leading `PREFIX-N:` of
 # open PR titles. A PR's roadmap counts because a PR adds rows its title does not name (#203,
 # titled OPS-105, added OPS-120 and OPS-122), and two PRs taking one id both pass their gates.
 # Only ids that are exactly PREFIX-<1 to 9 digits> count (OPS-92a is skipped, never read as 92,
@@ -136,8 +136,12 @@ if [ -n "$NEXT_ID" ]; then
         || cannot "#$n's change queue is UNKNOWN"
     done < "$t/prs"
   fi
+  # The history's ids are taken too (OPS-147): the reset moved finished rows out of the roadmap,
+  # and REL-2 and o.10 were above everything the roadmap still held.
+  sh "$ROOT/.claude/local/roadmap.d/history.sh" --ids > "$t/hist" || cannot "docs/roadmap-history.md's ids could not be read"
   {
     awk -F'\t' '{ print $4 }' "$t/tsv"
+    cat "$t/hist"
     jq -r '.data.repository.issues.nodes[].body // "" | gsub("\r"; "") | split("\n")[]
       | select(startswith("Row:")) | sub("^Row:[ \t]*"; "") | sub("[ \t]+$"; "")' "$t/resp"
     jq -r '.data.repository.pullRequests.nodes[].title // ""' "$t/resp" | sed -n "s/^\($NEXT_ID-[0-9][0-9]*\):.*/\1/p"
