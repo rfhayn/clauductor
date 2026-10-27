@@ -5,7 +5,8 @@
 #   1. The checked-in .claude/settings.json carries no panel hook: the panel installs its hooks in
 #      the USER settings when it starts, so a machine that never ran the panel sends nothing.
 #   2. Every card in .clauductor/panel.json runs a script that exists, with a well-formed refresh,
-#      and runs EXACTLY what session-start's context.sh runs, stderr included: no panel-only copy
+#      and runs EXACTLY what session-start runs (context.sh, or digests.sh when context.sh
+#      calls it), stderr included: no panel-only copy
 #      (one parser), and a card that dropped `2>&1` would show silence for the very failure the
 #      session sees. Each card is run, and must exit 0 and print something.
 #   3. Every lane template delegates to something that exists: each /command its first prompt names
@@ -71,12 +72,19 @@ nc=$(jq '.cards | length' "$PJ"); nu=$(jq '[.cards[].id] | unique | length' "$PJ
 [ "$nc" -ge 1 ] && [ "$nc" = "$nu" ] && ok "$nc card(s), each id once" || fail "cards: $nc card(s), $nu distinct id(s)"
 # A context.sh line runs the queue through roadmap_queue (lib/conf.sh); a card can only name the
 # script, whose front door hands every call to that same helper. They are one command; the run
-# below holds them to the same output.
+# below holds them to the same output. ST-11 prints that line from digests.sh, which context.sh
+# runs: those lines are session-start's too. The match is the whole command left of a pipe, so an
+# echo that merely names the helper is not the command the card is held to.
 # Installed as a plugin, the same model script is spelled three ways (context.sh's
 # `sh "$CLAUDUCTOR_FW"/x.sh`, a card's `sh scripts/ci/clauductor-model.sh x.sh`, the template's
 # `sh .claude/x.sh`): canon() makes them one spelling before they are compared.
 canon() { sed -e 's#roadmap_queue #sh @MODEL@/roadmap-queue.sh #g' -e 's#sh "\$CLAUDUCTOR_FW"/#sh @MODEL@/#g' -e 's#sh scripts/ci/clauductor-model\.sh #sh @MODEL@/#g' -e 's#sh [.]claude/#sh @MODEL@/#g'; }
 ctx_lines=$(grep -v '^[[:space:]]*#' "$CTX" | canon)
+if grep -q 'skills/session-start/digests.sh' "$CTX"; then
+  _dig="$ROOT/.claude/skills/session-start/digests.sh"
+  [ -f "$_dig" ] && ctx_lines="$ctx_lines
+$(grep -v '^[[:space:]]*#' "$_dig" | canon)"
+fi
 jq -c '.cards[]' "$PJ" > "$(scratch)/cards"
 while IFS= read -r card; do
   id=$(printf '%s' "$card" | jq -r .id)
@@ -94,11 +102,20 @@ while IFS= read -r card; do
   esac
   invc=$(printf '%s\n' "$inv" | canon)
   base=$(printf '%s' "$invc" | sed 's/[[:space:]]*2>&1[[:space:]]*$//')
-  line=$(printf '%s\n' "$ctx_lines" | grep -F -- "$base" | head -1)
-  if [ -z "$line" ]; then fail "card $id runs '$inv', which session-start's context.sh does not run (a panel-only command)"
+  hits=$(printf '%s\n' "$ctx_lines" | grep -F -- "$base" || true)
+  line=""
+  if [ -n "$hits" ]; then
+    line=$(printf '%s\n' "$hits" | while IFS= read -r cand; do
+      w=$(printf '%s' "${cand%%|*}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+      [ "$w" = "$invc" ] && printf '%s\n' "$cand" && break
+    done)
+  fi
+  if [ -n "$line" ]; then ok "card $id runs exactly what session-start runs, stderr included: $inv"
+  elif [ -z "$hits" ]; then fail "card $id runs '$inv', which session-start's context.sh does not run (a panel-only command)"
   else
-    want=$(printf '%s' "${line%%|*}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-    [ "$invc" = "$want" ] && ok "card $id runs exactly what session-start runs, stderr included: $inv" || fail "card $id runs '$inv'; session-start runs '$want'"
+    want=$(printf '%s\n' "$hits" | head -1)
+    want=$(printf '%s' "${want%%|*}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    fail "card $id runs '$inv'; session-start runs '$want'"
   fi
   # A script that calls GitHub cannot be RUN here (no login in CI, and the answer would depend on
   # the network) unless it honours CONTEXT_OFFLINE, as the model's own scripts do: such a card is

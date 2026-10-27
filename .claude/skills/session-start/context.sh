@@ -73,8 +73,9 @@ fi
 echo "- Remote branches with no open PR (last commit author · date):"
 ctx_loose_branches "$prs" 2>&1 | ind
 
-echo "- Change queue (the roadmap's current phase; top = next up):"
-roadmap_queue --text 2>&1 | ind
+# The change queue, the latest journal entry, the recent insights and the two record indexes, as
+# DIGESTS (ST-11): printed whole they dominated the block. digests.sh says what each keeps and why.
+sh .claude/skills/session-start/digests.sh || echo "    (digests.sh failed — the queue, journal, insights and indexes may be INCOMPLETE above)"
 echo "- Proposed, not yet built ($CHANGES_DIR/, at most one ahead):"
 found=""
 for d in "$CHANGES_DIR"/*/; do
@@ -84,19 +85,6 @@ for d in "$CHANGES_DIR"/*/; do
   echo "    $n: $u unchecked task(s)"; found=1
 done
 [ -n "$found" ] || echo "    none in this tree"
-
-echo "- Latest journal entry:"
-if [ -f "$JOURNAL" ]; then
-  entry=$(awk '/^## Session [0-9]/{n++} n==1' "$JOURNAL" | head -25)
-  printf '%s\n' "${entry:-none yet}" | ind
-else
-  echo "    CANNOT CHECK — $JOURNAL is missing"
-fi
-echo "- Insights: $(count_rows '\| (\*\*)?Raw\b[^|]*\|[[:space:]]*$' "$INSIGHTS") Raw row(s); latest:"
-grep -m 4 -E '^\| [0-9]{4}-' "$INSIGHTS" 2>/dev/null | cut -c1-150 | ind
-echo "- ADRs and practice records not yet Accepted:"
-# A project with no practices directory yet: grep exits 2 on it even when the ADR index matches.
-( grep -iE '\| (Proposed|Draft)' "$ADR_DIR/README.md" "$PRACTICES_DIR/README.md" 2>/dev/null | grep . || echo "none" ) | ind
 
 # Pluggable health lines: every script in .claude/health, the directory being the list, then the
 # enabled modules' and the local layer's (.claude/extensions.sh), each run per its own #! line.
