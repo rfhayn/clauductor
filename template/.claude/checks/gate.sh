@@ -274,7 +274,14 @@ expect_rc 70 "$rc" "lease_run exits 70 when the lease was taken away while the c
 [ -e "$KL" ] && ok "...and leaves the new holder's lease alone" || fail "lease_run removed a lease that was no longer its own"
 rm -rf "$KL" "$KL.waiters"
 # Under lock-run no nonce is exported: verified by the holder's pid among the asker's ancestors.
-out=$(bash -c '. "$0"; mkdir -p "$1"; printf "{\"v\":1,\"nonce\":\"00112233aabbccdd\",\"pid\":%s,\"pstart\":\"\",\"host\":\"h\",\"lane\":\"l\",\"cmd\":\"c\",\"started\":1,\"renewed\":1,\"ttl\":600}\n" "$$" > "$1/owner.json"; sh -c ". \"\$0\"; lease_verify \"\$1\" \$PPID && echo VERIFIED || echo LOST" "$0" "$1"; :' "$LS" "$KL" 2>&1)
+# An outer gate's CLAUDUCTOR_LEASE_NONCE (lease_run exports it when there is no clauductor) must
+# not leak in: lease_verify would compare nonces and answer LOST (OPS-146). The two lease_verify
+# cases above run inside lease_run, which exports the holder's own nonce; only this case needs a
+# clean environment. Shown failing first: a leaked nonce answers LOST, then unset answers VERIFIED.
+out=$(CLAUDUCTOR_LEASE_NONCE=deadbeefdeadbeef bash -c '. "$0"; mkdir -p "$1"; printf "{\"v\":1,\"nonce\":\"00112233aabbccdd\",\"pid\":%s,\"pstart\":\"\",\"host\":\"h\",\"lane\":\"l\",\"cmd\":\"c\",\"started\":1,\"renewed\":1,\"ttl\":600}\n" "$$" > "$1/owner.json"; sh -c ". \"\$0\"; lease_verify \"\$1\" \$PPID && echo VERIFIED || echo LOST" "$0" "$1"; :' "$LS" "$KL" 2>&1)
+[ "$out" = LOST ] && ok "lease_verify by pid: a leaked CLAUDUCTOR_LEASE_NONCE answers LOST" || fail "lease_verify by pid with leaked nonce: $out (want LOST)"
+rm -rf "$KL"
+out=$(bash -c 'unset CLAUDUCTOR_LEASE_NONCE; . "$0"; mkdir -p "$1"; printf "{\"v\":1,\"nonce\":\"00112233aabbccdd\",\"pid\":%s,\"pstart\":\"\",\"host\":\"h\",\"lane\":\"l\",\"cmd\":\"c\",\"started\":1,\"renewed\":1,\"ttl\":600}\n" "$$" > "$1/owner.json"; sh -c ". \"\$0\"; lease_verify \"\$1\" \$PPID && echo VERIFIED || echo LOST" "$0" "$1"; :' "$LS" "$KL" 2>&1)
 # (the trailing `:` keeps bash from exec-ing its last command, which would make the holder the asker itself)
 [ "$out" = VERIFIED ] && ok "lease_verify: with no nonce (lock-run), the holder's pid as an ancestor verifies" || fail "lease_verify by pid: $out"
 rm -rf "$KL"
