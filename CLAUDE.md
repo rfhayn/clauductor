@@ -65,9 +65,8 @@ them at run time, so no framework file differs on purpose.
 
 - Branches: the model's lanes, `change/<id>`, `fix/<n>-<slug>`, `ops/<name>`.
 - Commits and PR titles: `PREFIX-N:` in the imperative mood. **No Co-Authored-By.**
-- Milestone prefixes: PANEL (the panel's engine and its terminal UI), OPS (the operating model and
-  this repo's process), REL (releases), ST (Standing Tee: its ports into the template), PROD (the
-  product module). Older history uses M1–M7 and LIFE-n.
+- Milestone prefixes: PANEL (the panel), OPS (the operating model and this repo's process), REL
+  (releases), ST (Standing Tee convergence). Older history uses M1–M7 and LIFE-n.
 
 ## Code standards
 
