@@ -2,9 +2,10 @@
 # SessionStart: put .claude/bin first on PATH, and drop any alias or function named pkill or
 # killall, so those names run the refusing wrappers (ST-14). Claude Code runs CLAUDE_ENV_FILE in
 # each Bash command's own shell, after the snapshot, which is the last word on how a name resolves.
-# Never blocks a session: exit 0 always. Without CLAUDE_ENV_FILE the wrappers are not on PATH;
-# no-pattern-kill.sh still refuses a literal path. The payload is drained so a closed pipe
-# is not a failed launch.
+# Never blocks a session: exit 0 always. Without CLAUDE_ENV_FILE the wrappers are not on PATH.
+# no-pattern-kill.sh still refuses a Bash call it can read: a path, the bare name, command -p,
+# or env PATH=. A script file is not read. The payload is drained so a closed pipe is not a
+# failed launch.
 cat >/dev/null
 # Sibling of hooks/: .claude/bin in a project, the plugin's bin/ when the hook ships there.
 bin=$(CDPATH= cd -- "$(dirname -- "$0")/../bin" 2>/dev/null && pwd -P) || {

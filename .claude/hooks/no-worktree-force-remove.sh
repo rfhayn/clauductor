@@ -14,7 +14,7 @@
 # exit 0 allows. If awk cannot answer and the raw text names a worktree removal with a dash-f,
 # this fails closed.
 payload=$(cat)
-SAFE="Look first: git -C <worktree> status --short. If it lists anything, STOP: that is someone's uncommitted work, so do not discard it (no checkout --, reset --hard, clean or rm) and report it to whoever owns the worktree. If it lists nothing, the plain 'git worktree remove <worktree>' removes it (ignored files such as node_modules do not count). A worktree under .claude/worktrees/ is removed by .claude/machine-quiet.sh, which keeps a dirty, locked or occupied one. If a tree really holds nothing worth keeping, say so to the owner and let them remove it; do not route around this hook."
+SAFE="Look first: git -C <worktree> status --short. If it lists anything, STOP: that is someone's uncommitted work, so do not discard it (no checkout --, reset --hard, clean or rm) and report it to whoever owns the worktree. If it lists nothing, the plain 'git worktree remove <worktree>' removes it (ignored files such as node_modules do not count). A worktree under .claude/worktrees/ is removed by machine-quiet.sh, which keeps a dirty, locked or occupied one. If a tree really holds nothing worth keeping, say so to the owner and let them remove it; do not route around this hook."
 cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty' 2>/dev/null) || cmd=""
 verdict=unreadable
 reader=$(dirname "$0")/lib/worktree-remove.awk

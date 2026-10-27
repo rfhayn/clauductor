@@ -849,15 +849,20 @@ wtp() { jq -cn --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}}'; }
 wt 2 "$(wtp 'git worktree remove --force x')" "git worktree remove --force"
 wt 2 "$(wtp 'git worktree remove x -f')" "a force flag after the path"
 wt 0 "$(wtp 'git worktree remove x')" "a plain removal"
-wt 0 "$(wtp 'sh .claude/machine-quiet.sh')" "machine-quiet.sh, whose own -f is not read"
+wt 0 "$(cd "$ROOT" && wtp 'sh .claude/machine-quiet.sh')" "machine-quiet.sh, whose own -f is not read"
 wt 0 "$(wtp "echo 'git worktree remove --force x'")" "a quoted mention"
 pk() {
   rc=0; printf '%s' "$2" | sh "$H/no-pattern-kill.sh" >/dev/null 2>&1 || rc=$?
   expect_rc "$1" "$rc" "pattern-kill $( [ "$1" = 2 ] && echo blocks || echo allows ): $3"
 }
 pk 2 "$(wtp '/usr/bin/pkill -f sleep')" "a path to pkill"
+pk 2 "$(wtp 'pkill -f sleep')" "the bare name, so a missing wrapper still refuses"
+pk 2 "$(wtp 'command -p pkill')" "command -p, which skips the wrapper"
+pk 2 "$(wtp 'env PATH=/usr/bin:/bin pkill')" "a rebuilt PATH"
 pk 0 "$(wtp 'kill 1234')" "kill by pid"
-pk 0 "$(wtp 'echo pkill is refused')" "the name with no path"
+pk 0 "$(wtp 'echo pkill is refused')" "the name in an argument"
+pk 0 "$(wtp 'grep /usr/bin/pkill /dev/null')" "a path mentioned as an argument"
+pk 0 "$(wtp 'gh pr create --body "see /usr/bin/pkill"')" "a path inside a quoted argument"
 rc=0; "$H/../bin/pkill" -f sleep >/dev/null 2>&1 || rc=$?
 expect_rc 2 "$rc" "the pkill wrapper refuses every call"
 rc=0; "$H/../bin/killall" sleep >/dev/null 2>&1 || rc=$?
