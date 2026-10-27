@@ -146,7 +146,7 @@ jq -s -r --arg subject "$subject" --argjson top "$top" '
     ($c.rows[0:$top][] | . as $r |
       "| \($r.key) | \($r.n) | \(m($r.tokens)) | \(if mean($r) < 1000 then (mean($r) | round | tostring) else m(mean($r)) end) | \(if $r.unpriced then "UNPRICED" else "$" + (($r.downstream * 100 | round) / 100 | tostring) end) |"),
     "",
-    "Cache rewrites (write > 50% of context after an idle gap): \($c.rewrites.n), ~$\(($c.rewrites.cost * 100 | round) / 100)\(if $c.rewrites.unpriced > 0 then " + \($c.rewrites.unpriced) UNPRICED" else "" end)\(if ($c.rewrites.waits | length) > 0 then "; waiting on " + ([$c.rewrites.waits | to_entries[] | "\(.key) ×\(.value)"] | sort_by(-.value) | .[0:3] | map("\(.key) ×\(.value)") | join(", ")) else "" end).",
+    "Cache rewrites (write > 50% of context after an idle gap): \($c.rewrites.n), ~$\(($c.rewrites.cost * 100 | round) / 100)\(if $c.rewrites.unpriced > 0 then " + \($c.rewrites.unpriced) UNPRICED" else "" end)\(if ($c.rewrites.waits | length) > 0 then "; waiting on " + (([$c.rewrites.waits | to_entries[]] | sort_by(-.value) | .[0:3] | map("\(.key) ×\(.value)") | join(", "))) else "" end).",
     (if $c.resets > 0 then "\($c.resets) context reset(s) (compaction): their base is one row, not attributed." else empty end),
     (if $c.parseFailures > 0 then "\($c.parseFailures) transcript line(s) failed to parse and are not counted." else empty end)
    end)

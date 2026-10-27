@@ -47,7 +47,7 @@ keep: no hook refuses a row PR's edit to the log.
   `docs/journal.d/README.md`'s and `checks/journal.sh` holds it: the PR, the session marker's
   `S<n>` and time (the PR body's first line, from `session-start/marker.sh`), review rounds and peak
   against `sh .claude/review-cap.sh <row id>`, the last full gate's minutes (both the runs before
-  the fragment's commit, which the final gate's receipt then covers),   the cost (`usage-report.sh`, this row's sessions; optional `; top: …` from `--contributors`), the
+  the fragment's commit, which the final gate's receipt then covers), the cost (`usage-report.sh`, this row's sessions; optional `; top: …` from `--contributors`), the
   marker's `session-start cost:` line, then what
   happened, decisions, surprises, and insight lines as rows of the log's table. A batched PR that
   closes other rows too names them in `- **Also closes**: <id>, <id>`, and the fold marks each

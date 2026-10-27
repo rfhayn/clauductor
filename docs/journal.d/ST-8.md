@@ -2,7 +2,7 @@
 
 - **PR**: #293
 - **Session**: S14, started 2026-10-27 15:01 ET
-- **Review**: 0 rounds, peak none, cap 3
+- **Review**: 1 rounds, peak high, cap 2
 - **Gate**: CANNOT CHECK — scoped checks only (metrics, journal), not full gate
 - **Cost**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID in this Cursor lane
 - **Session start**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID

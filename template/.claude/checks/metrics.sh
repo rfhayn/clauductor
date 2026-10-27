@@ -443,6 +443,16 @@ grep -q '^Cache rewrites' "$d/u" && ok "usage-report --contributors: cache rewri
   && ok "usage-report --contributors: table is non-empty when attribution applies" \
   || fail "usage-report --contributors: empty contributor table"
 rm -rf "$S/sid-contrib.jsonl" "$d/big.txt" "$d/c1.json" "$d/c2.json" "$d/c3.json" "$d/c4.json"
+# A rewrite whose previous call ended on `git -C …`: the waits clause must render (it used to
+# sort formatted strings and exit 2), and the key is the git subcommand, not the -C path.
+jq -nc '{type:"assistant",timestamp:"2026-09-29T17:00:00.000Z",message:{id:"rw1",model:"claude-opus-5-5",usage:{input_tokens:1000,cache_creation_input_tokens:1000,output_tokens:10},content:[{type:"tool_use",id:"tu-bash",name:"Bash",input:{command:"git -C /tmp diff"}}]}}' > "$d/r1.json"
+jq -nc '{type:"assistant",timestamp:"2026-09-29T17:00:02.000Z",message:{id:"rw2",model:"claude-opus-5-5",usage:{input_tokens:100,cache_creation_input_tokens:100000,output_tokens:10}}}' > "$d/r2.json"
+cat "$d/r1.json" "$d/r2.json" > "$S/sid-rewrite.jsonl"
+UC --session sid-rewrite --contributors; expect_rc 0 $? "usage-report --contributors with a cache rewrite still exits 0"
+grep -q 'waiting on Bash git diff' "$d/u" \
+  && ok "usage-report --contributors: a cache rewrite names the git subcommand it waited on" \
+  || fail "usage-report --contributors: rewrite wait: $(grep '^Cache rewrites' "$d/u")"
+rm -rf "$S/sid-rewrite.jsonl" "$d/r1.json" "$d/r2.json"
 
 # ── The health line ──────────────────────────────────────────────────────────────────────────
 out=$(CONTEXT_OFFLINE=1 sh "$ROOT/.claude/health/flow.sh")

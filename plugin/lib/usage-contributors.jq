@@ -33,7 +33,8 @@ def normBash($cmd):
       | if . == $before then . else . end)
   | if . == "" then "(empty)"
     else
-      (split("\\s+") | map(select(. != ""))) as $tok
+      # splits, not split: split takes a literal, so "\\s+" never broke the command into words.
+      ([splits("\\s+")] | map(select(. != ""))) as $tok
       | if ($tok | length) == 0 then "(empty)"
         else $tok[0] as $a | $tok[1:] as $rest
         | if ($a | IN("bash", "sh", "zsh", "node")) and ($rest[0]? != null) and ($rest[0] | startswith("-") | not) then
@@ -43,8 +44,13 @@ def normBash($cmd):
           elif $a == "gh" then
             "gh " + (($rest | map(select(startswith("-") | not))) | if length > 0 and .[0] == "api" then .[0:1] else .[0:2] end | join(" "))
           elif $a == "git" then
-            ($rest | map(select(. != ""))) as $r
-            | "git " + (($r | .[ ($r | to_entries | map(select(.value | startswith("-") | not)) | .[0].key) // 0 ] // "") | tostring)
+            # Drop -C/-c and their arguments before the subcommand, as Standing Tee's normBash does.
+            ($rest | reduce .[] as $w ({skip: false, r: []};
+                if .skip then .skip = false | .
+                elif ($w | IN("-C", "-c")) then .skip = true | .
+                else .r += [$w] | . end)
+              | .r | map(select(startswith("-") | not)) | .[0] // "") as $sub
+            | ("git " + $sub | rtrimstr(" "))
           elif ($a | IN("pnpm", "npx")) then
             ($rest | reduce .[] as $w ({o: [], skip: false};
               if .skip then .skip = false | .
