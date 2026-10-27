@@ -15,7 +15,9 @@
 # Rows and their states come from roadmap_queue (lib/conf.sh), never a second parser of the queue
 # tables. The sessions, their order and the owner's decision per row come from the roadmap's
 # "## Session plan" table through .claude/roadmap-plan.sh, its one parser, which the panel's Up
-# next reads too: its header is not the queue header, so the queue parser skips it. A row's track is its ### section (or "Phase N").
+# next reads too: its header is not the queue header, so the queue parser skips it. A row's track is its ### section (or "Phase N"),
+# and its phase is the queue's phase number (0 outside every phase), which the tracker's page groups
+# the sessions by (OPS-148).
 #
 # State mapping (roadmap -> tracker):
 #   merged -> merged, kept only when its squash commit "(#N)" on HEAD is dated SINCE or later
@@ -155,6 +157,7 @@ jq -n --arg since "$since" --rawfile cloud "$out/.cloud" \
              elif $state == "cancelled" then $w != null
              else true end)
     | {id, title: (.summary | short),
+       phase: (if .phase != "-" then (.phase | tonumber) else 0 end),
        track: (if .section != "" then (.section | sub(" \\(.*$"; "")) elif .phase != "-" then "Phase \(.phase)" else "Outside the phases" end),
        kind,
        session: (if $w then $w.session elif $state == "parked" then "Parked" else "Unplanned" end),

@@ -36,6 +36,12 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | B-6 | `ops/b-6-gone` — cancelled and not planned | x | — | ❌ cancelled — no |
 | B-7 | `b-7-build` — a change being built in its worktree | x | — | ⬜ queued |
 
+## Phase 2 — Later
+
+| # | Change | Scope | Deps | Status |
+|---|--------|-------|------|--------|
+| E-1 | `ops/e-1-later` — a row of the second phase | x | — | ⬜ queued |
+
 ## Session plan
 
 | Session | When | Focus | Rows | The owner decides |
@@ -44,6 +50,10 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | S2–3 | | Then the rest | B-2, B-7, Z-9 | — |
 
 ## Done before
+
+| # | Change | Scope | Deps | Status |
+|---|--------|-------|------|--------|
+| F-1 | `ops/f-1-outside` — a row outside every phase | x | — | ⬜ queued |
 EOF
 cp "$F/docs/roadmap.md" "$(scratch)/fixture.md"
 printf '**Approved:** 2026-10-01 by Rich · design 0123456789ab\n\n# b-1\n' > "$F/changes/b-1-approved/proposal.md"
@@ -77,6 +87,10 @@ is B-6 absent "cancelled and not planned -> left out"
 [ "$(jq -r '.[] | select(.id == "B-1") | [.session, .order, .owner, .track] | join("|")' "$O/roadmap.json")" = "S1|1|Approve its design|Second" ] \
   && ok "a planned row takes its session, order, the owner's decision and its section's track" \
   || fail "B-1 reads $(jq -c '.[] | select(.id == "B-1")' "$O/roadmap.json")"
+# The phase number groups the tracker's sessions by phase; a row outside every phase is 0.
+[ "$(jq -r '[.[] | select(.id == "B-1" or .id == "E-1" or .id == "F-1") | "\(.id):\(.phase):\(.track)"] | sort | join(" ")' "$O/roadmap.json")" = "B-1:1:Second E-1:2:Phase 2 F-1:0:Outside the phases" ] \
+  && ok "each row carries its phase's number (0 outside every phase), beside its track" \
+  || fail "phases read $(jq -c '[.[] | select(.id == "B-1" or .id == "E-1" or .id == "F-1") | {id, phase, track}]' "$O/roadmap.json")"
 [ "$(jq -r '[.[] | "\(.session)/\(.order)/\(.owner)"] | join(" ")' "$O/sessions.json")" = "S1/1/B-1: approve its design; nothing else S2–3/2/" ] \
   && ok "sessions.json holds each planned session in order" || fail "sessions.json: $(jq -c . "$O/sessions.json")"
 case $err in *"names Z-9, which is no roadmap row"*) ok "a planned id that is no row is named, not dropped silently" ;; *) fail "no warning for the unknown Z-9: $err" ;; esac
@@ -85,7 +99,7 @@ case $err in *"names Z-9, which is no roadmap row"*) ok "a planned id that is no
 # queue rows, none is a session, and in this repository's own roadmap no row sits in the section.
 # (Reading the section's lines is the one roadmap read here; the rows come from roadmap_queue.)
 tsv=$(cd "$F" && ROOT="$F" sh -c '. .claude/lib/conf.sh && roadmap_queue --tsv')
-[ "$(printf '%s\n' "$tsv" | cut -f4 | tr '\n' ' ')" = "A-1 A-2 A-3 B-1 B-2 B-3 B-4 B-5 B-6 B-7 " ] \
+[ "$(printf '%s\n' "$tsv" | cut -f4 | tr '\n' ' ')" = "A-1 A-2 A-3 B-1 B-2 B-3 B-4 B-5 B-6 B-7 E-1 F-1 " ] \
   && ok "the fixture's Session plan is not parsed as queue rows" || fail "the parser read: $(printf '%s\n' "$tsv" | cut -f4 | tr '\n' ' ')"
 jq -e '[.[].id] | any(. == "S1" or . == "S2–3")' "$O/roadmap.json" >/dev/null && fail "a session became a tracker row" || ok "no session is a tracker row"
 range=$(cd "$ROOT" && awk '/^## Session plan/ { s = NR; next } s && !e && /^## / { e = NR } END { if (s) print s, (e ? e : NR) }' "$ROADMAP")
