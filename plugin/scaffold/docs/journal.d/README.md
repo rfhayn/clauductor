@@ -47,9 +47,10 @@ What did not go as expected, or `None.`
   names the owner.
 - **Gate**: the minutes of the last full gate before the fragment's commit. Review and Gate describe
   the runs BEFORE that commit: writing the fragment makes a new head, which the final gate's receipt
-  covers. **Cost**: `usage-report.sh` over this row's
-  sessions. **Session start**: the marker's `session-start cost:` line. A reading that failed is
-  `CANNOT CHECK — <why>`, never `0`.
+  covers. **Cost**: `usage-report.sh` over this row's sessions (`$<amount>`), optionally followed by
+  `; top: <contributor> (~$<re-read>)` from `usage-report.sh --contributors` (one short line; the
+  fold still totals only the leading `$<amount>`). **Session start**: the marker's `session-start
+  cost:` line. A reading that failed is `CANNOT CHECK — <why>`, never `0`.
 - **Also closes** (optional, after the fields above): `<row id>, <row id>`, the other rows a batched
   PR closes; the fold marks each `✅ merged` by this fragment's PR.
 - **Insights**: rows of the log's table, six cells, date first, no header; or `None.`

@@ -8,6 +8,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #   sh .claude/usage-report.sh --days N           the same, for the last N days
 #   ... --json                                    {subject,since,sessions,messages,total_usd,unpriced,rows,by_role,by_model}
 #   ... --records                                 one JSON line per message, deduplicated (metrics.sh reads this)
+#   ... --contributors [--top N]                  top context contributors (ST-8): re-read attribution by tool/file
 #
 # WHY IT EXISTS. The model chosen for each role (.claude/model-roles.json) is a hypothesis until its
 # cost is measured next to what the role catches; a note asking for the number is not a mechanism
@@ -29,7 +30,7 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/usage.sh"
 
-session="" since="" days="" mode=text
+session="" since="" days="" mode=text contributors="" top=10
 while [ $# -gt 0 ]; do
   case "$1" in
     --session) session=${2:-}; shift 2 ;;
@@ -37,7 +38,9 @@ while [ $# -gt 0 ]; do
     --days) days=${2:-}; shift 2 ;;
     --json) mode=json; shift ;;
     --records) mode=records; shift ;;
-    *) echo "usage: usage-report.sh [--session <id> | --since YYYY-MM-DD | --days N] [--json | --records]" >&2; exit 64 ;;
+    --contributors) contributors=1; shift ;;
+    --top) top=${2:-10}; shift 2 ;;
+    *) echo "usage: usage-report.sh [--session <id> | --since YYYY-MM-DD | --days N] [--json | --records | --contributors [--top N]]" >&2; exit 64 ;;
   esac
 done
 cannot() {
@@ -65,7 +68,7 @@ fi
 main=$(usage_main) || cannot "$ROOT is not a git checkout"
 [ -n "$(usage_dirs "$main")" ] || cannot "no transcripts for this repository under $(usage_projects)"
 tmp=$(mktemp "${TMPDIR:-/tmp}/usage-report.XXXXXX") || cannot "mktemp failed"
-trap 'rm -f "$tmp" "$tmp.err" "$tmp.sum"' EXIT
+trap 'rm -f "$tmp" "$tmp.err" "$tmp.sum" "$tmp.contrib" "$tmp.prices"' EXIT
 usage_records "$since" "$session" 2> "$tmp.err" | jq -cn 'reduce inputs as $r ({}; .[$r.id] = $r) | .[]' > "$tmp" \
   || cannot "the transcripts could not be read: $(head -1 "$tmp.err")"
 [ -s "$tmp.err" ] && [ ! -s "$tmp" ] && cannot "$(head -1 "$tmp.err")"
@@ -83,6 +86,7 @@ jq -s --arg subject "$subject" --arg since "$since" '
     messages: length,
     total_usd: (map(.usd // 0) | add // 0 | r2),
     unpriced: (map(select(.usd == null) | .model) | unique),
+    avg_ctx: (if length == 0 then 0 else (map(.read + .write + (.out // 0)) | add / length | floor) end),
     rows: (group_by([.role, .model]) | map({role: .[0].role, model: .[0].model, calls: length,
             read: (map(.read) | add), write: (map(.write) | add), out: (map(.out) | add),
             usd: (if all(.usd == null) then null else (map(.usd // 0) | add | r2) end)}) | sort_by(-(.usd // -1))),
@@ -90,21 +94,61 @@ jq -s --arg subject "$subject" --arg since "$since" '
     by_model: sumby(.model) }' "$tmp" > "$tmp.sum" || cannot "jq could not total the records"
 
 if [ "$mode" = json ]; then cat "$tmp.sum"; exit 0; fi
-jq -r '
-  def m: if . >= 1000000 then "\(. / 100000 | round / 10)M" else "\(. / 1000 | round)k" end;
-  "Usage — \(.subject): \(.messages) message(s) in \(.sessions) session(s)",
-  (if .messages == 0 then "No API calls recorded in this window." else
+
+print_summary() {
+  jq -r '
+    def m: if . >= 1000000 then "\(. / 100000 | round / 10)M" else "\(. / 1000 | round)k" end;
+    "Usage — \(.subject): \(.messages) message(s) in \(.sessions) session(s)",
+    (if .messages == 0 then "No API calls recorded in this window." else
+      "",
+      "| role | model | calls | cache read | cache write | output | ~$ |",
+      "|---|---|---|---|---|---|---|",
+      (.rows[] | "| \(.role) | \(.model) | \(.calls) | \(.read | m) | \(.write | m) | \(.out | m) | \(if .usd == null then "?" else .usd end) |"),
+      "",
+      "By role (an agent is charged to the root of its spawn chain; \"session\" is the main conversation):",
+      (.by_role[] | "- \(.name): ~$\(.usd)"),
+      "",
+      "By model:",
+      (.by_model[] | "- \(.name): ~$\(.usd)"),
+      "",
+      "Total ~$\(.total_usd) (list-price API equivalent, this machine only)",
+      (if (.unpriced | length) > 0 then "UNPRICED (excluded from the total; add to .prices in .claude/model-roles.json): \(.unpriced | join(", "))" else empty end)
+    end)' "$tmp.sum"
+}
+
+if [ -z "$contributors" ]; then
+  print_summary
+  exit 0
+fi
+
+# --contributors: context attribution (ST-8), same session/window selectors as above.
+jq '.prices' "$ROOT/.claude/model-roles.json" > "$tmp.prices" || cannot "model-roles.json has no .prices"
+usage_contributor_lines "$since" "$session" 2> "$tmp.err" | jq -n --arg since "$since" --arg root "$ROOT" \
+  --slurpfile prices "$tmp.prices" -f "$CLAUDUCTOR_FW/lib/usage-contributors.jq" > "$tmp.contrib" \
+  || cannot "contributors could not be computed: $(head -1 "$tmp.err")"
+
+print_summary
+printf '\n'
+jq -s -r --arg subject "$subject" --argjson top "$top" '
+  def m($n):
+    if $n >= 1000000 then "\(($n / 100000 | round / 10))M"
+    else "\(($n / 1000 | round))k" end;
+  def mean($r): if $r.n == 0 then 0 else $r.tokens / $r.n end;
+  .[0] as $sum | .[1] as $c |
+  "Context — \($subject): total ~$\($sum.total_usd), \($sum.messages) call(s), avg context \(m($sum.avg_ctx)) tokens per call",
+  "",
+  "Top context contributors — \($subject) (\($c.threads) of \($c.files) threads active)",
+  (if ($c.rows | length) == 0 then "No attributed context in this window."
+   else
     "",
-    "| role | model | calls | cache read | cache write | output | ~$ |",
-    "|---|---|---|---|---|---|---|",
-    (.rows[] | "| \(.role) | \(.model) | \(.calls) | \(.read | m) | \(.write | m) | \(.out | m) | \(if .usd == null then "?" else .usd end) |"),
+    "| contributor | times | tokens added | mean | re-read ~$ |",
+    "|---|---|---|---|---|",
+    ($c.rows[0:$top][] | . as $r |
+      "| \($r.key) | \($r.n) | \(m($r.tokens)) | \(if mean($r) < 1000 then (mean($r) | round | tostring) else m(mean($r)) end) | \(if $r.unpriced then "UNPRICED" else "$" + (($r.downstream * 100 | round) / 100 | tostring) end) |"),
     "",
-    "By role (an agent is charged to the root of its spawn chain; \"session\" is the main conversation):",
-    (.by_role[] | "- \(.name): ~$\(.usd)"),
-    "",
-    "By model:",
-    (.by_model[] | "- \(.name): ~$\(.usd)"),
-    "",
-    "Total ~$\(.total_usd) (list-price API equivalent, this machine only)",
-    (if (.unpriced | length) > 0 then "UNPRICED (excluded from the total; add to .prices in .claude/model-roles.json): \(.unpriced | join(", "))" else empty end)
-  end)' "$tmp.sum"
+    "Cache rewrites (write > 50% of context after an idle gap): \($c.rewrites.n), ~$\(($c.rewrites.cost * 100 | round) / 100)\(if $c.rewrites.unpriced > 0 then " + \($c.rewrites.unpriced) UNPRICED" else "" end)\(if ($c.rewrites.waits | length) > 0 then "; waiting on " + ([$c.rewrites.waits | to_entries[] | "\(.key) ×\(.value)"] | sort_by(-.value) | .[0:3] | map("\(.key) ×\(.value)") | join(", ")) else "" end).",
+    (if $c.resets > 0 then "\($c.resets) context reset(s) (compaction): their base is one row, not attributed." else empty end),
+    (if $c.parseFailures > 0 then "\($c.parseFailures) transcript line(s) failed to parse and are not counted." else empty end)
+   end)
+' "$tmp.sum" "$tmp.contrib" || cannot "contributors table could not be rendered"
+exit 0

@@ -94,6 +94,46 @@ def rootrole($metas; $id):
   walk($id; []; "?");
 '
 
+# usage_contributor_lines SINCE_ISO [SESSION]: one JSON line per transcript event {file,e} for
+# usage-contributors.jq (ST-8). Every line of each matching session and agent jsonl is included; a
+# line that does not parse is {file,e:null} so parse failures are counted, not hidden.
+usage_contributor_lines() {
+  command -v jq >/dev/null 2>&1 || { echo "jq is not installed" >&2; return 2; }
+  _main=$(usage_main) || { echo "$ROOT is not a git checkout" >&2; return 2; }
+  _since=$1 _sess=${2:-}
+  _ref=""
+  if [ -n "$_since" ]; then
+    _stamp=$(printf '%s' "$_since" | sed -n 's/^\([0-9]\{4\}\)-\([0-9]\{2\}\)-\([0-9]\{2\}\)T\([0-9]\{2\}\):\([0-9]\{2\}\).*/\1\2\3\4\5/p')
+    [ -n "$_stamp" ] && _tmpref=$(mktemp "${TMPDIR:-/tmp}/usage.ref.XXXXXX") \
+      && TZ=UTC0 touch -t "$_stamp" "$_tmpref" 2>/dev/null && _ref="$_tmpref"
+  fi
+  usage_dirs "$_main" | while IFS= read -r _d; do
+    for _f in "$_d"/*.jsonl; do
+      [ -f "$_f" ] || continue
+      _sid=$(basename "$_f" .jsonl)
+      if [ -n "$_sess" ]; then [ "$_sid" = "$_sess" ] || continue
+      elif [ -n "$_ref" ] && [ ! "$_f" -nt "$_ref" ]; then
+        [ -n "$(find "$_d/$_sid" -name '*.jsonl' -newer "$_ref" 2>/dev/null | head -1)" ] || continue
+      fi
+      _list="$_f"
+      _sub="$_d/$_sid/subagents"
+      if [ -d "$_sub" ]; then
+        _agents=$(find "$_sub" -name '*.jsonl' 2>/dev/null)
+        [ -n "$_agents" ] && _list="$_list
+$_agents"
+      fi
+      # shellcheck disable=SC2086
+      for _t in $_list; do
+        usage_tag "$_t" | jq -cR --arg f "$_t" '
+          (split("\t") | (.[:-1] | join("\t")) as $path | .[-1] | fromjson? // null) as $e
+          | {file: $f, e: $e}' 2>/dev/null
+      done
+    done
+  done
+  [ -n "${_tmpref:-}" ] && rm -f "$_tmpref"
+  return 0
+}
+
 # usage_records SINCE_ISO [SESSION]: one JSON line per assistant message with usage, in this
 # repository's transcripts, from SINCE_ISO (an ISO-8601 UTC time; "" = all) or of one SESSION id:
 #   {"id","ts" (unix s),"sid","role","model","branch","cwd","read","write","out" (tokens: cache read,

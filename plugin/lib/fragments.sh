@@ -87,7 +87,7 @@ fragment_problems() {
       if ("Review" in got && got["Review"] !~ /^[0-9]+ rounds?, peak (critical|high|medium|low|none), cap [0-9]+/) bad("**Review** is not \"<n> round(s), peak <critical|high|medium|low|none>, cap <n>\"")
       if ("Gate" in got && got["Gate"] !~ /^([0-9]+(\.[0-9]+)? min|CANNOT CHECK)/) bad("**Gate** is not \"<minutes> min\" (or CANNOT CHECK and why)")
       # The fold totals what parses and calls the rest CANNOT CHECK: "4.20" would read as a failure.
-      if ("Cost" in got && got["Cost"] !~ /^(\$[0-9]+(\.[0-9]+)?|CANNOT CHECK)/) bad("**Cost** is not \"$<amount>\" (or CANNOT CHECK and why)")
+      if ("Cost" in got && got["Cost"] !~ /^(\$[0-9]+(\.[0-9]+)?(;[^;].*)?|CANNOT CHECK)/) bad("**Cost** is not \"$<amount>\" with an optional contributor appendix after \"; \" (or CANNOT CHECK and why)")
       if ("Session start" in got && got["Session start"] !~ /^([0-9]+ tokens, [0-9]+ min|CANNOT CHECK)/) bad("**Session start** is not \"<tokens> tokens, <minutes> min\" (or CANNOT CHECK and why)")
       if ("Also closes" in got) {
         na = split(got["Also closes"], A, ",")
