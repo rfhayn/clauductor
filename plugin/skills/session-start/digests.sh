@@ -29,6 +29,9 @@ echo "- Change queue (the roadmap's current phase; top = next up; the full queue
 roadmap_queue --text 2>&1 | awk 'NR <= 8 { print "    " substr($0, 1, 260) } END { if (NR > 8) print "    … " NR - 8 " more rows" }'
 
 echo "- Latest journal (heading, first paragraph, What's next; the whole entry is the first ## Session in $JOURNAL):"
+if [ ! -r "$JOURNAL" ]; then
+  echo "    ($JOURNAL unreadable)"
+else
 entry=$(awk '/^## Session [0-9]/{n++} n == 1' "$JOURNAL" 2>/dev/null)
 if [ -n "$entry" ]; then
   printf '%s\n' "$entry" | head -1 | indent 300
@@ -46,7 +49,8 @@ if [ -n "$entry" ]; then
     echo "    (this entry has no **What's next** paragraph)"
   fi
 else
-  echo "    ($JOURNAL has no ## Session entry, or is unreadable)"
+  echo "    ($JOURNAL has no ## Session entry)"
+fi
 fi
 
 echo "- Recent insights (date · area · topic · status; the rows themselves: $INSIGHTS):"
@@ -60,6 +64,10 @@ else
 fi
 
 index_digest() {
+  if [ ! -r "$1" ]; then
+    echo "    ($1 unreadable)"
+    return
+  fi
   sed -n '/^## Index/,$p' "$1" 2>/dev/null | awk -F'|' -v f="$1" '
     /^\| *\[/ {
       n++; s = $(NF-1); gsub(/^ +| +$/, "", s); t = $3; gsub(/^ +| +$/, "", t)
@@ -68,7 +76,7 @@ index_digest() {
       if (k != "Accepted" && k != "Superseded") open = open "\n    NOT ACCEPTED: " id " " substr(t, 1, 90) " — " s
     }
     END {
-      if (!n) { print "    (" f " unreadable, or its index has no rows)"; exit }
+      if (!n) { print "    (" f " index has no rows)"; exit }
       line = "    " n " records:"; for (k in c) line = line " " c[k] " " k ";"; print line
       print "    newest: " last; if (open) print substr(open, 2); print "    full index: " f
     }'

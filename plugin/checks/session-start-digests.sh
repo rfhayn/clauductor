@@ -114,6 +114,6 @@ bare=$d/bare.md
 printf '## Session 1 — x\n**What happened.** Only this.\n' > "$bare"
 fo2=$(JOURNAL=$bare INSIGHTS=$INSIGHTS ADR_INDEX=$ADR_INDEX PRAC_INDEX=$d/absent.md digests)
 has "fixture: no What's next" "$fo2" "(this entry has no **What's next** paragraph)"
-has "fixture: missing index" "$fo2" "($d/absent.md unreadable, or its index has no rows)"
+has "fixture: missing index" "$fo2" "($d/absent.md unreadable)"
 
 finish
