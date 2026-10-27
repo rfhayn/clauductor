@@ -14,6 +14,148 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 13 — 2026-10-27 — Claude — the open-source direction shift, the roadmap reset to what is left, and the tracker by phase
+
+**Totals.** Gate 30 min; cost $0 (a row's cost was CANNOT CHECK, so this is a floor).
+
+**Rows folded.** OPS-144 (#287); OPS-147 (#289); OPS-148 (#290).
+
+### OPS-144 — the roadmap re-planned for the open-source, terminal-first direction
+
+- **PR**: #287
+- **Session**: S13, started 2026-10-27 07:57 ET
+- **Review**: 2 rounds, peak medium, cap 2
+- **Gate**: 9 min
+- **Cost**: CANNOT CHECK — a claude.ai cloud session; its transcript is not on the owner's machine for usage-report.sh
+- **Session start**: CANNOT CHECK — started in a cloud session with no session-start marker
+
+#### What happened
+
+The owner explored taking Clauductor open source, starting from Andrew Baker's Ghostty Dock article (2026-10-21) and a read of Standing Tee's operating model at `e58b085`, then re-planned the roadmap in plan mode. The PR adds ADR-0011 and `docs/plans/direction-shift.md`. On the roadmap it:
+- adds Phases 4 (*Learn from Standing Tee*, ST-8 to ST-21), 5 (*The product module*, PROD-1 to PROD-5) and 6 (*The terminal UI*, PANEL-60 to PANEL-65);
+- moves Release to Phase 7 and Standing Tee's attach phase to Phase 8;
+- cancels the browser overhaul (PANEL-46) and the rows built on it, the licensing rows (OPS-112, OPS-116, PANEL-54), and ST-6 and ST-7;
+- reshapes REL-1, OPS-92b, OPS-104, OPS-113, OPS-114, OPS-115 and OPS-117;
+- re-cuts the session plan from S13.
+
+The owner queue drops the rename fallback (O-R2) and gains the new name's status. Plan only; nothing was built.
+
+#### Decisions
+
+All of them are the owner's, 2026-10-27:
+- MIT, with nothing sold.
+- The terminal UI is the only local face. The browser panel is frozen, then removed (PANEL-64). PANEL-46's rows are cancelled rather than paused, and a desktop app waits until after launch.
+- The product module's screens live in both claude.ai artifacts and the terminal UI's read-only summary.
+- The plugin is the only install path: lite by default with the product module, `--full` opt-in. The binary is the terminal UI only.
+- ST-6 and ST-7 are cancelled.
+- S13 starts with Standing Tee's cost ports.
+- There is no rename fallback.
+- Everything Standing Tee has that the template lacks is ported, reversing OPS-71.
+
+`CLAUDE.md`'s prefix list was left to PROD-1, so this PR stays prose-only and runs the docs gate.
+
+#### Surprises
+
+- ADR-0010 was taken: ADRs and practice records share one number space, and PRAC-0010 holds it. The ADR became 0011.
+- The cloud clone was shallow, so the docs gate could not diff against `origin/main` until the clone was unshallowed.
+- Both docs gates failed `gate`'s `lease_verify by pid: LOST`. It looked like a load flake, since the check passes alone, but it is not one. It inherits the outer gate's `CLAUDUCTOR_LEASE_NONCE`, which is set only where there is no `clauductor` binary, and it fails on demand with that variable set. OPS-146 owns the fix. It is a pre-existing bug, not this PR's: on a machine with the binary the gate holds the lease through lock-run, which exports no nonce.
+- `gh` has no valid token in the cloud container.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-147 — the roadmap reset to what is left, with the finished rows in a history
+
+- **PR**: #289
+- **Session**: S14, started 2026-10-27 11:35 ET
+- **Review**: 2 rounds, peak medium, cap 2
+- **Gate**: 11 min
+- **Cost**: CANNOT CHECK — a claude.ai cloud session; its transcript is not on the owner's machine for usage-report.sh
+- **Session start**: CANNOT CHECK — started in a cloud session with no session-start marker (the start time above is the session directory's, 15:35 UTC)
+
+#### What happened
+
+The same day as OPS-144's re-plan, the owner asked for a full reset of the roadmap and its tracker. They kept the history and the session numbers. Claude grouped the 77 open rows into 23 decisions, and the owner accepted every recommendation.
+
+`docs/roadmap.md` now holds:
+- the open rows in seven renumbered phases;
+- the 29 merged rows that open rows' Deps still reach;
+- the outcome checks o.5–o.9;
+- a session plan that starts at S14.
+
+Every other row, and sessions S4–S13, moved word for word to `docs/roadmap-history.md`. A local roadmap rule keeps the moved ids taken. Issue #288 was opened for OPS-99. The owner queue records Q20 and Q11.
+
+#### Decisions
+
+All 23 are the owner's (2026-10-27, by chat). The ones with reasons:
+- The panel's plan runner (PANEL-58, PANEL-59) is cancelled. ST-15 to ST-19's terminal orchestration is the one way the plan runs itself, and it needs no binary (ADR-0006).
+- PANEL-34 and OPS-114 are cancelled as superseded. PANEL-61 carries the docs link.
+- OPS-79, OPS-80 and PANEL-33 are cancelled: there was no failure to chase. So are the browser outcome checks o.1, o.2, o.3 and o.10.
+- OPS-115 becomes a GitHub Actions release, since the public repository's minutes are free. The site (OPS-117) waits until after launch. OPS-113 builds M1 and M4.
+- OPS-91 makes the roadmap row the authority for a budget's kind, so no design is re-approved.
+- OPS-32, OPS-58 and OPS-68 wait on OPS-86's ADR. The lows and the ADR come before anything new is built (S15–S16).
+- Session numbers continue from S14. A real restart would have reused journal session numbers, which `checks/journal.sh` refuses.
+- The owner merges from the Mac with `/merge-pr`: `gh` has no token in the cloud container, and the merge guard runs only on a `gh pr merge`.
+
+#### Surprises
+
+- A Dep must be a row of the roadmap, and the merged rows open rows depend on have Deps of their own. 18 direct dependencies became 29 once taken transitively.
+- Round 1 of review (peak medium) found three things:
+  - the new rule refused any pre-reset roadmap, including origin/main's, which broke `panel-suggest.sh` and four other readers;
+  - `team-queue.sh --next-id` and archive-change's `o.<n>` would hand out REL-2 and o.10, both held by the history;
+  - the check's fixture had no table after the history's session plan.
+
+  The rule now refuses an id only when it comes with another change id. `--ids` feeds both producers. Each fix was shown failing with its control removed.
+- The cloud gate failed `test (short)` on two `panel/install` tests that need an IPv6 loopback, which the container lacks. They fail the same way on main's code, and the PR has no framework diff. The process checks passed (552 s).
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-148 — the roadmap tracker grouped by phase
+
+- **PR**: #290
+- **Session**: S14, started 2026-10-27 11:35 ET
+- **Review**: 1 round, peak low, cap 2
+- **Gate**: 10 min
+- **Cost**: CANNOT CHECK — a claude.ai cloud session; its transcript is not on the owner's machine for usage-report.sh
+- **Session start**: CANNOT CHECK — started in a cloud session with no session-start marker (the start time above is the session directory's, 15:35 UTC)
+
+#### What happened
+
+Once the reset (OPS-147) had merged, the owner asked to see the session plan grouped into the seven phases. `roadmap-tracker.sh` dropped each row's phase, keeping only its `###` section. It now keeps the queue's phase number (0 outside every phase), and `local:roadmap-tracker` checks it on a two-phase fixture; that case fails without the change. The tracker's page, which lives in the artifact and not in this repository, gained a *By phase* view. It shows each phase under the owner's names, with the sessions its rows land in, and folds the session-by-session plan below it.
+
+#### Decisions
+
+- The phase names live in the page as constants: the owner's own seven, written 2026-10-27. The roadmap's queue parser gives a phase's number, not its title, and adding the title would be a template change to `roadmap-queue.sh`. If the phases are renumbered, the page's names need editing.
+- A session that serves two phases shows under both, each time with only that phase's rows. The owner reads phases, and sessions mix them (S14, S18, S24–S26, S27).
+
+#### Surprises
+
+- The fixture's new row ids first collided with one the check adds later (`add_row C-1`), which broke two unrelated cases. The new rows became E-1 and F-1.
+- Review (one round, three lows) found two gaps:
+  - the check could not tell a numeric phase from a string, and the page groups with `===`;
+  - a plugged parser's richer phase id (`2D`) would kill the build without naming the row.
+
+  Both are fixed. The first error message written for the second gap itself threw: it read `.id` while `.` was the phase string. It now reads the bound row (`$r.id`).
+- The cloud full gate on b420c6c failed `test (short)` on the same two IPv6-loopback tests as OPS-147 (no IPv6 in the container, no framework diff). The process checks passed (565 s).
+
+#### Insights
+
+None.
+
+### The close (2026-10-27)
+
+The whole day ran in claude.ai cloud sessions. The owner merged each PR from their Mac's terminal with `gh pr merge --squash`: this container's `gh` has no token, and the merge guard runs only on a `gh pr merge` that Claude runs. So the guard did not check #289 or #290. What backed each merge was the review that converged, the cloud gate's process checks, and the owner's call. The fold put OPS-144's record under S13 and the two reset rows under S14. S14 is not done: OPS-146 opens it next.
+
+- **The tracker** shows the reset plan grouped by phase. Its data was rebuilt from `main` after #290 and matched the branch's byte for byte. The two old data files stay in the artifact: deleting them was refused as irreversible, and nothing reads them.
+- **Owner queue**: Q20 (Actions return 2026-11-01; OPS-98 runs on the Mac) and Q11 (M1 and M4) were answered by chat and recorded in #289. The three relays to the COO (two from today, one from 2026-10-21) stay open.
+- **Compound**: of today's three insight rows, `adr-numbers-share-a-space` is an instance of the ADR-numbering rule that caught it, and `rule-over-a-file-reads-its-own-context` is promoted to `local:roadmap-history`. `cloud-container-no-ipv6` stays Raw: whether the loopback tests should say why they cannot run, rather than fail, is a question for a row, not for this close. The topics `shell` (3) and `test` (6) are at the promotion trigger, as they were at Session 12's close. No ADR was drafted: an ADR is the owner's decision, and the owner ended the day here.
+- **Team queue**: no item worked.
+- **Flow** (30 days to 2026-10-27): review rounds 2, spend $4.28/wk, 9 in flight, approval wait 0 h. Cycle, lead, merges per week and change-fail are CANNOT CHECK: `gh` could not list the merged PRs.
+- **Cost**, this cloud session, from `usage-report.sh` at list price: session (opus) $13.42, reviewer (opus) $4.92, total about $18.34. This session wrote OPS-147 and OPS-148; OPS-144's own session was another one, which this machine cannot read.
+
 ## Session 12 — 2026-10-26 — Rich — doctor, delegated approval and its stops, an agent closes a lane, the merge guard reads only open PRs, and the open lows
 
 **Totals.** Gate 178 min (a row's gate was CANNOT CHECK, so this is a floor); cost $438.37.
