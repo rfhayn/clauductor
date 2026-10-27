@@ -53,7 +53,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Every change PR states its slice | **`pr-merge-guard.sh`** rule 3 (blocking) |
 | Only a daily close adds a `## Session N`, never one claimed twice; a row's records go to its fragment, `docs/journal.d/<row id>.md` | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** (the fragment's shape); `session-close/fold.sh`; **`checks/fold.sh`**; writing the fragment: **Nothing. You.** |
 | A PR that changes the journal or insights log lands on top of `origin/main`, never on a picture main has moved past | **`pr-merge-guard.sh`** rule 8 (blocking, any branch); **`checks/merge-guard.sh`** |
-| Review stops at the row's cap by risk; what is left goes to KNOWN LIMITS with its owner | **`.claude/review-cap.sh`** via `build-change.js` (`maxRounds`) and `merge-pr` step 3; **`checks/review-cap.sh`** |
+| Review stops at the row's cap; medium+ at cap stops for the owner (`REVIEW_AT_CAP stop`); lows go to KNOWN LIMITS | **`.claude/review-cap.sh`** via `build-change.js` and `merge-pr` step 3; **`checks/review-cap.sh`** |
 | An open change has the shape build-change reads and records its approval | **`checks/changes.sh`**; `/propose` stops for the owner, unless step 3a delegates |
 | A delegated approval needs `APPROVAL_DELEGATED="1"` on `origin/<main>`, nothing guarded, no `Approval: owner`, no Risk below its row's | **`.claude/change-approval.sh`** `--delegate` (propose step 3a); **`checks/changes.sh`**, **`checks/approval-guarded.sh`**; 3a's judgment: **Nothing. You.** |
 | An approval covers the design as written; an edit after it voids it | **`checks/changes.sh`** via `.claude/change-approval.sh` (the design hash); **`checks/change-tools.sh`** |

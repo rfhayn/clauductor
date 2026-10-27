@@ -40,8 +40,8 @@ if (!change) throw new Error('build-change needs args.change (the change id)')
 let CHANGES, BRANCH, GATE_CMD, GATE_WAIT, QUICK, CFG
 // Review rounds per group: args.maxRounds, else the cap .claude/review-cap.sh prints for this change
 // (its proposal's **Risk:** against REVIEW_CAPS, the one place the owner's caps live), set after the
-// preflight reads it. Past it, the group stops and what is left goes to KNOWN LIMITS (OPS-108).
-let MAX_ROUNDS
+// preflight reads it. Past it, REVIEW_AT_CAP (from review-cap.sh --why) decides stop vs KNOWN LIMITS.
+let MAX_ROUNDS, REVIEW_AT_CAP
 const RESUME = args.resume == null ? null : Number(args.resume)
 const MAX_GATE_FIXES = 2
 
@@ -382,12 +382,17 @@ if (!['low', 'normal', 'high'].includes(RISK)) return stop('preflight', `proposa
 // script refused to give is a stop, never a default that lets review end early or run on.
 const capLine = String(pre.reviewCap || '').trim()
 const capMatch = capLine.match(/^(\d+) — /)
+const atCapMatch = capLine.match(/;\s*REVIEW_AT_CAP\s+(stop|known-limits)\s*$/)
 if (args.maxRounds != null) {
   MAX_ROUNDS = Number(args.maxRounds)
   if (!Number.isInteger(MAX_ROUNDS) || MAX_ROUNDS < 1) return stop('preflight', `maxRounds ${args.maxRounds} is not a whole number of rounds (1 or more)`)
-} else if (capMatch && Number(capMatch[1]) >= 1) MAX_ROUNDS = Number(capMatch[1])
-else return stop('preflight', `.claude/review-cap.sh gave no review cap for ${change}: ${capLine || 'no output'}. Fix what it names, or pass maxRounds`)
-log(`Review cap: ${MAX_ROUNDS} round(s) per group (${args.maxRounds != null ? 'maxRounds' : capLine})`)
+  REVIEW_AT_CAP = atCapMatch ? atCapMatch[1] : 'stop'
+} else if (capMatch && Number(capMatch[1]) >= 1) {
+  MAX_ROUNDS = Number(capMatch[1])
+  if (!atCapMatch) return stop('preflight', `.claude/review-cap.sh gave no REVIEW_AT_CAP for ${change}: ${capLine || 'no output'}. Fix what it names, or pass maxRounds`)
+  REVIEW_AT_CAP = atCapMatch[1]
+} else return stop('preflight', `.claude/review-cap.sh gave no review cap for ${change}: ${capLine || 'no output'}. Fix what it names, or pass maxRounds`)
+log(`Review cap: ${MAX_ROUNDS} round(s) per group (${args.maxRounds != null ? 'maxRounds' : capLine}); REVIEW_AT_CAP ${REVIEW_AT_CAP}`)
 const ECONOMY_ON = pre.economy === true
 const pick = (role) => {
   let c = TIERS[`${role}.${RISK}`] || ROLES[role]
@@ -525,7 +530,12 @@ for (const g of todo) {
     if (round >= MAX_ROUNDS) {
       entry.residual = rev.findings
       const disputes = entry.disputed.length ? `; builder disputes, which you may need to rule on: ${entry.disputed.join(' | ')}` : ''
-      return stop(`group ${g.n} review`, `not converged after ${MAX_ROUNDS} rounds, the review cap (peak ${peak})${disputes}. What is left goes to the PR's KNOWN LIMITS, each finding with the issue or roadmap row that owns it (create it if none does), unless the owner raises the cap (maxRounds)`)
+      if (RANK[peak] >= RANK.medium) {
+        if (REVIEW_AT_CAP === 'stop') {
+          return stop(`group ${g.n} review`, `not converged after ${MAX_ROUNDS} rounds, the review cap (peak ${peak})${disputes}. At cap with medium or worse: stop and notify the owner (raise maxRounds, split the group, or send back to design); a PR merges only when the last review round found nothing medium or worse`)
+        }
+        return stop(`group ${g.n} review`, `not converged after ${MAX_ROUNDS} rounds, the review cap (peak ${peak})${disputes}. What is left goes to the PR's KNOWN LIMITS, each finding with the issue or roadmap row that owns it (create it if none does), unless the owner raises the cap (maxRounds)`)
+      }
     }
     const source = (f) => (!outside.includes(f) ? '' : f.group === 0 ? ' (source: predates this change)' : ` (source: group ${f.group}, already committed)`)
     const list = actionable.map((f, i) => `${i + 1}. [${f.severity}] ${f.file}${f.line ? `:${f.line}` : ''}${source(f)}: ${f.summary}\n   failure: ${f.failure}${f.class ? `\n   class: ${f.class}` : ''}`).join('\n')

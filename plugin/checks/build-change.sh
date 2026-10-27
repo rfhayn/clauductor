@@ -211,7 +211,7 @@ const prefixRun = async (risk, econ) => {
   // The preflight answer also carries a gate that disagrees: the project's gate is read ONCE, from
   // the settings, and nothing the preflight agent reports may replace it.
   const pre = { branch: 'change/x', clean: true, dirtyFiles: [], groups: [{ n: 1, title: 't', openTasks: 1 }],
-    gitDir: '/r/.git/worktrees/x', commonDir: '/r/.git', toplevel: '/r', risk, reviewCap: `3 — risk ${risk}, from the test`, budgetUsd: null, costUsd: null, economy: econ, today: '2026-01-01',
+    gitDir: '/r/.git/worktrees/x', commonDir: '/r/.git', toplevel: '/r', risk, reviewCap: `3 — risk ${risk}, from the test; REVIEW_AT_CAP stop`, budgetUsd: null, costUsd: null, economy: econ, today: '2026-01-01',
     gate: 'scripts/ci/gate.sh', quickFlags: '--quick' }
   const agent = async (p, o) => (o && o.label === 'preflight' ? pre : o && o.label === 'settings' ? settings : null)
   const body = `return (async () => {\n${prefix}\nreturn { __ran: true, pick, gate: GATE_CMD, quick: QUICK }\n})()`
@@ -301,7 +301,7 @@ async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {},
     calls.push({ prompt, opts })
     const { label } = opts
     if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', gateWait: 'scripts/ci/gate-wait.sh', attribution: '', provenance: false, ...cfg }) }
-    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', reviewCap: '3 — risk normal, from the test', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', marker: OPENED, ...budget,
+    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', reviewCap: '3 — risk normal, from the test; REVIEW_AT_CAP stop', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', marker: OPENED, ...budget,
       groups: groups || [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
     if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [] }
     if (label.startsWith('gate:') || label === 'receipt') return { passed: true, evidence: 'ok', diffHash: `h${++h}` }
@@ -423,8 +423,12 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('review-cap.sh refusing stops at preflight, naming what it said, before any group is built', r.report.stoppedAt === 'preflight' && /gave no review cap/.test(r.report.reason) && /UNKNOWN/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])
   r = await run([], { budget: { reviewCap: '' } })
   t('a preflight that reports no cap at all stops too, rather than defaulting', r.report.stoppedAt === 'preflight' && /no output/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
-  r = await run([finding(3)], { budget: { reviewCap: '1 — risk low, from the test' } })
-  t('the cap review-cap.sh prints is the rounds a group gets: at 1, a round with findings stops for KNOWN LIMITS', r.report.stoppedAt === 'group 3 review' && /after 1 rounds, the review cap/.test(r.report.reason) && /KNOWN LIMITS/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
+  r = await run([finding(3)], { budget: { reviewCap: '1 — risk low, from the test; REVIEW_AT_CAP stop' } })
+  t('the cap review-cap.sh prints is the rounds a group gets: at 1, medium at cap under stop notifies the owner, not KNOWN LIMITS merge', r.report.stoppedAt === 'group 3 review' && /after 1 rounds, the review cap/.test(r.report.reason) && /stop and notify the owner/.test(r.report.reason) && !/KNOWN LIMITS/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
+  r = await run([finding(3)], { budget: { reviewCap: '1 — risk low, from the test; REVIEW_AT_CAP known-limits' } })
+  t('...under known-limits, the same finding stops for KNOWN LIMITS instead', r.report.stoppedAt === 'group 3 review' && /KNOWN LIMITS/.test(r.report.reason) && !/stop and notify the owner/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
+  r = await run([], { budget: { reviewCap: '3 — risk normal, from the test' } })
+  t('a preflight cap line with no REVIEW_AT_CAP stops, rather than defaulting to merge', r.report.stoppedAt === 'preflight' && /no REVIEW_AT_CAP/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
   r = await run([finding(3)])
   t('at the default 3, the same finding is fixed and the run finishes', r.report.stoppedAt === null, [r.report.stoppedAt, r.report.reason])
   r = await run([finding(3)], { args: { maxRounds: 1 } })

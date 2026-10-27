@@ -1,9 +1,10 @@
 #!/bin/sh
 CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
-# review-cap.sh: how many review rounds a row's PR gets before what is left goes to KNOWN LIMITS.
+# review-cap.sh: how many review rounds a row's PR gets before REVIEW_AT_CAP applies at the cap.
 #
 #   sh .claude/review-cap.sh <row>          the cap, a number ("3")
-#   sh .claude/review-cap.sh <row> --why    the cap and where it came from ("3 — risk high, from …")
+#   sh .claude/review-cap.sh <row> --why    the cap, where its risk came from, and REVIEW_AT_CAP
+#                                           ("3 — risk high, from …; REVIEW_AT_CAP stop")
 #
 # <row> is a roadmap row's id (OPS-108), its change id (ops/ops-108-…, add-thing) or its branch
 # (BRANCH_CHANGE + id). Exit 1, naming why, when the risk cannot be read: the caller then has no cap,
@@ -18,6 +19,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #                              line not of the queue table (a ROADMAP_PARSER's own shape), refuses;
 #   no row and no proposal     normal, said on --why (a fix/<n>-<slug> from an issue has no row).
 # The rounds per risk are REVIEW_CAPS (.claude/project.conf; low 2, normal 3, high 3 by default).
+# At the cap, REVIEW_AT_CAP is stop (default: medium or worse stops for the owner) or known-limits
+# (leftovers under KNOWN LIMITS and merge). Lows merge either way, each with an owner there.
 ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
@@ -28,10 +31,14 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 arg=$1; why=""; [ "${2:-}" = --why ] && why=1
 case $arg in "$BRANCH_CHANGE"*) arg=${arg#"$BRANCH_CHANGE"} ;; esac
 
-say() {  # say RISK SOURCE: the cap for RISK, and on --why where it came from
+case $REVIEW_AT_CAP in stop|known-limits) ;;
+  *) echo "ERROR: REVIEW_AT_CAP is '${REVIEW_AT_CAP:-missing}', not stop or known-limits, so the review cap is UNKNOWN" >&2; exit 1 ;;
+esac
+
+say() {  # say RISK SOURCE: the cap for RISK, and on --why where it came from and REVIEW_AT_CAP
   cap=$(printf '%s\n' $REVIEW_CAPS | sed -n "s/^$1:\([0-9][0-9]*\)$/\1/p" | head -1)
   [ -n "$cap" ] || { echo "ERROR: REVIEW_CAPS ($REVIEW_CAPS) has no '$1:<rounds>', so the review cap is UNKNOWN" >&2; exit 1; }
-  if [ -n "$why" ]; then echo "$cap — risk $1, from $2"; else echo "$cap"; fi
+  if [ -n "$why" ]; then echo "$cap — risk $1, from $2; REVIEW_AT_CAP $REVIEW_AT_CAP"; else echo "$cap"; fi
   exit 0
 }
 

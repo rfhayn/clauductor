@@ -7,10 +7,7 @@ and hold for any project that adopts it.
 
 ## Branching and PRs
 
-The unit is **one change = one branch = one PR = one squash commit to `main`**. One exception, the
-owner's of 2026-10-21: rows that edit the same files may ship in one batched PR, titled with the
-first row's id (`OPS-89: … (with OPS-103)`), whose body says "Also closes OPS-103"; both rows are
-marked merged with it.
+The unit is **one change = one branch = one PR = one squash commit to `main`**.
 
 - **Branch names.** `change/<id>` for a capability change: one approved proposal in
   `changes/<id>/` (the test: *does it change what a user can do?* If not, it is not a change,
@@ -53,16 +50,19 @@ workflow's success for the same SHA, as evidence. See `scripts/ci/README.md`.
 Review when a task group is done, not when the PR is (*A review's blind spot is set by its
 framing*). The build-change workflow does exactly that: it gates, reviews with a reviewer that is
 not told what the builder intended, fixes, and re-reviews until no finding is medium or worse; it
-stops for the owner if peak severity RISES between rounds or after three rounds without
-converging. A change built by hand gets the same loop from the `apply-change` skill. A PR whose
+stops for the owner if peak severity RISES between rounds or at the review cap without
+converging. The cap is per risk (`.claude/review-cap.sh`: the proposal's `**Risk:**`, or an ops or
+fix row's `Risk:` in its Change cell, against `REVIEW_CAPS`, low 2, normal 3, high 3). At the cap,
+`REVIEW_AT_CAP` (`stop` by default) stops when the cap round still finds medium or worse; lows still
+merge, each under `KNOWN LIMITS` with its owner. A change built by hand gets the same loop from the `apply-change` skill. A PR whose
 diff is Markdown prose only gets the lighter `reviewer-docs` instead (`review-lane.sh`).
 
 ## Who decides, and what runs unattended
 
 **The owner decides:** a change's proposal and every `design.md` decision, unless
-`APPROVAL_DELEGATED="1"` delegates them and `/propose` step 3a finds nothing that keeps them; ADRs; a production
-deploy and anything else irreversible; anything outward beyond this repo. **Everything else runs
-without asking, merging included:** build, gate, review, fixes, commits, push, PRs, issues and
+`APPROVAL_DELEGATED="1"` delegates them and `/propose` step 3a finds nothing that keeps them; ADRs and practice
+records; a production deploy and anything else irreversible; anything outward beyond this repo.
+**Everything else runs without asking, merging included:** build, gate, review, fixes, commits, push, PRs, issues and
 comments on this repo, and the squash-merge through `merge-pr`. A session runs `session-start` to
 `session-close` hands-off and reaches the owner only by `PushNotification` (or your equivalent):
 at an owner decision, an environment fault, a gate that stays red, or review not converging, once

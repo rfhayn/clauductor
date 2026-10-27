@@ -62,7 +62,7 @@ is 2 "the same, by its branch" change/add-low
 is 4 "an archived change's proposal, Risk high" add-old
 is 3 "an ops row naming no risk (normal)" 1.5
 is 4 "an ops row's Risk: high, a backticked Risk: low ignored" ops/risky
-is "4 — risk high, from row 1.6's Change cell" "--why names the source" 1.6 --why
+is "4 — risk high, from row 1.6's Change cell; REVIEW_AT_CAP stop" "--why names the source and REVIEW_AT_CAP" 1.6 --why
 is 3 "a fix branch with no row (normal)" fix/99-from-an-issue
 refuses "is not here" "a change row with no proposal" add-none
 refuses "not low, normal or high" "a proposal whose Risk is not a tier" add-bad
@@ -98,10 +98,22 @@ printf '#!/bin/sh\nprintf "%s\\t1\\t\\t1.9\\tops/pipe\\tops\\tqueued\\t\\t\\tp\\
 printf 'REVIEW_CAPS="low:2 normal:3 high:4"\nROADMAP_PARSER="sh %s/own.sh"\n' "$(dirname "$F")" > "$F/.claude/project.conf"
 is 4 "a table row a project's own parser names" 1.9
 refuses "is not a line of the" "a row a project's own parser names in another shape" 2.1
+printf 'REVIEW_CAPS="low:2 normal:3 high:4"\nREVIEW_AT_CAP="bogus"\n' > "$F/.claude/project.conf"
+refuses "not stop or known-limits" "an unreadable REVIEW_AT_CAP refuses, never a cap that lets merge through" 1.6
+printf 'REVIEW_CAPS="low:2 normal:3 high:4"\nREVIEW_AT_CAP="known-limits"\n' > "$F/.claude/project.conf"
+is "4 — risk high, from row 1.6's Change cell; REVIEW_AT_CAP known-limits" "REVIEW_AT_CAP known-limits appears on --why" 1.6 --why
 
 # The callers: a capability no real process asks is not shipped (rule 3).
 grep -q 'review-cap\.sh' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \
   && ok "build-change.js takes its maxRounds default from review-cap.sh" || fail "build-change.js does not ask review-cap.sh for its maxRounds default"
+grep -q 'REVIEW_AT_CAP' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \
+  && ok "build-change.js reads REVIEW_AT_CAP from review-cap.sh --why" || fail "build-change.js does not read REVIEW_AT_CAP"
 grep -q 'review-cap\.sh' "$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
   && ok "merge-pr step 3 stops at review-cap.sh's cap" || fail "merge-pr's SKILL.md does not name review-cap.sh"
+grep -q 'REVIEW_AT_CAP stop' "$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
+  && ok "merge-pr step 3 stops at cap with medium or worse when REVIEW_AT_CAP is stop" || fail "merge-pr does not stop on medium+ at cap under stop"
+grep -qF 'do not merge' "$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
+  && ok "merge-pr step 3 refuses to merge past medium+ at cap under stop" || fail "merge-pr may still merge past medium+ at cap under stop"
+grep -q 'known-limits' "$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
+  && ok "merge-pr step 3 keeps known-limits behavior for projects that want it" || fail "merge-pr does not name known-limits"
 finish
