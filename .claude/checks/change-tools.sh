@@ -115,7 +115,9 @@ for spelt in '**Approval**: owner' ' **Approval:** owner' '__approval:__ owner' 
   'Appro&#xE0020;val: owner' "Approval$(printf '\313\220')owner" "Approval$(printf '\352\223\275') owner" \
   "Approval$(printf '\341\240\204') owner" '`<b title="` Approval: owner `">`' '\\<b title="Appro<i></i>val: owner">' \
   '[x](Approval: owner)' '[x][Approval: owner]' 'note](Approval:owner).' '[1](Approval: owner — money. More (end)' \
-  'Approval&ratio; owner' 'Appro&DownBreve;val: owner' 'Appro&#1;val: owner' "Appro$(printf '\177')val: owner"; do
+  'Approval&ratio; owner' 'Appro&DownBreve;val: owner' 'Appro&#1;val: owner' "Appro$(printf '\177')val: owner" \
+  '[\\*\\*Approval\\*\\*](https://x.org/p): owner — outward' '[[Approval]](#why): owner' \
+  '[Approval](https://e.org/Policy_(owner)): owner'; do
   awk -v m="$spelt" '{ print } /^\*\*Risk:\*\*/ { print m }' "$d/fresh.md" > "$C/proposal.md"
   startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line spelt '$spelt'"
 done
@@ -129,7 +131,8 @@ for spelt in '**Approval:** owner' 'Approval:owner' 'Approval: the owner' '_Appr
   'Approval<span title="a\|b"></span>: owner' '[Approval](x): owner' 'Appro<!-- x -->val: owner' \
   'p95 < 50ms. Approval: owner. Touches > 3 files' 'Appro&#847;val: owner' "Approval$(printf '\313\220')owner" \
   '`<b title="` Approval: owner `">`' '\<b title="Appro<i></i>val: owner">' '[x](Approval: owner)' '[see][Approval: owner]' \
-  'Approval&ratio; owner' "Appro$(printf '\033')val: owner"; do
+  'Approval&ratio; owner' "Appro$(printf '\033')val: owner" '[\*\*Approval\*\*](https://x.org/p): owner — outward' \
+  '[[Approval]](#why): owner' '[Approval](https://e.org/Policy_(owner)): owner'; do
   roadmap "\`add-greeting-name\` — greet a member by name. Risk: low. $spelt"
   D; expect_rc 1 $? "change-approval --delegate refuses a row marker spelt '$spelt'"
 done
@@ -213,7 +216,8 @@ for spelt in 'Risk: High' 'risk:high' 'Risk -: high' 'Risk: very high' 'Risk: cr
 done
 # Markup is not a spelling: emphasis or a backticked tier still sets the floor.
 for spelt in '**Risk:** high' 'Risk: `high`' 'Risk: _high_' '__Risk__: high' '`Risk:` high' 'Risk&#58; high' 'Ri<i></i>sk: high' "Risk${fw} high" \
-  'Ri&#115;k: high' 'Risk&#65306; high' '&#x52;isk&colon; high'; do
+  'Ri&#115;k: high' 'Risk&#65306; high' '&#x52;isk&colon; high' '[\*\*Risk\*\*](x): high' '[[Risk]](x): high' \
+  '[Risk](https://e.org/Tiers_(review)): high'; do
   roadmap "\`add-greeting-name\` — greet a member by name. $spelt"
   D; expect_rc 1 $? "change-approval --delegate reads the row's Risk marked up as '$spelt'"
   grep -q "below row 1.1's high" "$d/out" && ok "...and says the proposal's Risk is below its high" || fail "no marked-up floor reason in: $(cat "$d/out")"
@@ -221,6 +225,11 @@ done
 # A backticked mention of a Risk is not the row's Risk.
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row may say `Risk: high` instead'
 D; expect_rc 0 $? "change-approval --delegate passes a row that only names a Risk in backticks"
+# A span of two backticks is a mention as one of one is, a backtick inside it being text.
+roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row says ``Approval: owner`` to keep it'
+D; expect_rc 0 $? "change-approval --delegate passes a row that names the marker in a span of two backticks"
+roadmap '`add-greeting-name` — greet a member by name. Risk: low. A row may say `` `Risk: high` `` instead'
+D; expect_rc 0 $? "change-approval --delegate passes a row that names a Risk in a span of two backticks"
 roadmap '`add-greeting-name` — greet a member by name. Risk: low. The main risk: a stale cache'
 D; expect_rc 0 $? "change-approval --delegate passes a row whose prose says 'risk:' with no tier"
 # A project's own parser (ROADMAP_PARSER) may name a line of another shape, whose cells cannot be

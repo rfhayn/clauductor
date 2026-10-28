@@ -40,6 +40,11 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | 1.23 | `ops/reflabel` — x [see][Risk: high] | s | — | ⬜ queued |
 | 1.24 | `ops/named` — Risk&ratio; high | s | — | ⬜ queued |
 | 1.25 | `ops/runs` — x. `Risk: high`` | s | — | ⬜ queued |
+| 1.26 | `ops/esclink` — [\*\*Risk\*\*](x): high | s | — | ⬜ queued |
+| 1.27 | `ops/nestlink` — [[Risk]](x): high | s | — | ⬜ queued |
+| 1.28 | `ops/parenlink` — [Risk](https://e.org/Tiers_(review)): high | s | — | ⬜ queued |
+| 1.29 | `ops/twospan` — a row may say ``Risk: high`` | s | — | ⬜ queued |
+| 1.30 | `ops/twospanin` — a row may say `` `Risk: high` `` | s | — | ⬜ queued |
 EOF
 printf '# add-low\n\n**Risk:** low\n' > "$F/changes/add-low/proposal.md"
 printf '# add-bad\n\n**Risk:** medium\n' > "$F/changes/add-bad/proposal.md"
@@ -85,6 +90,13 @@ is 4 "a Risk in a destination with a space, which is no link" ops/nolink
 is 4 "a Risk in a reference label, which renders where a definition names it" ops/reflabel
 is 4 "a Risk read as rendered (a named entity not listed, as a colon)" ops/named
 is 4 "a Risk after a lone backtick, which no run of one length closes" ops/runs
+# A link CommonMark makes that lk does not match (an escape in its text, a bracket in it, a paren in
+# its destination) still reads as its text: every destination is also read dropped.
+is 4 "a Risk read as rendered (an escaped emphasis in a link's text)" ops/esclink
+is 4 "a Risk read as rendered (a bracket in a link's text)" ops/nestlink
+is 4 "a Risk read as rendered (balanced parens in a link's destination)" ops/parenlink
+is 3 "a Risk in a span of two backticks is a mention (normal)" ops/twospan
+is 3 "a Risk in a span of two backticks around one is a mention (normal)" ops/twospanin
 printf 'REVIEW_CAPS="low:1 normal:4 high:5"\n' > "$F/.claude/project.conf"
 is 1 "REVIEW_CAPS sets the rounds (low:1)" add-low
 is 4 "REVIEW_CAPS sets the rounds (normal:4)" 1.5
