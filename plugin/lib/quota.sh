@@ -86,7 +86,7 @@ quota_read() {
 
 quota_pct() {
   _q=$(quota_read) || return 1
-  _q=$(printf '%s\n' "$_q" | awk -F '\t' -v k="$1" '$1 == k && $2 != "-" { print $2; exit }')
+  _q=$(printf '%s\n' "$_q" | awk -F '\t' -v k="$1" '!got && $1 == k && $2 != "-" { print $2; got = 1 }')
   [ -n "$_q" ] || return 1
   printf '%s\n' "$_q"
 }

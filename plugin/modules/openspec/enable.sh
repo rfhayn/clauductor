@@ -24,7 +24,7 @@ failed() { if [ -n "$CHECK" ]; then rc=1; else exit 1; fi; }
 
 # ver_ok VERSION: 0 when VERSION (x.y[.z]) is at least MIN.
 ver_ok() {
-  printf '%s\n' "$1" | awk -F. -v min="$MIN" '{ split(min, m, "."); if ($1 + 0 > m[1] + 0 || ($1 + 0 == m[1] + 0 && $2 + 0 >= m[2] + 0)) exit 0; exit 1 }'
+  printf '%s\n' "$1" | awk -F. -v min="$MIN" 'NR == 1 { split(min, m, "."); ok = $1 + 0 > m[1] + 0 || ($1 + 0 == m[1] + 0 && $2 + 0 >= m[2] + 0) } END { exit !ok }'
 }
 bin=${OPENSPEC_BIN:-openspec}
 if command -v "$bin" >/dev/null 2>&1; then

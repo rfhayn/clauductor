@@ -149,7 +149,7 @@ is_move() {  # is_move DIR SUBCOMMAND NEXT-WORD UPDATE-HEAD ALIAS-VALUE: it, or 
   [ -n "$_v" ] || _v=$(git -C "$1" config --get "alias.$2" 2>/dev/null) || return 1
   case $_v in '!'*) return 0 ;; esac
   _u=0; case " $_v " in *' -u '* | *' --update-h'*) _u=1 ;; esac
-  moves_sub "$(printf '%s\n' "$_v" | awk '{ print $1; exit }')" "$(printf '%s\n' "$_v" | awk '{ print $2; exit }')" "$_u"
+  moves_sub "$(printf '%s\n' "$_v" | awk 'NR == 1 { print $1 }')" "$(printf '%s\n' "$_v" | awk 'NR == 1 { print $2 }')" "$_u"
 }
 aimed() {  # aimed DIR: DIR's main checkout, when DIR is in it or its git dir ("?": the cwd's main checkout)
   if [ "$1" = '?' ]; then main_of "$cwd"; return; fi

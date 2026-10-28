@@ -1,7 +1,7 @@
 #!/bin/sh
 # Tests check-coverage.sh against a stub covsum on PATH: sh scripts/check-coverage_test.sh
 here=$(cd "$(dirname "$0")" && pwd)
-t=$(mktemp -d) || exit 1
+t=$(mktemp -d "${TMPDIR:-/tmp}/coverage-test.XXXXXX") || exit 1
 trap 'rm -rf "$t"' EXIT
 mkdir "$t/bin"
 run() {  # run PERCENT|fail|reportfail [FLOOR]: the script's exit code with covsum reporting PERCENT, failing, or reporting 90 then failing

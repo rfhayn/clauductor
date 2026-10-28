@@ -144,7 +144,7 @@ failed=""
 count=0
 for n in $names; do
   case $n in
-    *:*) f=$(printf '%s\n' "$ext" | awk -v n="$n" '$1 == n { print $2; exit }') ;;
+    *:*) f=$(printf '%s\n' "$ext" | awk -v n="$n" '!got && $1 == n { print $2; got = 1 }') ;;
     *) f="$dir/$n.sh" ;;
   esac
   if [ -z "$f" ] || [ ! -f "$f" ]; then
