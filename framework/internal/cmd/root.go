@@ -21,8 +21,8 @@ lanes of every project.`,
 	// Main prints a command's error; cobra printing it too showed every error twice (#251).
 	SilenceErrors: true,
 	// Set once flags and arguments have passed, so only a mistyped command line prints usage,
-	// never a command's own failure. A subcommand's PersistentPreRun would replace this one:
-	// TestOnlyTheRootHasAPersistentPreRun refuses one.
+	// never a command's own failure. A subcommand's PersistentPreRun would replace this one, so it
+	// must silence usage too: TestUsageIsSilencedOnceTheArgumentsPass refuses one that does not.
 	PersistentPreRun: func(cmd *cobra.Command, args []string) { cmd.SilenceUsage = true },
 }
 
@@ -37,15 +37,17 @@ var errReported = errors.New("reported")
 // Main runs the root command as the binary does and returns the process's exit status: a command's
 // error is printed to stderr as "Error: ...", unless the command reported it itself.
 func Main(stderr io.Writer) int {
-	err := Execute()
+	cmd, err := rootCmd.ExecuteC()
 	if err == nil {
 		return 0
 	}
 	if !errors.Is(err, errReported) {
 		fmt.Fprintf(stderr, "Error: %v\n", err)
-		// SilenceErrors also silences cobra's pointer to help after an unknown command.
-		if strings.HasPrefix(err.Error(), "unknown command ") {
-			fmt.Fprintf(stderr, "Run '%s --help' for usage.\n", rootCmd.CommandPath())
+		// SilenceErrors also silences cobra's pointer to help after an unknown command. Only the
+		// root reports one (cobra's Find): a subcommand's cobra.NoArgs uses the same words for an
+		// extra argument, and cobra printed its usage, not the pointer (#269).
+		if cmd == rootCmd && strings.HasPrefix(err.Error(), "unknown command ") {
+			fmt.Fprintf(stderr, "Run '%s --help' for usage.\n", cmd.CommandPath())
 		}
 	}
 	return 1

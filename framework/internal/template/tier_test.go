@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // projectDirs are the template's .claude/ directories a project owns: created when missing,
@@ -60,7 +61,7 @@ func templateClaudeDirs(root string, env []string) ([]string, error) {
 	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
 		return diskClaudeDirs(root)
 	}
-	cmd := exec.Command("git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
+	cmd := testgit.Command(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
 		"--", "template/.claude/")
 	cmd.Env = env
 	out, err := cmd.Output()
@@ -99,22 +100,16 @@ func diskClaudeDirs(root string) ([]string, error) {
 	return dirs, nil
 }
 
-// gitEnv is this process's environment with no GIT_ variable: run under a git hook, GIT_DIR,
-// GIT_WORK_TREE and GIT_INDEX_FILE would aim a test's git at the outer repository. isolated also
-// drops the global and system config, so a fixture reads only its own ignore rules and hooks. The
-// user's ignore file needs core.excludesFile set as well: git reads ~/.config/git/ignore by
-// default even with no global config.
+// gitEnv is testgit.Env: no GIT_ variable, so a git hook's GIT_DIR, GIT_WORK_TREE and
+// GIT_INDEX_FILE cannot aim a test's git at the outer repository. isolated also drops the global
+// and system config, so a fixture reads only its own ignore rules and hooks. The user's ignore
+// file needs core.excludesFile set as well: git reads ~/.config/git/ignore by default even with
+// no global config.
 func gitEnv(isolated bool) []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_") {
-			env = append(env, kv)
-		}
-	}
+	env := testgit.Env()
 	if isolated {
 		env = append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
-			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.excludesFile", "GIT_CONFIG_VALUE_0=/dev/null",
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.excludesFile", "GIT_CONFIG_VALUE_0=/dev/null")
 	}
 	return env
 }
@@ -170,10 +165,10 @@ func claudeDirFixture(t *testing.T, extra ...string) string {
 // fails there would otherwise turn both tests that use the fixture into quiet skips.
 func fixtureGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
+	if testgit.Path == "" {
 		t.Skip("git is not installed")
 	}
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := testgit.Command(dir, args...)
 	cmd.Env = gitEnv(true)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v %s", args, err, out)
@@ -210,7 +205,7 @@ func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
 	fixtureGit(t, outer, "commit", "-q", "--allow-empty", "-m", "outer")
 	head := func() string {
 		t.Helper()
-		cmd := exec.Command("git", "-C", outer, "rev-parse", "HEAD")
+		cmd := testgit.Command(outer, "rev-parse", "HEAD")
 		cmd.Env = gitEnv(true)
 		out, err := cmd.Output()
 		if err != nil {

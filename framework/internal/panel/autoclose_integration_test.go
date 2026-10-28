@@ -14,6 +14,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // PANEL-20, on a throwaway socket: with lanes_auto_close "on_merge", a lane whose
@@ -70,7 +71,7 @@ func TestAutoCloseOnMerge(t *testing.T) {
 	})
 	waitUntil(t, "the orphaned lane closed, its worktree and merged branch removed", 20*time.Second, func() bool {
 		_, err := os.Stat(filepath.Join(root, ".wt", "done"))
-		return os.IsNotExist(err) && exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/fix/done").Run() != nil
+		return os.IsNotExist(err) && testgit.Command(root, "rev-parse", "--verify", "--quiet", "refs/heads/fix/done").Run() != nil
 	})
 	waitUntil(t, "the busy lane asks", 20*time.Second, func() bool {
 		for _, n := range p.state(t).NeedsYou {

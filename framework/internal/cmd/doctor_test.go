@@ -15,6 +15,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/template"
 	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/clauductor/clauductor/internal/treesnap"
 )
 
@@ -483,14 +484,12 @@ func TestDoctorFailureEndsOnTheCountLineInTheTerminal(t *testing.T) {
 	}
 }
 
-// realGit is the git the tests run, found before any test replaces PATH.
-var realGit, _ = exec.LookPath("git")
-
-// gitPath is stubPath(tools) with a git that runs the real one: the project's lines read a real
-// repository, and a stub git that exits 0 would show them nothing.
+// gitPath is stubPath(tools) with a git that runs the real one (testgit.Path, found before any
+// test replaces PATH): the project's lines read a real repository, and a stub git that exits 0
+// would show them nothing.
 func gitPath(t *testing.T, tools ...string) string {
 	t.Helper()
-	if realGit == "" {
+	if testgit.Path == "" {
 		t.Skip("git is not installed")
 	}
 	var rest []string
@@ -500,16 +499,14 @@ func gitPath(t *testing.T, tools ...string) string {
 		}
 	}
 	bin := stubPath(t, rest...)
-	testbin.Write(t, filepath.Join(bin, "git"), "#!/bin/sh\nexec "+install.ShellWord(realGit)+" \"$@\"\n")
+	testbin.Write(t, filepath.Join(bin, "git"), "#!/bin/sh\nexec "+install.ShellWord(testgit.Path)+" \"$@\"\n")
 	return bin
 }
 
 // gitIn runs the real git in dir, failing the test on an error.
 func gitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	c := exec.Command(realGit, args...)
-	c.Dir = dir
-	if out, err := c.CombinedOutput(); err != nil {
+	if out, err := testgit.Command(dir, args...).CombinedOutput(); err != nil {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
 	}
 }
@@ -517,7 +514,7 @@ func gitIn(t *testing.T, dir string, args ...string) {
 // newRepo is an empty git repository, resolved the way git prints its toplevel.
 func newRepo(t *testing.T) string {
 	t.Helper()
-	if realGit == "" {
+	if testgit.Path == "" {
 		t.Skip("git is not installed")
 	}
 	dir, err := filepath.EvalSymlinks(t.TempDir())
@@ -1057,7 +1054,7 @@ func TestDoctorFindsTheMainCheckout(t *testing.T) {
 
 // The panel's lines are keyed by the main checkout, and a bare first worktree is not one.
 func TestDoctorABareRepositoryHasNoProject(t *testing.T) {
-	if realGit == "" {
+	if testgit.Path == "" {
 		t.Skip("git is not installed")
 	}
 	bare := t.TempDir()
