@@ -50,29 +50,35 @@ started from the panel's **New lane** (or by hand), on one branch:
 
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
   worktree agents while its hooks lag `origin/main`.
-- **Who brings a lane's `.claude` files up to date.** Claude Code's sandbox, as this repo's
-  `settings.json` sets it, allows these writes (probed 2026-10-28, OPS-151):
+- **Who brings a lane's `.claude` files up to date.** Claude Code's own protections (not
+  `settings.json`) refuse some sandboxed writes under `.claude`, and what a lane may write depends
+  on how it was started (seen 2026-10-28, OPS-151; a lane of its own session: the insights
+  `sandbox/claude-dir-writes` and `sandbox/lane-sync`):
 
-  | Path | In a lane's worktree | In the main checkout |
-  |---|---|---|
-  | `.claude/hooks`, `.claude/skills` | writable | denied |
-  | `.claude/agents`, `template/.claude/agents` | denied | denied |
-  | `.git/config`, `.git/hooks` | denied | denied |
+  | Directory | A lane that is an agent of the main session | A lane that is its own session | The main checkout |
+  |---|---|---|---|
+  | `.claude/hooks`, `.claude/skills` | writable | denied | denied |
+  | `.claude/agents`, `template/.claude/agents` | denied | denied | denied |
 
-  - **The lane** brings its own hooks and skills along, inside the sandbox: a rebase, a merge, or
-    `CLAUDUCTOR_FRAMEWORK=$PWD framework/clauductor update` with the binary built from the lane's
-    checkout (the owner's shell sets that variable to the MAIN checkout, and it outranks the
-    binary's own checkout in the template search).
-  - **The main session** creates the lane's worktree: `git worktree add` writes `.git/config`,
-    and its checkout writes `.claude/agents`, so it runs outside the sandbox. It is a fixed git
-    command run by the main session, not lane code. A lane cannot write an agent definition at
-    all, in `template/` or `.claude/`: it hands its change over as a diff, and after review the
-    main session applies that reviewed diff, again outside the sandbox.
-  - **A lane opened as a session of its own** (ST-15's launcher): the session that opens it does
-    both.
-  - **No command ever runs a lane's own files outside the sandbox.** A lane can edit every file in
-    its worktree, so an approved unsandboxed run of a script, a build or a config there runs
-    whatever the lane wrote (#304, closed for that).
+  `.git/config` and `.git/hooks` are denied to every sandboxed command.
+  - **A lane that is an agent of the main session** brings its own hooks and skills along inside
+    the sandbox: a rebase, a merge, or `CLAUDUCTOR_FRAMEWORK=$PWD framework/clauductor update` with
+    the binary built from the lane's checkout (the owner's shell sets that variable to the MAIN
+    checkout, and it outranks the binary's own checkout in the template search).
+  - **A lane that is its own session** cannot: ST-15's launcher will have the opening session sync
+    it. A panel lane is synced by the owner by hand, as before; the panel is uninstalled here and
+    removed in PANEL-64.
+  - **The main session** creates every lane's worktree. `git worktree add` writes `.git/config`,
+    and its checkout writes `.claude/agents`, so it runs outside the sandbox: a fixed git command,
+    not lane code. No lane can write an agent definition, in `template/` or `.claude/`: it hands
+    its change over as a diff, and after review the main session applies that reviewed diff, again
+    outside the sandbox.
+  - **No sync or agents step runs a lane's files outside the sandbox.** A lane can edit every file
+    in its worktree, so an approved unsandboxed run of a script, a build or a config there runs
+    whatever the lane wrote (#304, closed for that). The gate is the exception, by design:
+    `sandbox.excludedCommands` runs it unsandboxed (its process checks need `ps`, tmux and
+    loopback), so a lane's gate runs the lane's own checks and tests, and review before the gate
+    is the control (#307).
 - **One full gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a
   lane's full gate may queue behind another's; the panel shows who holds it. A `--quick` run takes
   no lease and never queues.
