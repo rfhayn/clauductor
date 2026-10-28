@@ -73,12 +73,13 @@ table_rows_naming() {
 # opens a real tag (`<b>`, `<span title="a>b">`, `</b>`), a comment (`<!-- -->`), an instruction
 # (`<?…?>`), a declaration or CDATA; those go (`Appro<b></b>val`), and any other `<` is text, so
 # `p95 < 50ms … > 3` hides nothing between. A link reads as its text (`[Approval](x)`,
-# `[[Risk]](x)`). Its destination is read three ways, a line each: dropped where a pattern (lk) finds
-# a link, so text that is no link (`[x](Approval: owner)`) stays; dropped wherever CommonMark closes
-# it, since lk misses some links CommonMark makes; and dropped to its first `)`, as the reader before
-# OPS-131 dropped it. A reference label, which renders only where a definition names it, is read
-# both ways too. Every entity is decoded: a numeric one to its ASCII character (`Ri&#115;k`), a
-# markup character (`` ` * _ | \ < > & ``, which renders as itself, never as markup) or a space to
+# `[[Risk]](x)`). Its destination is read three ways, a line each: dropped where a pattern (lk)
+# finds a link, so text that is no link (`[x](Approval: owner)`) stays; dropped wherever CommonMark
+# closes it, since lk misses some links CommonMark makes; and dropped to its first `)`, as the
+# reader before OPS-131 dropped it. A reference label, which renders only where a definition names
+# it, is read both ways too. Every entity is decoded: a numeric one to its ASCII character
+# (`Ri&#115;k`), a markup character (`` ` * _ | \ < > & ``, which renders as itself, never as
+# markup) or a space to
 # a space; a named one as its code point is (`&colon;`, `&nbsp;`, `&mdash;`), and a name not listed
 # (`&ratio;`) or a control character as what is not ASCII. Then what is not ASCII: an
 # invisible character (zero-width, soft hyphen, BOM) is nothing; a space, a dash, a quote, a bullet,
@@ -166,8 +167,8 @@ marker_plain() {
   # dest: where the `)` closing the destination s opens (s starts at its `(`) is, by CommonMark
   # grammar, or 0: a <…> destination, or a bare one with no space, a `(` in it needing its `)`;
   # then a title in quotes or parens after a space. An escaped character (html follows it with \002)
-  # counts for nothing; in a table line a `|` ends the cell, so the destination never closes. It
-  # may close one CommonMark leaves open (`(a(b "t")`): dropping more is safe, as reading 0 keeps it.
+  # counts for nothing; in a table line a `|` ends the cell, so the destination never closes. It may
+  # close one CommonMark leaves open (`(a(b "t")`): safe, since reading 0 keeps that text.
   function dest(s,   n, j, c, t) {
     n = length(s); j = 2
     while (substr(s, j, 1) ~ /[ \t]/) j++
@@ -205,12 +206,12 @@ marker_plain() {
   }
   # plain: s, from html, as text. A link reads as its text, `[Approval](x):` being `[Approval]:` (the
   # caller drops the brackets). Three readings of its destination, which the caller unites (how):
-  # 0, only a link lk matches, an opener then a destination with no space and at most a quoted title,
-  # so `note](Approval: owner)` keeps its words; 1, every `](` whose destination CommonMark closes
-  # (dest), which lk misses where the text holds a bracket or an escape or the destination a paren
-  # (`[[Approval]](x)`, `[\*\*Risk\*\*](x)`, `[Risk](<a (b>)`); 2, every `](` to its first `)`, as
-  # the reader before OPS-131 read it, so no reading here is ever weaker than that one: it errs
-  # toward a marker (`[Risk](a_(b)):` is `Risk):`, which the caller refuses). The label of a
+  # 0, only a link lk matches, an opener then a destination with no space and at most a quoted
+  # title, so `note](Approval: owner)` keeps its words; 1, every `](` whose destination CommonMark
+  # closes (dest), which lk misses where the text holds a bracket or an escape or the destination a
+  # paren (`[[Approval]](x)`, `[\*\*Risk\*\*](x)`, `[Risk](<a (b>)`); 2, every `](` to its first
+  # `)`, as the reader before OPS-131 read it, so no reading here is ever weaker than that one: it
+  # errs toward a marker (`[Risk](a_(b)):` is `Risk):`, which the caller refuses). The label of a
   # reference (`[x][Approval: owner]`) renders only where a definition names it, which is not read,
   # so it is read both ways too: the label gone, and kept (ref).
   function plain(s, ref, how,   o, e, m, i, j) {
@@ -229,7 +230,7 @@ marker_plain() {
       s = substr(s, RSTART + RLENGTH)
     }
     s = o s
-    if (ref) gsub(/\]\[/, "] [", s); else gsub(/\]\[[^]|]*\]/, "]", s)
+    if (ref) gsub(/\]\[/, "] [", s); else gsub("\\]\\[[^]" bar "]*\\]", "]", s)
     o = ""
     while (match(s, /&(#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/)) {
       e = substr(s, RSTART + 1, RLENGTH - 2); o = o substr(s, 1, RSTART - 1)
@@ -283,7 +284,7 @@ marker_plain() {
     if (prose) RS = ""
   }
   { gsub(ctl, "\200") }
-  function each(s,   k, r, seen) {  # each distinct reading of s: three of a link, the label gone or kept
+  function each(s,   k, r, seen) {  # each distinct reading: three of a link, its label gone or kept
     for (k = 0; k < 6; k++) {
       r = plain(s, k % 2, int(k / 2)); if (!prose) r = cells(r)
       if (!(r in seen)) { seen[r] = 1; print r }

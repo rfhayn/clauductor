@@ -123,7 +123,7 @@ for spelt in '**Approval**: owner' ' **Approval:** owner' '__approval:__ owner' 
   '[\\*\\*Approval\\*\\*](https://e.org/a|b): owner' '[Approval](x "a|b"): owner' '[Approval](https://e.org/a\\(b): owner' \
   '[Approval](https://e.org/a\\)b): owner' '[\\*Approval](<a )b>): owner' '[\\*Approval](x "a )b"): owner' \
   '[Approval](https://e.org/P_(o)x): owner' '[Approval](see the note): owner' '[\\*Approval](<a\\>)b>): owner' \
-  '[\\*Approval](x "a\\")b"): owner'; do
+  '[\\*Approval](x "a\\")b"): owner' '[Appro][x]val: owner' '[Appro][x|y]val: owner'; do
   awk -v m="$spelt" '{ print } /^\*\*Risk:\*\*/ { print m }' "$d/fresh.md" > "$C/proposal.md"
   startlog; A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses a proposal's Approval line spelt '$spelt'"
 done

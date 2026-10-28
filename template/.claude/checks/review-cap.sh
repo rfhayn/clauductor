@@ -58,6 +58,7 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | 1.42 | `ops/opentitle` — x [a](b "c|d") Risk: high | — | ⬜ queued |
 | 1.43 | `ops/escangle` — [\*Risk](<a\>)b>): high | s | — | ⬜ queued |
 | 1.44 | `ops/esctitle` — [\*Risk](x "a\")b"): high | s | — | ⬜ queued |
+| 1.45 | `ops/refjoin` — [Ri][x]sk: high | s | — | ⬜ queued |
 EOF
 printf '# add-low\n\n**Risk:** low\n' > "$F/changes/add-low/proposal.md"
 printf '# add-bad\n\n**Risk:** medium\n' > "$F/changes/add-bad/proposal.md"
@@ -101,6 +102,7 @@ is 4 "a Risk read as rendered (a look-alike colon)" ops/lookalike
 is 4 "a look-alike colon ends a Risk's value, as a colon does" ops/colonval
 is 4 "a Risk in a destination with a space, which is no link" ops/nolink
 is 4 "a Risk in a reference label, which renders where a definition names it" ops/reflabel
+is 4 "a Risk split by a reference label, which renders as its text alone ([Ri][x]sk)" ops/refjoin
 is 4 "a Risk read as rendered (a named entity not listed, as a colon)" ops/named
 is 4 "a Risk after a lone backtick, which no run of one length closes" ops/runs
 # A link CommonMark makes that lk does not match (an escape in its text, a bracket in it, a paren in
