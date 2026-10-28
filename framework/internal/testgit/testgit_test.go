@@ -1,7 +1,6 @@
 package testgit
 
 import (
-	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -15,23 +14,15 @@ import (
 	"testing"
 )
 
-// TestMain strips like every package's, unless a probe asks its helper not to: that is the
-// probe's negative case, a test binary whose TestMain forgot.
-func TestMain(m *testing.M) {
-	if os.Getenv("TESTGIT_HELPER_NOSTRIP") == "" {
-		Strip()
-	}
-	os.Exit(m.Run())
-}
-
 // A test binary started under a hook's GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE leaves the
-// hook's repository untouched: its TestMain strips them, so its fixture's git (run with the
-// inherited environment, the way the code under test and a script run theirs) stays in the
-// fixture. Without the strip, the same git reaches the hook's repository.
+// hook's repository untouched: testgit's init strips them, so its fixture's git (run with the
+// inherited environment, the way the code under test and a script run theirs, and from a test
+// file's package-level variable, before any TestMain) stays in the fixture. Without the strip,
+// the same git reaches the hook's repository.
 func TestATestBinaryUnderAHookLeavesItsRepositoryAlone(t *testing.T) {
 	for _, strip := range []bool{true, false} {
 		env, touched := Outer(t)
-		c := exec.Command(os.Args[0], "-test.run=^TestHelperRunsFixtureGit$", "-test.count=1")
+		c := exec.Command(os.Args[0], "-test.run=^TestHelperRunsFixtureGit(AtInit)?$", "-test.count=1")
 		c.Env = append(append(os.Environ(), env...), "TESTGIT_HELPER=1")
 		if !strip {
 			c.Env = append(c.Env, "TESTGIT_HELPER_NOSTRIP=1")
@@ -76,18 +67,32 @@ func TestHelperRunsFixtureGit(t *testing.T) {
 // Outer sees each kind of change a git under the hook's environment can make there, none of
 // which moves HEAD, and a read is no change.
 func TestOuterSeesEachChange(t *testing.T) {
+	reads := [][]string{{"status"}, {"rev-parse", "HEAD"}, {"log", "--oneline"}, {"worktree", "list"}}
 	for _, c := range []struct {
-		name string
-		args [][]string
-		want string // a path the change names; "" for none
+		name   string
+		args   [][]string
+		global string // the global config the row's git reads, when it is not the machine's own
+		want   string // a path the change names; "" for none
 	}{
-		{"a read", [][]string{{"status"}, {"rev-parse", "HEAD"}, {"log", "--oneline"}, {"worktree", "list"}}, ""},
-		{"a branch", [][]string{{"branch", "x"}}, ".git/refs/heads/x"},
-		{"a worktree", [][]string{{"worktree", "add", "-q", "--detach", filepath.Join(t.TempDir(), "wt"), "HEAD"}}, ".git/worktrees"},
-		{"the index", [][]string{{"update-index", "--add", "--cacheinfo", "100644,e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,x"}}, ".git/index"}, // the empty blob
-		{"the config", [][]string{{"config", "x.y", "z"}}, ".git/config"},
+		{"a read", reads, "", ""},
+		// A machine's global config can make a read write: git status adds the untracked cache to
+		// the index, and fsmonitor starts a daemon with a socket in .git. The stand-in repository
+		// pins its own config, so a read stays a read.
+		{"a read, untracked cache on", reads, "[core]\n\tuntrackedCache = true\n", ""},
+		{"a read, many files", reads, "[feature]\n\tmanyFiles = true\n", ""},
+		{"a branch", [][]string{{"branch", "x"}}, "", ".git/refs/heads/x"},
+		{"a worktree", [][]string{{"worktree", "add", "-q", "--detach", filepath.Join(t.TempDir(), "wt"), "HEAD"}}, "", ".git/worktrees"},
+		{"the index", [][]string{{"update-index", "--add", "--cacheinfo", "100644,e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,x"}}, "", ".git/index"}, // the empty blob
+		{"the config", [][]string{{"config", "x.y", "z"}}, "", ".git/config"},
 	} {
 		env, touched := Outer(t)
+		if c.global != "" {
+			global := filepath.Join(t.TempDir(), "gitconfig")
+			if err := os.WriteFile(global, []byte(c.global), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			env = append(env, "GIT_CONFIG_GLOBAL="+global)
+		}
 		for _, args := range c.args {
 			g := exec.Command(Path, args...)
 			g.Dir, g.Env = t.TempDir(), append(os.Environ(), env...)
@@ -102,12 +107,12 @@ func TestOuterSeesEachChange(t *testing.T) {
 	}
 }
 
-// Every package with tests strips the hook's variables in its TestMain, first: the authority is
-// every test binary, since every process a test starts inherits its environment. The walk takes
-// every directory of the module that holds a _test.go file. Two kinds are exempt, and each is
-// held to running no git: this package, whose TestMain strips but for the probe's negative case,
-// and a package testgit imports, which cannot import testgit back.
-func TestEveryTestPackageStripsGit(t *testing.T) {
+// Every package with tests imports testgit, so its init strips the hook's variables from the test
+// binary before any of the package's code runs: the authority is every test binary, since every
+// process a test starts inherits its environment. The walk takes every directory of the module
+// that holds a _test.go file, and any of its test files (internal or external) may hold the
+// import. The one exception is testgit itself, whose own init strips.
+func TestEveryTestPackageImportsTestgit(t *testing.T) {
 	self, err := filepath.Abs(".")
 	if err != nil {
 		t.Fatal(err)
@@ -121,10 +126,6 @@ func TestEveryTestPackageStripsGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	module := strings.TrimSpace(strings.TrimPrefix(strings.SplitN(string(mod), "\n", 2)[0], "module"))
-	exempt := map[string]bool{}
-	for _, imp := range moduleImports(t, self, module) {
-		exempt[filepath.Join(root, strings.TrimPrefix(imp, module+"/"))] = true
-	}
 	tests := map[string][]string{} // directory: its _test.go files
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && strings.HasSuffix(p, "_test.go") {
@@ -140,115 +141,66 @@ func TestEveryTestPackageStripsGit(t *testing.T) {
 	}
 	var bad []string
 	for dir, files := range tests {
-		rel, _ := filepath.Rel(root, dir)
-		if dir == self || exempt[dir] {
-			for _, f := range files {
-				if b, _ := os.ReadFile(f); dir != self && bytes.Contains(b, []byte(`"git"`)) {
-					bad = append(bad, rel+": exempt (testgit imports it, so it cannot strip), but "+filepath.Base(f)+" runs git")
-				}
-			}
+		if dir == self {
 			continue
 		}
 		var parsed []*ast.File
 		for _, f := range files {
-			af, err := parser.ParseFile(token.NewFileSet(), f, nil, 0)
+			af, err := parser.ParseFile(token.NewFileSet(), f, nil, parser.ImportsOnly)
 			if err != nil {
 				t.Fatal(err)
 			}
 			parsed = append(parsed, af)
 		}
-		if why := unstripped(parsed); why != "" {
-			bad = append(bad, rel+": "+why)
+		if !importsTestgit(parsed, module) {
+			rel, _ := filepath.Rel(root, dir)
+			bad = append(bad, rel)
 		}
 	}
 	sort.Strings(bad)
 	if len(bad) > 0 {
-		t.Fatalf("run testgit.Main(m) as TestMain, or call testgit.Strip() first in it, or a git hook's GIT_DIR reaches every process these tests start (#302):\n%s", strings.Join(bad, "\n"))
+		t.Fatalf("these packages' tests do not import testgit (`import _ \"%s/internal/testgit\"` when they use nothing of it), so a git hook's GIT_DIR reaches every process they start (#302):\n%s", module, strings.Join(bad, "\n"))
 	}
 }
 
-// The judge on packages of its own: none passes without a TestMain whose first statement strips.
-func TestUnstrippedFindsAPackageThatDoesNot(t *testing.T) {
+// The judge on packages of its own: one passes only when a test file imports testgit, used or
+// blank, internal or external.
+func TestImportsTestgitFindsAPackageThatDoesNot(t *testing.T) {
+	const module = "example.com/m"
 	for _, c := range []struct {
-		name, src string
-		ok        bool
+		name  string
+		srcs  []string
+		wants bool
 	}{
-		{"no TestMain", "func TestX(t *testing.T) {}", false},
-		{"a TestMain that does not strip", "func TestMain(m *testing.M) { os.Exit(m.Run()) }", false},
-		{"one that strips too late", "func TestMain(m *testing.M) { os.Unsetenv(\"K\"); testgit.Strip(); os.Exit(leakcheck.Main(m)) }", false},
-		{"one that strips in a branch", "func TestMain(m *testing.M) { if x { testgit.Strip() }; os.Exit(m.Run()) }", false},
-		{"testgit.Main", "func TestMain(m *testing.M) { testgit.Main(m) }", true},
-		{"Strip, then leakcheck.Main", "func TestMain(m *testing.M) { testgit.Strip(); os.Exit(leakcheck.Main(m)) }", true},
+		{"no import", []string{`package x; import "testing"`}, false},
+		{"another package of the module", []string{`package x; import "example.com/m/internal/testbin"`}, false},
+		{"a package named like it elsewhere", []string{`package x; import "other.com/internal/testgit"`}, false},
+		{"an import", []string{`package x; import "example.com/m/internal/testgit"`}, true},
+		{"a blank import", []string{`package x; import _ "example.com/m/internal/testgit"`}, true},
+		{"in an external test file", []string{`package x; import "testing"`, `package x_test; import _ "example.com/m/internal/testgit"`}, true},
 	} {
-		f, err := parser.ParseFile(token.NewFileSet(), "x_test.go", "package x\n"+c.src+"\n", 0)
-		if err != nil {
-			t.Fatalf("%s: %v", c.name, err)
-		}
-		if why := unstripped([]*ast.File{f}); (why == "") != c.ok {
-			t.Errorf("%s: unstripped says %q, want ok %v", c.name, why, c.ok)
-		}
-	}
-}
-
-// unstripped says why a package's test files leave the hook's variables in place, or "" when
-// their TestMain strips them first (testgit.Main, or testgit.Strip as its first statement).
-func unstripped(files []*ast.File) string {
-	for _, f := range files {
-		for _, d := range f.Decls {
-			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Recv != nil || fd.Name.Name != "TestMain" {
-				continue
-			}
-			if len(fd.Body.List) > 0 {
-				if es, ok := fd.Body.List[0].(*ast.ExprStmt); ok {
-					if call, ok := es.X.(*ast.CallExpr); ok {
-						if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-							if x, ok := sel.X.(*ast.Ident); ok && x.Name == "testgit" && (sel.Sel.Name == "Strip" || sel.Sel.Name == "Main") {
-								return ""
-							}
-						}
-					}
-				}
-			}
-			return "its TestMain does not call testgit.Strip (or testgit.Main) first"
-		}
-	}
-	return "no TestMain"
-}
-
-// moduleImports is every package of the module that dir's non-test files import, directly or
-// through each other.
-func moduleImports(t *testing.T, dir, module string) []string {
-	t.Helper()
-	root := filepath.Join(dir, "..", "..")
-	seen := map[string]bool{}
-	var walk func(dir string)
-	walk = func(dir string) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, e := range entries {
-			if !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
-				continue
-			}
-			f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, e.Name()), nil, parser.ImportsOnly)
+		var files []*ast.File
+		for _, src := range c.srcs {
+			f, err := parser.ParseFile(token.NewFileSet(), "x_test.go", src, parser.ImportsOnly)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("%s: %v", c.name, err)
 			}
-			for _, imp := range f.Imports {
-				p, _ := strconv.Unquote(imp.Path.Value)
-				if strings.HasPrefix(p, module+"/") && !seen[p] {
-					seen[p] = true
-					walk(filepath.Join(root, strings.TrimPrefix(p, module+"/")))
-				}
+			files = append(files, f)
+		}
+		if got := importsTestgit(files, module); got != c.wants {
+			t.Errorf("%s: importsTestgit says %v, want %v", c.name, got, c.wants)
+		}
+	}
+}
+
+// importsTestgit reports whether any of a package's test files imports testgit.
+func importsTestgit(files []*ast.File, module string) bool {
+	for _, f := range files {
+		for _, imp := range f.Imports {
+			if p, _ := strconv.Unquote(imp.Path.Value); p == module+"/internal/testgit" {
+				return true
 			}
 		}
 	}
-	walk(dir)
-	var out []string
-	for p := range seen {
-		out = append(out, p)
-	}
-	return out
+	return false
 }

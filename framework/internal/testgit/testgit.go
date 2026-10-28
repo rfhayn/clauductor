@@ -4,10 +4,10 @@
 // Run under a git hook, GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE aim every git at the hook's
 // repository, so a fixture's init, add and commit would act on the outer one: OPS-142's review
 // reproduced a fixture commit that deleted a repository's files (#302, #281). Every process a
-// test starts inherits them: its own git, the git the code under test runs, a script's. So each
-// test binary drops them before any test runs, in its TestMain (Main, or Strip first in a TestMain
-// that does more), and TestEveryTestPackageStripsGit requires that of every package with tests.
-// Nothing runs the tests under a hook today, so nothing else would show it until one did.
+// test starts inherits them: its own git, the git the code under test runs, a script's. So
+// importing testgit drops them from the test binary before any of its tests' code runs (init),
+// and TestEveryTestPackageImportsTestgit requires every package with tests to import it. Nothing
+// runs the tests under a hook today, so nothing else would show it until one did.
 package testgit
 
 import (
@@ -24,9 +24,15 @@ import (
 // PATH; empty when git is not installed.
 var Path, _ = exec.LookPath("git")
 
-// Strip unsets every GIT_ variable in this process, so nothing a test starts inherits a hook's.
-// A TestMain calls it first, before anything that could start a process.
-func Strip() {
+// init unsets every GIT_ variable in this process, so nothing a test starts inherits a hook's. It
+// runs when the test binary initialises testgit, which Go finishes before any package that
+// imports it initialises its own variables or runs its init or TestMain: a package whose tests
+// import testgit (`import _ ".../testgit"` when they use nothing of it) is covered from its first
+// line. TESTGIT_HELPER_NOSTRIP is the probe's negative case alone: a binary that did not strip.
+func init() {
+	if os.Getenv("TESTGIT_HELPER_NOSTRIP") != "" {
+		return
+	}
 	for _, kv := range os.Environ() {
 		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
 			os.Unsetenv(k)
@@ -34,13 +40,7 @@ func Strip() {
 	}
 }
 
-// Main is the TestMain of a package that needs nothing more: Strip, then run the tests.
-func Main(m *testing.M) {
-	Strip()
-	os.Exit(m.Run())
-}
-
-// Env is this process's environment with no GIT_ variable, and a commit identity. Strip has
+// Env is this process's environment with no GIT_ variable, and a commit identity. init has
 // already dropped what the test binary inherited; Env also drops what a test set itself, as a
 // test standing in for a hook does (template's TestTheFixturesGitStaysInTheFixture). A caller
 // that needs more (GIT_EDITOR, an isolated config) appends it.
@@ -78,8 +78,19 @@ func Outer(t testing.TB) (env []string, touched func() string) {
 		t.Skip("git is not installed")
 	}
 	outer := t.TempDir()
-	for _, args := range [][]string{{"init", "-q"}, {"commit", "-q", "--allow-empty", "-m", "outer"}} {
-		if out, err := Command(outer, args...).CombinedOutput(); err != nil {
+	// Its own config pinned, and built with none of the machine's: a global untracked cache,
+	// feature.manyFiles or fsmonitor would make a read (git status) write the index or start a
+	// daemon with a socket in .git.
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "core.untrackedCache", "false"},
+		{"config", "core.fsmonitor", "false"},
+		{"config", "feature.manyFiles", "false"},
+		{"commit", "-q", "--allow-empty", "-m", "outer"},
+	} {
+		c := Command(outer, args...)
+		c.Env = append(c.Env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("git %v in the outer repository: %v\n%s", args, err, out)
 		}
 	}

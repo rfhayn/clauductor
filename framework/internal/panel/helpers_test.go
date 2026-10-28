@@ -24,7 +24,6 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/clauductor/clauductor/internal/testwait"
 	"github.com/coder/websocket"
 )
@@ -383,7 +382,6 @@ func testEnv(k string) (string, bool) {
 // helper panel (TestHelperPanelProcess) is only a panel: its parent stops it with
 // SIGTERM, which it must handle itself.
 func TestMain(m *testing.M) {
-	testgit.Strip() // a git hook's GIT_DIR reaches no process these tests start (#302)
 	if os.Getenv("CLAUDUCTOR_PANEL_HELPER") == "1" {
 		os.Exit(m.Run())
 	}

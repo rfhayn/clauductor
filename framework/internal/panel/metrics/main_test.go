@@ -1,10 +1,6 @@
 package metrics
 
-import (
-	"testing"
-
-	"github.com/clauductor/clauductor/internal/testgit"
-)
-
-// A git hook's GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE reach no process these tests start (#302).
-func TestMain(m *testing.M) { testgit.Main(m) }
+// testgit's init drops a git hook's GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE from this test
+// binary before any of its code runs, so no process these tests start reaches the hook's
+// repository (#302). TestEveryTestPackageImportsTestgit requires the import.
+import _ "github.com/clauductor/clauductor/internal/testgit"

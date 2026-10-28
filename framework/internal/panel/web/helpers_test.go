@@ -14,7 +14,6 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/coder/websocket"
 )
 
@@ -126,7 +125,4 @@ func readWorktreesFrom(out []byte) ([]signals.Worktree, error) {
 }
 
 // TestMain fails the run if it leaves a tmux server or a helper process behind.
-func TestMain(m *testing.M) {
-	testgit.Strip() // a git hook's GIT_DIR reaches no process these tests start (#302)
-	os.Exit(leakcheck.Main(m))
-}
+func TestMain(m *testing.M) { os.Exit(leakcheck.Main(m)) }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/clauductor/clauductor/internal/leakcheck"
 	"github.com/clauductor/clauductor/internal/panel"
-	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/spf13/cobra"
 	"os"
 	"os/exec"
@@ -23,7 +22,6 @@ import (
 // runs it), so a test sees what a shell sees: the exit status, stdout and stderr.
 // lock-run leaves by os.Exit, which only a separate process can observe.
 func TestMain(m *testing.M) {
-	testgit.Strip() // a git hook's GIT_DIR reaches no process these tests start (#302)
 	if args := os.Getenv("CLAUDUCTOR_CMD_HELPER_ARGS"); args != "" {
 		var argv []string
 		if err := json.Unmarshal([]byte(args), &argv); err != nil {

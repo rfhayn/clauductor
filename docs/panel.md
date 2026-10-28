@@ -3819,15 +3819,18 @@ The rules the suite keeps, and a new test must too:
   `GIT_INDEX_FILE` aim every git at the hook's repository, so a fixture's `init`, `add` and
   `commit` would act there (#281, #302, #311). Every process a test starts inherits them (its
   own git, the git the code under test runs, a script's), so each test binary drops every `GIT_`
-  variable before any test runs: its `TestMain` is `testgit.Main(m)`, or calls `testgit.Strip()`
-  first (before `leakcheck.Main`, where the package wraps it). `TestEveryTestPackageStripsGit`
-  walks every directory of the module that holds a `_test.go` file and fails one whose
-  `TestMain` does not. Exempt are `testgit` itself and `treesnap`, which `testgit` imports and so
-  cannot import it back; `treesnap`'s tests are held to running no git.
+  variable before any of its code runs: importing `testgit` does it, in `testgit`'s `init`,
+  which Go runs before the importing package's variables, `init` and `TestMain`. A package that
+  uses nothing of `testgit` imports it blank (`main_test.go`; `treesnap`'s is an external
+  `treesnap_test`, since `testgit` imports `treesnap`). `TestEveryTestPackageImportsTestgit`
+  walks every directory of the module that holds a `_test.go` file and fails one whose tests do
+  not import it; `testgit` itself is the one exception. The import is the rule because it is the
+  order: without it, Go may initialise a test package's variables before `testgit`'s strip.
   `TestATestBinaryUnderAHookLeavesItsRepositoryAlone` starts a test binary under a stand-in
   hook's repository (`testgit.Outer`, which compares that repository's work tree and `.git`
-  whole) and shows its fixture's git, run with the inherited environment, stays out of it, and
-  reaches it without the strip. A fixture's own git goes through `testgit.Command`, for a commit
+  whole, with its own config pinned against the machine's) and shows its fixture's git, run
+  with the inherited environment and from a package-level variable, stays out of it, and reaches
+  it without the strip. A fixture's own git goes through `testgit.Command`, for a commit
   identity and the git found before any test stubs PATH.
 - **A project removed live leaves no goroutine** (PANEL-22). Each project's runtime runs every
   goroutine it starts (its hub, each source, each source's file watch) under a context and a wait

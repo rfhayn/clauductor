@@ -8,13 +8,9 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/leakcheck"
-	"github.com/clauductor/clauductor/internal/testgit"
 )
 
-func TestMain(m *testing.M) {
-	testgit.Strip() // a git hook's GIT_DIR reaches no process these tests start (#302)
-	os.Exit(leakcheck.Main(m))
-}
+func TestMain(m *testing.M) { os.Exit(leakcheck.Main(m)) }
 
 // t0 is a fixed "now" the readings are taken at; lock mtimes are set around it.
 var t0 = time.Date(2026, 10, 2, 10, 12, 0, 0, time.UTC)
