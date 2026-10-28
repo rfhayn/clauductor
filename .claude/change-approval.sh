@@ -286,7 +286,7 @@ renamed_from() {
   c=$1 p=$2 new=${2%/*}
   git -C "$ROOT" rev-parse -q --verify "$c^" >/dev/null 2>&1 || return 0
   diff=$(git -C "$ROOT" diff-tree -r -M --name-status "$c^" "$c" -- "$CHANGES_DIR/") || return 1
-  old=$(printf '%s\n' "$diff" | awk -F'\t' -v p="$p" '$1 ~ /^R/ && $3 == p { print $2; exit }')
+  old=$(printf '%s\n' "$diff" | awk -F'\t' -v p="$p" '!got && $1 ~ /^R/ && $3 == p { print $2; got = 1 }')
   [ -n "$old" ] || return 0
   olddir=${old%/*}
   before=$(git -C "$ROOT" ls-tree -r --name-only "$c^" -- "$new/") || return 1

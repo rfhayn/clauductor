@@ -39,7 +39,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 fw=$(cd "$here/../../../.." && pwd)
 port=${PORT:-4589}
-tmp=$(mktemp -d)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/browser-test.XXXXXX")
 prefix="clauductor-browser-test-"
 sock="$prefix$$"
 # tmux keeps a socket FILE per server, and kill-server leaves it behind: every run left

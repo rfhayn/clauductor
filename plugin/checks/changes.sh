@@ -296,7 +296,7 @@ for c in "$dir"/*/; do
     usd=""; case $budget in ''|unreadable) ;; *) usd=${budget% *} ;; esac
     row=$(proposal_field "$p" "Roadmap row")
     if [ -n "$row" ] && [ -n "$roadmap_tsv" ]; then
-      rb=$(printf '%s\n' "$roadmap_tsv" | awk -F'\t' -v r="$row" '$4 == r { print $11; exit }')
+      rb=$(printf '%s\n' "$roadmap_tsv" | awk -F'\t' -v r="$row" '!got && $4 == r { print $11; got = 1 }')
       if [ -n "$rb" ] && [ "$rb" != "$usd" ]; then fail "$id: roadmap row $row has 'Budget: \$$rb', proposal.md says '$(proposal_field "$p" Budget | grep . || echo nothing)' (repeat it as '**Budget:** \$$rb', with ', soft' if the owner made it soft)"
       elif [ -n "$rb" ]; then ok "$id: budget $(proposal_field "$p" Budget), as roadmap row $row says"; fi
     fi

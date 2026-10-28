@@ -220,7 +220,7 @@ for w, why in keep.items():
     print("KEEP\t%s\t%s" % (w, why))
 ' "$WT" 2>&1) || live="FAIL	python3 could not run the live-session check (${live:-no output})"
 [ -n "$live" ] || live="OK"
-live_fail=$(printf '%s\n' "$live" | awk -F '\t' '$1 == "FAIL" { print $2; exit }')
+live_fail=$(printf '%s\n' "$live" | awk -F '\t' '!got && $1 == "FAIL" { print $2; got = 1 }')
 [ -n "$live_fail" ] && echo "  REMOVING NO WORKTREE: $live_fail (fail closed)"
 printf '%s\n' "$live" | awk -F '\t' '$1 == "NOTE" { print "  note: " $2 }'
 
@@ -230,7 +230,7 @@ printf '%s\n' "$worktrees" | while read -r w; do
     echo "  KEEP worktree $w: it has uncommitted changes"
     continue
   fi
-  lock=$(printf '%s\n' "$locked" | awk -F '\t' -v w="$w" '$1 == w { print $2; exit }')
+  lock=$(printf '%s\n' "$locked" | awk -F '\t' -v w="$w" '!got && $1 == w { print $2; got = 1 }')
   if [ -n "$lock" ]; then
     echo "  KEEP worktree $w: it is locked ($lock)"
     continue
@@ -239,7 +239,7 @@ printf '%s\n' "$worktrees" | while read -r w; do
     echo "  KEEP worktree $w: removing none (see above)"
     continue
   fi
-  why=$(printf '%s\n' "$live" | awk -F '\t' -v w="$w" '$1 == "KEEP" && $2 == w { print $3; exit }')
+  why=$(printf '%s\n' "$live" | awk -F '\t' -v w="$w" '!got && $1 == "KEEP" && $2 == w { print $3; got = 1 }')
   if [ -n "$why" ]; then
     echo "  KEEP worktree $w: $why"
     continue
