@@ -136,12 +136,16 @@ func claudeDirFixture(t *testing.T, extra ...string) string {
 	git := func(args ...string) { fixtureGit(t, dir, args...) }
 	write := func(rel string) {
 		t.Helper()
+		// Join cleans a trailing slash away, so an empty directory is made from rel, not p's parent.
 		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if strings.HasSuffix(rel, "/") {
+			if err := os.MkdirAll(p, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
-		}
-		if strings.HasSuffix(rel, "/") {
-			return
 		}
 		if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
 			t.Fatal(err)
@@ -191,6 +195,54 @@ func TestAnIgnoredHarnessDirIsNotATemplateDir(t *testing.T) {
 				t.Errorf("unplaced %q, want none: an ignored directory is not the template's", got)
 			}
 		})
+	}
+}
+
+// The fixture's git stays in the fixture: run under a git hook that aims GIT_DIR and
+// GIT_WORK_TREE at another repository, and with an owner's config that ignores newdir/, it
+// commits nothing there and still reports the unplaced directory.
+func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
+	outer := t.TempDir()
+	fixtureGit(t, outer, "init", "-q")
+	fixtureGit(t, outer, "commit", "-q", "--allow-empty", "-m", "outer")
+	head := func() string {
+		t.Helper()
+		cmd := exec.Command("git", "-C", outer, "rev-parse", "HEAD")
+		cmd.Env = gitEnv(true)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("git rev-parse in the outer repository: %v", err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	before := head()
+
+	home := t.TempDir()
+	ignore := filepath.Join(home, ".config", "git", "ignore")
+	if err := os.MkdirAll(filepath.Dir(ignore), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ignore, []byte("newdir/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[core]\n\texcludesFile = "+ignore+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("GIT_DIR", filepath.Join(outer, ".git"))
+	t.Setenv("GIT_WORK_TREE", outer)
+
+	dir := claudeDirFixture(t, "template/.claude/newdir/a.sh")
+	dirs, err := templateClaudeDirs(dir, gitEnv(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := unplaced(dirs); !slices.Equal(got, []string{".claude/newdir/"}) {
+		t.Errorf("unplaced %q, want [.claude/newdir/]: the owner's ignore reached the fixture", got)
+	}
+	if after := head(); after != before {
+		t.Errorf("the outer repository's HEAD moved from %s to %s: the fixture's git committed there", before, after)
 	}
 }
 
