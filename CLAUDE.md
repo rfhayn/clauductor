@@ -22,7 +22,7 @@ clauductor/
 │       ├── leakcheck/        ← test support: fails a run that leaves tmux or a helper behind
 │       ├── testbin/          ← test support: writes a stand-in executable no parallel fork holds open
 │       ├── treesnap/         ← test support: a snapshot of a repository's files, to prove a command left them untouched
-│       ├── testgit/          ← test support: runs a test's git with no GIT_ variable, so a hook's repository stays untouched
+│       ├── testgit/          ← test support: every test binary imports it, and its init drops the GIT_ variables, so a hook's repository stays untouched
 │       └── testwait/         ← test support: waits with deadlines scaled by CLAUDUCTOR_TEST_SLOW
 ├── template/                 ← the operating model projects receive (`clauductor install`)
 │   ├── AGENTS.md, CLAUDE.md  ← project-level instructions
