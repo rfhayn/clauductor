@@ -26,9 +26,11 @@ var Path, _ = exec.LookPath("git")
 
 // init unsets every GIT_ variable in this process, so nothing a test starts inherits a hook's. It
 // runs when the test binary initialises testgit, which Go finishes before any package that
-// imports it initialises its own variables or runs its init or TestMain: a package whose tests
-// import testgit (`import _ ".../testgit"` when they use nothing of it) is covered from its first
-// line. TESTGIT_HELPER_NOSTRIP is the probe's negative case alone: a binary that did not strip.
+// imports it initialises its own variables or runs its init or TestMain. Go orders it only before
+// the packages that import it, and a directory's tests are two packages when it has external
+// tests (x and x_test): each form whose files hold code imports testgit (`import _
+// ".../testgit"` when it uses nothing of it), and is then covered from its first line.
+// TESTGIT_HELPER_NOSTRIP is the probe's negative case alone: a binary that did not strip.
 func init() {
 	if os.Getenv("TESTGIT_HELPER_NOSTRIP") != "" {
 		return
@@ -78,14 +80,14 @@ func Outer(t testing.TB) (env []string, touched func() string) {
 		t.Skip("git is not installed")
 	}
 	outer := t.TempDir()
-	// Its own config pinned, and built with none of the machine's: a global untracked cache,
-	// feature.manyFiles or fsmonitor would make a read (git status) write the index or start a
-	// daemon with a socket in .git.
+	// Its own config pinned, and built with none of the machine's: a global untracked cache or
+	// fsmonitor would make a read (git status) write the index or start a daemon with a socket in
+	// .git. feature.manyFiles needs no pin of its own: what it turns on that a read writes is the
+	// untracked cache, which the first pin already holds off (TestOuterSeesEachChange's row).
 	for _, args := range [][]string{
 		{"init", "-q"},
 		{"config", "core.untrackedCache", "false"},
 		{"config", "core.fsmonitor", "false"},
-		{"config", "feature.manyFiles", "false"},
 		{"commit", "-q", "--allow-empty", "-m", "outer"},
 	} {
 		c := Command(outer, args...)

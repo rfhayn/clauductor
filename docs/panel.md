@@ -3820,12 +3820,16 @@ The rules the suite keeps, and a new test must too:
   `commit` would act there (#281, #302, #311). Every process a test starts inherits them (its
   own git, the git the code under test runs, a script's), so each test binary drops every `GIT_`
   variable before any of its code runs: importing `testgit` does it, in `testgit`'s `init`,
-  which Go runs before the importing package's variables, `init` and `TestMain`. A package that
-  uses nothing of `testgit` imports it blank (`main_test.go`; `treesnap`'s is an external
-  `treesnap_test`, since `testgit` imports `treesnap`). `TestEveryTestPackageImportsTestgit`
-  walks every directory of the module that holds a `_test.go` file and fails one whose tests do
-  not import it; `testgit` itself is the one exception. The import is the rule because it is the
-  order: without it, Go may initialise a test package's variables before `testgit`'s strip.
+  which Go runs before the importing package's variables, `init` and `TestMain`, and only
+  before the package that imports it. A directory with external tests compiles two test
+  packages (`x` and `x_test`), so each form imports `testgit`; one that uses nothing of it
+  imports it blank (`main_test.go`). `treesnap`'s tests are all external (`treesnap_test`):
+  `testgit` imports `treesnap`, so its internal form could not import `testgit` back.
+  `TestEveryTestPackageImportsTestgit` walks every directory of the module that holds a
+  `_test.go` file, groups its test files by package clause, and fails each form none of whose
+  files imports `testgit`; `testgit`'s own internal form is the one exception. The import is the
+  rule because it is the order: without it, Go may initialise a test package's variables before
+  `testgit`'s strip.
   `TestATestBinaryUnderAHookLeavesItsRepositoryAlone` starts a test binary under a stand-in
   hook's repository (`testgit.Outer`, which compares that repository's work tree and `.git`
   whole, with its own config pinned against the machine's) and shows its fixture's git, run

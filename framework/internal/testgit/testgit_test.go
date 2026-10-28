@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -80,6 +81,7 @@ func TestOuterSeesEachChange(t *testing.T) {
 		// pins its own config, so a read stays a read.
 		{"a read, untracked cache on", reads, "[core]\n\tuntrackedCache = true\n", ""},
 		{"a read, many files", reads, "[feature]\n\tmanyFiles = true\n", ""},
+		{"a read, fsmonitor", reads, "[core]\n\tfsmonitor = true\n", ""},
 		{"a branch", [][]string{{"branch", "x"}}, "", ".git/refs/heads/x"},
 		{"a worktree", [][]string{{"worktree", "add", "-q", "--detach", filepath.Join(t.TempDir(), "wt"), "HEAD"}}, "", ".git/worktrees"},
 		{"the index", [][]string{{"update-index", "--add", "--cacheinfo", "100644,e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,x"}}, "", ".git/index"}, // the empty blob
@@ -141,43 +143,48 @@ func TestEveryTestPackageImportsTestgit(t *testing.T) {
 	}
 	var bad []string
 	for dir, files := range tests {
-		if dir == self {
-			continue
-		}
 		var parsed []*ast.File
 		for _, f := range files {
 			af, err := parser.ParseFile(token.NewFileSet(), f, nil, parser.ImportsOnly)
 			if err != nil {
 				t.Fatal(err)
 			}
-			parsed = append(parsed, af)
+			if dir != self || af.Name.Name != "testgit" { // testgit's own form strips in its own init
+				parsed = append(parsed, af)
+			}
 		}
-		if !importsTestgit(parsed, module) {
-			rel, _ := filepath.Rel(root, dir)
-			bad = append(bad, rel)
+		rel, _ := filepath.Rel(root, dir)
+		for _, form := range formsWithoutTestgit(parsed, module) {
+			bad = append(bad, rel+" (package "+form+")")
 		}
 	}
 	sort.Strings(bad)
 	if len(bad) > 0 {
-		t.Fatalf("these packages' tests do not import testgit (`import _ \"%s/internal/testgit\"` when they use nothing of it), so a git hook's GIT_DIR reaches every process they start (#302):\n%s", module, strings.Join(bad, "\n"))
+		t.Fatalf("these test forms do not import testgit (`import _ \"%s/internal/testgit\"` when they use nothing of it), so a git hook's GIT_DIR reaches every process they start (#302):\n%s", module, strings.Join(bad, "\n"))
 	}
 }
 
-// The judge on packages of its own: one passes only when a test file imports testgit, used or
-// blank, internal or external.
-func TestImportsTestgitFindsAPackageThatDoesNot(t *testing.T) {
+// The judge on packages of its own: each test form a directory holds (package x, and x_test for
+// its external tests) passes only when one of its own files imports testgit, used or blank.
+func TestImportsTestgitFindsAFormThatDoesNot(t *testing.T) {
 	const module = "example.com/m"
 	for _, c := range []struct {
-		name  string
-		srcs  []string
-		wants bool
+		name string
+		srcs []string
+		want []string // the forms without the import
 	}{
-		{"no import", []string{`package x; import "testing"`}, false},
-		{"another package of the module", []string{`package x; import "example.com/m/internal/testbin"`}, false},
-		{"a package named like it elsewhere", []string{`package x; import "other.com/internal/testgit"`}, false},
-		{"an import", []string{`package x; import "example.com/m/internal/testgit"`}, true},
-		{"a blank import", []string{`package x; import _ "example.com/m/internal/testgit"`}, true},
-		{"in an external test file", []string{`package x; import "testing"`, `package x_test; import _ "example.com/m/internal/testgit"`}, true},
+		{"no import", []string{`package x; import "testing"`}, []string{"x"}},
+		{"another package of the module", []string{`package x; import "example.com/m/internal/testbin"`}, []string{"x"}},
+		{"a package named like it elsewhere", []string{`package x; import "other.com/internal/testgit"`}, []string{"x"}},
+		{"an import", []string{`package x; import "example.com/m/internal/testgit"`}, nil},
+		{"a blank import", []string{`package x; import _ "example.com/m/internal/testgit"`}, nil},
+		{"in one file of the form", []string{`package x; import "testing"`, `package x; import _ "example.com/m/internal/testgit"`}, nil},
+		{"an external form alone", []string{`package x_test; import _ "example.com/m/internal/testgit"`}, nil},
+		// Go orders testgit's init only before the form that imports it: the other form's
+		// package-level code can run first.
+		{"the internal form only", []string{`package x; import _ "example.com/m/internal/testgit"`, `package x_test; import "testing"`}, []string{"x_test"}},
+		{"the external form only", []string{`package x; import "testing"`, `package x_test; import _ "example.com/m/internal/testgit"`}, []string{"x"}},
+		{"both forms", []string{`package x; import _ "example.com/m/internal/testgit"`, `package x_test; import "example.com/m/internal/testgit"`}, nil},
 	} {
 		var files []*ast.File
 		for _, src := range c.srcs {
@@ -187,19 +194,34 @@ func TestImportsTestgitFindsAPackageThatDoesNot(t *testing.T) {
 			}
 			files = append(files, f)
 		}
-		if got := importsTestgit(files, module); got != c.wants {
-			t.Errorf("%s: importsTestgit says %v, want %v", c.name, got, c.wants)
+		if got := formsWithoutTestgit(files, module); !slices.Equal(got, c.want) {
+			t.Errorf("%s: formsWithoutTestgit says %q, want %q", c.name, got, c.want)
 		}
 	}
 }
 
-// importsTestgit reports whether any of a package's test files imports testgit.
-func importsTestgit(files []*ast.File, module string) bool {
+// formsWithoutTestgit names each test form among a directory's test files (by package clause)
+// none of whose files imports testgit, sorted.
+func formsWithoutTestgit(files []*ast.File, module string) []string {
+	forms := map[string]bool{} // form: imports testgit
 	for _, f := range files {
-		for _, imp := range f.Imports {
-			if p, _ := strconv.Unquote(imp.Path.Value); p == module+"/internal/testgit" {
-				return true
-			}
+		forms[f.Name.Name] = forms[f.Name.Name] || importsTestgit(f, module)
+	}
+	var out []string
+	for name, imports := range forms {
+		if !imports {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// importsTestgit reports whether f imports testgit.
+func importsTestgit(f *ast.File, module string) bool {
+	for _, imp := range f.Imports {
+		if p, _ := strconv.Unquote(imp.Path.Value); p == module+"/internal/testgit" {
+			return true
 		}
 	}
 	return false
