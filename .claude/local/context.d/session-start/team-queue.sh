@@ -237,7 +237,7 @@ while [ "$i" -lt "$n" ]; do
     '') shown_row=- ;;
     *[!A-Za-z0-9._-]*) shown_row='?' ;;
     *) shown_row=$(printf '%.24s' "$row")
-       [ "$nr" = 1 ] && rstate=$(printf '%s\n' "$tsv" | awk -F'\t' -v id="$row" '$4 == id { print $7; exit }') ;;
+       [ "$nr" = 1 ] && rstate=$(printf '%s\n' "$tsv" | awk -F'\t' -v id="$row" '!got && $4 == id { print $7; got = 1 }') ;;
   esac
   # A new-row item (OPS-100) names no row: its row is the one whose Change cell carries
   # `(team-queue #N)`, once the owner's session has added it. Until then it proposes one, in a

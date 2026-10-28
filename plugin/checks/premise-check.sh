@@ -72,7 +72,7 @@ check() {
 }
 
 out=$(check "It names \"this week's corrections screen.\" and doesn't mention Reopen.")
-next=$(printf '%s\n' "$out" | awk 'f { print; exit } /"this week'"'"'s corrections screen" — present/ { f = 1 }')
+next=$(printf '%s\n' "$out" | awk 'f == 1 { print; f = 2; next } !f && /"this week'"'"'s corrections screen" — present/ { f = 1 }')
 has yes "app/Card.tsx:1" "$next" "premise: a straight-quoted sentence is found where the code spells it curly, CODE listed before docs"
 has yes "Reopen it to change a score" "$next" "premise: ...and the line shown already says what the issue claims it lacks"
 out=$(check "It names \"this week's corrections screen.\"")
