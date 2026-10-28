@@ -133,7 +133,7 @@ done < "$tmp/list" > "$tmp/closes"
 twice=$(awk '{ c[$1]++ } END { for (k in c) if (c[k] > 1) print k }' "$tmp/closes" | sort | paste -sd ' ' -)
 [ -z "$twice" ] || refuse "row(s) $twice are closed by two fragments (an **Also closes** names a row with its own fragment, or two name it): keep one"
 while read -r id pr; do
-  row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$id" '$4 == a { print; exit }')
+  row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$id" '!got && $4 == a { print; got = 1 }')
   if [ -z "$row" ]; then echo "  $id: no roadmap row has this id, so no Status was set" >> "$tmp/notes"; continue; fi
   [ "$(printf '%s\n' "$row" | cut -f7)" = merged ] && { echo "  $id: already merged on the roadmap" >> "$tmp/notes"; continue; }
   line=$(printf '%s\n' "$row" | cut -f1)

@@ -43,7 +43,7 @@ say() {  # say RISK SOURCE: the cap for RISK, and on --why where it came from an
 }
 
 tsv=$(roadmap_queue --tsv) || { printf '%s\n' "$tsv" >&2; echo "ERROR: the roadmap did not parse, so the review cap is UNKNOWN" >&2; exit 1; }
-row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$arg" '$4 == a || $5 == a { print; exit }')
+row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$arg" '!got && ($4 == a || $5 == a) { print; got = 1 }')
 id=$arg; [ -n "$row" ] && id=$(printf '%s\n' "$row" | cut -f5)
 
 p="$ROOT/$CHANGES_DIR/$id/proposal.md"
