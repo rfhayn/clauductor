@@ -199,8 +199,9 @@ func TestAnIgnoredHarnessDirIsNotATemplateDir(t *testing.T) {
 }
 
 // The fixture's git stays in the fixture: run under a git hook that aims GIT_DIR and
-// GIT_WORK_TREE at another repository, and with an owner's config that ignores newdir/, it
-// commits nothing there and still reports the unplaced directory.
+// GIT_WORK_TREE at another repository, with git's default ignore file (~/.config/git/ignore)
+// ignoring newdir/, and with an owner's global config whose hooks refuse every commit, it commits
+// nothing there, its own commit succeeds, and it still reports the unplaced directory.
 func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
 	outer := t.TempDir()
 	fixtureGit(t, outer, "init", "-q")
@@ -225,7 +226,14 @@ func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
 	if err := os.WriteFile(ignore, []byte("newdir/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[core]\n\texcludesFile = "+ignore+"\n"), 0o644); err != nil {
+	hooks := filepath.Join(home, "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooks, "pre-commit"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[core]\n\thooksPath = "+hooks+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
