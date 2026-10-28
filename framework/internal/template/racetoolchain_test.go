@@ -7,6 +7,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // raceOnDarwin is true in a -race test binary built for darwin (racetoolchain_race_darwin_test.go).
@@ -22,6 +24,7 @@ var raceOnDarwin bool
 // report. It cannot make the message come FIRST: go test prints packages in order, so in a
 // multi-package run it can appear only after an earlier package's own spin has hit its timeout.
 func TestMain(m *testing.M) {
+	testgit.Strip() // a git hook's GIT_DIR reaches no process these tests start (#302)
 	if v := runtime.Version(); raceOnDarwin && raceForkBroken(v) {
 		fmt.Fprintf(os.Stderr, "%s's race runtime crashes or hangs a forked child on darwin (golang/go#79804, #84): "+
 			"run the race tests on the toolchain framework/go.mod pins: unset GOTOOLCHAIN (and `go env -u GOTOOLCHAIN`) "+

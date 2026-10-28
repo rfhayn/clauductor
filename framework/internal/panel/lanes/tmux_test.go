@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // Typed text that starts with "-" must reach the lane as text, not as a send-keys
@@ -100,6 +101,7 @@ func TestLaneServerArgvNamesNoWorktree(t *testing.T) {
 
 // TestMain fails the run if it leaves a tmux server or a helper process behind.
 func TestMain(m *testing.M) {
+	testgit.Strip() // a git hook's GIT_DIR reaches no process these tests start (#302)
 	// A lane refuses to start while an API key is set (apiKeyVars), so a gate run from a session on
 	// API credit failed tests unrelated to its change (#184). Tests that want a key set it themselves.
 	for _, k := range apiKeyVars {

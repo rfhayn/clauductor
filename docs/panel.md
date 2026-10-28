@@ -3815,22 +3815,20 @@ The rules the suite keeps, and a new test must too:
   a plain file's mode is a literal, or a constant declared in the same file. A probe that takes
   a flock unlocks it (`LOCK_UN`) before closing, as `lease.go` does: closing alone leaves the
   lock with the child's copy, and the next taker is refused.
-- **A test's own git stays in its fixture.** Run under a git hook, `GIT_DIR`, `GIT_WORK_TREE`
-  and `GIT_INDEX_FILE` aim every git at the hook's repository, so a fixture's `init`, `add` and
-  `commit` would act there (#281, #302). A test runs git through `testgit.Command`, whose
-  environment holds no `GIT_` variable, and hands the code under test
-  `signals.EnvRunner(testgit.Env)`, never `signals.ExecRunner`, so the panel's own git (a lane's
-  branch and worktree) runs the same way; a stand-in git on PATH is `testgit.Shim`, and a script
-  under test gets `testgit.Env()`. `TestNoTestRunsGitAnotherWay` reads every `_test.go` file and
-  fails an `exec.Command` that runs git by any name (a literal, `exec.LookPath("git")`'s result,
-  `sh -c 'git …'`), any use of `testgit.Path` but asking whether it is empty, and any use of
-  `signals.ExecRunner`. `testgit.Outer` stands in for a hook's environment and reports a change
-  to that repository's HEAD, refs, worktrees or index; `TestTheFixturesGitStaysInTheFixture` (in
-  `testgit`, `cmd`, `panel` and `template`) and `TestTheTemplateChecksGitStaysInTheFixture` hold
-  the fixture helpers, the panel's runner and the template checks to it. Not yet held, owned by
-  #311: a git that a shell script under test starts when a new test hands it `os.Environ()`, a
-  runner a test writes itself around `exec`, and production code that defaults to
-  `signals.ExecRunner`.
+- **A test's git stays in its fixture.** Run under a git hook, `GIT_DIR`, `GIT_WORK_TREE` and
+  `GIT_INDEX_FILE` aim every git at the hook's repository, so a fixture's `init`, `add` and
+  `commit` would act there (#281, #302, #311). Every process a test starts inherits them (its
+  own git, the git the code under test runs, a script's), so each test binary drops every `GIT_`
+  variable before any test runs: its `TestMain` is `testgit.Main(m)`, or calls `testgit.Strip()`
+  first (before `leakcheck.Main`, where the package wraps it). `TestEveryTestPackageStripsGit`
+  walks every directory of the module that holds a `_test.go` file and fails one whose
+  `TestMain` does not. Exempt are `testgit` itself and `treesnap`, which `testgit` imports and so
+  cannot import it back; `treesnap`'s tests are held to running no git.
+  `TestATestBinaryUnderAHookLeavesItsRepositoryAlone` starts a test binary under a stand-in
+  hook's repository (`testgit.Outer`, which compares that repository's work tree and `.git`
+  whole) and shows its fixture's git, run with the inherited environment, stays out of it, and
+  reaches it without the strip. A fixture's own git goes through `testgit.Command`, for a commit
+  identity and the git found before any test stubs PATH.
 - **A project removed live leaves no goroutine** (PANEL-22). Each project's runtime runs every
   goroutine it starts (its hub, each source, each source's file watch) under a context and a wait
   group of its own; removing it cancels the context and waits for the group before the request

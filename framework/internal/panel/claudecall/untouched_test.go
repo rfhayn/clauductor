@@ -100,7 +100,7 @@ func TestNothingTouchesALockOrItsRecord(t *testing.T) {
 			g.Close(ShutdownGrace)
 			// The watch, with ps, its log and the alerts it feeds.
 			var locks []types.LoginLock
-			w := &Watch{Reader: r, Log: NewLog(home), Clock: clock.System, Run: testRunner, Attribute: g.Attribute,
+			w := &Watch{Reader: r, Log: NewLog(home), Clock: clock.System, Run: signals.ExecRunner, Attribute: g.Attribute,
 				OnChange: func(ls []types.LoginLock) { locks = ls }}
 			for i := 0; i < 3; i++ {
 				w.Tick(context.Background())

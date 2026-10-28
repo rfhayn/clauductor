@@ -16,10 +16,6 @@ import (
 	"github.com/clauductor/clauductor/internal/testgit"
 )
 
-// testRunner is the panel's runner as a test runs it: under testgit.Env, so a git hook's GIT_DIR
-// does not aim the git under test at the hook's repository (#302).
-var testRunner = signals.EnvRunner(testgit.Env)
-
 func initGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	if out, err := testgit.Command(dir, args...).CombinedOutput(); err != nil {
@@ -61,11 +57,11 @@ func TestInitConfigFromARepository(t *testing.T) {
 	}
 	initGit(t, root, "worktree", "add", "-q", filepath.Join(root, ".worktrees", "login"), "feature/login")
 
-	res, err := InitConfig(context.Background(), testRunner, filepath.Join(root, "sub-dir-is-fine")) // not yet created: git fails
+	res, err := InitConfig(context.Background(), signals.ExecRunner, filepath.Join(root, "sub-dir-is-fine")) // not yet created: git fails
 	if err == nil {
 		t.Fatal("init outside a repository succeeded")
 	}
-	res, err = InitConfig(context.Background(), testRunner, root)
+	res, err = InitConfig(context.Background(), signals.ExecRunner, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +111,7 @@ func TestInitConfigRefusesToOverwrite(t *testing.T) {
 	path := filepath.Join(root, ".clauductor", "panel.json")
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	os.WriteFile(path, []byte("mine"), 0o644)
-	if _, err := InitConfig(context.Background(), testRunner, root); !errors.Is(err, ErrConfigExists) {
+	if _, err := InitConfig(context.Background(), signals.ExecRunner, root); !errors.Is(err, ErrConfigExists) {
 		t.Fatalf("err %v", err)
 	}
 	if b, _ := os.ReadFile(path); string(b) != "mine" {
@@ -124,7 +120,7 @@ func TestInitConfigRefusesToOverwrite(t *testing.T) {
 	// A dangling symlink is a file too.
 	os.Remove(path)
 	os.Symlink(filepath.Join(root, "nowhere"), path)
-	if _, err := InitConfig(context.Background(), testRunner, root); !errors.Is(err, ErrConfigExists) {
+	if _, err := InitConfig(context.Background(), signals.ExecRunner, root); !errors.Is(err, ErrConfigExists) {
 		t.Fatalf("wrote through a dangling symlink: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "nowhere")); err == nil {
@@ -135,7 +131,7 @@ func TestInitConfigRefusesToOverwrite(t *testing.T) {
 // No remote, no prefixed branches, no gate: init guesses no command and says so.
 func TestInitConfigBareRepository(t *testing.T) {
 	root := newRepo(t, map[string]string{"package.json": `{"scripts":{"start":"node .","build":"tsc"}}`})
-	res, err := InitConfig(context.Background(), testRunner, root)
+	res, err := InitConfig(context.Background(), signals.ExecRunner, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +154,7 @@ func TestInitConfigBareRepository(t *testing.T) {
 // one line saying where they come from.
 func TestInitConfigHintsAtCardsAndTemplates(t *testing.T) {
 	root := newRepo(t, nil)
-	res, err := InitConfig(context.Background(), testRunner, root)
+	res, err := InitConfig(context.Background(), signals.ExecRunner, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +191,7 @@ func TestInitConfigDetectsTheOperatingModel(t *testing.T) {
 			testbin.Write(t, filepath.Join(root, name), body)
 		}
 		initGit(t, root, "branch", "change/old-name")
-		res, err := InitConfig(context.Background(), testRunner, root)
+		res, err := InitConfig(context.Background(), signals.ExecRunner, root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -244,7 +240,7 @@ func TestInitConfigDetectsTheOperatingModel(t *testing.T) {
 	root := newRepo(t, map[string]string{"Makefile": "ci:\n\ttrue\n"})
 	os.MkdirAll(filepath.Join(root, ".claude"), 0o755)
 	testbin.Write(t, filepath.Join(root, ".claude/owner-queue.sh"), "#!/bin/sh\n")
-	res, err := InitConfig(context.Background(), testRunner, root)
+	res, err := InitConfig(context.Background(), signals.ExecRunner, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,12 +275,12 @@ func TestPlanInitForASidecar(t *testing.T) {
 			testbin.Write(t, filepath.Join(root, name), body)
 		}
 		ctx := context.Background()
-		inRepo, err := PlanInit(ctx, testRunner, root, InitTarget{})
+		inRepo, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		target := filepath.Join(t.TempDir(), "projects", "acme-web", "panel.json")
-		side, err := PlanInit(ctx, testRunner, root, InitTarget{Path: target, Sidecar: true})
+		side, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{Path: target, Sidecar: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -351,10 +347,10 @@ func TestPlanInitForASidecar(t *testing.T) {
 		own := filepath.Join(root, config.DefaultConfigRel)
 		os.MkdirAll(filepath.Dir(own), 0o755)
 		os.WriteFile(own, []byte(`{"name":"own"}`), 0o644)
-		if _, err := PlanInit(ctx, testRunner, root, InitTarget{}); !errors.Is(err, ErrConfigExists) {
+		if _, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{}); !errors.Is(err, ErrConfigExists) {
 			t.Fatalf("init over the repository's config: %v", err)
 		}
-		side2, err := PlanInit(ctx, testRunner, root, InitTarget{Path: target, Sidecar: true})
+		side2, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{Path: target, Sidecar: true})
 		if err != nil || !strings.Contains(strings.Join(side2.Notes, "\n"), own+" is here too, and the panel will not read it") {
 			t.Fatalf("attach beside the repository's config: %v %q", err, side2.Notes)
 		}
@@ -368,7 +364,7 @@ func TestPlanInitForASidecar(t *testing.T) {
 		if fi, err := os.Stat(filepath.Dir(target)); err != nil || fi.Mode().Perm() != 0o700 {
 			t.Fatalf("the sidecar's folder's mode: %v %v", fi, err)
 		}
-		if _, err := PlanInit(ctx, testRunner, root, InitTarget{Path: target, Sidecar: true}); !errors.Is(err, ErrConfigExists) {
+		if _, err := PlanInit(ctx, signals.ExecRunner, root, InitTarget{Path: target, Sidecar: true}); !errors.Is(err, ErrConfigExists) {
 			t.Fatalf("a plan over a sidecar: %v", err)
 		}
 		// A sidecar folder that is there already, looser, is tightened to 0700 (D2).

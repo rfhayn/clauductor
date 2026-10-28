@@ -1,323 +1,254 @@
 package testgit
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"go/types"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
-	"unicode"
 )
 
-// A fixture's init, add and commit under a hook's GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE stay
-// in the fixture through Command; through a git that inherits them they reach the outer
-// repository, which Outer reports (the control's negative case).
-func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
-	touched := Outer(t)
+// TestMain strips like every package's, unless a probe asks its helper not to: that is the
+// probe's negative case, a test binary whose TestMain forgot.
+func TestMain(m *testing.M) {
+	if os.Getenv("TESTGIT_HELPER_NOSTRIP") == "" {
+		Strip()
+	}
+	os.Exit(m.Run())
+}
+
+// A test binary started under a hook's GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE leaves the
+// hook's repository untouched: its TestMain strips them, so its fixture's git (run with the
+// inherited environment, the way the code under test and a script run theirs) stays in the
+// fixture. Without the strip, the same git reaches the hook's repository.
+func TestATestBinaryUnderAHookLeavesItsRepositoryAlone(t *testing.T) {
+	for _, strip := range []bool{true, false} {
+		env, touched := Outer(t)
+		c := exec.Command(os.Args[0], "-test.run=^TestHelperRunsFixtureGit$", "-test.count=1")
+		c.Env = append(append(os.Environ(), env...), "TESTGIT_HELPER=1")
+		if !strip {
+			c.Env = append(c.Env, "TESTGIT_HELPER_NOSTRIP=1")
+		}
+		out, err := c.CombinedOutput()
+		switch what := touched(); {
+		case strip && (err != nil || what != ""):
+			t.Errorf("with the strip: %v, %s\n%s", err, what, out)
+		case !strip && what == "":
+			t.Errorf("without the strip the hook's repository stayed untouched: the probe sees nothing\n%s", out)
+		}
+	}
+}
+
+// TestHelperRunsFixtureGit is the probe's helper: a fixture's git as the code under test runs
+// it, with the process's own environment, directly and from a script.
+func TestHelperRunsFixtureGit(t *testing.T) {
+	if os.Getenv("TESTGIT_HELPER") != "1" {
+		t.Skip("run by TestATestBinaryUnderAHookLeavesItsRepositoryAlone")
+	}
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"init", "-q"}, {"add", "a.txt"}, {"commit", "-q", "-m", "fixture"}} {
-		if out, err := Command(dir, args...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
+	for _, argv := range [][]string{
+		{"git", "init", "-q"},
+		{"git", "add", "a.txt"},
+		{"git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fixture"},
+		{"git", "branch", "x"},
+		{"git", "worktree", "add", "-q", "--detach", filepath.Join(t.TempDir(), "wt"), "HEAD"},
+		{"git", "config", "fixture.key", "value"},
+		{"sh", "-c", "git -c user.name=t -c user.email=t@t commit -q --allow-empty -m script"},
+	} {
+		c := exec.Command(argv[0], argv[1:]...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Errorf("%v: %v\n%s", argv, err, out) // and go on: without the strip, the rest still reach the hook's repository
 		}
 	}
-	if what := touched(); what != "" {
-		t.Errorf("through Command, %s", what)
-	}
-	if out, err := Command(dir, "log", "--format=%s").Output(); err != nil || strings.TrimSpace(string(out)) != "fixture" {
-		t.Errorf("the fixture holds no commit of its own: %q %v", out, err)
-	}
-
-	touched = Outer(t)
-	c := exec.Command(Path, "commit", "-q", "--allow-empty", "-m", "fixture")
-	c.Dir, c.Env = t.TempDir(), append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	if out, err := c.CombinedOutput(); err != nil {
-		t.Fatalf("git commit with the hook's environment: %v\n%s", err, out)
-	}
-	if touched() == "" {
-		t.Error("a git that inherits the hook's environment left the outer repository untouched: Outer sees nothing")
-	}
 }
 
-// A Shim run with the hook's environment, as the code under test runs git from PATH, commits in
-// the fixture it runs in, not in the hook's repository.
-func TestTheShimStaysInTheFixture(t *testing.T) {
-	touched := Outer(t)
-	dir := t.TempDir()
-	if out, err := Command(dir, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
-	shim := filepath.Join(t.TempDir(), "git")
-	Shim(t, shim)
-	c := exec.Command(shim, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "fixture")
-	c.Dir = dir // and the test process's environment, the hook's
-	if out, err := c.CombinedOutput(); err != nil {
-		t.Fatalf("the shim's commit: %v\n%s", err, out)
-	}
-	if what := touched(); what != "" {
-		t.Errorf("through the shim, %s", what)
-	}
-	if out, err := Command(dir, "log", "--format=%s").Output(); err != nil || strings.TrimSpace(string(out)) != "fixture" {
-		t.Errorf("the fixture holds no commit of its own: %q %v", out, err)
-	}
-}
-
-// Outer sees each kind of change a git that inherits the hook's environment can make there: a
-// branch (its refs), a worktree, and its index. None of these moves HEAD.
+// Outer sees each kind of change a git under the hook's environment can make there, none of
+// which moves HEAD, and a read is no change.
 func TestOuterSeesEachChange(t *testing.T) {
 	for _, c := range []struct {
-		kind string
-		args []string
+		name string
+		args [][]string
+		want string // a path the change names; "" for none
 	}{
-		{"refs", []string{"branch", "x"}},
-		{"worktrees", []string{"worktree", "add", "-q", "--detach", filepath.Join(t.TempDir(), "wt"), "HEAD"}},
-		{"index", []string{"update-index", "--add", "--cacheinfo", "100644,e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,x"}}, // the empty blob
+		{"a read", [][]string{{"status"}, {"rev-parse", "HEAD"}, {"log", "--oneline"}, {"worktree", "list"}}, ""},
+		{"a branch", [][]string{{"branch", "x"}}, ".git/refs/heads/x"},
+		{"a worktree", [][]string{{"worktree", "add", "-q", "--detach", filepath.Join(t.TempDir(), "wt"), "HEAD"}}, ".git/worktrees"},
+		{"the index", [][]string{{"update-index", "--add", "--cacheinfo", "100644,e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,x"}}, ".git/index"}, // the empty blob
+		{"the config", [][]string{{"config", "x.y", "z"}}, ".git/config"},
 	} {
-		touched := Outer(t)
-		g := exec.Command(Path, c.args...)
-		g.Dir = t.TempDir()
-		if out, err := g.CombinedOutput(); err != nil {
-			t.Fatalf("git %v with the hook's environment: %v\n%s", c.args, err, out)
+		env, touched := Outer(t)
+		for _, args := range c.args {
+			g := exec.Command(Path, args...)
+			g.Dir, g.Env = t.TempDir(), append(os.Environ(), env...)
+			if out, err := g.CombinedOutput(); err != nil {
+				t.Fatalf("%s: git %v under the hook's environment: %v\n%s", c.name, args, err, out)
+			}
 		}
-		if what := touched(); !strings.Contains(what, "'s "+c.kind+" ") {
-			t.Errorf("git %v: Outer says %q, want its %s named", c.args, what, c.kind)
+		what := touched()
+		if c.want == "" && what != "" || c.want != "" && !strings.Contains(what, c.want) {
+			t.Errorf("%s: Outer says %q, want %q named", c.name, what, c.want)
 		}
 	}
 }
 
-// Every git a test runs itself goes through Command, and every command it has the panel run goes
-// through signals.EnvRunner(Env): TestTheFixturesGitStaysInTheFixture holds them, and this holds
-// every test to them. It reads every _test.go file and test support file of the module and fails
-// an exec.Command or exec.CommandContext whose program names git (a literal, or a variable such
-// as realGit), and any use of signals.ExecRunner, which runs with the test process's
-// environment. A git that a shell script, or a runner of a test's own, starts is not seen.
-func TestNoTestRunsGitAnotherWay(t *testing.T) {
+// Every package with tests strips the hook's variables in its TestMain, first: the authority is
+// every test binary, since every process a test starts inherits its environment. The walk takes
+// every directory of the module that holds a _test.go file. Two kinds are exempt, and each is
+// held to running no git: this package, whose TestMain strips but for the probe's negative case,
+// and a package testgit imports, which cannot import testgit back.
+func TestEveryTestPackageStripsGit(t *testing.T) {
 	self, err := filepath.Abs(".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var found []string
-	scanned := 0
-	fset := token.NewFileSet()
-	err = filepath.WalkDir("../..", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") {
-			return err
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := strings.TrimSpace(strings.TrimPrefix(strings.SplitN(string(mod), "\n", 2)[0], "module"))
+	exempt := map[string]bool{}
+	for _, imp := range moduleImports(t, self, module) {
+		exempt[filepath.Join(root, strings.TrimPrefix(imp, module+"/"))] = true
+	}
+	tests := map[string][]string{} // directory: its _test.go files
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, "_test.go") {
+			tests[filepath.Dir(p)] = append(tests[filepath.Dir(p)], p)
 		}
-		dir, err := filepath.Abs(filepath.Dir(p))
-		if err != nil || dir == self {
-			return err
-		}
-		f, err := parser.ParseFile(fset, p, nil, 0)
-		if err != nil {
-			return err
-		}
-		if !strings.HasSuffix(p, "_test.go") && !importsTesting(f) {
-			return nil
-		}
-		scanned++
-		found = append(found, gitCommands(fset, f)...)
-		return nil
+		return err
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scanned < 100 {
-		t.Fatalf("only %d test files scanned: the walk did not reach the module", scanned)
+	if len(tests) < 15 {
+		t.Fatalf("only %d test packages found under %s: the walk did not reach the module", len(tests), root)
 	}
-	if len(found) > 0 {
-		t.Fatalf("run git through testgit.Command, and the panel's commands through signals.EnvRunner(testgit.Env), or a git hook's GIT_DIR aims them at the outer repository:\n%s", strings.Join(found, "\n"))
-	}
-}
-
-func TestGitCommandsFindsEveryWayToRunGit(t *testing.T) {
-	for _, c := range []struct {
-		src  string
-		want int
-	}{
-		{`exec.Command("git", "init")`, 1},
-		{`exec.Command("/usr/bin/git", "init")`, 1},
-		{`exec.Command(realGit, "init")`, 1},
-		{`exec.CommandContext(ctx, "git", "init")`, 1},
-		{`c := exec.Command("git", "a"); d := exec.Command("git", "b")`, 2},
-		{`exec.Command(gitBin, "init")`, 1},
-		{`r := Rebuild{Run: signals.ExecRunner}`, 1},
-		{`return signals.ExecRunner(ctx, dir, argv)`, 1},
-		{`testgit.Command(dir, "init")`, 0},
-		{`r := Rebuild{Run: signals.EnvRunner(testgit.Env)}`, 0},
-		{`exec.Command("gitleaks", "detect")`, 0},
-		{`exec.Command("/opt/bin/gitleaks", "detect")`, 0},
-		{`exec.Command(digits, "x")`, 0},
-		// Git by another name: testgit.Path, a path LookPath found, a shell's script.
-		{`exec.Command(testgit.Path, "commit")`, 1},
-		{`c := exec.Command("x"); c.Path = testgit.Path`, 1},
-		{`if testgit.Path == "" { t.Skip() }`, 0},
-		{`if testgit.Path != "" { t.Log() }`, 0},
-		{`p, _ := exec.LookPath("git"); exec.Command(p, "commit")`, 1},
-		{`var p string; p, _ = exec.LookPath("git"); exec.CommandContext(ctx, p, "commit")`, 1},
-		{`p, _ := exec.LookPath("jq"); exec.Command(p, ".")`, 0},
-		{`exec.Command("sh", "-c", "git init")`, 1},
-		{`exec.Command("/bin/bash", "-c", "  git commit -m x")`, 1},
-		{`exec.Command("sh", "-c", "gitleaks detect")`, 0},
-		{`exec.Command("sh", "-c", "echo git")`, 0},
-		{`exec.Command(argv[0], argv[1:]...)`, 0},
-		{`exec.CommandContext(ctx, argv[0], argv[1:]...)`, 0},
-	} {
-		src := "package x\nfunc f() {\n" + c.src + "\n}\n"
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, "x_test.go", src, 0)
-		if err != nil {
-			t.Fatalf("%s: %v", c.src, err)
-		}
-		if got := len(gitCommands(fset, f)); got != c.want {
-			t.Errorf("%s: %d found, want %d", c.src, got, c.want)
-		}
-	}
-}
-
-// gitCommands names each place in f that runs git with the test process's environment: an
-// exec.Command or exec.CommandContext whose program is git, by any name (a literal, a variable
-// with git among its words, one the file assigns from exec.LookPath("git"), or a shell whose -c
-// script starts with git); any use of testgit.Path but asking whether it is empty, since it is
-// git by the one name the rest cannot see; and any use of signals.ExecRunner, the panel's runner,
-// through which the code under test runs its git.
-func gitCommands(fset *token.FileSet, f *ast.File) []string {
-	var found []string
-	at := func(n ast.Node) { found = append(found, fset.Position(n.Pos()).String()) }
-	looked := map[string]bool{}           // names assigned from exec.LookPath("git")
-	asked := map[*ast.SelectorExpr]bool{} // testgit.Path compared with ""
-	ast.Inspect(f, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.AssignStmt:
-			if len(n.Rhs) == 1 && lookPathGit(n.Rhs[0]) {
-				if id, ok := n.Lhs[0].(*ast.Ident); ok {
-					looked[id.Name] = true
+	var bad []string
+	for dir, files := range tests {
+		rel, _ := filepath.Rel(root, dir)
+		if dir == self || exempt[dir] {
+			for _, f := range files {
+				if b, _ := os.ReadFile(f); dir != self && bytes.Contains(b, []byte(`"git"`)) {
+					bad = append(bad, rel+": exempt (testgit imports it, so it cannot strip), but "+filepath.Base(f)+" runs git")
 				}
 			}
-		case *ast.ValueSpec:
-			if len(n.Values) == 1 && lookPathGit(n.Values[0]) {
-				looked[n.Names[0].Name] = true
+			continue
+		}
+		var parsed []*ast.File
+		for _, f := range files {
+			af, err := parser.ParseFile(token.NewFileSet(), f, nil, 0)
+			if err != nil {
+				t.Fatal(err)
 			}
-		case *ast.BinaryExpr:
-			if n.Op == token.EQL || n.Op == token.NEQ {
-				for _, p := range [][2]ast.Expr{{n.X, n.Y}, {n.Y, n.X}} {
-					if s, ok := p[0].(*ast.SelectorExpr); ok && pkgSel(s, "testgit", "Path") && types.ExprString(p[1]) == `""` {
-						asked[s] = true
+			parsed = append(parsed, af)
+		}
+		if why := unstripped(parsed); why != "" {
+			bad = append(bad, rel+": "+why)
+		}
+	}
+	sort.Strings(bad)
+	if len(bad) > 0 {
+		t.Fatalf("run testgit.Main(m) as TestMain, or call testgit.Strip() first in it, or a git hook's GIT_DIR reaches every process these tests start (#302):\n%s", strings.Join(bad, "\n"))
+	}
+}
+
+// The judge on packages of its own: none passes without a TestMain whose first statement strips.
+func TestUnstrippedFindsAPackageThatDoesNot(t *testing.T) {
+	for _, c := range []struct {
+		name, src string
+		ok        bool
+	}{
+		{"no TestMain", "func TestX(t *testing.T) {}", false},
+		{"a TestMain that does not strip", "func TestMain(m *testing.M) { os.Exit(m.Run()) }", false},
+		{"one that strips too late", "func TestMain(m *testing.M) { os.Unsetenv(\"K\"); testgit.Strip(); os.Exit(leakcheck.Main(m)) }", false},
+		{"one that strips in a branch", "func TestMain(m *testing.M) { if x { testgit.Strip() }; os.Exit(m.Run()) }", false},
+		{"testgit.Main", "func TestMain(m *testing.M) { testgit.Main(m) }", true},
+		{"Strip, then leakcheck.Main", "func TestMain(m *testing.M) { testgit.Strip(); os.Exit(leakcheck.Main(m)) }", true},
+	} {
+		f, err := parser.ParseFile(token.NewFileSet(), "x_test.go", "package x\n"+c.src+"\n", 0)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if why := unstripped([]*ast.File{f}); (why == "") != c.ok {
+			t.Errorf("%s: unstripped says %q, want ok %v", c.name, why, c.ok)
+		}
+	}
+}
+
+// unstripped says why a package's test files leave the hook's variables in place, or "" when
+// their TestMain strips them first (testgit.Main, or testgit.Strip as its first statement).
+func unstripped(files []*ast.File) string {
+	for _, f := range files {
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Recv != nil || fd.Name.Name != "TestMain" {
+				continue
+			}
+			if len(fd.Body.List) > 0 {
+				if es, ok := fd.Body.List[0].(*ast.ExprStmt); ok {
+					if call, ok := es.X.(*ast.CallExpr); ok {
+						if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+							if x, ok := sel.X.(*ast.Ident); ok && x.Name == "testgit" && (sel.Sel.Name == "Strip" || sel.Sel.Name == "Main") {
+								return ""
+							}
+						}
 					}
 				}
 			}
+			return "its TestMain does not call testgit.Strip (or testgit.Main) first"
 		}
-		return true
-	})
-	ast.Inspect(f, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.SelectorExpr:
-			if pkgSel(n, "signals", "ExecRunner") || pkgSel(n, "testgit", "Path") && !asked[n] {
-				at(n)
+	}
+	return "no TestMain"
+}
+
+// moduleImports is every package of the module that dir's non-test files import, directly or
+// through each other.
+func moduleImports(t *testing.T, dir, module string) []string {
+	t.Helper()
+	root := filepath.Join(dir, "..", "..")
+	seen := map[string]bool{}
+	var walk func(dir string)
+	walk = func(dir string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+				continue
 			}
-		case *ast.CallExpr:
-			s, ok := n.Fun.(*ast.SelectorExpr)
-			if !ok {
-				break
+			f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, e.Name()), nil, parser.ImportsOnly)
+			if err != nil {
+				t.Fatal(err)
 			}
-			args := n.Args
-			switch {
-			case pkgSel(s, "exec", "Command"):
-			case pkgSel(s, "exec", "CommandContext") && len(args) > 0:
-				args = args[1:]
-			default:
-				return true
-			}
-			if len(args) > 0 && (namesGit(args[0], looked) || shellRunsGit(args)) {
-				at(n)
+			for _, imp := range f.Imports {
+				p, _ := strconv.Unquote(imp.Path.Value)
+				if strings.HasPrefix(p, module+"/") && !seen[p] {
+					seen[p] = true
+					walk(filepath.Join(root, strings.TrimPrefix(p, module+"/")))
+				}
 			}
 		}
-		return true
-	})
-	return found
-}
-
-// pkgSel reports whether sel is pkg.name.
-func pkgSel(sel *ast.SelectorExpr, pkg, name string) bool {
-	x, ok := sel.X.(*ast.Ident)
-	return ok && x.Name == pkg && sel.Sel.Name == name
-}
-
-// literal is e's value when it is a string literal.
-func literal(e ast.Expr) (string, bool) {
-	lit, ok := e.(*ast.BasicLit)
-	if !ok || lit.Kind != token.STRING {
-		return "", false
 	}
-	s, err := strconv.Unquote(lit.Value)
-	return s, err == nil
-}
-
-// lookPathGit reports whether e is exec.LookPath("git").
-func lookPathGit(e ast.Expr) bool {
-	call, ok := e.(*ast.CallExpr)
-	if !ok || len(call.Args) != 1 {
-		return false
+	walk(dir)
+	var out []string
+	for p := range seen {
+		out = append(out, p)
 	}
-	s, ok := call.Fun.(*ast.SelectorExpr)
-	name, lit := literal(call.Args[0])
-	return ok && pkgSel(s, "exec", "LookPath") && lit && filepath.Base(name) == "git"
-}
-
-// shellRunsGit reports whether a command's program and arguments are sh or bash with a -c
-// script that starts with git.
-func shellRunsGit(args []ast.Expr) bool {
-	sh, ok := literal(args[0])
-	if !ok || filepath.Base(sh) != "sh" && filepath.Base(sh) != "bash" {
-		return false
-	}
-	for i := 1; i+1 < len(args); i++ {
-		if c, _ := literal(args[i]); c == "-c" {
-			script, ok := literal(args[i+1])
-			return ok && strings.HasPrefix(strings.TrimLeft(script, " \t\n")+" ", "git ")
-		}
-	}
-	return false
-}
-
-// namesGit reports whether a program argument names git: a literal whose base name is git
-// (`"git"`, `"/usr/bin/git"`, not `"gitleaks"`), a name in looked, or an expression with git as
-// one of its words (`realGit`, `gitBin`, not `digits`).
-func namesGit(e ast.Expr, looked map[string]bool) bool {
-	if s, ok := literal(e); ok {
-		return filepath.Base(s) == "git"
-	}
-	if id, ok := e.(*ast.Ident); ok && looked[id.Name] {
-		return true
-	}
-	var words []string
-	var w []rune
-	for _, r := range types.ExprString(e) {
-		if !unicode.IsLetter(r) && !unicode.IsDigit(r) || unicode.IsUpper(r) {
-			words, w = append(words, string(w)), nil
-		}
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			w = append(w, unicode.ToLower(r))
-		}
-	}
-	return slices.Contains(append(words, string(w)), "git")
-}
-
-// importsTesting reports whether f imports "testing", which is what makes a file that is not a
-// test test support.
-func importsTesting(f *ast.File) bool {
-	for _, imp := range f.Imports {
-		if imp.Path.Value == `"testing"` {
-			return true
-		}
-	}
-	return false
+	return out
 }

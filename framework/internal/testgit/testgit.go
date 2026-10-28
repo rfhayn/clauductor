@@ -1,12 +1,13 @@
-// Package testgit is test support: the git a test runs on its own fixtures, kept in them. Only
+// Package testgit is test support: the git a test runs stays in the test's own fixtures. Only
 // tests import it.
 //
 // Run under a git hook, GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE aim every git at the hook's
 // repository, so a fixture's init, add and commit would act on the outer one: OPS-142's review
-// reproduced a fixture commit that deleted a repository's files (#302, #281). Nothing runs the
-// tests under a hook today, so nothing would show it until one did. A test's own git therefore
-// goes through Command, whose environment holds no GIT_ variable, and
-// TestNoTestRunsGitAnotherWay refuses one that does not.
+// reproduced a fixture commit that deleted a repository's files (#302, #281). Every process a
+// test starts inherits them: its own git, the git the code under test runs, a script's. So each
+// test binary drops them before any test runs, in its TestMain (Main, or Strip first in a TestMain
+// that does more), and TestEveryTestPackageStripsGit requires that of every package with tests.
+// Nothing runs the tests under a hook today, so nothing else would show it until one did.
 package testgit
 
 import (
@@ -16,15 +17,32 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/treesnap"
 )
 
 // Path is git as found when the test binary started, before any test put a stand-in first on
 // PATH; empty when git is not installed.
 var Path, _ = exec.LookPath("git")
 
-// Env is this process's environment with no GIT_ variable, and a commit identity: git then reads
-// the repository it runs in, and commits there whatever the machine's config holds. A caller
+// Strip unsets every GIT_ variable in this process, so nothing a test starts inherits a hook's.
+// A TestMain calls it first, before anything that could start a process.
+func Strip() {
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
+			os.Unsetenv(k)
+		}
+	}
+}
+
+// Main is the TestMain of a package that needs nothing more: Strip, then run the tests.
+func Main(m *testing.M) {
+	Strip()
+	os.Exit(m.Run())
+}
+
+// Env is this process's environment with no GIT_ variable, and a commit identity. Strip has
+// already dropped what the test binary inherited; Env also drops what a test set itself, as a
+// test standing in for a hook does (template's TestTheFixturesGitStaysInTheFixture). A caller
 // that needs more (GIT_EDITOR, an isolated config) appends it.
 func Env() []string {
 	var env []string
@@ -36,7 +54,8 @@ func Env() []string {
 	return append(env, "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 }
 
-// Command is git with args in dir (the current directory when empty), under Env.
+// Command is git with args in dir (the current directory when empty), under Env: one fixture
+// helper for every package, with a commit identity and the git found before any test stubbed PATH.
 func Command(dir string, args ...string) *exec.Cmd {
 	name := Path
 	if name == "" {
@@ -47,23 +66,13 @@ func Command(dir string, args ...string) *exec.Cmd {
 	return c
 }
 
-// Shim writes a stand-in git at path that runs the real one (Path) with no GIT_ variable: a test
-// that puts it first on PATH runs the code under test's git as Command runs a test's own.
-func Shim(t testing.TB, path string) {
-	t.Helper()
-	if Path == "" {
-		t.Skip("git is not installed")
-	}
-	testbin.Write(t, path, "#!/bin/sh\n"+
-		"for v in $(env | sed -n 's/^\\(GIT_[A-Za-z0-9_]*\\)=.*/\\1/p'); do unset \"$v\"; done\n"+
-		"exec '"+strings.ReplaceAll(Path, "'", `'\''`)+"' \"$@\"\n")
-}
-
-// Outer stands in for a git hook's environment for the rest of the test: GIT_DIR, GIT_WORK_TREE
-// and GIT_INDEX_FILE name a repository of its own, with one commit. The returned function names
-// what a fixture's git did to that repository since (its HEAD, refs or worktrees changed, its
-// index was written), or returns "" when it stayed untouched. It sets the environment, so the test cannot be parallel.
-func Outer(t testing.TB) (touched func() string) {
+// Outer is a repository with one commit, standing in for a git hook's: env is what the hook
+// exports for it (GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE), for a process the test starts as if
+// under that hook. touched names every change to the repository since, in its work tree and its
+// .git alike (treesnap: each entry's mode, size, mtime and content), or returns "" when there is
+// none. Reading the repository (status, rev-parse, log) changes nothing there but the .git
+// directory's own mtime, which is excluded; TestOuterSeesEachChange holds both.
+func Outer(t testing.TB) (env []string, touched func() string) {
 	t.Helper()
 	if Path == "" {
 		t.Skip("git is not installed")
@@ -74,40 +83,22 @@ func Outer(t testing.TB) (touched func() string) {
 			t.Fatalf("git %v in the outer repository: %v\n%s", args, err, out)
 		}
 	}
-	gitDir, index := filepath.Join(outer, ".git"), filepath.Join(outer, ".git", "index")
-	// What a fixture's git could change there: its HEAD, its refs (a branch made), its worktrees
-	// (one added), and its index.
-	state := func() map[string]string {
-		s := map[string]string{}
-		for name, args := range map[string][]string{
-			"HEAD":      {"rev-parse", "HEAD"},
-			"refs":      {"for-each-ref", "--format=%(refname) %(objectname)"},
-			"worktrees": {"worktree", "list", "--porcelain"},
-		} {
-			out, err := Command(outer, args...).Output()
-			if err != nil {
-				t.Fatalf("git %v in the outer repository: %v", args, err)
-			}
-			s[name] = strings.TrimSpace(string(out))
-		}
-		b, _ := os.ReadFile(index) // none until something is added
-		s["index"] = string(b)
-		return s
-	}
-	before := state()
-	t.Setenv("GIT_DIR", gitDir)
-	t.Setenv("GIT_WORK_TREE", outer)
-	t.Setenv("GIT_INDEX_FILE", index)
-	return func() string {
+	before := treesnap.Take(t, outer)
+	gitDir := filepath.Join(outer, ".git")
+	env = []string{"GIT_DIR=" + gitDir, "GIT_WORK_TREE=" + outer, "GIT_INDEX_FILE=" + filepath.Join(gitDir, "index")}
+	return env, func() string {
 		t.Helper()
-		after := state()
-		for _, name := range []string{"HEAD", "refs", "worktrees"} {
-			if after[name] != before[name] {
-				return "the outer repository's " + name + " changed:\nbefore: " + before[name] + "\nafter:  " + after[name]
-			}
+		after := treesnap.Take(t, outer)
+		// The one exclusion: the .git directory's own mtime. A read (git status) takes
+		// .git/index.lock to refresh the index and removes it, which moves only that. A lock left
+		// behind, an index rewritten, or any other entry of .git changed still shows.
+		if a, ok := after[".git"]; ok {
+			b := before[".git"]
+			b.ModTime = a.ModTime
+			before[".git"] = b
 		}
-		if after["index"] != before["index"] {
-			return "the outer repository's index was written"
+		if d := treesnap.Diff(before, after); len(d) > 0 {
+			return "the outer repository changed: " + strings.Join(d, "; ")
 		}
 		return ""
 	}

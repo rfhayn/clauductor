@@ -27,21 +27,7 @@ const maxCmdOutput = 1 << 20
 // to WithProcessStart's callback. Every other command keeps exec.CommandContext's
 // SIGKILL at once.
 func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
-	return execRunner(ctx, dir, argv, nil)
-}
-
-// EnvRunner is ExecRunner with env() as each command's whole environment, read when the command
-// starts. Tests run the panel under testgit.Env, so a git hook's GIT_DIR cannot aim the git the
-// panel runs at the hook's repository (#302); ExecRunner runs with this process's environment.
-func EnvRunner(env func() []string) Runner {
-	return func(ctx context.Context, dir string, argv []string) ([]byte, error) {
-		return execRunner(ctx, dir, argv, env())
-	}
-}
-
-func execRunner(ctx context.Context, dir string, argv []string, env []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Env = env
 	claude := IsClaude(argv)
 	if claude {
 		sent := stopSignal(ctx)

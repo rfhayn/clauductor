@@ -91,10 +91,10 @@ func (w *cuWorld) run(ctx context.Context, dir string, argv []string) ([]byte, e
 	switch {
 	case len(argv) > 0 && argv[0] == "git":
 		w.record(argv)
-		return testRunner(ctx, dir, argv)
+		return signals.ExecRunner(ctx, dir, argv)
 	case len(argv) > 1 && argv[0] == "gh" && argv[1] == "api":
 		w.record(argv)
-		return testRunner(ctx, dir, append([]string{w.gh}, argv[1:]...))
+		return signals.ExecRunner(ctx, dir, append([]string{w.gh}, argv[1:]...))
 	case len(argv) > 2 && argv[0] == "gh" && argv[1] == "pr" && argv[2] == "list" && !slices.Contains(argv, "--state"):
 		w.mu.Lock()
 		defer w.mu.Unlock()
@@ -712,7 +712,7 @@ func TestCatchUpSkipsAConfigMovedOutside(t *testing.T) {
 	outside := filepath.Join(w.dir, "sidecar", "panel.json")
 	writeFile(t, outside, cuPanelJSON)
 	serving := strings.Count(log.String(), ": serving ")
-	if _, err := install.AddProject(context.Background(), install.AddOptions{Home: w.home, Project: w.root, Config: outside, Run: testRunner}); err != nil {
+	if _, err := install.AddProject(context.Background(), install.AddOptions{Home: w.home, Project: w.root, Config: outside, Run: signals.ExecRunner}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the project served again on its new config", func() bool { return strings.Count(log.String(), ": serving ") > serving })

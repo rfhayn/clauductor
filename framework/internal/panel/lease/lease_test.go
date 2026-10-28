@@ -22,12 +22,14 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/creack/pty"
 )
 
 // TestMain lets the test binary act as `clauductor lock-run`, so the lease is
 // exercised by real, separate processes with real pids.
 func TestMain(m *testing.M) {
+	testgit.Strip() // a git hook's GIT_DIR reaches no process these tests start (#302)
 	if lock := os.Getenv("LOCKRUN_HELPER_LOCK"); lock != "" {
 		ttl, _ := time.ParseDuration(os.Getenv("LOCKRUN_HELPER_TTL"))
 		var argv []string

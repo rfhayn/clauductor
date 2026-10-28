@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/testbin"
 )
 
@@ -27,7 +28,7 @@ func TestInitTemplatesMatchTheShippedConfig(t *testing.T) {
 		os.MkdirAll(filepath.Join(root, filepath.Dir(name)), 0o755)
 		testbin.Write(t, filepath.Join(root, name), "#!/bin/sh\n")
 	}
-	res, err := InitConfig(context.Background(), testRunner, root)
+	res, err := InitConfig(context.Background(), signals.ExecRunner, root)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,7 +23,7 @@ func lifecycleRunner(ctx context.Context, dir string, argv []string) ([]byte, er
 	case len(c) == 0:
 		return nil, refuseUnreadEnv(argv)
 	case argv[0] == "/usr/bin/env" && c[0] != "claude":
-		return testRunner(ctx, dir, argv)
+		return signals.ExecRunner(ctx, dir, argv)
 	}
 	return gitOnlyRunner(ctx, dir, c)
 }

@@ -22,7 +22,6 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/clauductor/clauductor/internal/testwait"
 )
 
@@ -43,10 +42,6 @@ func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'
 
 // newGate is a gate over inner whose log is in a temp home; its cleanup closes it,
 // so no process outlives the test.
-// testRunner is the panel's runner as a test runs it: under testgit.Env, so a git hook's GIT_DIR
-// does not aim a command under test at the hook's repository (#302).
-var testRunner = signals.EnvRunner(testgit.Env)
-
 func newGate(t *testing.T, inner signals.Runner, r Reader, clk clock.Clock) (*Gate, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -176,7 +171,7 @@ sleep 60 & P=$!
 echo ready >> %[1]s
 wait $P
 `, shq(marks)))
-	g, home := newGate(t, testRunner, r, clock.System)
+	g, home := newGate(t, signals.ExecRunner, r, clock.System)
 
 	err, took := giveUpWhenReady(t, g, agentsArgv, marks)
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -214,7 +209,7 @@ func TestGateKillsAClaudeThatIgnoresSIGTERMAfterTheGrace(t *testing.T) {
 echo ready >> %[1]s
 while :; do sleep 1; done
 `, shq(marks)))
-	g, home := newGate(t, testRunner, Reader{}, clock.System)
+	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
 	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
 	}
@@ -241,7 +236,7 @@ func TestGateCancelledCallerStartsNoClaude(t *testing.T) {
 	var reached atomic.Int32
 	inner := func(ctx context.Context, dir string, argv []string) ([]byte, error) {
 		reached.Add(1)
-		return testRunner(ctx, dir, argv)
+		return signals.ExecRunner(ctx, dir, argv)
 	}
 	g, _ := newGate(t, inner, Reader{}, clock.System)
 	for _, mark := range []func(context.Context) context.Context{signals.WithPoll, func(c context.Context) context.Context { return c }} {
@@ -304,7 +299,7 @@ func TestGateLogsNoSignalItDidNotSend(t *testing.T) {
 	marks, release := filepath.Join(dir, "marks"), filepath.Join(dir, "release")
 	fakeProgram(t, "claude", fmt.Sprintf("(i=0; while [ ! -e %s ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done) &\necho $$ > %s\nexit 0\n", shq(release), shq(marks)))
 	defer os.WriteFile(release, nil, 0o600)
-	g, home := newGate(t, testRunner, Reader{}, clock.System)
+	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
 	ctx, cancel := newExpiring(t)
 	defer cancel()
 	errc := goRun(g, ctx, agentsArgv)
@@ -348,7 +343,7 @@ sleep 5 &
 echo child >> %[1]s
 while :; do sleep 1; done
 `, shq(marks)))
-	g, home := newGate(t, testRunner, Reader{}, clock.System)
+	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errc := goRun(g, ctx, agentsArgv)
@@ -387,7 +382,7 @@ func TestGateCloseKillsAClaudeThatKeepsForking(t *testing.T) {
 	fakeProgram(t, "claude", fmt.Sprintf("trap '' TERM\necho forking > %s\nwhile :; do sleep 2 & sleep 2 & sleep 2 & sleep 2 & sleep 0.005; done\n", shq(marks)))
 	for i := 0; i < 40; i++ {
 		_ = os.Remove(marks)
-		g, home := newGate(t, testRunner, Reader{}, clock.System)
+		g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
 		ctx, cancel := context.WithCancel(context.Background())
 		errc := goRun(g, ctx, agentsArgv)
 		deadline := time.Now().Add(testwait.Scale(10 * time.Second))
@@ -425,7 +420,7 @@ func TestGateLeavesOtherCommandsAlone(t *testing.T) {
 			<-release
 			return nil, nil
 		}
-		return testRunner(ctx, dir, argv)
+		return signals.ExecRunner(ctx, dir, argv)
 	}
 	g, _ := newGate(t, inner, Reader{}, clock.System)
 	go g.Run(context.Background(), "", agentsArgv) // holds the slot
@@ -675,7 +670,7 @@ agents) trap 'kill $P 2>/dev/null; sleep 5; exit 0' TERM; sleep 60 & P=$!; echo 
 *) echo '[]';;
 esac
 `, shq(marks)))
-	g, _ := newGate(t, testRunner, Reader{}, clock.System)
+	g, _ := newGate(t, signals.ExecRunner, Reader{}, clock.System)
 	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
 	}

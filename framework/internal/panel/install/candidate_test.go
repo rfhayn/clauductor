@@ -24,7 +24,7 @@ func cfgRepo(t *testing.T, cfg string) string {
 // refusedAs runs Inspect and returns the refusal's code, or "" when it passed.
 func refusedAs(t *testing.T, home, path string) (Candidate, string) {
 	t.Helper()
-	c, err := Inspect(context.Background(), InspectOptions{Home: home, Path: path, Run: testRunner})
+	c, err := Inspect(context.Background(), InspectOptions{Home: home, Path: path, Run: signals.ExecRunner})
 	if err == nil {
 		return c, ""
 	}
@@ -43,7 +43,7 @@ func TestInspectRefusesWhatAddWouldNot(t *testing.T) {
 	home := signals.ResolvePath(t.TempDir())
 	ctx := context.Background()
 	reg := cfgRepo(t, `{"name":"Registered","lanes":{"main":"orchestrator"}}`)
-	if _, err := AddProject(ctx, AddOptions{Home: home, Project: reg, Run: testRunner, Now: time.Now(), Strict: true}); err != nil {
+	if _, err := AddProject(ctx, AddOptions{Home: home, Project: reg, Run: signals.ExecRunner, Now: time.Now(), Strict: true}); err != nil {
 		t.Fatal(err)
 	}
 	linked := filepath.Join(t.TempDir(), "linked")
@@ -126,7 +126,7 @@ func TestInspectSaysWhatAddingWouldDo(t *testing.T) {
 func TestPlanInitWritesNothing(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t, nil)
-	res, err := PlanInit(context.Background(), testRunner, root, InitTarget{})
+	res, err := PlanInit(context.Background(), signals.ExecRunner, root, InitTarget{})
 	if err != nil || len(res.Body) == 0 || len(res.Notes) == 0 {
 		t.Fatalf("plan: %+v %v", res, err)
 	}
@@ -142,7 +142,7 @@ func TestPlanInitWritesNothing(t *testing.T) {
 	if err := WriteInit(res); !errors.Is(err, ErrConfigExists) {
 		t.Fatalf("a second write: %v", err)
 	}
-	if _, err := PlanInit(context.Background(), testRunner, root, InitTarget{}); !errors.Is(err, ErrConfigExists) {
+	if _, err := PlanInit(context.Background(), signals.ExecRunner, root, InitTarget{}); !errors.Is(err, ErrConfigExists) {
 		t.Fatalf("a plan over an existing config: %v", err)
 	}
 }

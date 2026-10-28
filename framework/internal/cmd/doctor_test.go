@@ -484,11 +484,14 @@ func TestDoctorFailureEndsOnTheCountLineInTheTerminal(t *testing.T) {
 	}
 }
 
-// gitPath is stubPath(tools) with a git that runs the real one (testgit.Shim, so doctor's git
-// stays in the test's repository under a git hook too): the project's lines read a real
-// repository, and a stub git that exits 0 would show them nothing.
+// gitPath is stubPath(tools) with a git that runs the real one (testgit.Path, found before any
+// test replaces PATH): the project's lines read a real repository, and a stub git that exits 0
+// would show them nothing.
 func gitPath(t *testing.T, tools ...string) string {
 	t.Helper()
+	if testgit.Path == "" {
+		t.Skip("git is not installed")
+	}
 	var rest []string
 	for _, tool := range tools {
 		if tool != "git" {
@@ -496,7 +499,7 @@ func gitPath(t *testing.T, tools ...string) string {
 		}
 	}
 	bin := stubPath(t, rest...)
-	testgit.Shim(t, filepath.Join(bin, "git"))
+	testbin.Write(t, filepath.Join(bin, "git"), "#!/bin/sh\nexec "+install.ShellWord(testgit.Path)+" \"$@\"\n")
 	return bin
 }
 
@@ -1113,15 +1116,5 @@ func TestDoctorWritesNothing(t *testing.T) {
 	}
 	if d := treesnap.Diff(homeBefore, treesnap.Take(t, home)); len(d) > 0 {
 		t.Errorf("doctor changed the home directory: %v", d)
-	}
-}
-
-// gitIn's init and commit stay in their own repository under a git hook's GIT_DIR (#281).
-func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
-	touched := testgit.Outer(t)
-	dir := newRepo(t)
-	gitIn(t, dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "fixture")
-	if what := touched(); what != "" {
-		t.Errorf("gitIn ran git there: %s", what)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // The guard is the claude a test meets on PATH (#93): it refuses, says why, and
@@ -50,6 +51,7 @@ func TestGuardClaudeRefusesAndRecords(t *testing.T) {
 // TestMain runs the package's tests plainly. With LEAKCHECK_HELPER_MAIN=1 it is a
 // package of the panel's kind instead: Main around a test that launches claude.
 func TestMain(m *testing.M) {
+	testgit.Strip() // a git hook's GIT_DIR reaches no process these tests start (#302)
 	if os.Getenv("LEAKCHECK_HELPER_MAIN") == "1" {
 		os.Exit(Main(m))
 	}

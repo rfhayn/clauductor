@@ -53,15 +53,11 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// testRunner is the panel's runner as a test runs it: under testgit.Env, so a git hook's GIT_DIR
-// does not aim the panel's git at the hook's repository (#302).
-var testRunner = signals.EnvRunner(testgit.Env)
-
 // gitOnlyRunner runs git for real and fakes claude and gh, so the test needs neither.
 func gitOnlyRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
 	switch argv[0] {
 	case "git":
-		return testRunner(ctx, dir, argv)
+		return signals.ExecRunner(ctx, dir, argv)
 	case "claude", "gh":
 		return []byte("[]"), nil
 	}
@@ -628,32 +624,5 @@ func TestTypingWhileScrolledBackReachesTheLane(t *testing.T) {
 	expect(`{"type":"scroll","back":false}`)
 	if inMode() != "0" {
 		t.Fatal("Escape did not leave copy mode")
-	}
-}
-
-// gitRun's init, add and commit stay in their own repository under a git hook's GIT_DIR (#302).
-func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
-	touched := testgit.Outer(t)
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitRun(t, dir, "init", "-q")
-	gitRun(t, dir, "add", "a.txt")
-	gitRun(t, dir, "commit", "-q", "-m", "fixture")
-	if what := touched(); what != "" {
-		t.Errorf("gitRun ran git there: %s", what)
-	}
-	// The panel's own git, as a test runs it: a lane's branch and worktree.
-	for _, argv := range [][]string{
-		{"git", "branch", "lane"},
-		{"git", "worktree", "add", "-q", "-b", "lane-wt", filepath.Join(t.TempDir(), "wt"), "HEAD"},
-	} {
-		if out, err := gitOnlyRunner(context.Background(), dir, argv); err != nil {
-			t.Fatalf("%v: %v %s", argv, err, out)
-		}
-	}
-	if what := touched(); what != "" {
-		t.Errorf("gitOnlyRunner ran the panel's git there: %s", what)
 	}
 }

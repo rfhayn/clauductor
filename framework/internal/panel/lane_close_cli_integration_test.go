@@ -407,7 +407,7 @@ func TestLaneCloseThroughTheSocket(t *testing.T) {
 	w.open["change/bgauto"], w.open["change/unread"] = 11, 12
 	run := func(ctx context.Context, dir string, argv []string) ([]byte, error) {
 		if c := envCommand(argv); len(c) > 0 && c[0] == "/bin/sh" {
-			return testRunner(ctx, dir, argv) // the worktree's teardown, for real
+			return signals.ExecRunner(ctx, dir, argv) // the worktree's teardown, for real
 		}
 		return w.run(ctx, dir, argv)
 	}

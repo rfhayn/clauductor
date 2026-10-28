@@ -82,7 +82,7 @@ func newBranchRepo(t *testing.T) *branchRepo {
 			if dl, ok := ctx.Deadline(); ok && time.Until(dl) < gitDeadlineFloor {
 				t.Errorf("%s ran with %v left on its context, under gitDeadlineFloor (%v)", strings.Join(argv, " "), time.Until(dl).Round(time.Millisecond), gitDeadlineFloor)
 			}
-			return signals.EnvRunner(testgit.Env)(ctx, dir, argv)
+			return signals.ExecRunner(ctx, dir, argv)
 		}}
 	r.s, _ = newTestServer(t)
 	m := state.NewModel(cfg, r.root, t0)
