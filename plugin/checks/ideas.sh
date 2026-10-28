@@ -23,7 +23,7 @@ has() {  # has WANT(yes|no) TEXT HAYSTACK LABEL
 }
 dump() {  # dump ID=JSON...: a fresh dump directory as ArtifactData writes it; prints its path
   # mktemp, not a counter: this runs inside $( ), where a counter's increment is lost.
-  _dd=$(mktemp -d "$d/dump.XXXXXX"); mkdir -p "$_dd/ideas"  # shell-hygiene: under $d, this check's scratch in $TMPDIR
+  _dd=$(mktemp -d "$d/dump.XXXXXX"); mkdir -p "$_dd/ideas"  # shell-hygiene: under $d, the scratch directory made in $TMPDIR
   for _kv in "$@"; do printf '%s' "${_kv#*=}" > "$_dd/ideas/${_kv%%=*}.json"; done
   printf '%s' "$_dd"
 }

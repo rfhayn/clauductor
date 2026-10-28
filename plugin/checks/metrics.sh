@@ -407,7 +407,7 @@ cat > "$d/sortfind/find" <<EOF
 #!/bin/sh
 n=0; for a; do [ "\$a" = -exec ] && break; n=\$((n+1)); done
 if [ "\$n" -eq "\$#" ]; then $(command -v find) "\$@" | LC_ALL=C sort; exit 0; fi
-f=\$(mktemp "$d/sortfind/list.XXXXXX") || exit 2  # shell-hygiene: under $d, this check's scratch in $TMPDIR
+f=\$(mktemp "$d/sortfind/list.XXXXXX") || exit 2  # shell-hygiene: under $d, the scratch directory made in $TMPDIR
 ( i=0; for a; do i=\$((i+1)); shift; [ "\$i" -le "\$n" ] && set -- "\$@" "\$a"; done; $(command -v find) "\$@" ) | LC_ALL=C sort > "\$f"
 i=0; for a; do i=\$((i+1)); shift; if [ "\$i" -gt \$((n+1)) ]; then case \$a in '{}'|+|';') ;; *) set -- "\$@" "\$a" ;; esac; fi; done
 while IFS= read -r p; do set -- "\$@" "\$p"; done < "\$f"; rm -f "\$f"

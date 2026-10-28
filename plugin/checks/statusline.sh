@@ -50,7 +50,7 @@ sh -c 'exit 0' & dead=$!; wait "$dead" 2>/dev/null
 # writes into its own case's files, never the next one's.
 ticks=$(awk -v f="${CLAUDUCTOR_TEST_SLOW:-1}" 'BEGIN { f += 0; if (!(f >= 1)) f = 1; printf "%d", 100 * f }')
 run() {  # run PID_CONTENT (or "-" for no pid file): prints "<exit> <posts> <case dir> <line>"
-  c=$(mktemp -d "$d/case.XXXXXX"); home="$c/home"; mkdir -p "$home/.clauductor/panel"  # shell-hygiene: under $d, this check's scratch in $TMPDIR
+  c=$(mktemp -d "$d/case.XXXXXX"); home="$c/home"; mkdir -p "$home/.clauductor/panel"  # shell-hygiene: under $d, the scratch directory made in $TMPDIR
   echo 4999 > "$home/.clauductor/panel/port"
   [ "$1" = "-" ] || printf '%s\n' "$1" > "$home/.clauductor/panel/pid"
   ( printf '%s' "$input" | { HOME="$home" PATH="$d/bin:$PATH" sh "$sl" 3>&1 > "$c/line"; echo $? > "$c/rc"; } \

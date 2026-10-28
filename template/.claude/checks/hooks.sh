@@ -140,7 +140,7 @@ nb 0 "node -c" "node -c fix.js"
 nb 0 "perl -c" "perl -c x.pl $T"
 # Only a literal or glob target that resolves to a TRACKED file is judged in a script's text:
 # what the script cannot name (a variable, a cd to one) is not refused, unlike on the command line.
-printf 'm=$(mktemp -d)\ncp src/lib/app.ts "$m/app.ts"\nsed -i "" s/x/y/ "$m/app.ts"\n' > "$d/mut.sh"  # shell-hygiene: a fixture's text the hook reads, never run
+printf 'm=$(mktemp -d)\ncp src/lib/app.ts "$m/app.ts"\nsed -i "" s/x/y/ "$m/app.ts"\n' > "$d/mut.sh"  # shell-hygiene: fixture text the hook reads, never run
 printf 'sed -i "" "s/^version=.*/version=$1/" "$VERSION_FILE"\n' > "$R/bump.sh"
 printf 'PROFILE="$HOME/.profile"\ncd "$HOME"\nsed -i "" /nvm/d "$PROFILE"\n' > "$d/install.sh"
 nb 0 "a scratch mutation script editing a copy" "sh $d/mut.sh"
