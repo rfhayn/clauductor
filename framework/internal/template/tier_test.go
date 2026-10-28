@@ -1,6 +1,8 @@
 package template
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +36,7 @@ func TestEveryTemplateClaudeDirIsPlaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dirs, err := templateClaudeDirs(root)
+	dirs, err := templateClaudeDirs(root, gitEnv(false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,11 +51,22 @@ func TestEveryTemplateClaudeDirIsPlaced(t *testing.T) {
 // templateClaudeDirs lists the directories directly under root's template/.claude/ that hold a
 // file git tracks or would add. It asks git, not the disk: the harness leaves an empty, ignored
 // .cc-writes/ in a worktree whose session ran in template/ (#285), and that is no directory of the
-// template's, while a new directory still counts before its first commit.
-func templateClaudeDirs(root string) ([]string, error) {
-	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
-		"--", "template/.claude/").Output()
+// template's, while a new directory still counts before its first commit. A root with no .git is
+// the gate's archive clean room (GATE_CLEAN_ROOM), which holds tracked files only: there the disk
+// is what git holds.
+func templateClaudeDirs(root string, env []string) ([]string, error) {
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		return diskClaudeDirs(root)
+	}
+	cmd := exec.Command("git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
+		"--", "template/.claude/")
+	cmd.Env = env
+	out, err := cmd.Output()
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return nil, fmt.Errorf("git ls-files in %s: %v: %s", root, err, ee.Stderr)
+		}
 		return nil, err
 	}
 	var dirs []string
@@ -70,6 +83,40 @@ func templateClaudeDirs(root string) ([]string, error) {
 	return dirs, nil
 }
 
+func diskClaudeDirs(root string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "template", ".claude"))
+	if err != nil {
+		return nil, err
+	}
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, ".claude/"+e.Name()+"/")
+		}
+	}
+	return dirs, nil
+}
+
+// gitEnv is this process's environment with no GIT_ variable: run under a git hook, GIT_DIR,
+// GIT_WORK_TREE and GIT_INDEX_FILE would aim a test's git at the outer repository. isolated also
+// drops the global and system config, so a fixture reads only its own ignore rules and hooks. The
+// user's ignore file needs core.excludesFile set as well: git reads ~/.config/git/ignore by
+// default even with no global config.
+func gitEnv(isolated bool) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") {
+			env = append(env, kv)
+		}
+	}
+	if isolated {
+		env = append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.excludesFile", "GIT_CONFIG_VALUE_0=/dev/null",
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	}
+	return env
+}
+
 func unplaced(dirs []string) []string {
 	var out []string
 	for _, d := range dirs {
@@ -82,16 +129,11 @@ func unplaced(dirs []string) []string {
 
 // claudeDirFixture is a repository whose template/.claude/ commits skills/x.md, ignores
 // .cc-writes/ in its own .gitignore, and then holds the extra paths the caller names, uncommitted
-// (a trailing slash makes an empty directory).
+// (a trailing slash makes an empty directory). Its git reads no global or system config.
 func claudeDirFixture(t *testing.T, extra ...string) string {
 	t.Helper()
 	dir := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
-			t.Skipf("git %v: %v %s", args, err, out)
-		}
-	}
+	git := func(args ...string) { fixtureGit(t, dir, args...) }
 	write := func(rel string) {
 		t.Helper()
 		p := filepath.Join(dir, filepath.FromSlash(rel))
@@ -111,11 +153,25 @@ func claudeDirFixture(t *testing.T, extra ...string) string {
 		t.Fatal(err)
 	}
 	git("add", "-A")
-	git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fixture")
+	git("commit", "-q", "-m", "fixture")
 	for _, rel := range extra {
 		write(rel)
 	}
 	return dir
+}
+
+// fixtureGit runs git in a fixture under gitEnv(true). Only a missing git skips: a git that
+// fails there would otherwise turn both tests that use the fixture into quiet skips.
+func fixtureGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = gitEnv(true)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v %s", args, err, out)
+	}
 }
 
 // The harness leaves an empty, git-ignored .cc-writes/ in a worktree whose session ran in
@@ -127,7 +183,7 @@ func TestAnIgnoredHarnessDirIsNotATemplateDir(t *testing.T) {
 		"ignored": "template/.claude/.cc-writes/w.json",
 	} {
 		t.Run(name, func(t *testing.T) {
-			dirs, err := templateClaudeDirs(claudeDirFixture(t, extra))
+			dirs, err := templateClaudeDirs(claudeDirFixture(t, extra), gitEnv(true))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -139,21 +195,27 @@ func TestAnIgnoredHarnessDirIsNotATemplateDir(t *testing.T) {
 }
 
 // The control still bites: a directory that no tier places is reported whether git tracks its
-// file already or would add it (a new directory before its first commit).
+// file already or would add it (a new directory before its first commit), and in the archive
+// clean room, where there is no git.
 func TestAnUnplacedTemplateDirIsStillReported(t *testing.T) {
-	for _, staged := range []bool{true, false} {
-		dir := claudeDirFixture(t, "template/.claude/newdir/a.sh")
-		if staged {
-			if out, err := exec.Command("git", "-C", dir, "add", "-A").CombinedOutput(); err != nil {
-				t.Fatalf("git add: %v %s", err, out)
+	for _, mode := range []string{"staged", "untracked", "archive"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := claudeDirFixture(t, "template/.claude/newdir/a.sh")
+			switch mode {
+			case "staged":
+				fixtureGit(t, dir, "add", "-A")
+			case "archive":
+				if err := os.RemoveAll(filepath.Join(dir, ".git")); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
-		dirs, err := templateClaudeDirs(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := unplaced(dirs); !slices.Equal(got, []string{".claude/newdir/"}) {
-			t.Errorf("staged=%v: unplaced %q, want [.claude/newdir/]", staged, got)
-		}
+			dirs, err := templateClaudeDirs(dir, gitEnv(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := unplaced(dirs); !slices.Equal(got, []string{".claude/newdir/"}) {
+				t.Errorf("unplaced %q, want [.claude/newdir/]", got)
+			}
+		})
 	}
 }
