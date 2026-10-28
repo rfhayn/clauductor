@@ -611,23 +611,31 @@ this_repo=$(repo_key "$(git --no-optional-locks remote get-url origin 2>/dev/nul
 # canon KEY — sets canon_out to the owner/name GitHub answers for KEY, lowercased; empty when gh
 # cannot say. Each answer is kept for this run in the shell itself, never in a $( … ) subshell: a
 # merge's name is asked about twice (the foreign shape, then argv), and this repo's every time.
+# HOST, when given, is the server asked (gh api --hostname); else gh's own, as the merge's is.
 canon_seen="" canon_out=""
 canon() {
+  _ck="${2:-.}:$1"
   case $canon_seen in
     *"
-$1 "*) canon_out=${canon_seen##*"
-$1 "}; canon_out=${canon_out%%"
+$_ck "*) canon_out=${canon_seen##*"
+$_ck "}; canon_out=${canon_out%%"
 "*}; return ;;
   esac
-  canon_out=$(gh api "repos/$1" --jq .full_name </dev/null 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed -n '1{/^[a-z0-9._-][a-z0-9._-]*\/[a-z0-9._-][a-z0-9._-]*$/p;}')
+  canon_out=$(gh api ${2:+--hostname "$2"} "repos/$1" --jq .full_name </dev/null 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed -n '1{/^[a-z0-9._-][a-z0-9._-]*\/[a-z0-9._-][a-z0-9._-]*$/p;}')
   canon_seen="$canon_seen
-$1 $canon_out
+$_ck $canon_out
 "
 }
+# this_host — origin's server when it is a GitHub Enterprise one (a dotted host name, not github.com
+# or *.github.com, which gh reads as github.com): this repo is asked about there. An ssh alias
+# (`git@github-work:o/n`) has no dot, and stays gh's own.
+this_host=$(git --no-optional-locks remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]' \
+  | sed -n -e 's|^[a-z+]*://\([^@/]*@\)\{0,1\}\([^/:]*\).*|\2|p' -e 's|^[^/@:]*@\([^/:]*\):.*|\1|p' | sed -n 1p)
+case $this_host in *.*) case $this_host in github.com | *.github.com) this_host= ;; esac ;; *) this_host= ;; esac
 # same_repo KEY — 0 when KEY is this repo, 1 when GitHub resolves it to another, 2 when it cannot say.
 same_repo() {
   [ "$1" = "$this_repo" ] && return 0
-  canon "$this_repo"; _t=$canon_out
+  canon "$this_repo" "$this_host"; _t=$canon_out
   canon "$1"; _c=$canon_out
   [ -n "$_t" ] && [ -n "$_c" ] || return 2
   [ "$_c" = "$_t" ]

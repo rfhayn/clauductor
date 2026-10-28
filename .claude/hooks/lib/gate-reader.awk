@@ -28,10 +28,12 @@
 # With `-v gits=1` (catch-up-guard.sh), in order, at any depth (a child's too: the caller reads
 # them as a superset):
 #   CD     a tab, "T" when THIS shell, or a `( … )` subshell of it, runs it ("C" in another shell,
-#          or under if, then, while and the like, or in a case arm, where it may not run; a case
-#          pattern's `)` closes no subshell), a tab and the target word
-#          as above (`~` for none), for each
-#          cd, pushd and chdir; "$" for a target nobody can read from here: a bare pushd (it swaps
+#          or under if, then, while and the like, in a case arm or a function body, or after a
+#          wrapper that runs a program (env, timeout: /usr/bin/cd in a child), where it may not
+#          run; a case pattern's `)` closes no subshell; "F" when a redirect on it can stop it), a
+#          tab and the target word as above (`~` for none), for each
+#          cd, pushd and chdir; "$" for a target nobody can read from here: two operands (zsh
+#          substitutes one for the other in the path), a bare pushd (it swaps
 #          the stack), popd, source or `.` (a script may cd), env -C, GIT_DIR=, GIT_WORK_TREE=,
 #          GIT_COMMON_DIR= or GIT_CONFIG*=, --git-dir, --work-tree, --config-env, or `-c
 #          core.worktree` or core.bare.
@@ -108,13 +110,25 @@ function cdend() { if (ST[D] == "cd") { print "CD\t~"; ST[D] = "rest" } }
 function gscope() { return D == 1 ? "T" : "C" }
 
 # cdscope: a cd under if, then, while and the like, or in a case arm, may not run: read like a child's.
-function cdscope() { return (CW[D] || (D == 1 && CASEN > 0)) ? "C" : gscope() }
+# So is one in a function body (FB: it runs only when called).
+function cdscope() { return (CW[D] || (D == 1 && (CASEN > 0 || FB > 0))) ? "C" : gscope() }
+
+# gcdend: the gits cd at depth D has ended. After a wrapper that runs a program (env, timeout,
+# xargs), /usr/bin/cd runs in a child: "C". "F" (fallible) for one this shell runs that a redirect
+# can stop: sure only for the rest of an && chain. Two operands: zsh substitutes one for the other
+# in the path, a target nobody can read from here.
+function gcdend(   sc) {
+  sc = GCX[D] ? "C" : cdscope()
+  if (sc == "T" && GRD[D]) sc = "F"
+  print "CD\t" sc "\t" (GCN[D] > 1 ? "$" : GCN[D] ? GCT[D] : GCW[D] == "pushd" ? "$" : "~")
+  ST[D] = "rest"
+}
 
 # flush: the simple command at depth D has ended. An eval's joined words are read only now.
 function flush(   s) {
   cdend()
   if (!gits) return
-  if (ST[D] == "gcd") { print "CD\t" cdscope() "\t" (GCW[D] == "pushd" ? "$" : "~"); ST[D] = "rest" }
+  if (ST[D] == "gcd") gcdend()
   if (ST[D] == "gh") ST[D] = "rest"
   if (ST[D] == "git") gitend()
   if (ST[D] == "eval") { s = EVB[D]; EVB[D] = ""; ST[D] = "rest"; scan(s) }
@@ -196,6 +210,7 @@ function gitend(   k, c, v, i, p) {
 function sep(op) {
   flush()
   if (gits && op != "" && D == 1) print "SEP\t" op
+  GRD[D] = 0
   ST[D] = "cmd"; WK[D] = ""; SKN[D] = 0; CF[D] = 0; NOX[D] = 0; EVS[D] = 0; RD[D] = 0; CW[D] = 0; XD[D] = 0
 }
 
@@ -214,6 +229,10 @@ function onword(t,   b, st) {
     ST[D] = "rest"; return
   }
   st = ST[D]
+  if (st == "fkw") {   # `function name [()] {`: the name, then the body's `{`
+    if (t == "{") { FB++; FN = 0; ST[D] = "cmd"; WK[D] = "" }
+    return
+  }
   if (st == "rest") {
     # Only git itself starts a git invocation past the command word; a git-core program's name
     # there is an argument (`man git-merge`, `grep -rn git-pull docs`).
@@ -225,9 +244,10 @@ function onword(t,   b, st) {
   }
   if (st == "git") { gitword(t); return }
   if (st == "gh") { ghword(t); return }
-  if (st == "gcd") {
-    if (t == "--" || t ~ /^-[LPe@]+$/) return
-    print "CD\t" cdscope() "\t" t; ST[D] = "rest"; return
+  if (st == "gcd") {   # read whole, to the command's end (gcdend), for its operands and redirects
+    if (!GCN[D] && (t == "--" || t ~ /^-[LPqse@]+$/)) return
+    if (!GCN[D]++) GCT[D] = t
+    return
   }
   if (st == "eval" && gits) { EVB[D] = EVB[D] " " t; return }
   if (st == "cd") {
@@ -266,6 +286,14 @@ function onword(t,   b, st) {
   if (WK[D] != "" && t ~ /^[0-9.]+[smhd]?$/) return
   b = base(t)
   if (cds && D == 1 && !SUB && (t == "cd" || t == "pushd") && (WK[D] == "" || WK[D] in CDWRAP)) { ST[D] = "cd"; return }
+  # FN: a function definition's body comes next (`name()`, or `function name`); FB counts the
+  # `{ … }` groups open from its `{`, whose cds run only when the function is called (cdscope).
+  if (D == 1 && gits) {
+    if (t == "function") { FN = 1; ST[D] = "fkw"; return }
+    if (t == "{" && (FN || FB > 0)) FB++
+    else if (t == "}" && FB > 0) FB--
+    FN = 0
+  }
   # CASEN: inside a top-level case, whose patterns end in a `)` that closes no subshell. CASEP: the
   # words before a pattern's `)` (its subject, `in`, the first pattern; after `;;`, one), never a
   # command, so a pattern spelled `case` opens nothing. An `esac` that closes no case is a lost place.
@@ -275,7 +303,7 @@ function onword(t,   b, st) {
     # Under xargs, git's words may all come from its input: a git with none of its own is computed.
     if (isgit(t) != "-") { gitstart(isgit(t)); GX[D] = WK[D] == "xargs"; return }
     if (b == "gh") { ST[D] = "gh"; GH1[D] = ""; GHS[D] = 0; return }
-    if (t == "cd" || t == "pushd" || t == "chdir") { ST[D] = "gcd"; GCW[D] = t; return }
+    if (t == "cd" || t == "pushd" || t == "chdir") { ST[D] = "gcd"; GCW[D] = t; GCN[D] = 0; GCX[D] = WK[D] != "" && !(WK[D] in CDWRAP); return }
     if (t == "popd" || t == "." || t == "source") { print "CD\t" gscope() "\t$"; ST[D] = "rest"; return }
     if (t == "eval") { ST[D] = "eval"; EVB[D] = ""; return }
     if (t ~ /\$/) { print "DYN"; ST[D] = "rest"; return }
@@ -321,6 +349,9 @@ function close_paren(s, i, arith,   n, d, c, hd, dl, st, e, line, k, m, q, ws) {
       i += 2; st = 0
       if (substr(s, i, 1) == "-") { st = 1; i++ }
       while (i <= n && substr(s, i, 1) ~ /[ \t]/) i++
+      # Only a delimiter read whole here, a plain word or one quoted whole with no blank, quote or
+      # backslash in it: any other (`E\ O`, `'E O'`, `E\)F`) may end the body where the shell does not.
+      if (!match(substr(s, i), /^([A-Za-z0-9_.,:@%+=\/-]+|'[A-Za-z0-9_.,:@%+=\/-]+'|"[A-Za-z0-9_.,:@%+=\/-]+")([ \t\n;&|<>()]|$)/)) CPODD = 1
       dl = ""
       while (i <= n && substr(s, i, 1) !~ /[ \t\n;&|<>()]/) { q = substr(s, i, 1); if (q != "'" && q != "\"" && q != "\\") dl = dl q; i++ }
       hd = hd SUBSEP st dl
@@ -454,11 +485,15 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
     if (c == "&") {
       endword()
       if (c2 == "&") { sep("&&"); i += 2; continue }
-      if (c2 == ">") { RD[D] = 1; i += 2; if (substr(s, i, 1) == ">") i++; continue }
+      if (c2 == ">") { RD[D] = 1; GRD[D] = 1; i += 2; if (substr(s, i, 1) == ">") i++; continue }
       A = 1; sep("&"); i++; continue
     }
     if (c == "|") { endword(); sep(c2 == "|" ? "||" : "|"); i += (c2 == "|" || c2 == "&") ? 2 : 1; continue }
     # SUB: inside a top-level `( … )` subshell, where a `cd` moves only the child.
+    # `name()` (blanks allowed inside): a function definition, whose body runs only when called.
+    if (c == "(" && D == 1 && gits && match(substr(s, i + 1), /^[ \t]*\)/)) {
+      endword(); sep(); FN = 1; i += RLENGTH + 1; continue
+    }
     if (c == "(" || c == ")") {
       endword(); sep()
       if (D == 1 && c == "(") { SUB++; if (gits) print "SEP\t(" }
@@ -474,6 +509,7 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
       if (HV[D] && WB[D] ~ /^[0-9]+$/) { WB[D] = ""; HV[D] = 0 } else endword()
       # <( … ) and >( … ): commands of their own, in a child shell its `)` ends, as a subshell's.
       if (c2 == "(") { sep(); if (D == 1) { SUB++; if (gits) print "SEP\t(" } i += 2; continue }
+      GRD[D] = 1   # a redirect: if it fails, the command (a cd) does not run
       if (c == "<" && substr(s, i, 3) == "<<<") { RD[D] = 1; i += 3; continue }
       if (c == "<" && c2 == "<") {
         HN[D] = substr(s, i + 2, 1) == "-" ? 2 : 1; i += HN[D] == 2 ? 3 : 2

@@ -746,6 +746,22 @@ cug 2 "an esac outside any case" "cd $ML; esac; git pull" "$M"
 cug 2 "a quote that never closes, after a cd (the pull read raw)" "cd $ML; true 'x; git pull" "$M"
 cug 2 "a pull after a cd in a process substitution (a child's)" "cat <(cd $ML); git pull" "$M"
 cug 0 "a lane's merge after process substitutions (nothing lost)" "diff <(echo a) <(echo b); git merge origin/main" "$ML"
+# OPS-141 round 2: a cd this shell may not run is never read as sure. A wrapper that runs a program
+# runs /usr/bin/cd in a child; a function body runs only when called; a redirect that fails skips
+# the cd; zsh reads a second operand as a substitution. And a heredoc delimiter inside $( … ) the
+# reader cannot model leaves it unsure where the $( … ) ends.
+cug 2 "a pull after env's cd (a child's /usr/bin/cd)" "env cd $ML; git pull" "$M"
+cug 2 "a pull after timeout's cd (a child's /usr/bin/cd)" "timeout 5 cd $ML; git pull" "$M"
+cug 2 "a pull after a function body's cd (never called)" "f() { cd $ML; }; git pull" "$M"
+cug 2 "a pull after a function keyword body's cd (never called)" "function f { cd $ML; }; git pull" "$M"
+cug 2 "a pull after a function body's cd on lines of its own" "$(printf 'f()\n{\n  cd %s\n}\ngit pull' "$ML")" "$M"
+cug 2 "a pull after a function keyword body's cd on lines of its own" "$(printf 'function f {\n  cd %s\n}\ngit pull' "$ML")" "$M"
+cug 2 "a pull after a cd whose redirect fails" "cd $ML < $d/no-such-file; git pull" "$M"
+cug 2 "a pull after a cd with a second operand (zsh: a substitution)" "cd $ML x; git pull" "$M"
+cug 2 "a pull after a heredoc delimiter with an escape inside \$( … )" "$(printf 'y=$(cat <<E\\ O\nE\n)\ncd %s\n(\nE O\n); git pull' "$ML")" "$M"
+cug 0 "a lane's catch-up by cd from the main checkout, its stderr sent away" "cd $ML 2>/dev/null && git merge origin/main" "$M"
+cug 0 "a lane's catch-up after a quoted heredoc inside \$( … )" "$(printf 'x="$(cat <<'"'"'EOF'"'"'\nsome ) text\nEOF\n)"; git merge origin/main')" "$ML"
+cug 0 "a lane's catch-up after a function that cds, defined in a subshell" "(f() { cd /; }); git merge origin/main" "$ML"
 cug 0 "a lane's catch-up after a \$( … ) holding \$'…' with an escaped quote and a )" "y=\$(printf %s \$'a\\'b)'); git merge origin/main" "$ML"
 cug 0 "a lane's catch-up after a \$( … ) holding \${x:-)}" "y=\$(echo \${x:-)}); git merge origin/main" "$ML"
 cug 0 "a search of the docs for a git-core program" "grep -rn git-pull docs" "$M"

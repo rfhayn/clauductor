@@ -38,7 +38,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # shell surely runs replaces each with its target: one the next command follows by `;`, a newline or
 # `&&` (sure for the rest of that && chain; after it, either place). A cd this shell may not run
 # adds its target instead, a superset: one under if or while, in a case arm, after a `||`, in a pipeline, sent to
-# the background, or one a child runs (`sh -c`, `eval`, find -exec). A `( … )` subshell's cds end at
+# the background, one a child runs (`sh -c`, `eval`, find -exec, a wrapper that runs a program:
+# `env cd`), or one in a function body, which runs only when called. A cd with a redirect, which
+# can stop it, is sure only for the rest of its && chain. A `( … )` subshell's cds end at
 # its `)`. A -C composes on each candidate, as git composes it. UNKNOWN, written "?", is any target
 # nobody can read from here: a computed cd or -C, `cd -`, a bare pushd, popd, source, env -C,
 # GIT_DIR=, --git-dir, --work-tree, a placeholder filled in at run time (xargs -I, parallel, find
@@ -80,8 +82,10 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #     or switch with --ignore-other-worktrees, even of its own branch; a -C "$(…)" the shell computes
 #     is unknown even when it names the lane (`git -C "$(git rev-parse --show-toplevel)" merge`); a
 #     lane's update-ref or `fetch -u` of its own branch; a cd to a directory that does not exist
-#     (`cd sub 2>/dev/null; git reset` in a lane without sub); a cd under if or while, or in a case
-#     arm, even when it runs; the main checkout as a fallback (`… && git merge origin/main || git merge
+#     (`cd sub 2>/dev/null; git reset` in a lane without sub); a cd under if or while, in a case
+#     arm or a function that is then called, or one with a redirect followed by `;` (`cd "$L"
+#     2>/dev/null; git merge` from the main checkout: write `&&`), even when it runs; a `<<` inside
+#     a `$( … )` whose delimiter is not a plain word or one quoted whole; the main checkout as a fallback (`… && git merge origin/main || git merge
 #     --abort` from it, when its first command is the fetch and not the cd).
 #   - A command whose cwd is in no git repository, re-aimed where it cannot be read, has no main
 #     checkout to ask about.
@@ -233,12 +237,14 @@ settle() {  # settle OP: the pending cd this shell runs, now that OP follows it
   [ -n "$pend" ] || return 0
   if [ "$piped" = 1 ] || [ "$1" = '|' ] || [ "$1" = '&' ] || [ "$mixed" = 1 ]; then
     cands=$(union "$cands" "$pend")  # a pipeline's or the background's subshell, or after a ||
-  elif [ "$pos" -gt 0 ]; then
+  elif [ "$pos" -gt 0 ] || { [ "$pendf" = 1 ] && [ "$1" = '&&' ]; }; then
     outer=$(union "$outer" "$cands"); cands=$pend  # sure for the rest of its && chain only
+  elif [ "$pendf" = 1 ]; then
+    cands=$(union "$cands" "$pend")  # a cd a redirect can stop, and nothing waits on it
   else
     cands=$pend
   fi
-  pend=
+  pend=; pendf=0
 }
 walk() {  # walk: the reader's lines on stdin; prints each main checkout a move is aimed at
   # cands: where this shell may be. pend: a cd it runs, until the operator after it is known.
@@ -246,7 +252,7 @@ walk() {  # walk: the reader's lines on stdin; prints each main checkout a move 
   # A `( … )` subshell starts where this shell is, and this shell is back there at its `)`.
   # A reading the reader lost (ODD, anywhere in it) is unknown from the start: no cd it read is
   # sure, so every move counts as aimed at the cwd's main checkout too.
-  cands=$cwd; unk=$odd; pend=; outer=; pos=0; mixed=0; piped=0; lvl=0
+  cands=$cwd; unk=$odd; pend=; pendf=0; outer=; pos=0; mixed=0; piped=0; lvl=0
   while IFS="$TAB" read -r kind a b c u np val; do
     [ "$kind" = ODD ] && continue
     [ "$kind" = SEP ] || settle ';'
@@ -274,7 +280,11 @@ walk() {  # walk: the reader's lines on stdin; prints each main checkout a move 
         case $b in '' | -* | +* | *'$'* | *'`'* | *'*'* | *'?'* | *'['* | '~'[!/]*) unk=1; continue ;; esac
         new=$(printf '%s\n' "$cands" | cd_each "$b")
         if printf '%s\n' "$new" | grep -qx '?'; then unk=1; new=$(printf '%s\n' "$new" | grep -vx '?'); fi
-        if [ "$a" = T ]; then pend=$new; else cands=$(union "$cands" "$new"); fi
+        case $a in
+          T) pend=$new; pendf=0 ;;
+          F) pend=$new; pendf=1 ;;  # fallible: a redirect can stop it (settle)
+          *) cands=$(union "$cands" "$new") ;;
+        esac
         ;;
       DYN)
         if [ "$dynmove" = 1 ]; then
