@@ -3820,12 +3820,17 @@ The rules the suite keeps, and a new test must too:
   `commit` would act there (#281, #302). A test runs git through `testgit.Command`, whose
   environment holds no `GIT_` variable, and hands the code under test
   `signals.EnvRunner(testgit.Env)`, never `signals.ExecRunner`, so the panel's own git (a lane's
-  branch and worktree) runs the same way. `TestNoTestRunsGitAnotherWay` reads every `_test.go`
-  file and fails an `exec.Command` whose program names git and any use of `signals.ExecRunner`.
-  `testgit.Outer` stands in for a hook's environment and reports a change to that repository's
-  HEAD, refs, worktrees or index; `TestTheFixturesGitStaysInTheFixture` (in `testgit`, `cmd`,
-  `panel` and `template`) holds the fixture helpers and the panel's runner to it. A git that a
-  shell script under test, or a runner a test writes itself, starts is not seen.
+  branch and worktree) runs the same way; a stand-in git on PATH is `testgit.Shim`, and a script
+  under test gets `testgit.Env()`. `TestNoTestRunsGitAnotherWay` reads every `_test.go` file and
+  fails an `exec.Command` that runs git by any name (a literal, `exec.LookPath("git")`'s result,
+  `sh -c 'git …'`), any use of `testgit.Path` but asking whether it is empty, and any use of
+  `signals.ExecRunner`. `testgit.Outer` stands in for a hook's environment and reports a change
+  to that repository's HEAD, refs, worktrees or index; `TestTheFixturesGitStaysInTheFixture` (in
+  `testgit`, `cmd`, `panel` and `template`) and `TestTheTemplateChecksGitStaysInTheFixture` hold
+  the fixture helpers, the panel's runner and the template checks to it. Not yet held, owned by
+  #311: a git that a shell script under test starts when a new test hands it `os.Environ()`, a
+  runner a test writes itself around `exec`, and production code that defaults to
+  `signals.ExecRunner`.
 - **A project removed live leaves no goroutine** (PANEL-22). Each project's runtime runs every
   goroutine it starts (its hub, each source, each source's file watch) under a context and a wait
   group of its own; removing it cancels the context and waits for the group before the request

@@ -48,6 +48,52 @@ func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
 	}
 }
 
+// A Shim run with the hook's environment, as the code under test runs git from PATH, commits in
+// the fixture it runs in, not in the hook's repository.
+func TestTheShimStaysInTheFixture(t *testing.T) {
+	touched := Outer(t)
+	dir := t.TempDir()
+	if out, err := Command(dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	shim := filepath.Join(t.TempDir(), "git")
+	Shim(t, shim)
+	c := exec.Command(shim, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "fixture")
+	c.Dir = dir // and the test process's environment, the hook's
+	if out, err := c.CombinedOutput(); err != nil {
+		t.Fatalf("the shim's commit: %v\n%s", err, out)
+	}
+	if what := touched(); what != "" {
+		t.Errorf("through the shim, %s", what)
+	}
+	if out, err := Command(dir, "log", "--format=%s").Output(); err != nil || strings.TrimSpace(string(out)) != "fixture" {
+		t.Errorf("the fixture holds no commit of its own: %q %v", out, err)
+	}
+}
+
+// Outer sees each kind of change a git that inherits the hook's environment can make there: a
+// branch (its refs), a worktree, and its index. None of these moves HEAD.
+func TestOuterSeesEachChange(t *testing.T) {
+	for _, c := range []struct {
+		kind string
+		args []string
+	}{
+		{"refs", []string{"branch", "x"}},
+		{"worktrees", []string{"worktree", "add", "-q", "--detach", filepath.Join(t.TempDir(), "wt"), "HEAD"}},
+		{"index", []string{"update-index", "--add", "--cacheinfo", "100644,e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,x"}}, // the empty blob
+	} {
+		touched := Outer(t)
+		g := exec.Command(Path, c.args...)
+		g.Dir = t.TempDir()
+		if out, err := g.CombinedOutput(); err != nil {
+			t.Fatalf("git %v with the hook's environment: %v\n%s", c.args, err, out)
+		}
+		if what := touched(); !strings.Contains(what, "'s "+c.kind+" ") {
+			t.Errorf("git %v: Outer says %q, want its %s named", c.args, what, c.kind)
+		}
+	}
+}
+
 // Every git a test runs itself goes through Command, and every command it has the panel run goes
 // through signals.EnvRunner(Env): TestTheFixturesGitStaysInTheFixture holds them, and this holds
 // every test to them. It reads every _test.go file and test support file of the module and fails
@@ -110,7 +156,18 @@ func TestGitCommandsFindsEveryWayToRunGit(t *testing.T) {
 		{`exec.Command("gitleaks", "detect")`, 0},
 		{`exec.Command("/opt/bin/gitleaks", "detect")`, 0},
 		{`exec.Command(digits, "x")`, 0},
-		{`exec.Command("sh", "-c", "git init")`, 0},
+		// Git by another name: testgit.Path, a path LookPath found, a shell's script.
+		{`exec.Command(testgit.Path, "commit")`, 1},
+		{`c := exec.Command("x"); c.Path = testgit.Path`, 1},
+		{`if testgit.Path == "" { t.Skip() }`, 0},
+		{`if testgit.Path != "" { t.Log() }`, 0},
+		{`p, _ := exec.LookPath("git"); exec.Command(p, "commit")`, 1},
+		{`var p string; p, _ = exec.LookPath("git"); exec.CommandContext(ctx, p, "commit")`, 1},
+		{`p, _ := exec.LookPath("jq"); exec.Command(p, ".")`, 0},
+		{`exec.Command("sh", "-c", "git init")`, 1},
+		{`exec.Command("/bin/bash", "-c", "  git commit -m x")`, 1},
+		{`exec.Command("sh", "-c", "gitleaks detect")`, 0},
+		{`exec.Command("sh", "-c", "echo git")`, 0},
 		{`exec.Command(argv[0], argv[1:]...)`, 0},
 		{`exec.CommandContext(ctx, argv[0], argv[1:]...)`, 0},
 	} {
@@ -127,23 +184,60 @@ func TestGitCommandsFindsEveryWayToRunGit(t *testing.T) {
 }
 
 // gitCommands names each place in f that runs git with the test process's environment: an
-// exec.Command or exec.CommandContext whose program names git, and any use of
-// signals.ExecRunner, the panel's runner, through which the code under test runs its git.
+// exec.Command or exec.CommandContext whose program is git, by any name (a literal, a variable
+// with git among its words, one the file assigns from exec.LookPath("git"), or a shell whose -c
+// script starts with git); any use of testgit.Path but asking whether it is empty, since it is
+// git by the one name the rest cannot see; and any use of signals.ExecRunner, the panel's runner,
+// through which the code under test runs its git.
 func gitCommands(fset *token.FileSet, f *ast.File) []string {
 	var found []string
+	at := func(n ast.Node) { found = append(found, fset.Position(n.Pos()).String()) }
+	looked := map[string]bool{}           // names assigned from exec.LookPath("git")
+	asked := map[*ast.SelectorExpr]bool{} // testgit.Path compared with ""
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			if len(n.Rhs) == 1 && lookPathGit(n.Rhs[0]) {
+				if id, ok := n.Lhs[0].(*ast.Ident); ok {
+					looked[id.Name] = true
+				}
+			}
+		case *ast.ValueSpec:
+			if len(n.Values) == 1 && lookPathGit(n.Values[0]) {
+				looked[n.Names[0].Name] = true
+			}
+		case *ast.BinaryExpr:
+			if n.Op == token.EQL || n.Op == token.NEQ {
+				for _, p := range [][2]ast.Expr{{n.X, n.Y}, {n.Y, n.X}} {
+					if s, ok := p[0].(*ast.SelectorExpr); ok && pkgSel(s, "testgit", "Path") && types.ExprString(p[1]) == `""` {
+						asked[s] = true
+					}
+				}
+			}
+		}
+		return true
+	})
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.SelectorExpr:
-			if pkgSel(n, "signals", "ExecRunner") {
-				found = append(found, fset.Position(n.Pos()).String())
+			if pkgSel(n, "signals", "ExecRunner") || pkgSel(n, "testgit", "Path") && !asked[n] {
+				at(n)
 			}
 		case *ast.CallExpr:
 			s, ok := n.Fun.(*ast.SelectorExpr)
+			if !ok {
+				break
+			}
+			args := n.Args
 			switch {
-			case !ok:
-			case pkgSel(s, "exec", "Command") && len(n.Args) > 0 && namesGit(n.Args[0]),
-				pkgSel(s, "exec", "CommandContext") && len(n.Args) > 1 && namesGit(n.Args[1]):
-				found = append(found, fset.Position(n.Pos()).String())
+			case pkgSel(s, "exec", "Command"):
+			case pkgSel(s, "exec", "CommandContext") && len(args) > 0:
+				args = args[1:]
+			default:
+				return true
+			}
+			if len(args) > 0 && (namesGit(args[0], looked) || shellRunsGit(args)) {
+				at(n)
 			}
 		}
 		return true
@@ -157,13 +251,52 @@ func pkgSel(sel *ast.SelectorExpr, pkg, name string) bool {
 	return ok && x.Name == pkg && sel.Sel.Name == name
 }
 
+// literal is e's value when it is a string literal.
+func literal(e ast.Expr) (string, bool) {
+	lit, ok := e.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	return s, err == nil
+}
+
+// lookPathGit reports whether e is exec.LookPath("git").
+func lookPathGit(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return false
+	}
+	s, ok := call.Fun.(*ast.SelectorExpr)
+	name, lit := literal(call.Args[0])
+	return ok && pkgSel(s, "exec", "LookPath") && lit && filepath.Base(name) == "git"
+}
+
+// shellRunsGit reports whether a command's program and arguments are sh or bash with a -c
+// script that starts with git.
+func shellRunsGit(args []ast.Expr) bool {
+	sh, ok := literal(args[0])
+	if !ok || filepath.Base(sh) != "sh" && filepath.Base(sh) != "bash" {
+		return false
+	}
+	for i := 1; i+1 < len(args); i++ {
+		if c, _ := literal(args[i]); c == "-c" {
+			script, ok := literal(args[i+1])
+			return ok && strings.HasPrefix(strings.TrimLeft(script, " \t\n")+" ", "git ")
+		}
+	}
+	return false
+}
+
 // namesGit reports whether a program argument names git: a literal whose base name is git
-// (`"git"`, `"/usr/bin/git"`, not `"gitleaks"`), or an expression with git as one of its words
-// (`realGit`, `gitBin`, not `digits`).
-func namesGit(e ast.Expr) bool {
-	if lit, ok := e.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-		s, err := strconv.Unquote(lit.Value)
-		return err == nil && filepath.Base(s) == "git"
+// (`"git"`, `"/usr/bin/git"`, not `"gitleaks"`), a name in looked, or an expression with git as
+// one of its words (`realGit`, `gitBin`, not `digits`).
+func namesGit(e ast.Expr, looked map[string]bool) bool {
+	if s, ok := literal(e); ok {
+		return filepath.Base(s) == "git"
+	}
+	if id, ok := e.(*ast.Ident); ok && looked[id.Name] {
+		return true
 	}
 	var words []string
 	var w []rune

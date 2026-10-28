@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 func templateSettings(t *testing.T) []byte {
@@ -181,7 +183,7 @@ func TestGateWaitPathAgrees(t *testing.T) {
 			want = "scripts/ci/run-local.sh"
 		}
 		cmd := exec.Command("sh", "-c", `. "$1"; GATE_RUN=$2; gate_wait_path`, "sh", conf, want)
-		cmd.Env = append(os.Environ(), "ROOT="+t.TempDir())
+		cmd.Env = append(testgit.Env(), "ROOT="+t.TempDir()) // conf.sh's git reads ROOT's repository
 		got, err := cmd.Output()
 		if err != nil {
 			t.Fatalf("GATE_RUN=%q: gate_wait_path: %v", run, err)
@@ -202,7 +204,7 @@ func TestGatePathAgrees(t *testing.T) {
 	shell := func(fn, v string) string {
 		t.Helper()
 		cmd := exec.Command("sh", "-c", `. "$1"; `+fn+` "$2"`, "sh", conf, v)
-		cmd.Env = append(os.Environ(), "ROOT="+t.TempDir())
+		cmd.Env = append(testgit.Env(), "ROOT="+t.TempDir()) // conf.sh's git reads ROOT's repository
 		b, err := cmd.Output()
 		if err != nil {
 			t.Fatalf("%s %q: %v", fn, v, err)

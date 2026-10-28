@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 // Path is git as found when the test binary started, before any test put a stand-in first on
@@ -43,6 +45,18 @@ func Command(dir string, args ...string) *exec.Cmd {
 	c := exec.Command(name, args...)
 	c.Dir, c.Env = dir, Env()
 	return c
+}
+
+// Shim writes a stand-in git at path that runs the real one (Path) with no GIT_ variable: a test
+// that puts it first on PATH runs the code under test's git as Command runs a test's own.
+func Shim(t testing.TB, path string) {
+	t.Helper()
+	if Path == "" {
+		t.Skip("git is not installed")
+	}
+	testbin.Write(t, path, "#!/bin/sh\n"+
+		"for v in $(env | sed -n 's/^\\(GIT_[A-Za-z0-9_]*\\)=.*/\\1/p'); do unset \"$v\"; done\n"+
+		"exec '"+strings.ReplaceAll(Path, "'", `'\''`)+"' \"$@\"\n")
 }
 
 // Outer stands in for a git hook's environment for the rest of the test: GIT_DIR, GIT_WORK_TREE

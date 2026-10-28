@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // repoRoot is the clauductor repository root, from this package's directory.
@@ -175,15 +176,34 @@ func TestTemplateChecks(t *testing.T) {
 			t.Skip("no " + tool)
 		}
 	}
-	root := repoRoot(t)
-	cmd := exec.Command("sh", filepath.Join(root, "template", ".claude", "checks", "run.sh"))
-	// A private HOME: the status-line check writes panel and quota files under it.
-	cmd.Env = append(os.Environ(), "HOME="+t.TempDir(), "TMPDIR="+t.TempDir())
-	out, err := cmd.CombinedOutput()
+	out, err := templateChecks(t).CombinedOutput()
 	if err != nil {
 		t.Fatalf("template checks failed: %v\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "checks: all") {
 		t.Fatalf("template checks did not report a verdict:\n%s", out)
+	}
+}
+
+// templateChecks is the template's check runner, run with the named checks (every one when none
+// is named). A private HOME: the status-line check writes panel and quota files under it. No GIT_
+// variable (testgit.Env): the checks git init and commit in scratch repositories, and a git hook's
+// GIT_DIR would aim those commits at the hook's repository (#302).
+func templateChecks(t *testing.T, names ...string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command("sh", append([]string{filepath.Join(repoRoot(t), "template", ".claude", "checks", "run.sh")}, names...)...)
+	cmd.Env = append(testgit.Env(), "HOME="+t.TempDir(), "TMPDIR="+t.TempDir())
+	return cmd
+}
+
+// A template check that commits in scratch repositories (line-endings) leaves a git hook's
+// repository untouched, and still passes there.
+func TestTheTemplateChecksGitStaysInTheFixture(t *testing.T) {
+	touched := testgit.Outer(t)
+	if out, err := templateChecks(t, "line-endings").CombinedOutput(); err != nil {
+		t.Errorf("the line-endings check failed under a hook's environment: %v\n%s", err, out)
+	}
+	if what := touched(); what != "" {
+		t.Errorf("the template checks ran git there: %s", what)
 	}
 }
