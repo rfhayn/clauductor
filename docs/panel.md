@@ -3818,11 +3818,14 @@ The rules the suite keeps, and a new test must too:
 - **A test's own git stays in its fixture.** Run under a git hook, `GIT_DIR`, `GIT_WORK_TREE`
   and `GIT_INDEX_FILE` aim every git at the hook's repository, so a fixture's `init`, `add` and
   `commit` would act there (#281, #302). A test runs git through `testgit.Command`, whose
-  environment holds no `GIT_` variable; `TestNoTestRunsGitAnotherWay` reads every `_test.go`
-  file and fails an `exec.Command` whose program names git. `testgit.Outer` stands in for a
-  hook's environment, and `TestTheFixturesGitStaysInTheFixture` (in `testgit`, `cmd`, `panel`
-  and `template`) holds a fixture helper to it. A git that a shell script under test runs is not
-  seen.
+  environment holds no `GIT_` variable, and hands the code under test
+  `signals.EnvRunner(testgit.Env)`, never `signals.ExecRunner`, so the panel's own git (a lane's
+  branch and worktree) runs the same way. `TestNoTestRunsGitAnotherWay` reads every `_test.go`
+  file and fails an `exec.Command` whose program names git and any use of `signals.ExecRunner`.
+  `testgit.Outer` stands in for a hook's environment and reports a change to that repository's
+  HEAD, refs, worktrees or index; `TestTheFixturesGitStaysInTheFixture` (in `testgit`, `cmd`,
+  `panel` and `template`) holds the fixture helpers and the panel's runner to it. A git that a
+  shell script under test, or a runner a test writes itself, starts is not seen.
 - **A project removed live leaves no goroutine** (PANEL-22). Each project's runtime runs every
   goroutine it starts (its hub, each source, each source's file watch) under a context and a wait
   group of its own; removing it cancels the context and waits for the group before the request

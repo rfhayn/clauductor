@@ -18,7 +18,6 @@ import (
 
 	"github.com/clauductor/clauductor/internal/panel/clock"
 	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/types"
 	"github.com/clauductor/clauductor/internal/testwait"
 )
@@ -52,7 +51,7 @@ func record(pid int, birth time.Time) string {
 
 func newWatch(t *testing.T, home string, r Reader, clk clock.Clock) *Watch {
 	t.Helper()
-	return &Watch{Reader: r, Log: NewLog(home), Clock: clk, Run: signals.ExecRunner}
+	return &Watch{Reader: r, Log: NewLog(home), Clock: clk, Run: testRunner}
 }
 
 func readLines(t *testing.T, home string) []LockLine {
@@ -437,7 +436,7 @@ func heldClaude(t *testing.T, g *Gate, timeout time.Duration) (pid int, stop fun
 // first tick.
 func TestWatchAttributesALockToTheRunningCall(t *testing.T) {
 	home, r := fakeConfig(t)
-	g, _ := newGate(t, signals.ExecRunner, r, clock.System)
+	g, _ := newGate(t, testRunner, r, clock.System)
 	pid, stop := heldClaude(t, g, time.Minute)
 	w := &Watch{Reader: r, Log: NewLog(home), Clock: clock.System, Attribute: g.Attribute}
 	makeLock(t, r.CurrentPath(), time.Now())
@@ -457,13 +456,13 @@ func TestWatchAttributesALockToTheRunningCall(t *testing.T) {
 // spawn and end.
 func TestWatchAttributesALockLeftByAReapedCall(t *testing.T) {
 	home, r := fakeConfig(t)
-	g, _ := newGate(t, signals.ExecRunner, r, clock.System)
+	g, _ := newGate(t, testRunner, r, clock.System)
 	pid, stop := heldClaude(t, g, time.Minute)
 	makeLock(t, r.CurrentPath(), time.Now())
 	writeRecord(t, r, record(pid, time.Now()))
 	stop()
 	waitCalls(t, g, "the reap", 1, ended)
-	w := &Watch{Reader: r, Log: NewLog(home), Clock: clock.System, Run: signals.ExecRunner, Attribute: g.Attribute}
+	w := &Watch{Reader: r, Log: NewLog(home), Clock: clock.System, Run: testRunner, Attribute: g.Attribute}
 	w.Tick(context.Background())
 	w.Stop()
 	got := readLines(t, home)
@@ -483,7 +482,7 @@ sleep 60 & P=$!
 echo ready >> %s
 wait $P
 `, shq(marks)))
-	g, _ := newGate(t, signals.ExecRunner, r, clock.System)
+	g, _ := newGate(t, testRunner, r, clock.System)
 	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
 	}

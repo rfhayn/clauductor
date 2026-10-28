@@ -158,13 +158,19 @@ func panelInstallWith(t *testing.T, dir string) {
 // test's HOME with exec standing in for launchctl, plutil and osacompile.
 func panelInstallRun(t *testing.T, dir string, exec func(argv ...string) ([]byte, error)) (string, error) {
 	t.Helper()
+	return panelInstallRemote(t, dir, install.RemoteOff, exec)
+}
+
+// panelInstallRemote is panelInstallRun with --remote-control remote.
+func panelInstallRemote(t *testing.T, dir, remote string, exec func(argv ...string) ([]byte, error)) (string, error) {
+	t.Helper()
 	oldExec, oldProject, oldRemote, oldPort := panelInstallExec, installProject, installRemote, installPort
 	t.Cleanup(func() {
 		panelInstallExec, installProject, installRemote, installPort = oldExec, oldProject, oldRemote, oldPort
 		panelInstallCmd.SetOut(nil)
 	})
 	panelInstallExec = exec
-	installProject, installRemote, installPort = dir, install.RemoteOff, 4393
+	installProject, installRemote, installPort = dir, remote, 4393
 	var out bytes.Buffer
 	panelInstallCmd.SetOut(&out)
 	err := panelInstallCmd.RunE(panelInstallCmd, nil)
@@ -196,6 +202,28 @@ func TestPanelInstallStoppedOnADisabledLabelChangesNothing(t *testing.T) {
 		if !strings.Contains(c, "print-disabled") {
 			t.Errorf("a stopped install ran %q", c)
 		}
+	}
+}
+
+// A --remote-control value it would refuse stops `panel install --project` before it changes
+// anything, as the disabled label does: nothing registered, trusted or run.
+func TestPanelInstallRefusingRemoteControlChangesNothing(t *testing.T) {
+	home := panelHome(t)
+	dir := projectWithConfig(t, "Fine", "")
+	before := treesnap.Take(t, home)
+	var ran []string
+	_, err := panelInstallRemote(t, dir, "bogus", func(argv ...string) ([]byte, error) {
+		ran = append(ran, strings.Join(argv, " "))
+		return nil, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "--remote-control must be") {
+		t.Fatalf("the install did not refuse --remote-control bogus: %v", err)
+	}
+	if d := treesnap.Diff(before, treesnap.Take(t, home)); len(d) > 0 {
+		t.Errorf("a refused install changed the home directory: %v", d)
+	}
+	if len(ran) > 0 {
+		t.Errorf("a refused install ran %q", ran)
 	}
 }
 

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/testbin"
 	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/clauductor/clauductor/internal/treesnap"
@@ -157,7 +156,7 @@ func TestDecideAsksEachConditionInTurn(t *testing.T) {
 	docs := commitFile(t, root, "docs.txt", "docs\n")
 	rebuild := func(edit func(*Rebuild)) Plan {
 		rb := &Rebuild{Home: t.TempDir(), Root: root, From: r, To: b, Launchd: true, Exe: "/x/clauductor",
-			Self: BuildStamp{Module: selfMod, Revision: r}, Run: signals.ExecRunner}
+			Self: BuildStamp{Module: selfMod, Revision: r}, Run: testRunner}
 		if edit != nil {
 			edit(rb)
 		}
@@ -217,7 +216,7 @@ func TestDecideNamesInstallOverTheBuildsRange(t *testing.T) {
 	root, r := selfRepo(t)
 	a := commitFile(t, root, "framework/internal/panel/install/launchd.go", "package install\n\n// v2\n")
 	b := commitFile(t, root, "framework/internal/panel/server.go", "package panel\n\nconst Version = \"two\"\n")
-	rb := &Rebuild{Home: t.TempDir(), Root: root, From: a, To: b, Launchd: true, Self: BuildStamp{Module: selfMod, Revision: r}, Run: signals.ExecRunner}
+	rb := &Rebuild{Home: t.TempDir(), Root: root, From: a, To: b, Launchd: true, Self: BuildStamp{Module: selfMod, Revision: r}, Run: testRunner}
 	p := rb.Decide(context.Background())
 	if !p.Rebuilds() || p.Base != r || len(p.Install) != 1 || p.Install[0] != "framework/internal/panel/install/launchd.go" {
 		t.Fatalf("plan %+v, want a rebuild over %s..%s naming launchd.go", p, r, b)
@@ -244,7 +243,7 @@ echo '# example.com/selfpanel/internal/panel'
 echo 'internal/panel/server.go:3:1: syntax error: non-declaration statement outside function body'
 exit 1
 `)
-	rb := &Rebuild{Home: t.TempDir(), Root: root, Go: goCmd, Run: signals.ExecRunner}
+	rb := &Rebuild{Home: t.TempDir(), Root: root, Go: goCmd, Run: testRunner}
 	err := rb.Build(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "server.go:3:1: syntax error") || strings.Contains(err.Error(), "# example.com") {
 		t.Fatalf("Build: %v", err)
@@ -261,7 +260,7 @@ func TestBuildTimeoutStopsIt(t *testing.T) {
 	}
 	goCmd := filepath.Join(t.TempDir(), "go")
 	testbin.Write(t, goCmd, "#!/bin/sh\nprintf partial > \"$3\"\nsleep 30\n")
-	rb := &Rebuild{Home: t.TempDir(), Root: root, Go: goCmd, Timeout: 300 * time.Millisecond, Run: signals.ExecRunner}
+	rb := &Rebuild{Home: t.TempDir(), Root: root, Go: goCmd, Timeout: 300 * time.Millisecond, Run: testRunner}
 	start := time.Now()
 	err := rb.Build(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "took over 300ms") {
@@ -276,7 +275,7 @@ func TestBuildTimeoutStopsIt(t *testing.T) {
 // With no go to run, the build says where the PATH comes from.
 func TestBuildWithoutGoSaysSo(t *testing.T) {
 	t.Parallel()
-	rb := &Rebuild{Home: t.TempDir(), Root: t.TempDir(), Go: filepath.Join(t.TempDir(), "go"), Run: signals.ExecRunner}
+	rb := &Rebuild{Home: t.TempDir(), Root: t.TempDir(), Go: filepath.Join(t.TempDir(), "go"), Run: testRunner}
 	if err := rb.Build(context.Background()); err == nil || !strings.Contains(err.Error(), "clauductor panel install") {
 		t.Fatalf("Build: %v", err)
 	}
@@ -293,7 +292,7 @@ func TestRebuildWritesNothingInTheRepository(t *testing.T) {
 	b := commitFile(t, root, "framework/internal/panel/server.go", "package panel\n\nconst Version = \"two\"\n")
 	before := treesnap.Take(t, root)
 	rb := &Rebuild{Home: t.TempDir(), Root: root, From: r, To: b, Launchd: true, Self: BuildStamp{Module: selfMod, Revision: r},
-		Timeout: 2 * time.Minute, Run: signals.ExecRunner}
+		Timeout: 2 * time.Minute, Run: testRunner}
 	if err := rb.Build(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +327,7 @@ func TestRebuildWritesNothingInTheRepository(t *testing.T) {
 // A new binary with no Go build information fails the preflight and is removed.
 func TestPreflightRefusesABinaryWithNoBuildInformation(t *testing.T) {
 	t.Parallel()
-	rb := &Rebuild{Home: t.TempDir(), Root: t.TempDir(), To: "b", Self: BuildStamp{Module: selfMod}, Run: signals.ExecRunner}
+	rb := &Rebuild{Home: t.TempDir(), Root: t.TempDir(), To: "b", Self: BuildStamp{Module: selfMod}, Run: testRunner}
 	if err := config.EnsurePrivateDir(filepath.Dir(rb.NewBinary())); err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +358,7 @@ func TestSwapKeepsThePreviousBinaries(t *testing.T) {
 		{"this module, stopped", selfMod, true, true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			rb := &Rebuild{Home: home, Root: root, From: r, To: r, Launchd: true, Self: BuildStamp{Module: tc.module, Revision: r}, Run: signals.ExecRunner}
+			rb := &Rebuild{Home: home, Root: root, From: r, To: r, Launchd: true, Self: BuildStamp{Module: tc.module, Revision: r}, Run: testRunner}
 			bin := InstalledBinary(home)
 			writeFile(t, bin, "the binary built at R")
 			writeFile(t, rb.NewBinary(), "the binary built at B")
@@ -410,7 +409,7 @@ func TestSwapKeepsThePreviousBinaries(t *testing.T) {
 // A swap with no installed binary to keep fails, and leaves no new binary.
 func TestSwapWithNoInstalledBinaryFails(t *testing.T) {
 	t.Parallel()
-	rb := &Rebuild{Home: t.TempDir(), Run: signals.ExecRunner}
+	rb := &Rebuild{Home: t.TempDir(), Run: testRunner}
 	writeFile(t, rb.NewBinary(), "new")
 	if _, _, err := rb.Swap(context.Background()); err == nil {
 		t.Fatal("Swap with no installed binary succeeded")

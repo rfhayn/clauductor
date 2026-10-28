@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -329,15 +330,18 @@ func TestUsageIsSilencedOnceTheArgumentsPass(t *testing.T) {
 	}
 
 	// The judge itself, on trees of its own: a subcommand hook that silences usage passes, one that
-	// does not fails, unless traverse hooks run the root's as well.
+	// does not fails, unless traverse hooks run the root's as well. Each tree's leaf fails, and
+	// cobra itself runs it: it prints usage exactly where the judge says it would, so the judge's
+	// model of cobra's hooks is held to cobra's own.
 	silence := func(c *cobra.Command, _ []string) { c.SilenceUsage = true }
 	tree := func(sub func(*cobra.Command, []string)) *cobra.Command {
-		root := &cobra.Command{Use: "r", PersistentPreRun: silence}
+		root := &cobra.Command{Use: "r", PersistentPreRun: silence, SilenceErrors: true}
 		mid := &cobra.Command{Use: "m", PersistentPreRun: sub}
-		mid.AddCommand(&cobra.Command{Use: "leaf", Run: func(*cobra.Command, []string) {}})
+		mid.AddCommand(&cobra.Command{Use: "leaf", RunE: func(*cobra.Command, []string) error { return errors.New("leaf fails") }})
 		root.AddCommand(mid)
 		return root
 	}
+	defer func(was bool) { cobra.EnableTraverseRunHooks = was }(cobra.EnableTraverseRunHooks)
 	for _, c := range []struct {
 		name     string
 		sub      func(*cobra.Command, []string)
@@ -351,6 +355,18 @@ func TestUsageIsSilencedOnceTheArgumentsPass(t *testing.T) {
 	} {
 		if got := usageStaysOn(tree(c.sub), c.traverse); !slices.Equal(got, c.want) {
 			t.Errorf("%s: usage stays on for %q, want %q", c.name, got, c.want)
+		}
+		cobra.EnableTraverseRunHooks = c.traverse
+		root := tree(c.sub)
+		var out bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.SetArgs([]string{"m", "leaf"})
+		if err := root.Execute(); err == nil {
+			t.Fatalf("%s: the failing leaf returned no error", c.name)
+		}
+		if got := strings.Contains(out.String(), "Usage:"); got != (len(c.want) > 0) {
+			t.Errorf("%s: cobra printed usage %v, the judge says %v:\n%s", c.name, got, len(c.want) > 0, out.String())
 		}
 	}
 }

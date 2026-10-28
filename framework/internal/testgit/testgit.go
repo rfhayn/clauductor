@@ -47,8 +47,8 @@ func Command(dir string, args ...string) *exec.Cmd {
 
 // Outer stands in for a git hook's environment for the rest of the test: GIT_DIR, GIT_WORK_TREE
 // and GIT_INDEX_FILE name a repository of its own, with one commit. The returned function names
-// what a fixture's git did to that repository since (its HEAD moved, its index was written), or
-// returns "" when it stayed untouched. It sets the environment, so the test cannot be parallel.
+// what a fixture's git did to that repository since (its HEAD, refs or worktrees changed, its
+// index was written), or returns "" when it stayed untouched. It sets the environment, so the test cannot be parallel.
 func Outer(t testing.TB) (touched func() string) {
 	t.Helper()
 	if Path == "" {
@@ -61,24 +61,38 @@ func Outer(t testing.TB) (touched func() string) {
 		}
 	}
 	gitDir, index := filepath.Join(outer, ".git"), filepath.Join(outer, ".git", "index")
-	head := func() string {
-		out, err := Command(outer, "rev-parse", "HEAD").Output()
-		if err != nil {
-			t.Fatalf("git rev-parse in the outer repository: %v", err)
+	// What a fixture's git could change there: its HEAD, its refs (a branch made), its worktrees
+	// (one added), and its index.
+	state := func() map[string]string {
+		s := map[string]string{}
+		for name, args := range map[string][]string{
+			"HEAD":      {"rev-parse", "HEAD"},
+			"refs":      {"for-each-ref", "--format=%(refname) %(objectname)"},
+			"worktrees": {"worktree", "list", "--porcelain"},
+		} {
+			out, err := Command(outer, args...).Output()
+			if err != nil {
+				t.Fatalf("git %v in the outer repository: %v", args, err)
+			}
+			s[name] = strings.TrimSpace(string(out))
 		}
-		return strings.TrimSpace(string(out))
+		b, _ := os.ReadFile(index) // none until something is added
+		s["index"] = string(b)
+		return s
 	}
-	before := head()
-	indexBefore, _ := os.ReadFile(index) // none until something is added
+	before := state()
 	t.Setenv("GIT_DIR", gitDir)
 	t.Setenv("GIT_WORK_TREE", outer)
 	t.Setenv("GIT_INDEX_FILE", index)
 	return func() string {
 		t.Helper()
-		if after := head(); after != before {
-			return "the outer repository's HEAD moved from " + before + " to " + after
+		after := state()
+		for _, name := range []string{"HEAD", "refs", "worktrees"} {
+			if after[name] != before[name] {
+				return "the outer repository's " + name + " changed:\nbefore: " + before[name] + "\nafter:  " + after[name]
+			}
 		}
-		if b, _ := os.ReadFile(index); string(b) != string(indexBefore) {
+		if after["index"] != before["index"] {
 			return "the outer repository's index was written"
 		}
 		return ""

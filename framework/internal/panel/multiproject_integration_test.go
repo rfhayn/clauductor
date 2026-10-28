@@ -224,7 +224,7 @@ func TestAttachedProjectReadsItsSidecar(t *testing.T) {
 // gitOnlyRunner otherwise: the panel's own runner, ExecRunner, sees each command.
 func shRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
 	if argv[0] == "sh" {
-		return signals.ExecRunner(ctx, dir, argv)
+		return testRunner(ctx, dir, argv)
 	}
 	return gitOnlyRunner(ctx, dir, argv)
 }

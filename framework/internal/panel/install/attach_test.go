@@ -21,7 +21,7 @@ import (
 
 func attach(t *testing.T, home, project, id string) (AttachResult, error) {
 	t.Helper()
-	return Attach(context.Background(), AttachOptions{Home: home, Project: project, ID: id, Run: signals.ExecRunner, Now: time.Unix(1_790_000_000, 0)})
+	return Attach(context.Background(), AttachOptions{Home: home, Project: project, ID: id, Run: testRunner, Now: time.Unix(1_790_000_000, 0)})
 }
 
 // [ATTACH-1-S1] Attach writes ~/.clauductor/projects/<id>/panel.json, registers the
@@ -80,7 +80,7 @@ func TestAttachWritesInitsReading(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		plan, err := PlanInit(context.Background(), signals.ExecRunner, root, InitTarget{Path: filepath.Join(t.TempDir(), "p.json"), Sidecar: true})
+		plan, err := PlanInit(context.Background(), testRunner, root, InitTarget{Path: filepath.Join(t.TempDir(), "p.json"), Sidecar: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -271,7 +271,7 @@ func TestAttachRefusesAWorkingProject(t *testing.T) {
 	own := filepath.Join(root, config.DefaultConfigRel)
 	os.MkdirAll(filepath.Dir(own), 0o755)
 	os.WriteFile(own, []byte(`{"name":"Web"}`), 0o644)
-	if _, err := AddProject(context.Background(), AddOptions{Home: home, Project: root, Run: signals.ExecRunner, Strict: true}); err != nil {
+	if _, err := AddProject(context.Background(), AddOptions{Home: home, Project: root, Run: testRunner, Strict: true}); err != nil {
 		t.Fatal(err)
 	}
 	_, err := attach(t, home, root, "")
@@ -297,7 +297,7 @@ func TestAttachRefusedRegistrationLeavesNothing(t *testing.T) {
 	own := filepath.Join(other, config.DefaultConfigRel)
 	os.MkdirAll(filepath.Dir(own), 0o755)
 	os.WriteFile(own, []byte(`{"name":"Other","tmux_socket":"clauductor-acme-web"}`), 0o644)
-	if _, err := AddProject(context.Background(), AddOptions{Home: home, Project: other, Run: signals.ExecRunner, Strict: true}); err != nil {
+	if _, err := AddProject(context.Background(), AddOptions{Home: home, Project: other, Run: testRunner, Strict: true}); err != nil {
 		t.Fatal(err)
 	}
 	root := newRepo(t, nil)

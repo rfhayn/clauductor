@@ -79,7 +79,7 @@ func (r *closeRepo) run(ctx context.Context, dir string, argv []string) ([]byte,
 	}
 	switch argv[0] {
 	case "git":
-		return signals.ExecRunner(ctx, dir, argv)
+		return signals.EnvRunner(testgit.Env)(ctx, dir, argv)
 	case "gh":
 		r.mu.Lock()
 		defer r.mu.Unlock()

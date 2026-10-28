@@ -41,7 +41,7 @@ esac
 	git := fakeRunner(root)
 	run := func(ctx context.Context, d string, argv []string) ([]byte, error) {
 		if signals.IsClaude(argv) {
-			return signals.ExecRunner(ctx, d, argv)
+			return testRunner(ctx, d, argv)
 		}
 		return git(ctx, d, argv)
 	}

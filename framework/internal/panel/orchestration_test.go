@@ -58,7 +58,7 @@ func v2Runner(tmux, sock, home, root string, hidden *atomic.Bool, waiting ...*at
 		case claude:
 			return nil, fmt.Errorf("unexpected %v", argv)
 		}
-		return signals.ExecRunner(ctx, dir, argv)
+		return testRunner(ctx, dir, argv)
 	}
 }
 

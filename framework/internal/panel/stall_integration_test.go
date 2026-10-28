@@ -76,7 +76,7 @@ func (w *stallWorld) run(ctx context.Context, dir string, argv []string) ([]byte
 		if strings.Contains(j, " -C ") && strings.HasSuffix(j, " rev-parse --absolute-git-dir") {
 			w.set(func(w *stallWorld) { w.gitDirs++ })
 		}
-		return signals.ExecRunner(ctx, dir, argv)
+		return testRunner(ctx, dir, argv)
 	case j == "claude auth status --json":
 		return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","email":"dev@example.com","orgId":"x","subscriptionType":"max"}`), nil
 	case strings.HasPrefix(j, "claude agents --json"):
