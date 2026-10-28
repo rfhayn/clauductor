@@ -999,25 +999,45 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 			t.Errorf("a passed child is reported: %q in %q", got, rw.shell("checks/x.sh", l))
 		}
 	}
-	// Nor is one passed by hand in a form the rewrite does not write: an unquoted substitution's
-	// blanks split no word, and a case pattern's `)` starts a command and closes no substitution.
+	// Nor is one passed by hand in a form the rewrite does not write, while the same form unpassed is
+	// reported: each form is judged both ways, so neither half passes on the other's mistake (#274).
+	// An unquoted substitution's blanks split no word; a case pattern's `)`, with or without its
+	// leading `(` and on a line of its own, starts a command and closes no substitution, and a
+	// `case` after reserved words is still a case; the words of a value are its outer command's,
+	// whatever quotes and parentheses it nests.
 	pass := `CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`
-	for _, l := range []string{
-		`REV=$(git rev-parse HEAD) ` + pass,
-		`case $1 in a) ` + pass + ` ;; esac`,
-		`x="$(case $1 in a) ` + pass + ` ;; esac)"`,
+	bare := `sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`
+	for _, form := range []string{
+		`REV=$(git rev-parse HEAD) %s`,
+		`case $1 in a) %s ;; esac`,
+		`x="$(case $1 in a) %s ;; esac)"`,
+		// A case after a reserved word (#274, item 1: the silent one, inside "$( … )").
+		`x="$(if true; then case $1 in a) %s ;; esac; fi)"`,
+		`x="$(for f in a; do case $f in a) %s ;; esac; done)"`,
+		`x="$({ case $1 in a) %s ;; esac; })"`,
+		`x="$(! case $1 in a) %s ;; esac)"`,
+		`if true; then case $1 in a) %s ;; esac; fi`,
+		// Nested quotes and parentheses in a value (item 2).
+		`REV="$(git log -1 --format="%%H %%s")" %s`,
+		`X="$(echo "(")" %s`,
+		`X=$(case $1 in a) echo;; esac) %s`,
+		// Case shapes (item 3): a leading-paren pattern, and an arm on a line of its own.
+		`case $1 in (a) %s ;; esac`,
+		"case $1 in\n  a) %s ;;\nesac",
+		"case $1 in\n  (a) %s ;;\nesac",
 	} {
-		if got := unpassedChildren(l); len(got) != 0 {
-			t.Errorf("a child passed by hand is reported: %q in %q", got, l)
+		if l := fmt.Sprintf(form, pass); len(unpassedChildren(l)) != 0 {
+			t.Errorf("a child passed by hand is reported: %q in %q", unpassedChildren(l), l)
+		}
+		if l := fmt.Sprintf(form, bare); len(unpassedChildren(l)) != 1 {
+			t.Errorf("an unpassed child is not reported once: %q in %q", unpassedChildren(l), l)
 		}
 	}
-	// Those forms unpassed are reported, and the rewrite does not pass them: a template line using
-	// one fails here.
+	// The rewrite does not pass those forms: a template line using one fails here, not ships.
 	for _, l := range []string{
-		`x="$(case $1 in a) sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"' ;; esac)"`,
-		`case $1 in a) sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"' ;; esac`,
 		rw.shell("checks/x.sh", `REV=$(git rev-parse HEAD) sh -c '. "$ROOT/.claude/lib/conf.sh"'`),
 		rw.shell("checks/x.sh", `case $1 in a) sh -c '. "$ROOT/.claude/lib/conf.sh"' ;; esac`),
+		rw.shell("checks/x.sh", `x="$(if true; then case $1 in a) sh -c '. "$ROOT/.claude/lib/conf.sh"' ;; esac; fi)"`),
 	} {
 		if got := unpassedChildren(l); len(got) != 1 {
 			t.Errorf("an unpassed child is not reported once: %q in %q", got, l)
@@ -1071,20 +1091,37 @@ func unpassedChildren(s string) []string {
 // are returned. isCommand is false when the child is in a comment or inside a quoted string.
 func commandWords(p string) (words []string, isCommand bool) {
 	start, q := 0, byte(0)
-	// Each open `(`, `$(` or backtick saves the quote it was read in and where the outer command
-	// started, and its close restores both: the `"` that closes `"$(date)"` closes the outer quote,
-	// and `REV="$(git rev-parse HEAD)" CLAUDUCTOR_FW=… sh` is still one command of assignments. A
-	// frame also counts the `case`s open in it, whose pattern's `)` closes nothing.
+	// splits holds the blanks that split the current command's words: only those read at its own
+	// level, outside quotes and outside anything it nests (#274, item 2).
+	var splits []int
+	// Each open `(`, `$(` or backtick saves the quote it was read in, where the outer command
+	// started and its splits, and its close restores them: the `"` that closes `"$(date)"` closes
+	// the outer quote, and `REV="$(git rev-parse HEAD)" CLAUDUCTOR_FW=… sh` is still one command of
+	// assignments. After a plain `(`'s close a command starts: only an operator may follow a
+	// subshell, so a word there follows a case pattern's leading `(` (item 3). A frame also counts
+	// the `case`s open in it, whose pattern's `)` closes nothing.
 	type frame struct {
 		q            byte
 		start, cases int
-		tick         bool
+		splits       []int
+		tick, paren  bool
 	}
 	frames := []frame{{}}
+	// A case keyword stands where a command starts, or after reserved words only: `then case`,
+	// `do case`, `{ case`, `! case` (item 1).
+	reserved := map[string]bool{"!": true, "{": true, "if": true, "then": true, "else": true, "elif": true, "do": true, "while": true, "until": true}
 	keyword := func(i int, k string) bool {
 		e := i + len(k)
-		return strings.HasPrefix(p[i:], k) && (e == len(p) || strings.IndexByte(" \t;)", p[e]) >= 0) &&
-			strings.TrimLeft(p[start:i], " \t") == ""
+		if !strings.HasPrefix(p[i:], k) || (e < len(p) && strings.IndexByte(" \t;)", p[e]) < 0) ||
+			(i > start && strings.IndexByte(" \t", p[i-1]) < 0) {
+			return false
+		}
+		for _, w := range strings.Fields(p[start:i]) {
+			if !reserved[w] {
+				return false
+			}
+		}
+		return true
 	}
 	for i := 0; i < len(p); i++ {
 		c := p[i]
@@ -1097,14 +1134,14 @@ func commandWords(p string) (words []string, isCommand bool) {
 		case c == '\\':
 			i++
 		case c == '$' && i+1 < len(p) && p[i+1] == '(':
-			frames = append(frames, frame{q: q, start: start})
-			start, q = i+2, 0
+			frames = append(frames, frame{q: q, start: start, splits: splits})
+			start, q, splits = i+2, 0, nil
 			i++
 		case c == '`' && top.tick:
-			q, start, frames = top.q, top.start, frames[:len(frames)-1]
+			q, start, splits, frames = top.q, top.start, top.splits, frames[:len(frames)-1]
 		case c == '`':
-			frames = append(frames, frame{q: q, start: start, tick: true})
-			start, q = i+1, 0
+			frames = append(frames, frame{q: q, start: start, splits: splits, tick: true})
+			start, q, splits = i+1, 0, nil
 		case q == '"':
 			if c == '"' {
 				q = 0
@@ -1120,45 +1157,34 @@ func commandWords(p string) (words []string, isCommand bool) {
 			top.cases--
 			i += len("esac") - 1
 		case c == ')' && top.cases > 0:
-			start = i + 1
+			start, splits = i+1, nil
 		case c == '(':
-			frames = append(frames, frame{q: q, start: start})
-			start = i + 1
+			frames = append(frames, frame{q: q, start: start, splits: splits, paren: true})
+			start, splits = i+1, nil
 		case c == ')' && len(frames) > 1 && !top.tick:
-			q, start, frames = top.q, top.start, frames[:len(frames)-1]
+			paren := top.paren
+			q, start, splits, frames = top.q, top.start, top.splits, frames[:len(frames)-1]
+			if paren {
+				start, splits = i+1, nil
+			}
+		case c == ')':
+			// It closes nothing on this line: a case pattern whose case opened on an earlier one.
+			start, splits = i+1, nil
 		case strings.IndexByte(";&|", c) >= 0:
-			start = i + 1
+			start, splits = i+1, nil
+		case c == ' ' || c == '\t':
+			splits = append(splits, i)
 		}
 	}
 	if q != 0 {
 		return nil, false
 	}
-	// A blank splits a word only outside quotes and outside an unquoted `$( … )` or backtick.
-	var w strings.Builder
-	depth, tick := 0, false
-	for i := start; i < len(p); i++ {
-		c := p[i]
-		switch {
-		case q != 0:
-			if c == q {
-				q = 0
-			}
-		case c == '\'' || c == '"':
-			q = c
-		case c == '`':
-			tick = !tick
-		case c == '(':
-			depth++
-		case c == ')' && depth > 0:
-			depth--
-		case (c == ' ' || c == '\t') && depth == 0 && !tick:
-			if w.Len() > 0 {
-				words = append(words, w.String())
-				w.Reset()
-			}
-			continue
+	from := start
+	for _, s := range append(splits, len(p)) {
+		if w := p[from:s]; w != "" {
+			words = append(words, w)
 		}
-		w.WriteByte(c)
+		from = s + 1
 	}
 	return words, true
 }

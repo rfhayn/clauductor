@@ -12,6 +12,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel"
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // catchUpRepo is a repository with one commit and a panel.json of its own named name.
@@ -29,10 +30,7 @@ func catchUpRepo(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "-A"}, {"commit", "-q", "-m", "one"}} {
-		c := exec.Command("git", args...)
-		c.Dir = root
-		c.Env = append(gitFreeEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := c.CombinedOutput(); err != nil {
+		if out, err := testgit.Command(root, args...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
 	}

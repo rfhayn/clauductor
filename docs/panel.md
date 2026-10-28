@@ -3425,7 +3425,7 @@ clauductor panel install                                      # once projects.js
      others (`/opt/homebrew/bin` for Homebrew's `go`): otherwise re-run `install` once.
 5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
 
-Before step 2 it reads `launchctl print-disabled gui/$UID`. When launchd holds
+Before step 1 it reads `launchctl print-disabled gui/$UID`. When launchd holds
 `com.clauductor.panel` as disabled (an old uninstall or `launchctl disable` can leave it so),
 every bootstrap would fail with error 5, so `install` stops there, having changed nothing, and
 names the `launchctl enable gui/$UID/com.clauductor.panel` to run before installing again. It
@@ -3815,6 +3815,27 @@ The rules the suite keeps, and a new test must too:
   a plain file's mode is a literal, or a constant declared in the same file. A probe that takes
   a flock unlocks it (`LOCK_UN`) before closing, as `lease.go` does: closing alone leaves the
   lock with the child's copy, and the next taker is refused.
+- **A test's git stays in its fixture.** Run under a git hook, `GIT_DIR`, `GIT_WORK_TREE` and
+  `GIT_INDEX_FILE` aim every git at the hook's repository, so a fixture's `init`, `add` and
+  `commit` would act there (#281, #302, #311). Every process a test starts inherits them (its
+  own git, the git the code under test runs, a script's), so each test binary drops every `GIT_`
+  variable before any of its code runs: importing `testgit` does it, in `testgit`'s `init`,
+  which Go runs before the importing package's variables, `init` and `TestMain`, and only
+  before the package that imports it. A directory with external tests compiles two test
+  packages (`x` and `x_test`), so each form imports `testgit`; one that uses nothing of it
+  imports it blank (`main_test.go`). `treesnap`'s tests are all external (`treesnap_test`):
+  `testgit` imports `treesnap`, so its internal form could not import `testgit` back.
+  `TestEveryTestPackageImportsTestgit` walks every directory of the module that holds a
+  `_test.go` file, groups its test files by package clause, and fails each form none of whose
+  files imports `testgit`; `testgit`'s own internal form is the one exception. The import is the
+  rule because it is the order: without it, Go may initialise a test package's variables before
+  `testgit`'s strip.
+  `TestATestBinaryUnderAHookLeavesItsRepositoryAlone` starts a test binary under a stand-in
+  hook's repository (`testgit.Outer`, which compares that repository's work tree and `.git`
+  whole, with its own config pinned against the machine's) and shows its fixture's git, run
+  with the inherited environment and from a package-level variable, stays out of it, and reaches
+  it without the strip. A fixture's own git goes through `testgit.Command`, for a commit
+  identity and the git found before any test stubs PATH.
 - **A project removed live leaves no goroutine** (PANEL-22). Each project's runtime runs every
   goroutine it starts (its hub, each source, each source's file watch) under a context and a wait
   group of its own; removing it cancels the context and waits for the group before the request

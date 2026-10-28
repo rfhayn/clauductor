@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/clauductor/clauductor/internal/testwait"
 )
 
@@ -102,10 +102,7 @@ func (r *closeRepo) run(ctx context.Context, dir string, argv []string) ([]byte,
 
 func (r *closeRepo) git(dir string, args ...string) string {
 	r.t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	out, err := cmd.CombinedOutput()
+	out, err := testgit.Command(dir, args...).CombinedOutput()
 	if err != nil {
 		r.t.Fatalf("git %v: %v %s", args, err, out)
 	}
@@ -144,7 +141,7 @@ func (r *closeRepo) commit(dir, file string) string {
 }
 
 func (r *closeRepo) branchExists(b string) bool {
-	return exec.Command("git", "-C", r.root, "rev-parse", "--verify", "--quiet", "refs/heads/"+b).Run() == nil
+	return testgit.Command(r.root, "rev-parse", "--verify", "--quiet", "refs/heads/"+b).Run() == nil
 }
 
 // closeAll plans, then closes with exactly what the plan offered.

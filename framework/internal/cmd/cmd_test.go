@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -310,19 +312,111 @@ func TestFailingCommandPrintsItsErrorOnce(t *testing.T) {
 	if r := cliIn(t, t.TempDir(), home, "nope"); !strings.Contains(r.stderr, "Run 'clauductor --help' for usage.") {
 		t.Errorf("an unknown command does not point at --help:\n%s", r.stderr)
 	}
+	// cobra.NoArgs refuses an argument in the same words as an unknown command, but cobra printed
+	// the pointer only for a command it could not find: the subcommand's own usage is already
+	// there, and the root's help is not the one to read (#269).
+	if r := cliIn(t, t.TempDir(), home, "doctor", "extra"); strings.Contains(r.stderr, "--help") {
+		t.Errorf("an extra argument points at --help:\n%s", r.stderr)
+	}
 }
 
-// The root's PersistentPreRun silences usage for a command's own failure; cobra runs only the
-// nearest one, so a subcommand that defined its own would bring usage back for its subtree.
-func TestOnlyTheRootHasAPersistentPreRun(t *testing.T) {
+// The root's PersistentPreRun silences usage for a command's own failure. Cobra runs only the
+// nearest one (or each from the root down under cobra.EnableTraverseRunHooks), so a subcommand's
+// own could bring usage back for its subtree. What is held is the outcome, not the shape: once a
+// command's arguments pass, the hooks cobra runs have silenced its usage (#269).
+func TestUsageIsSilencedOnceTheArgumentsPass(t *testing.T) {
+	for _, path := range usageStaysOn(rootCmd, cobra.EnableTraverseRunHooks) {
+		t.Errorf("%s would print usage for its own failure: a PersistentPreRun replaces the root's without silencing it", path)
+	}
+
+	// The judge itself, on trees of its own: a subcommand hook that silences usage passes, one that
+	// does not fails, unless traverse hooks run the root's as well. Each tree's leaf fails, and
+	// cobra itself runs it: it prints usage exactly where the judge says it would, so the judge's
+	// model of cobra's hooks is held to cobra's own.
+	silence := func(c *cobra.Command, _ []string) { c.SilenceUsage = true }
+	tree := func(sub func(*cobra.Command, []string)) *cobra.Command {
+		root := &cobra.Command{Use: "r", PersistentPreRun: silence, SilenceErrors: true}
+		mid := &cobra.Command{Use: "m", PersistentPreRun: sub}
+		mid.AddCommand(&cobra.Command{Use: "leaf", RunE: func(*cobra.Command, []string) error { return errors.New("leaf fails") }})
+		root.AddCommand(mid)
+		return root
+	}
+	defer func(was bool) { cobra.EnableTraverseRunHooks = was }(cobra.EnableTraverseRunHooks)
+	for _, c := range []struct {
+		name     string
+		sub      func(*cobra.Command, []string)
+		traverse bool
+		want     []string
+	}{
+		{"a subcommand hook that silences usage", silence, false, nil},
+		{"a subcommand hook that does not", func(*cobra.Command, []string) {}, false, []string{"r m leaf"}},
+		{"the same under traverse hooks", func(*cobra.Command, []string) {}, true, nil},
+		{"no subcommand hook", nil, false, nil},
+	} {
+		if got := usageStaysOn(tree(c.sub), c.traverse); !slices.Equal(got, c.want) {
+			t.Errorf("%s: usage stays on for %q, want %q", c.name, got, c.want)
+		}
+		cobra.EnableTraverseRunHooks = c.traverse
+		root := tree(c.sub)
+		var out bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.SetArgs([]string{"m", "leaf"})
+		if err := root.Execute(); err == nil {
+			t.Fatalf("%s: the failing leaf returned no error", c.name)
+		}
+		if got := strings.Contains(out.String(), "Usage:"); got != (len(c.want) > 0) {
+			t.Errorf("%s: cobra printed usage %v, the judge says %v:\n%s", c.name, got, len(c.want) > 0, out.String())
+		}
+	}
+}
+
+// usageStaysOn names each runnable command under root whose usage cobra would still print for its
+// own failure: the PersistentPreRun hooks cobra runs once its arguments pass, the nearest one or
+// (traverse) each from the root down, leave SilenceUsage off. The hooks run here as cobra would
+// run them; each command's SilenceUsage is put back afterwards.
+func usageStaysOn(root *cobra.Command, traverse bool) []string {
+	var bad []string
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		for _, sub := range c.Commands() {
-			if sub.PersistentPreRun != nil || sub.PersistentPreRunE != nil {
-				t.Errorf("%s defines a PersistentPreRun, which replaces the root's", sub.CommandPath())
-			}
 			walk(sub)
 		}
+		if !c.Runnable() {
+			return
+		}
+		var chain []*cobra.Command
+		for p := c; p != nil; p = p.Parent() {
+			chain = append([]*cobra.Command{p}, chain...)
+		}
+		if !traverse {
+			slices.Reverse(chain) // nearest first, and only the first that has a hook runs
+		}
+		saved := map[*cobra.Command]bool{}
+		for _, p := range chain {
+			saved[p] = p.SilenceUsage
+		}
+		for _, p := range chain {
+			ran := true
+			switch {
+			case p.PersistentPreRunE != nil:
+				_ = p.PersistentPreRunE(c, nil)
+			case p.PersistentPreRun != nil:
+				p.PersistentPreRun(c, nil)
+			default:
+				ran = false
+			}
+			if ran && !traverse {
+				break
+			}
+		}
+		if !c.SilenceUsage && !root.SilenceUsage {
+			bad = append(bad, c.CommandPath())
+		}
+		for p, s := range saved {
+			p.SilenceUsage = s
+		}
 	}
-	walk(rootCmd)
+	walk(root)
+	return bad
 }
