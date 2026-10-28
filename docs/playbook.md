@@ -50,6 +50,29 @@ started from the panel's **New lane** (or by hand), on one branch:
 
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
   worktree agents while its hooks lag `origin/main`.
+- **Who brings a lane's `.claude` files up to date.** Claude Code's sandbox, as this repo's
+  `settings.json` sets it, allows these writes (probed 2026-10-28, OPS-151):
+
+  | Path | In a lane's worktree | In the main checkout |
+  |---|---|---|
+  | `.claude/hooks`, `.claude/skills` | writable | denied |
+  | `.claude/agents`, `template/.claude/agents` | denied | denied |
+  | `.git/config`, `.git/hooks` | denied | denied |
+
+  - **The lane** brings its own hooks and skills along, inside the sandbox: a rebase, a merge, or
+    `CLAUDUCTOR_FRAMEWORK=$PWD framework/clauductor update` with the binary built from the lane's
+    checkout (the owner's shell sets that variable to the MAIN checkout, and it outranks the
+    binary's own checkout in the template search).
+  - **The main session** creates the lane's worktree: `git worktree add` writes `.git/config`,
+    and its checkout writes `.claude/agents`, so it runs outside the sandbox. It is a fixed git
+    command run by the main session, not lane code. A lane cannot write an agent definition at
+    all, in `template/` or `.claude/`: it hands its change over as a diff, and after review the
+    main session applies that reviewed diff, again outside the sandbox.
+  - **A lane opened as a session of its own** (ST-15's launcher): the session that opens it does
+    both.
+  - **No command ever runs a lane's own files outside the sandbox.** A lane can edit every file in
+    its worktree, so an approved unsandboxed run of a script, a build or a config there runs
+    whatever the lane wrote (#304, closed for that).
 - **One full gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a
   lane's full gate may queue behind another's; the panel shows who holds it. A `--quick` run takes
   no lease and never queues.

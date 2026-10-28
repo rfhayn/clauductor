@@ -32,7 +32,11 @@
 #     interactive session) has tool_response.isAsync true and agentId; SubagentStop lists that
 #     agent in background_tasks as type "subagent". Its report goes to whoever is still awake: with
 #     the launcher's turn ended, to the MAIN session (probed on the Mac, 2026-10-18). Held, the
-#     launcher waited for the agent's record here to go and then received the report itself.
+#     launcher waited for the agent's record here to go and then received the report itself, under
+#     `claude -p`. In an interactive session (2026-10-28, OPS-151) a reviewer launched by a lane
+#     that is itself a background agent of the main session handed its report to the MAIN session:
+#     its hand-back to the lane failed ("the agent that spawned you is no longer running"), and it
+#     had no SendMessage. Nothing here relays such a report to the lane; ST-16 owns that path.
 #   - TeammateIdle has agent_id but no background_tasks (code.claude.com/docs/en/hooks), so a
 #     teammate's tasks, and the shells AskUserQuestion counts, are read from those files.
 #   - A shell `&` makes no task at all, so it is refused up front (lib/gate-reader.awk reads the

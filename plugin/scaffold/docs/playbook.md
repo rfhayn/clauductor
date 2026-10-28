@@ -61,6 +61,27 @@ started from the panel's **New lane** (or by hand), on one branch:
   `panel.json` that disagrees with the keys.
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
   worktree agents while its hooks lag `origin/main`.
+- **Who brings a lane's `.claude` files up to date.** Claude Code's sandbox, as this model's
+  `settings.json` sets it, allows these writes (probed 2026-10-28):
+
+  | Directory | In a lane's worktree | In the main checkout |
+  |---|---|---|
+  | `hooks` and `skills` under `.claude` | writable | denied |
+  | `agents` under `.claude` | denied | denied |
+  | `config` and `hooks` under `.git` | denied | denied |
+
+  - **The lane** brings its own hooks and skills along (`clauductor update`, a rebase, a merge),
+    inside the sandbox.
+  - **The main session** creates the lane's worktree: `git worktree add` writes `.git/config`,
+    and its checkout writes the agents, so it runs outside the sandbox. It is a fixed git
+    command run by the main session, not lane code. A lane cannot write an agent definition at
+    all: it hands its change over as a diff, and after review the main session applies that
+    reviewed diff, again outside the sandbox.
+  - **A lane opened as a session of its own** (a new terminal tab, not an agent of the main
+    session): the session that opens it does both.
+  - **No command ever runs a lane's own files outside the sandbox.** A lane can edit every file in
+    its worktree, so an approved unsandboxed run of a script, a build or a config there runs
+    whatever the lane wrote.
 - **A request is priced before it is relayed to a running lane.** The orchestrator tells the owner
   which lane, its rough cost, what it displaces and whether it lands in a control, with a cheaper
   option when there is one, and the owner chooses (`session-start`, *Rules*; nothing checks it).

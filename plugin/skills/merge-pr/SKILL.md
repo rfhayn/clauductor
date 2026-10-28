@@ -136,7 +136,10 @@ A reviewer spawn may come back as launched in the background (fork mode, the def
 does). Do any other work this step has. If there is none,
 end your turn with no final report and without SubagentHandback: Claude Code keeps you running
 while an agent you spawned is still working, and delivers its findings as your next turn. A hand-back finishes you, and the findings
-then go elsewhere (OPS-25). Never poll, sleep or re-spawn.
+then go elsewhere (OPS-25). Never poll, sleep or re-spawn. One case is known not to hold: when
+you are yourself a background agent of another session, your reviewer's report goes to that MAIN
+session, not to you (seen 2026-10-28 in an interactive session, OPS-151). Nothing in this model
+relays it to you yet (Clauductor's ST-16 owns that path).
 If the Agent tool offers `run_in_background` (fork mode off: `-p`, the Agent SDK), pass `false`:
 there, a launcher that ends its turn has ended.
 
