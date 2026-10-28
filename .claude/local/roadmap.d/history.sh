@@ -28,7 +28,7 @@ taken() {
       print id "\t" cid }
   ' "$h"
 }
-t=$(mktemp) || { echo "could not make a temporary file"; exit 1; }
+t=$(mktemp "${TMPDIR:-/tmp}/roadmap-history.XXXXXX") || { echo "could not make a temporary file"; exit 1; }
 trap 'rm -f "$t"' EXIT
 taken > "$t" || { echo "docs/roadmap-history.md could not be read"; exit 1; }
 # A history that cannot be read is an error, never an empty list (OPS-147's review, L6).

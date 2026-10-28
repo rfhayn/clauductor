@@ -63,7 +63,7 @@ quota_save() (
   # no refresh's any more.
   find "$dir" -maxdepth 1 -name '.quota-reading.*' -type f -mmin +5 -exec rm -f {} + 2>/dev/null
   # Same directory, so the mv is a rename: a reader sees the old file or the new, never half of one.
-  tmp=$(mktemp "$dir/.quota-reading.XXXXXX" 2>/dev/null) || return 0
+  tmp=$(mktemp "$dir/.quota-reading.XXXXXX" 2>/dev/null) || return 0  # mktemp-in-tmpdir: beside the reading, so the mv stays on one file system
   if printf '%s\n' "$new" > "$tmp" 2>/dev/null && chmod 600 "$tmp" 2>/dev/null && mv -f "$tmp" "$f" 2>/dev/null; then
     return 0
   fi
@@ -86,7 +86,7 @@ quota_read() {
 
 quota_pct() {
   _q=$(quota_read) || return 1
-  _q=$(printf '%s\n' "$_q" | awk -F '\t' -v k="$1" '$1 == k && $2 != "-" { print $2; exit }')
+  _q=$(printf '%s\n' "$_q" | awk -F '\t' -v k="$1" '!got && $1 == k && $2 != "-" { print $2; got = 1 }')
   [ -n "$_q" ] || return 1
   printf '%s\n' "$_q"
 }

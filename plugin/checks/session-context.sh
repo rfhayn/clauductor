@@ -129,11 +129,11 @@ has "TBD: no specs directory is not a finding, and says why" "$(ctx ctx_tbd_spec
 # ── the context scripts print every section, CANNOT CHECK where it cannot read ─────────────────
 out=$(sh "$CLAUDUCTOR_FW/skills/session-close/context.sh" 2>&1)
 for h in "Remote branches with no open PR" "roadmap row still reads queued on origin/" "Living specs still carrying TBD"; do
-  sec=$(printf '%s\n' "$out" | awk -v h="$h" 'index($0, h) { on = 1; next } on && /^- / { exit } on { print }')
+  sec=$(printf '%s\n' "$out" | awk -v h="$h" 'done { next } index($0, h) { on = 1; next } on && /^- / { done = 1; next } on { print }')
   [ -n "$sec" ] && ok "session-close context: \"$h\" prints a line offline ($(printf '%s' "$sec" | head -1 | sed 's/^ *//'))" || fail "session-close context: \"$h\" printed nothing"
 done
 out=$(sh "$CLAUDUCTOR_FW/skills/session-start/context.sh" 2>&1)
-sec=$(printf '%s\n' "$out" | awk 'index($0, "Remote branches with no open PR") { on = 1; next } on && /^- / { exit } on { print }')
+sec=$(printf '%s\n' "$out" | awk 'done { next } index($0, "Remote branches with no open PR") { on = 1; next } on && /^- / { done = 1; next } on { print }')
 case "$sec" in *"CANNOT CHECK"*) ok "session-start context: remote branches says CANNOT CHECK offline, never none" ;; *) fail "session-start remote branches offline: $sec" ;; esac
 # Without lib/context.sh the sections say so, and the script still reaches its last section. The
 # model's files are this project's .claude, or the plugin root when this check runs from the plugin.

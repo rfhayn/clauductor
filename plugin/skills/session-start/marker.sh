@@ -37,13 +37,13 @@ here=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null)
 # BRANCH_FIX); a capability change's branch takes BRANCH_CHANGE in front.
 branches=$(printf '%s\n' "$tsv" | awk -F'\t' -v c="$BRANCH_CHANGE" 'NF >= 6 { print $4 "\t" ($6 == "change" ? c $5 : $5) }')
 if [ -z "$rowid" ]; then
-  rowid=$(printf '%s\n' "$branches" | awk -F'\t' -v b="$here" '$2 == b { print $1; exit }')
+  rowid=$(printf '%s\n' "$branches" | awk -F'\t' -v b="$here" '!got && $2 == b { print $1; got = 1 }')
   [ -n "$rowid" ] || { echo "marker: no roadmap row is built on '$here', so this lane is no row's session; no marker"; exit 0; }
 fi
-row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$rowid" '$4 == a { print; exit }')
+row=$(printf '%s\n' "$tsv" | awk -F'\t' -v a="$rowid" '!got && $4 == a { print; got = 1 }')
 [ -n "$row" ] || warn "no roadmap row has the id '$rowid'"
 summary=$(printf '%s\n' "$row" | cut -f10 | cut -c1-60 | sed 's/[[:space:]]*$//')
-branch=$(printf '%s\n' "$branches" | awk -F'\t' -v a="$rowid" '$1 == a { print $2; exit }')
+branch=$(printf '%s\n' "$branches" | awk -F'\t' -v a="$rowid" '!got && $1 == a { print $2; got = 1 }')
 [ "$here" = "$branch" ] || warn "this checkout is on '$here', not row $rowid's branch '$branch'"
 
 if [ -z "$sn" ] && [ -f "$CLAUDUCTOR_FW/roadmap-plan.sh" ]; then

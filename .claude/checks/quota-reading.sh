@@ -113,7 +113,7 @@ jq -e '[.windows[].key] | index("huge") | not' "$F" >/dev/null && ok "a reset ti
 # Waiting 3s shows as at least 2 in whole seconds; then the slow save is waited out, so it never
 # outlives the check or races the scratch directory's removal.
 H="$d/home-slow"; mkdir -p "$H" "$d/slowbin"
-printf '#!/bin/sh\nsleep 3\nexec %s "$@"\n' "$(command -v mktemp)" > "$d/slowbin/mktemp"; chmod +x "$d/slowbin/mktemp"
+printf '#!/bin/sh\nsleep 3\nexec %s "$@"\n' "$(command -v mktemp)" > "$d/slowbin/mktemp"; chmod +x "$d/slowbin/mktemp"  # mktemp-in-tmpdir: a stand-in that execs the real one, not a call
 t0=$(date +%s)
 line=$(printf '%s' "$(in_json "$rl")" | HOME="$H" PATH="$d/slowbin:$PATH" sh "$sl" 2>/dev/null)
 t1=$(date +%s)
