@@ -293,6 +293,21 @@ func execCombined(argv ...string) ([]byte, error) {
 
 func guiDomain() string { return "gui/" + strconv.Itoa(os.Getuid()) }
 
+// CheckEnabled refuses when launchd holds the panel's label as disabled: every bootstrap would
+// fail with error 5, which Install's retry would only repeat (#202). Install checks before it
+// changes anything, and panel install --project before it registers the project (#269); enabling
+// the label is the owner's. A nil exec runs the real launchctl.
+func CheckEnabled(exec func(argv ...string) ([]byte, error)) error {
+	if exec == nil {
+		exec = execCombined
+	}
+	if out, err := exec("/bin/launchctl", "print-disabled", guiDomain()); err == nil && labelDisabled(out, LaunchdLabel) {
+		return fmt.Errorf("launchd holds %s as disabled (launchctl print-disabled %s), so loading it would fail with error 5: run `launchctl enable %s/%s`, then `clauductor panel install` again",
+			LaunchdLabel, guiDomain(), guiDomain(), LaunchdLabel)
+	}
+	return nil
+}
+
 // labelDisabled reads `launchctl print-disabled`'s listing (`"<label>" => disabled`, or `=> true`
 // on some macOS versions) for label.
 func labelDisabled(listing []byte, label string) bool {
@@ -383,11 +398,8 @@ func Install(o InstallOptions) error {
 			cfg = "" // let the agent follow the project's default path
 		}
 	}
-	// A label launchd holds as disabled fails every bootstrap with error 5, which the retry
-	// below would only repeat (#202). Stop before anything changes; enabling it is the owner's.
-	if out, err := o.Exec("/bin/launchctl", "print-disabled", guiDomain()); err == nil && labelDisabled(out, LaunchdLabel) {
-		return fmt.Errorf("launchd holds %s as disabled (launchctl print-disabled %s), so loading it would fail with error 5: run `launchctl enable %s/%s`, then `clauductor panel install` again",
-			LaunchdLabel, guiDomain(), guiDomain(), LaunchdLabel)
+	if err := CheckEnabled(o.Exec); err != nil {
+		return err
 	}
 	bin := InstalledBinary(o.Home)
 	if err := copyFileAtomic(o.Self, bin); err != nil {

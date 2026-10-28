@@ -1,4 +1,6 @@
-package treesnap
+// An external test package, as main_test.go is: testgit imports treesnap, so the internal form
+// could not import testgit, and its package-level code could run before testgit's strip.
+package treesnap_test
 
 import (
 	"os"
@@ -6,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/treesnap"
 )
 
 // Each kind of write the D8 proof must catch shows in a diff: a file rewritten with
@@ -31,8 +35,8 @@ func TestDiffNamesEveryChange(t *testing.T) {
 	if err := os.Symlink("same.txt", filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
-	before := Take(t, root)
-	if d := Diff(before, Take(t, root)); len(d) != 0 {
+	before := treesnap.Take(t, root)
+	if d := treesnap.Diff(before, treesnap.Take(t, root)); len(d) != 0 {
 		t.Fatalf("an untouched tree diffs: %v", d)
 	}
 	if before[".git/index"].SHA256 == "" || before["."].Mode&os.ModeDir == 0 {
@@ -57,7 +61,7 @@ func TestDiffNamesEveryChange(t *testing.T) {
 	if err := os.Symlink("new.txt", filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
-	d := strings.Join(Diff(before, Take(t, root)), "\n")
+	d := strings.Join(treesnap.Diff(before, treesnap.Take(t, root)), "\n")
 	for _, want := range []string{"changed .git/index: [mtime]", "added new.txt", "removed gone.txt", "changed mode.sh: [mode", "changed link:"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("the diff does not name %q:\n%s", want, d)

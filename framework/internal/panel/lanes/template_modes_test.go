@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,6 +14,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // PANEL-29: a template lane starts where its branch already is. A template names one
@@ -455,12 +455,11 @@ func (r *tplRepo) stoppedWorktree(branch, dir, stop string) string {
 	r.commit(wt, "b.txt")
 	r.commit(wt, "c.txt")
 	r.commit(r.root, dir+"-main-moved.txt")
-	cmd := exec.Command("git", "rebase", "--exec", "false", "main")
+	cmd := testgit.Command(wt, "rebase", "--exec", "false", "main")
 	if stop == "bisect" {
-		cmd = exec.Command("git", "bisect", "start", "HEAD", "HEAD~3")
+		cmd = testgit.Command(wt, "bisect", "start", "HEAD", "HEAD~3")
 	}
-	cmd.Dir = wt
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_EDITOR=true")
+	cmd.Env = append(cmd.Env, "GIT_EDITOR=true")
 	_ = cmd.Run() // a stopped rebase exits non-zero
 	wts, err := signals.ReadWorktrees(context.Background(), r.run, r.root)
 	if err != nil {

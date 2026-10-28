@@ -404,6 +404,14 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 		if err != nil {
 			return err
 		}
+		if installRemote != "" && installRemote != install.RemoteAll && installRemote != install.RemoteLanes && installRemote != install.RemoteOff {
+			return fmt.Errorf("--remote-control must be all, lanes or off, not %q", installRemote)
+		}
+		// A refusal Install would give anyway comes before registering the project, so a stopped
+		// install has changed nothing (#269).
+		if err := install.CheckEnabled(panelInstallExec); err != nil {
+			return err
+		}
 		if installProject != "" {
 			// Installing is choosing this project: register it as the default, and
 			// record its config as trusted, so the agent does not start it in the
@@ -417,9 +425,6 @@ creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
 			if err := printTrust(cmd.OutOrStdout(), res.Entry.ConfigPath(), h, runs, err); err != nil {
 				return err
 			}
-		}
-		if installRemote != "" && installRemote != install.RemoteAll && installRemote != install.RemoteLanes && installRemote != install.RemoteOff {
-			return fmt.Errorf("--remote-control must be all, lanes or off, not %q", installRemote)
 		}
 		// The agent serves projects.json (PANEL-16): the plist names no project.
 		if err := install.Install(install.InstallOptions{Home: home, Port: installPort, App: installApp, Out: cmd.OutOrStdout(), Clock: clock.System,
