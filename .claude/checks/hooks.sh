@@ -839,6 +839,34 @@ for h in "$H"/*.sh; do
     && ok "$(basename "$h") tests for conf.sh before sourcing it" || fail "$(basename "$h") sources conf.sh without testing it exists first (a dash exit 2 reads as a block)"
 done
 
+# ── no forced worktree removal, no pattern kill (ST-14) ────────────────────────────────────────
+wt() {
+  rc=0; printf '%s' "$2" | sh "$H/no-worktree-force-remove.sh" >/dev/null 2>&1 || rc=$?
+  expect_rc "$1" "$rc" "worktree-remove $( [ "$1" = 2 ] && echo blocks || echo allows ): $3"
+}
+wtp() { jq -cn --arg c "$1" '{tool_name:"Bash", tool_input:{command:$c}}'; }
+wt 2 "$(wtp 'git worktree remove --force x')" "git worktree remove --force"
+wt 2 "$(wtp 'git worktree remove x -f')" "a force flag after the path"
+wt 0 "$(wtp 'git worktree remove x')" "a plain removal"
+wt 0 "$(cd "$ROOT" && wtp 'sh .claude/machine-quiet.sh')" "machine-quiet.sh, whose own -f is not read"
+wt 0 "$(wtp "echo 'git worktree remove --force x'")" "a quoted mention"
+pk() {
+  rc=0; printf '%s' "$2" | sh "$H/no-pattern-kill.sh" >/dev/null 2>&1 || rc=$?
+  expect_rc "$1" "$rc" "pattern-kill $( [ "$1" = 2 ] && echo blocks || echo allows ): $3"
+}
+pk 2 "$(wtp '/usr/bin/pkill -f sleep')" "a path to pkill"
+pk 2 "$(wtp 'pkill -f sleep')" "the bare name, so a missing wrapper still refuses"
+pk 2 "$(wtp 'command -p pkill')" "command -p, which skips the wrapper"
+pk 2 "$(wtp 'env PATH=/usr/bin:/bin pkill')" "a rebuilt PATH"
+pk 0 "$(wtp 'kill 1234')" "kill by pid"
+pk 0 "$(wtp 'echo pkill is refused')" "the name in an argument"
+pk 0 "$(wtp 'grep /usr/bin/pkill /dev/null')" "a path mentioned as an argument"
+pk 0 "$(wtp 'gh pr create --body "see /usr/bin/pkill"')" "a path inside a quoted argument"
+rc=0; "$H/../bin/pkill" -f sleep >/dev/null 2>&1 || rc=$?
+expect_rc 2 "$rc" "the pkill wrapper refuses every call"
+rc=0; "$H/../bin/killall" sleep >/dev/null 2>&1 || rc=$?
+expect_rc 2 "$rc" "the killall wrapper refuses every call"
+
 # ── Registration: every hook settings.json registers LAUNCHES, from a subdirectory too ──────────
 # Every row above runs a hook by its absolute path, so it tests the HOOK and never the
 # REGISTRATION. Claude Code runs a command hook in the session's CURRENT directory, which follows
@@ -905,6 +933,9 @@ worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Age
 cd-guard.sh	0	file:@REPO@/.git/clauductor-cd-guard/hooks-check/holds/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{"taskId":"check"}}	a build-change run is recorded as holding the worktree it started in
 catch-up-guard.sh	0	out:catch-up-guard: (no clauductor on PATH|catch-up is off)	{"tool_name":"Bash","tool_input":{"command":"git pull --ff-only origin main"}}	a pull in the main checkout, catch-up off or unaskable: allowed, and says so
 read-by-range.sh	2	out:BLOCKED by read-by-range:	{"tool_name":"Read","tool_input":{"file_path":"@REPO@/big.txt"}}	a whole Read of a file over 400 lines
+no-worktree-force-remove.sh	2	out:BLOCKED by no-worktree-force-remove:	{"tool_name":"Bash","tool_input":{"command":"git worktree remove --force x"}}	a forced worktree removal
+no-pattern-kill.sh	2	out:BLOCKED by no-pattern-kill:	{"tool_name":"Bash","tool_input":{"command":"/usr/bin/pkill -f sleep"}}	a path to pkill, which skips the wrapper
+pattern-kill-path.sh	0	out:pattern-kill-path:	{"hook_event_name":"SessionStart","session_id":"hooks-check"}	SessionStart puts .claude/bin first, or says it could not
 focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges
 format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written
 EOF

@@ -1,0 +1,27 @@
+#!/bin/sh
+# pkill and killall — refused, every invocation, in every session (ST-14). `killall` hands its
+# call to this file under its own name. Both are first on PATH in every Bash command
+# (pattern-kill-path.sh writes that route to CLAUDE_ENV_FILE and drops any alias or function of
+# either name). Every child that looks a program up by name inherits that PATH.
+#
+# WHY EVERY INVOCATION. On 2026-10-11 a review subagent ran `pkill -f 'sleep 300' -U $(id -u) -P 1`.
+# BSD pkill stops reading options at the first pattern, so `-U`, the uid, `-P` and `1` became more
+# patterns, and `1` matched every process whose argv held the character 1: four worktree sessions
+# and Colima. The author believed the command WAS scoped. A pattern names processes this session
+# did not start, and several sessions share one machine, so no argv is safe to pass on.
+#
+# THIS FILE NEVER RUNS THE REAL PROGRAM, and does not look for it. A path skips PATH; no-pattern-kill.sh
+# refuses the literal forms. A shell that rebuilds PATH (`command -p`, `env -i`, sudo) and `kill`
+# itself (a builtin) are not this file's.
+name=${PATTERN_KILL_NAME:-${0##*/}}
+{
+  printf 'BLOCKED by .claude/bin/%s: %s is refused in every session, with any arguments.\n' "$name" "$name"
+  printf 'It chooses processes by pattern, and other sessions share this machine. On 2026-10-11 '
+  printf "\`pkill -f 'sleep 300' -U \$(id -u) -P 1\` killed four worktree sessions and Colima: BSD pkill "
+  printf 'reads every word after the first pattern as one more pattern.\n'
+  printf 'Kill only what you started, by the pid you recorded when you started it:\n'
+  printf '  cmd & pid=$!; ...; kill "$pid"          one process\n'
+  printf '  kill -- -<pgid>                         a process group you started (set -m; cmd & pgid=$!)\n'
+  printf 'To look before you kill: ps -o pid,ppid,pgid,command -p <pid>. Never kill a pid list a pattern produced.\n'
+} >&2
+exit 2

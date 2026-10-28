@@ -49,6 +49,9 @@ var FrameworkDirs = []string{
 	".claude/workflows/",
 	".claude/modules/",
 	".claude/examples/",
+	// The refusing pkill and killall (ST-14). The plugin packager's frameworkDirs lists bin the
+	// same way: install and the plugin must agree, or `clauductor update` never refreshes them.
+	".claude/bin/",
 	// The lease conformance kit: the suite IS the protocol, so a project runs it as shipped and
 	// update refreshes it (P1.12).
 	"scripts/ci/lease-conformance/",

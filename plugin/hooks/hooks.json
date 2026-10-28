@@ -61,6 +61,14 @@
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" read-by-range.sh",
             "type": "command"
+          },
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-worktree-force-remove.sh",
+            "type": "command"
+          },
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-pattern-kill.sh",
+            "type": "command"
           }
         ]
       },
@@ -84,6 +92,14 @@
       }
     ],
     "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" pattern-kill-path.sh",
+            "type": "command"
+          }
+        ]
+      },
       {
         "hooks": [
           {
