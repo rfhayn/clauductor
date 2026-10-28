@@ -78,6 +78,7 @@ case "$1 $2" in
   # gh api repos/<owner>/<name> --jq .full_name: the name GitHub answers. GH_RENAMED: the names that
   # redirect to GH_CANON (a renamed or transferred repository's). GH_API_ERR: gh itself fails.
   "api repos/"*)
+    [ -n "${GH_API_LOG:-}" ] && echo "$2" >> "$GH_API_LOG"
     [ -n "${GH_API_ERR:-}" ] && { echo "$GH_API_ERR" >&2; exit 1; }
     asked=${2#repos/}
     case " ${GH_RENAMED:-} " in *" $asked "*) echo "${GH_CANON:-Acme/App}" ;; *) echo "$asked" ;; esac ;;
@@ -919,6 +920,11 @@ guard 2 "#282: this repo's old name in a gh api merge, with no evidence" "gh api
 guard 2 "#282: origin left on the old name, the merge naming the new one, with no evidence" "gh pr merge 5 -R new/app --squash" GH_RENAMED="acme/app new/app" GH_CANON=New/App GH_HEAD=$Z
 guard 2 "#282: gh cannot say which repository another name is (fails closed)" "gh pr merge 2 -R other/tool --squash --delete-branch" GH_API_ERR="HTTP 401: Bad credentials"
 grep -q 'GitHub did not say which repository' "$d/err" && ok "#282: ...saying gh could not resolve the name" || fail "#282: the refusal does not say gh could not resolve the name: $(head -3 "$d/err")"
+# Each name is asked about once a run, though the guard reads the merge's name twice.
+: > "$d/api.log"
+guard 0 "#282: this repo's old name, asked about once each" "gh pr merge 5 -R old/app --squash" GH_RENAMED=old/app GH_API_LOG="$d/api.log"
+[ "$(sort "$d/api.log" | uniq -d | wc -l | tr -d ' ')" = 0 ] && [ "$(wc -l < "$d/api.log" | tr -d ' ')" = 2 ] \
+  && ok "#282: ...two gh api calls, one per name" || fail "#282: gh api calls for one merge: $(tr '\n' ' ' < "$d/api.log")"
 
 # Non-ASCII in a UTF-8 locale (#100): BSD awk died on a byte of `✅` or `🤖` taken apart one at a
 # time, and the guard refused harmless commands as unreadable. Only a UTF-8 locale shows it (mawk

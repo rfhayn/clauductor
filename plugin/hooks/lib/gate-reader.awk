@@ -40,15 +40,18 @@
 #          word after it ("-" for none), 1 when a later word is a short-option cluster holding u
 #          (`-u`, `-fu`: git reads short options a letter at a time), --update-head-ok or
 #          --ignore-other-worktrees, or a prefix of either (else 0), the count of later words that
-#          are no option, and the value a `-c alias.<sub>=` on the line gives (empty for none). Git
-#          is `git`, a path ending /git, or a git-core program (`git-pull`, any path ending
-#          /git-<sub>: git's own dispatch runs it as `git <sub>`), in command position, or ANY such
-#          word later in a simple command (an unknown wrapper: `chronic git`). `gh pr checkout` and
-#          `gh repo sync` print as a git checkout. The `$( … )` and backticks in an unquoted
-#          heredoc's body run, so they are read as commands too.
-#   ODD    the reader lost its place: a `)` at the top level that closes nothing (a `$( … )` it
-#          ended early: zsh reads a case pattern's `)`, a comment's or a ${…}'s inside one as no
-#          end), or a `( … )` still open at the end. What it read after is at the wrong depth.
+#          are no option, and every `-c alias.<name>=<value>` on the line, each ending in a \036
+#          byte (empty for none). Git is `git` or a path ending /git, in command position or ANY
+#          such word later in a simple command (an unknown wrapper: `chronic git`), or a git-core
+#          program in command position (`git-pull`, any path ending /git-<sub>: git's own
+#          dispatch runs it as `git <sub>`). A subcommand spelled with a `$'…'` escape, or none
+#          of its own under xargs, is computed (`$`). `gh pr checkout` and `gh repo sync` print as
+#          a git checkout. The `$( … )` and backticks in an unquoted heredoc's body run, so they
+#          are read as commands too.
+#   ODD    the reader cannot be sure where a `$( … )` ends (a `case` word or a `#` comment in it,
+#          a `${` with no `}`), or it lost its place: a top-level `)` that closes nothing, a `;;`
+#          or an `esac` outside any case it saw, a quote that never closes. What it read after may
+#          be at the wrong depth, or missing.
 #   DYN    a command word the shell computes (`$g`, `$( … )`): it may be git, or a cd. `eval`'s
 #          words are joined and read as one command, as the shell does.
 #   SEP    a tab and the operator that ends a simple command THIS shell runs (`;` for a newline
@@ -119,7 +122,7 @@ function flush(   s) {
 
 # gitstart [SC]: a git invocation begins; one `find -execdir` runs is aimed where nobody can read.
 # SC: the subcommand a git-core program (`git-pull`) names, as git's own dispatch runs it.
-function gitstart(sc) { ST[D] = "git"; GDIR[D] = XD[D] ? "?" : "."; GNX[D] = ""; GCA[D] = ""; GSUB[D] = sc; GARG[D] = "-"; GHA[D] = 0; GU[D] = 0; GPN[D] = 0 }
+function gitstart(sc) { ST[D] = "git"; GDIR[D] = XD[D] ? "?" : "."; GNX[D] = ""; GCA[D] = ""; GSUB[D] = sc; GARG[D] = "-"; GHA[D] = 0; GU[D] = 0; GPN[D] = 0; GX[D] = 0 }
 
 # isgit T: "" when T is git, the subcommand when it is a git-core program (`git-pull`,
 # `/usr/libexec/git-core/git-merge`, `$( … )/git-pull`), "-" when neither.
@@ -179,10 +182,13 @@ function gitword(t,   x) {
 
 function gitend(   k, c, v, i, p) {
   ST[D] = "rest"
+  if (GSUB[D] == "" && GX[D]) GSUB[D] = "$"
   if (GSUB[D] == "") return
-  v = ""; p = "alias." GSUB[D] "="
+  # Every `-c alias.<name>=<value>` on the line, in order, each ending in a \036 byte: an alias
+  # may name another, which git resolves too.
+  v = ""
   k = split(GCA[D], c, "\n")
-  for (i = k; i >= 1; i--) if (index(c[i], p) == 1) { v = substr(c[i], length(p) + 1); break }
+  for (i = 1; i <= k; i++) if (tolower(substr(c[i], 1, 6)) == "alias.") v = v c[i] "\036"
   print "GIT\t" GDIR[D] "\t" GSUB[D] "\t" GARG[D] "\t" GU[D] "\t" GPN[D] "\t" v
 }
 
@@ -203,9 +209,15 @@ function endword(   t) {
 
 # onword T: one finished word of the simple command at depth D.
 function onword(t,   b, st) {
+  if (D == 1 && CASEP > 0) {   # a case's subject, its `in` or a pattern: no command (CASEN, below)
+    if (CASEP-- == 1 && t == "esac") CASEN--
+    ST[D] = "rest"; return
+  }
   st = ST[D]
   if (st == "rest") {
-    if (gits && isgit(t) != "-") gitstart(isgit(t))
+    # Only git itself starts a git invocation past the command word; a git-core program's name
+    # there is an argument (`man git-merge`, `grep -rn git-pull docs`).
+    if (gits && base(t) == "git") gitstart()
     else if (gits && base(t) == "gh") { ST[D] = "gh"; GH1[D] = ""; GHS[D] = 0 }
     else if (gits && reaims(t)) print "CD\t" gscope() "\t$"
     else if (gits && (t == "-execdir" || t == "-okdir")) XD[D] = 1
@@ -254,11 +266,14 @@ function onword(t,   b, st) {
   if (WK[D] != "" && t ~ /^[0-9.]+[smhd]?$/) return
   b = base(t)
   if (cds && D == 1 && !SUB && (t == "cd" || t == "pushd") && (WK[D] == "" || WK[D] in CDWRAP)) { ST[D] = "cd"; return }
-  # CASEN: inside a top-level case, whose patterns end in a `)` that closes no subshell.
-  if (D == 1 && t == "case") { CASEN++; CASESUB[CASEN] = SUB; ST[D] = "rest"; return }
-  if (D == 1 && t == "esac" && CASEN > 0) { CASEN--; ST[D] = "rest"; return }
+  # CASEN: inside a top-level case, whose patterns end in a `)` that closes no subshell. CASEP: the
+  # words before a pattern's `)` (its subject, `in`, the first pattern; after `;;`, one), never a
+  # command, so a pattern spelled `case` opens nothing. An `esac` that closes no case is a lost place.
+  if (D == 1 && t == "case") { CASEN++; CASESUB[CASEN] = SUB; CASEP = 3; ST[D] = "rest"; return }
+  if (D == 1 && t == "esac") { if (CASEN > 0) CASEN--; else if (gits) print "ODD"; ST[D] = "rest"; return }
   if (gits) {
-    if (isgit(t) != "-") { gitstart(isgit(t)); return }
+    # Under xargs, git's words may all come from its input: a git with none of its own is computed.
+    if (isgit(t) != "-") { gitstart(isgit(t)); GX[D] = WK[D] == "xargs"; return }
     if (b == "gh") { ST[D] = "gh"; GH1[D] = ""; GHS[D] = 0; return }
     if (t == "cd" || t == "pushd" || t == "chdir") { ST[D] = "gcd"; GCW[D] = t; return }
     if (t == "popd" || t == "." || t == "source") { print "CD\t" gscope() "\t$"; ST[D] = "rest"; return }
@@ -276,13 +291,31 @@ function onword(t,   b, st) {
 # close_paren S I [ARITH]: the index of the `)` matching the `(` at I, past the end if none. Quotes
 # are skipped, and so are heredoc bodies (a `)` in one does not close it), except in arithmetic
 # (ARITH), where `<<` is a shift.
-function close_paren(s, i, arith,   n, d, c, hd, dl, st, e, line, k, m, q) {
-  n = length(s); d = 0; hd = ""
+#   Where a shell may end it elsewhere, it sets CPODD and the caller prints ODD: a `case` word (its
+# patterns' `)` close nothing), a `#` that starts a word (a comment's `)` closes nothing), and a
+# `${` with no `}`. A `${…}` is skipped whole, as the shell reads it: its `)` closes nothing.
+function close_paren(s, i, arith,   n, d, c, hd, dl, st, e, line, k, m, q, ws) {
+  n = length(s); d = 0; hd = ""; CPODD = 0
   for (; i <= n; i++) {
     c = substr(s, i, 1)
+    ws = substr(s, i - 1, 1) ~ /[ \t\n;&|()`]/
+    if (!arith && ws && (c == "#" || (substr(s, i, 4) == "case" && substr(s, i + 4, 1) ~ /[ \t\n]/))) CPODD = 1
+    if (!arith && c == "$" && substr(s, i + 1, 1) == "{") {
+      e = 1
+      for (i += 2; i <= n && e > 0; i++) {
+        q = substr(s, i, 1)
+        if (q == "\\") i++
+        else if (q == "{") e++
+        else if (q == "}") e--
+      }
+      if (e > 0) CPODD = 1
+      i--; continue
+    }
     if (c == "\\") { i++; continue }
-    if (c == "'") { while (++i <= n && substr(s, i, 1) != "'") ; continue }
-    if (c == "\"") { while (++i <= n && substr(s, i, 1) != "\"") if (substr(s, i, 1) == "\\") i++; continue }
+    # $'…' takes backslash escapes, `\'` among them; a quote that never closes is a lost place.
+    if (c == "$" && substr(s, i + 1, 1) == "'") { for (i += 2; i <= n && substr(s, i, 1) != "'"; i++) if (substr(s, i, 1) == "\\") i++; if (i > n) CPODD = 1; continue }
+    if (c == "'") { while (++i <= n && substr(s, i, 1) != "'") ; if (i > n) CPODD = 1; continue }
+    if (c == "\"") { while (++i <= n && substr(s, i, 1) != "\"") if (substr(s, i, 1) == "\\") i++; if (i > n) CPODD = 1; continue }
     if (!arith && c == "<" && substr(s, i + 1, 1) == "<" && substr(s, i + 2, 1) != "<") {
       # The delimiter: after `<<` or `<<-` and blanks, up to a blank or an operator, quotes dropped.
       i += 2; st = 0
@@ -330,7 +363,7 @@ function subst(s, i,   j) {
     j = close_paren(s, i + 1, 1); WB[D] = WB[D] "0"; HV[D] = 1; return j + 1
   }
   if (substr(s, i, 1) == "`") { j = close_tick(s, i + 1); scan(substr(s, i + 1, j - i - 1)) }
-  else { j = close_paren(s, i + 1); scan(substr(s, i + 2, j - i - 2)) }
+  else { j = close_paren(s, i + 1); if (gits && CPODD) print "ODD"; scan(substr(s, i + 2, j - i - 2)) }
   WB[D] = WB[D] "$()"; HV[D] = 1
   return j + 1
 }
@@ -355,8 +388,9 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
   while (i <= n) {
     c = substr(s, i, 1); c2 = substr(s, i + 1, 1)
     if (c == "\\") { if (c2 != "\n") { WB[D] = WB[D] c2; HV[D] = 1 } i += 2; continue }
+    # A quote that never closes: the reader's quotes and the shell's have parted (it lost its place).
     if (c == "'") {
-      j = index(substr(s, i + 1), "'"); if (j == 0) j = n - i + 1
+      j = index(substr(s, i + 1), "'"); if (j == 0) { j = n - i + 1; if (gits) print "ODD" }
       WB[D] = WB[D] substr(s, i + 1, j - 1); HV[D] = 1; i += j + 1; continue
     }
     if (c == "\"") {
@@ -367,11 +401,14 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
         else if (c == "`" || (c == "$" && substr(s, i + 1, 1) == "(")) i = subst(s, i)
         else { WB[D] = WB[D] c; i++ }
       }
+      if (i > n && gits) print "ODD"
       i++; continue
     }
     if (c == "$" && c2 == "'") {
       for (j = i + 2; j <= n && substr(s, j, 1) != "'"; j++) if (substr(s, j, 1) == "\\") j++
-      WB[D] = WB[D] substr(s, i + 2, j - i - 2); HV[D] = 1; i = j + 1; continue
+      if (j > n && gits) print "ODD"
+      # An escape in it (`$'\x70ull'`) is decoded by the shell, not here: the word is computed.
+      WB[D] = WB[D] substr(s, i + 2, j - i - 2) (gits && index(substr(s, i + 2, j - i - 2), "\\") ? "$" : ""); HV[D] = 1; i = j + 1; continue
     }
     if (c == "$" && c2 == "(") { i = subst(s, i); continue }
     if (c == "`") { i = subst(s, i); continue }
@@ -406,6 +443,13 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
       HP[D] = 0
       continue
     }
+    if (c == ";" && (c2 == ";" || c2 == "&" || c2 == "|")) {
+      # A case arm's end (`;;`, and bash's and zsh's `;&`, `;|`): a pattern or `esac` comes next.
+      # Outside a case the reader saw, it lost its place: the case began where it was not reading.
+      endword(); sep(";")
+      if (D == 1) { if (CASEN > 0) CASEP = 1; else if (gits) print "ODD" }
+      i += 2; continue
+    }
     if (c == ";") { endword(); sep(";"); i++; continue }
     if (c == "&") {
       endword()
@@ -428,7 +472,8 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
     if (c == "<" || c == ">") {
       # A word of digits just before is the redirected descriptor (`2>`), not an argument.
       if (HV[D] && WB[D] ~ /^[0-9]+$/) { WB[D] = ""; HV[D] = 0 } else endword()
-      if (c2 == "(") { sep(); i += 2; continue }          # <( … ) and >( … ): commands of their own
+      # <( … ) and >( … ): commands of their own, in a child shell its `)` ends, as a subshell's.
+      if (c2 == "(") { sep(); if (D == 1) { SUB++; if (gits) print "SEP\t(" } i += 2; continue }
       if (c == "<" && substr(s, i, 3) == "<<<") { RD[D] = 1; i += 3; continue }
       if (c == "<" && c2 == "<") {
         HN[D] = substr(s, i + 2, 1) == "-" ? 2 : 1; i += HN[D] == 2 ? 3 : 2
@@ -444,7 +489,5 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
     WB[D] = WB[D] c; HV[D] = 1; i++
   }
   endword(); flush()
-  # A `( … )` still open at the end: a `)` the shell matched was read as something else.
-  if (D == 1 && gits && SUB > 0) print "ODD"
   D--
 }

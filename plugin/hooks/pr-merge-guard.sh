@@ -608,18 +608,29 @@ this_repo=$(repo_key "$(git --no-optional-locks remote get-url origin 2>/dev/nul
 # repo's PR, and an origin remote never updated after a rename names the old one. A named repo that
 # differs from origin's counts as another only when GitHub resolves the two to different
 # repositories; when gh cannot answer, it is not known to be another.
-# canon KEY — the owner/name GitHub answers for KEY, lowercased; empty when gh cannot say.
+# canon KEY — sets canon_out to the owner/name GitHub answers for KEY, lowercased; empty when gh
+# cannot say. Each answer is kept for this run in the shell itself, never in a $( … ) subshell: a
+# merge's name is asked about twice (the foreign shape, then argv), and this repo's every time.
+canon_seen="" canon_out=""
 canon() {
-  gh api "repos/$1" --jq .full_name </dev/null 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed -n '1{/^[a-z0-9._-][a-z0-9._-]*\/[a-z0-9._-][a-z0-9._-]*$/p;}'
+  case $canon_seen in
+    *"
+$1 "*) canon_out=${canon_seen##*"
+$1 "}; canon_out=${canon_out%%"
+"*}; return ;;
+  esac
+  canon_out=$(gh api "repos/$1" --jq .full_name </dev/null 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed -n '1{/^[a-z0-9._-][a-z0-9._-]*\/[a-z0-9._-][a-z0-9._-]*$/p;}')
+  canon_seen="$canon_seen
+$1 $canon_out
+"
 }
-this_canon=""
 # same_repo KEY — 0 when KEY is this repo, 1 when GitHub resolves it to another, 2 when it cannot say.
 same_repo() {
   [ "$1" = "$this_repo" ] && return 0
-  [ -n "$this_canon" ] || this_canon=$(canon "$this_repo")
-  _c=$(canon "$1")
-  [ -n "$this_canon" ] && [ -n "$_c" ] || return 2
-  [ "$_c" = "$this_canon" ]
+  canon "$this_repo"; _t=$canon_out
+  canon "$1"; _c=$canon_out
+  [ -n "$_t" ] && [ -n "$_c" ] || return 2
+  [ "$_c" = "$_t" ]
 }
 if [ -n "$api_pr" ]; then shaped=$(repo_key "$(api_foreign_shape)"); else shaped=$(repo_key "$(foreign_shape)"); fi
 if [ -n "$this_repo" ] && [ -n "$shaped" ] && [ "$shaped" != "$this_repo" ]; then

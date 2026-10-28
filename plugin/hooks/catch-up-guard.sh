@@ -21,9 +21,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # WHAT IS A MOVE. A git subcommand change-process.sh's text check also counts (pull merge reset
 # checkout switch rebase restore stash update-ref; `stash list` and `stash show` excepted), a fetch
 # with -u (alone or in a cluster: `-fu`) or --update-head-ok, a subcommand the shell computes (`git
-# "$sub"`), or an alias whose value, with the command line's words after it, is one of those or
-# starts with `!` (a shell alias), from the checkout's config or a `-c alias.X=` on the line. A
-# git-core program (`git-pull`, `"$(git --exec-path)/git-merge"`) is git with that subcommand.
+# "$sub"`, `git $'\x70ull'`, or none of its own under xargs), or an alias whose value, with the
+# command line's words after it, is one of those or starts with `!` (a shell alias), from a `-c
+# alias.X=` on the line or else the checkout's config, followed through an alias of an alias as git
+# follows it. A git-core program in command position (`git-pull`, `"$(git --exec-path)/git-merge"`)
+# is git with that subcommand.
 # `gh pr checkout` and `gh repo sync` move the checkout they run in, as a git checkout
 # would. A computed command word (`$g pull`, `eval "$c"`) is a move when the command's text, its
 # quotes and backslashes dropped, names a move word anywhere. Refs are shared by every worktree, so
@@ -48,11 +50,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # checkout's branch checked out (the refs say so, however it got there). So a lane's own catch-up
 # merge (merge-pr step 2), in its worktree, or after a literal cd into it, runs.
 #
-# WHEN THE READER IS LOST. The reader is not a shell, and zsh ends a `$( … )` later than it does
-# at a case pattern's `)`, a comment's or a ${…}'s: it would then read a child's cd as this
-# shell's. Rather than model each such spelling, the reader says when it lost its place (ODD: a
-# `)` that closes nothing, a `(` never closed), and then the whole command counts as unknown: every
-# move in it is aimed at the cwd's main checkout too.
+# WHEN THE READER IS LOST. The reader is not a shell. A `$( … )` it ends early (at a case
+# pattern's `)`, which POSIX writes without its `(`, or a comment's) has it read a child's cd as
+# this shell's. Rather than model each such spelling, the reader says where it cannot be sure or
+# has lost its place (ODD): a `case` word or a comment inside a `$( … )`, a `${` with no `}` there,
+# a top-level `)` that closes nothing, a `;;` or an `esac` outside any case it saw. Then the whole
+# command counts as unknown: every move in it is aimed at the cwd's main checkout too.
 #
 # WHAT IS ASKED. Only clauductor knows whether catch-up is on. Without clauductor on PATH (the repo
 # works without it: ADR-0006), or with any answer but `on` and exit 0, catch-up is off: the command
@@ -61,7 +64,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # is on for the cwd's main checkout. If the reader cannot run, the command is read the same way.
 #
 # KNOWN LIMITS.
-#   - Not followed: an alias of an alias, a config file the command names, a shell function or alias
+#   - Not followed: a config file the command names (`-c include.path=`), a shell function or alias
 #     the session defined, a script file (`bash x.sh`, `printf … | sh`), `ssh` (another machine),
 #     a gh alias or extension, and every other tool that runs git for you.
 #   - Not a move here: a new commit on the checkout (commit, am, cherry-pick, revert, branch -f).
@@ -69,9 +72,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #     eval "$c"`), is not refused.
 #   - Not followed either: a write to git's own files (`printf 'ref: …' > "$gitdir/HEAD"`), which
 #     puts a worktree on another branch with no git command; the refs show it from the next command.
-#   - Read too widely, each refused only with catch-up on: a `git` or `git-<sub>` word anywhere in
-#     a simple command starts a git invocation (`echo git pull` in the main checkout); a whole
-#     command the reader lost its place in (a zsh case pattern inside `$( … )`); a lane's checkout
+#   - Not git here: a git-core program past the command word, behind a wrapper not on the reader's
+#     list (`chronic git-pull`): it is read as an argument there (`man git-merge`).
+#   - Read too widely, each refused only with catch-up on: a `git` word anywhere in a simple
+#     command starts a git invocation (`echo git pull` in the main checkout); a whole command with
+#     a case or a comment inside a `$( … )`, which the reader counts as lost; a lane's checkout
 #     or switch with --ignore-other-worktrees, even of its own branch; a -C "$(…)" the shell computes
 #     is unknown even when it names the lane (`git -C "$(git rev-parse --show-toplevel)" merge`); a
 #     lane's update-ref or `fetch -u` of its own branch; a cd to a directory that does not exist
@@ -141,9 +146,16 @@ cwd=$(real "$cwd")
 # LC_ALL=C: a multibyte locale can make awk reject a command's bytes (merge-reader.awk's #100).
 reads=$(printf '%s' "$cmd" | LC_ALL=C awk -v gates="" -v gits=1 -f "$(dirname "$0")/lib/gate-reader.awk" 2>/dev/null) \
   || raw "$cmd" "(read raw: the reader could not run) $cmd"
-case $reads in *GIT* | *DYN*) ;; *) exit 0 ;; esac
 dynmove=0; plain "$cmd" | grep -Eq "$MOVE_RE" && dynmove=1
-odd=0; printf '%s\n' "$reads" | grep -qx ODD && odd=1
+# A reading the reader lost (ODD) may also be short of what runs (a quote it closed elsewhere
+# swallows the rest), so the command is read raw as well: a git word and a move word count as
+# aimed at the cwd's main checkout.
+odd=0 rawmain=
+if printf '%s\n' "$reads" | grep -qx ODD; then
+  odd=1
+  [ "$dynmove" = 1 ] && plain "$cmd" | grep -Eq "$GIT_RE" && rawmain=$(main_of "$cwd")
+fi
+case $reads in *GIT* | *DYN*) ;; *) [ -n "$rawmain" ] || exit 0 ;; esac
 
 moves_sub() {  # moves_sub SUBCOMMAND NEXT-WORD SHARED-FLAG OPERANDS: the subcommand moves a checkout
   case $1 in
@@ -160,21 +172,35 @@ moves_sub() {  # moves_sub SUBCOMMAND NEXT-WORD SHARED-FLAG OPERANDS: the subcom
   case " $MOVES " in *" $1 "*) return 0 ;; esac
   return 1
 }
-is_move() {  # is_move DIR SUBCOMMAND NEXT-WORD SHARED-FLAG OPERANDS ALIAS-VALUE: it, or the alias it names, moves
+alias_of() {  # alias_of DIR NAME LINE-ALIASES: alias NAME's value, as git reads it (the line's last -c, else config)
+  _l=$(printf '%s' "$3" | tr '\036' '\n' | awk -v k="alias.$2=" '
+    tolower(substr($0, 1, length(k))) == tolower(k) { v = substr($0, length(k) + 1); f = 1 } END { if (f) print "=" v }')
+  if [ -n "$_l" ]; then printf '%s\n' "${_l#=}"; return 0; fi
+  git -C "$1" config --get "alias.$2" 2>/dev/null
+}
+is_move() {  # is_move DIR SUBCOMMAND NEXT-WORD SHARED-FLAG OPERANDS LINE-ALIASES: it, or the alias chain it starts, moves
   shared=0
   moves_sub "$2" "$3" "$4" "$5" && return 0
-  _v=$6
-  [ -n "$_v" ] || _v=$(git -C "$1" config --get "alias.$2" 2>/dev/null) || return 1
-  case $_v in '!'*) return 0 ;; esac
-  # The alias's words come before the command line's: its flags and operands count with theirs.
-  # awk reads all its input (NR == 1, no exit), so printf never writes to a closed pipe (OPS-150).
-  set -- "$(printf '%s\n' "$_v" | awk -v x="$3" -v u="$4" -v n="${5:-0}" 'NR == 1 {
-      for (i = 2; i <= NF; i++) { if ($i ~ /^-[^-]*u/ || $i ~ /^--update-h/ || $i ~ /^--ignore-o/) u = 1; if ($i !~ /^-/) n++ }
-      print $1 "\t" (NF > 1 ? $2 : x) "\t" u "\t" n }')"
-  IFS="$TAB" read -r _s _x _u _n <<EOF
-$1
+  # An alias may name another alias: followed as git follows it, to the end of the chain (a loop,
+  # which git refuses, moves nothing). Each alias's words come before the words after it, so its
+  # flags and operands count with theirs.
+  _dir=$1 _line=$6 _name=$2 _x=$3 _u=$4 _n=${5:-0} _seen=' ' _i=0
+  while [ "$_i" -lt 16 ]; do
+    _i=$((_i + 1))
+    case $_seen in *" $_name "*) return 1 ;; esac
+    _seen="$_seen$_name "
+    _v=$(alias_of "$_dir" "$_name" "$_line") || return 1
+    case $_v in '!'*) return 0 ;; esac
+    # awk reads all its input (NR == 1, no exit), so printf never writes to a closed pipe (OPS-150).
+    _r=$(printf '%s\n' "$_v" | awk -v x="$_x" -v u="$_u" -v n="$_n" 'NR == 1 {
+        for (i = 2; i <= NF; i++) { if ($i ~ /^-[^-]*u/ || $i ~ /^--update-h/ || $i ~ /^--ignore-o/) u = 1; if ($i !~ /^-/) n++ }
+        print $1 "\t" (NF > 1 ? $2 : x) "\t" u "\t" n }')
+    IFS="$TAB" read -r _name _x _u _n <<EOF
+$_r
 EOF
-  moves_sub "$_s" "$_x" "$_u" "$_n"
+    moves_sub "$_name" "$_x" "$_u" "$_n" && return 0
+  done
+  return 0  # a chain longer than this is read as a move, never as none
 }
 aimed() {  # aimed DIR: DIR's main checkout, when DIR is in it or its git dir ("?": the cwd's main checkout)
   if [ "$1" = '?' ]; then main_of "$cwd"; return; fi
@@ -274,7 +300,7 @@ walk() {  # walk: the reader's lines on stdin; prints each main checkout a move 
 }
 
 # Each main checkout a move is aimed at, once.
-mains=$(printf '%s\n' "$reads" | walk | awk 'NF && !seen[$0]++')
+mains=$( { printf '%s\n' "$reads" | walk; printf '%s\n' "$rawmain"; } | awk 'NF && !seen[$0]++')
 
 [ -n "$mains" ] || exit 0
 while IFS= read -r m; do judge "$m" "$cmd"; done <<EOF
