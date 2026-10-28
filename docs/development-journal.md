@@ -14,6 +14,195 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 14 — 2026-10-28 — Rich — S14 landed: the gate lease, the Standing Tee ports, the review cap and the load flakes
+
+**Totals.** Gate 33 min (a row's gate was CANNOT CHECK, so this is a floor); cost $0 (a row's cost was CANNOT CHECK, so this is a floor).
+
+**Rows folded.** OPS-133 (#297); OPS-139 (#296); OPS-146 (#292); ST-11 (#295); ST-14 (#298); ST-8 (#293); ST-9 (#294).
+
+**What happened.** S14's nine rows are on main. OPS-147 (#289) and OPS-148 (#290) were already merged when this close started; this entry folds the seven that landed after them. The folded gate and cost lines are what the fragments recorded. Several of those fragments were written before the clean receipt, so the totals are a floor, not the later run. This session's own cost is CANNOT CHECK — no CLAUDE_CODE_SESSION_ID (this close ran in Cursor, and `usage-report.sh` with no session id says the same). Flow, 30 days to 2026-10-28: cycle 1.4h median, lead 2.4h, 44.3 merges/wk, change-fail 4.9%, approval wait 3.4h, review rounds 2, spend $1043.05/wk, 27 in flight (excludes unpriced models: claude-haiku-5-5).
+
+**Key decisions.** None new from the owner at this close. The review cap stays a stop (OPS-139). The load flakes wait on the condition the test already claimed, not a longer sleep (PRAC-0010).
+
+**Learning.** No row was promoted to a new ADR. Of the 28 Raw insights that had waited three sessions, 11 are instances of a sentence that already covers them: the authority a guard iterates, a passing test that has not failed, or PRAC-0010's close-the-class rule. The other 17 stay unpromoted: each was one occurrence already fixed at the site, or a control that already exists (the race-tier plugin test, the sandbox note of 2026-10-22). Three observations from this session stay Raw: a gate receipt that follows the sha the run started on, a journal check that holds shape and not truth, and a bold path that `approval-guarded` does not cover until its directory is listed.
+
+**What's next.** S15, in the session plan: OPS-123 (#209) first, then OPS-140, OPS-141, OPS-142, OPS-143 and OPS-99. Seven changes are still proposed (ops-109, ops-42, panel-25, panel-30, panel-31, panel-46, panel-58). panel-46 and panel-58 were cancelled by the 2026-10-27 reset and are not to be built. Two remote branches have no open PR and stay, because they are the owner's from 2026-10-13: `change/ops-42-build` and `change/panel-31-build`. REL-1 (#25) stays the owner's draft. The roadmap tracker was not refreshed: this session has no Artifact tools, so the next session-start should read it STALE.
+
+### OPS-133 — close the load flakes the longer sleep did not
+
+- **PR**: #297
+- **Session**: S14, started 2026-10-27 16:09 ET
+- **Review**: 2 rounds, peak medium, cap 3
+- **Gate**: 11 min
+- **Cost**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+- **Session start**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+
+#### What happened
+
+#219 and the two tests in #234 failed in a loaded full gate and passed alone. #260 failed in a quick gate or `go test -short ./...` under load, and passed alone. Each read state once, or in the wrong order, instead of waiting on the condition it asserts. `pushRuns` now sorts stand-in records by `ModTime`. The stall test drives notify polls, inside a scaled deadline, until the merged read runs after `release()`. The stopped-call test asserts the call is still alive, then polls. The wheel test waits until `scroll_position` is non-zero. Those four passed 20 times under the race detector before this gate.
+
+#### Decisions
+
+None beyond the row. The fix is the condition the test already claimed, not a longer sleep (PRAC-0010).
+
+#### Surprises
+
+The first fragment was not the journal shape, so the full gate failed in that check before any Go test.
+
+#### Insights
+
+None.
+
+### OPS-139 — a review at the cap stops instead of merging
+
+- **PR**: #296
+- **Session**: S14, started 2026-10-27 16:09 ET
+- **Review**: 2 rounds, peak medium, cap 3
+- **Gate**: 11 min
+- **Cost**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+- **Session start**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+
+#### What happened
+
+`REVIEW_AT_CAP` defaults to `stop`. When the last review round at the cap still has something medium or worse, build-change and merge-pr stop and say so, and an unreadable value fails closed. `known-limits` is the old path, which merges and records what remains. Lows still merge under KNOWN LIMITS. `review-cap.sh --why` names the setting. This repo's `project.conf` leaves the key unset and inherits `stop`.
+
+#### Decisions
+
+None beyond the row. The default is `stop`.
+
+#### Surprises
+
+The first fragment used a `## Session` heading and a Review line the shape does not accept, so the full gate failed in the journal check.
+
+#### Insights
+
+None.
+
+### OPS-146 — stop gate's lease_verify-by-pid inheriting the outer nonce
+
+- **PR**: #292
+- **Session**: S14, started 2026-10-27 14:11 ET
+- **Review**: 0 rounds, peak none, cap 2
+- **Gate**: 11 min
+- **Cost**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID in this shell (Cursor session)
+- **Session start**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID in this shell
+
+#### What happened
+
+`checks/gate.sh`'s lock-run "by pid" case inherited `CLAUDUCTOR_LEASE_NONCE` from an outer `lease_run` (the no-binary path, ADR-0006), so `lease_verify` compared nonces and answered LOST. Every docs or full gate without the binary failed. The case now asserts LOST with a leaked nonce first, then unsets the variable and asserts VERIFIED. The other `lease_verify` cases already run inside `lease_run`, which exports the holder's own nonce.
+
+#### Decisions
+
+None. Risk: low ops fix as written on the roadmap.
+
+#### Surprises
+
+None.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### ST-11 — session-start context digests and a byte budget check
+
+- **PR**: #295
+- **Session**: S14, started 2026-10-27 16:03 ET
+- **Review**: 0 rounds, peak none, cap 2
+- **Gate**: CANNOT CHECK — full gate not run, lease held by ST-8
+- **Cost**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+- **Session start**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+
+#### What happened
+
+Standing Tee's `session-start/digests.sh` is ported into the template: the change queue, latest journal entry, recent insights, and ADR and practice indexes print as bounded digests from `context.sh` via `roadmap_queue --text` (no node). Clauductor's folded journal uses `#### What happened` or the first lines after the session heading when there is no `**What happened.**` paragraph; missing **What's next** is one explicit line. A new `session-start-digests` process check holds real-doc output under 8000 bytes and fixture cases for journal, Raw count, and NOT ACCEPTED index rows; `context.sh` must call `digests.sh`.
+
+#### Decisions
+
+None beyond the approved row (digest ceilings and check shape match Standing Tee's test contract).
+
+#### Surprises
+
+None.
+
+#### Insights
+
+None.
+
+### ST-14 — no forced worktree removal or pattern kill
+
+- **PR**: #298
+- **Session**: S14, started 2026-10-27 17:24 ET
+- **Review**: 0 rounds, peak none, cap 3
+- **Gate**: CANNOT CHECK — full gate not run, lease held by ST-11
+- **Cost**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+- **Session start**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+
+#### What happened
+
+Standing Tee's refusal of `git worktree remove --force` and of `pkill`/`killall` is ported into the template. The force reader is `worktree-remove.awk` (no node: ADR-0006): a literal `--force`, `--f…` prefix or short cluster containing `f` is blocked, including after the path and inside `sh -c`; a computed argument before `--` and a shell fed a removal on stdin are blocked; a plain removal, a quoted mention, and `machine-quiet.sh` are allowed. `.claude/bin/pkill` and `killall` refuse every call. `pattern-kill-path.sh` puts that directory first on PATH at SessionStart, and `no-pattern-kill.sh` refuses a path that would skip the wrappers. The plugin packager now ships `.claude/bin` with the other framework directories, as the sibling of `hooks/`.
+
+#### Decisions
+
+None beyond the row. The reader is awk rather than Standing Tee's node program because this model's hooks do not use node.
+
+#### Surprises
+
+The packager refused a new `.claude/bin/` until `frameworkDirs` named it. A script on a shell's stdin is refused when the call still names a removal the reader did not parse; a removal written to a file and then executed is not read (the same known limit Standing Tee records).
+
+#### Insights
+
+None.
+
+### ST-8 — port usage-report --contributors into Clauductor
+
+- **PR**: #293
+- **Session**: S14, started 2026-10-27 15:01 ET
+- **Review**: 1 rounds, peak high, cap 2
+- **Gate**: CANNOT CHECK — scoped checks only (metrics, journal), not full gate
+- **Cost**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID in this Cursor lane
+- **Session start**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+
+#### What happened
+
+Standing Tee's context attribution (`usage-report.mjs --contributors`) is now `template/.claude/lib/usage-contributors.jq` plus `usage-report.sh --contributors`, sharing transcript reading with `lib/usage.sh`. `metrics.sh` falsifies a fixture where a `Read docs/roadmap.md` dominates; row fragments may append `; top: …` on **Cost** per `docs/journal.d/README.md`.
+
+#### Decisions
+
+None beyond the approved row scope.
+
+#### Surprises
+
+jq's `=` assignment returns the rhs, not the thread state — attribution needed explicit `callIds` and `| .` after every `+=`.
+
+#### Insights
+
+None.
+
+### ST-9 — read-by-range PreToolUse hook (sh + awk)
+
+- **PR**: #294
+- **Session**: S14, started 2026-10-27 15:59 ET
+- **Review**: 1 rounds, peak high, cap 2
+- **Gate**: CANNOT CHECK — full gate not run, lease held by ST-8
+- **Cost**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID in this shell
+- **Session start**: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID
+
+#### What happened
+
+Ported Standing Tee's read-by-range guard into the template as POSIX `sh` plus `lib/view-reader.awk` (no Node): PreToolUse on Read and Bash, 400-line cap, fail-open on unreadable payloads and unparsed shell. Registered in `settings.json`, documented in `hooks/README.md`, exercised in `checks/hooks.sh` (block and allow rows plus registration table). Synced `.claude/` and rebuilt `plugin/`.
+
+#### Decisions
+
+Used a separate `view-reader.awk` forked from the gate tokenizer rather than extending `gate-reader.awk`, so gate and catch-up guards cannot drift.
+
+#### Surprises
+
+BSD awk treats `index(line, "\0")` like an empty-string search and falsely marked every text line binary until that check was removed from the awk line counter.
+
+#### Insights
+
+None.
+
 ## Session 13 — 2026-10-27 — Claude — the open-source direction shift, the roadmap reset to what is left, and the tracker by phase
 
 **Totals.** Gate 30 min; cost $0 (a row's cost was CANNOT CHECK, so this is a floor).
