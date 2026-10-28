@@ -15,6 +15,12 @@
 # tracked *.sh, and every tracked file with no extension whose first line is `#!…sh`. Each reaches
 # awk as `./<path>`, so a name like `a=b.sh` is read as a file, not as an assignment. An unreadable
 # *.sh fails; any other unreadable file (a dangling symlink) is not a script and is skipped.
+#
+# The reach is the whole repository by default: a project's own scripts run in the same macOS
+# sandbox as the model's, so its bare call fails the same way. MKTEMP_CHECK_PATHS in
+# .claude/project.conf (read through lib/conf.sh) narrows it to the git pathspecs it names, e.g.
+# ".claude scripts/ci", for a project with vendored scripts it does not edit; a narrowed list that
+# names no tracked file fails rather than passing empty.
 # Falsified first on fixtures; they spell the word @MK@ until they are written, so this file's own
 # scan does not read them as offences.
 . "$(dirname "$0")/lib.sh"
@@ -53,12 +59,14 @@ AWK
 # scan FILE...: one line per offence, `file:line: what: text`. LC_ALL=C: the scan matches bytes, and
 # a tracked binary must not stop awk on a multibyte error.
 scan() { LC_ALL=C awk -v W="mk""temp" "$SCAN_AWK" "$@"; }
-# scan_repo DIR: scan every tracked file of the repository at DIR, each as ./<path>; the list is
-# NUL-separated (-z), so a path git would quote reaches awk as it is, and git's stderr is kept out of
-# it. Fails closed: a listing git could not produce, or an awk that did not finish, is never clean.
+# scan_repo DIR [PATHSPECS]: scan every tracked file of the repository at DIR (under PATHSPECS, a
+# space-separated list, when given), each as ./<path>; the list is NUL-separated (-z), so a path
+# git would quote reaches awk as it is, and git's stderr is kept out of it. Fails closed: a listing
+# git could not produce, an empty one, or an awk that did not finish, is never clean. set -f: a
+# pathspec's `*` is git's to match, not the shell's.
 scan_repo() {
-  git -C "$1" ls-files -z > "$d/files" 2> "$d/ls.err" || { echo "git ls-files failed in $1: $(cat "$d/ls.err")"; return 2; }
-  [ -s "$d/files" ] || { echo "git ls-files found no file in $1"; return 2; }
+  (set -f; git -C "$1" ls-files -z -- ${2:-} > "$d/files" 2> "$d/ls.err") || { echo "git ls-files failed in $1: $(cat "$d/ls.err")"; return 2; }
+  [ -s "$d/files" ] || { echo "git ls-files found no file in $1${2:+ under MKTEMP_CHECK_PATHS=\"$2\"}"; return 2; }
   (cd "$1" && xargs -0 sh -c 'for f do printf "./%s\000" "$f"; done' sh < "$d/files" > "$d/files.dot") \
     || { echo "the file list could not be prefixed in $1"; return 2; }
   (cd "$1" && LC_ALL=C xargs -0 awk -v W="mk""temp" "$SCAN_AWK" < "$d/files.dot" 2> "$d/scan.err") \
@@ -93,9 +101,12 @@ echo "# @MK@-in-tmpdir: x"; e=$(@MK@)  # case
 awk -F\" '{ print $4 }' "$f"
 tmp=$(@MK@ -d)  # case
 s=$(@MK@ "$x/a.XXXXXX")  # case: not ${TMPDIR:-/tmp}
+echo " # @MK@-in-tmpdir: x"; e=$(@MK@)  # case
+t=$(@MK@) # @MK@-in-tmpdir:
 EOF
 out=$(cd "$d" && scan ./bad.sh)
-want=" $(grep -n '# case' "$d/bad.sh" | cut -d: -f1 | tr '\n' ' ') "
+# 24: a marker with no reason, which cannot also end in `# case`.
+want=" $(grep -n '# case' "$d/bad.sh" | cut -d: -f1 | tr '\n' ' ') 24 "
 for n in $want; do
   case $out in *"bad.sh:$n: "*) ok "falsified: bad.sh line $n is named" ;;
     *) fail "missed bad.sh line $n: $(sed -n "${n}p" "$d/bad.sh") (scan: $out)" ;; esac
@@ -137,12 +148,27 @@ out=$(scan_repo "$r")
 case $out in *"a=b.sh:1: "*) ok "falsified: a tracked script named like an awk assignment (a=b.sh) is scanned" ;;
   *) fail "a tracked a=b.sh was not scanned (scan: $out)" ;; esac
 
+# MKTEMP_CHECK_PATHS narrows the reach: a bare call under the paths it names fails, one outside
+# passes, and a list that names no tracked file fails rather than passing empty.
+r="$d/narrow"; new_repo "$r"; mkdir -p "$r/.claude" "$r/vendor"
+printf 't=$(%s)\n' "mk""temp" > "$r/.claude/x.sh"; cp "$r/.claude/x.sh" "$r/vendor/y.sh"
+git -C "$r" add -A && git -C "$r" commit -qm init
+out=$(scan_repo "$r" ".claude scripts/ci")
+case $out in *".claude/x.sh:1: "*) ok "MKTEMP_CHECK_PATHS: a bare call under a named path still fails" ;;
+  *) fail "MKTEMP_CHECK_PATHS: the bare call under .claude/ was not named (scan: $out)" ;; esac
+case $out in *"vendor/y.sh"*) fail "falsified: MKTEMP_CHECK_PATHS did not narrow the scan; vendor/y.sh was read (scan: $out)" ;;
+  *) ok "falsified: MKTEMP_CHECK_PATHS narrows the scan, so a bare call outside its paths passes" ;; esac
+out=$(scan_repo "$r" "nowhere")
+case $? in 2) ok "MKTEMP_CHECK_PATHS naming no tracked file fails, never passes empty ($out)" ;;
+  *) fail "MKTEMP_CHECK_PATHS naming no tracked file passed: $out" ;; esac
+
 # ── This project ────────────────────────────────────────────────────────────────────────────────
 git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || { fail "cannot check: $ROOT is not a git checkout"; finish; }
-out=$(scan_repo "$ROOT") || { fail "$out"; finish; }
+out=$(scan_repo "$ROOT" "${MKTEMP_CHECK_PATHS:-}") || { fail "$out"; finish; }
 n=$(cd "$ROOT" && LC_ALL=C xargs -0 awk 'BEGIN { for (i = 1; i < ARGC; i++) { f = ARGV[i]; rc = (getline l < f); close(f); if (f ~ /\.sh$/ || (rc > 0 && f !~ /\.[^\/]*$/ && l ~ /^#!.*sh([ \t]|$)/)) n++ }; print n + 0; exit }' < "$d/files.dot" | awk '{ s += $1 } END { print s + 0 }')
+reach="the whole repository"; [ -z "${MKTEMP_CHECK_PATHS:-}" ] || reach="MKTEMP_CHECK_PATHS=\"$MKTEMP_CHECK_PATHS\""
 if [ -z "$out" ]; then
-  ok "every temporary file is named under \$TMPDIR in $ROOT's $n tracked shell scripts"
+  ok "every temporary file is named under \$TMPDIR in $ROOT's $n tracked shell scripts ($reach)"
 else
   printf '%s\n' "$out" | sed -n '1,20s/^/FAIL /p'
   fail "temporary files outside \$TMPDIR in $ROOT: $(printf '%s\n' "$out" | wc -l | tr -d ' ') line(s), the first 20 above"
