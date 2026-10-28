@@ -33,7 +33,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #     interactive session) has tool_response.isAsync true and agentId; SubagentStop lists that
 #     agent in background_tasks as type "subagent". Its report goes to whoever is still awake: with
 #     the launcher's turn ended, to the MAIN session (probed on the Mac, 2026-10-18). Held, the
-#     launcher waited for the agent's record here to go and then received the report itself.
+#     launcher waited for the agent's record here to go and then received the report itself, under
+#     `claude -p`. Seen interactively (2026-10-28, OPS-151), with the launcher a background teammate
+#     lane: the reviewer's hand-back went to the MAIN session, after the launcher's turn had ended
+#     ("the agent that spawned you is no longer running"; it had no SendMessage). Whether a HELD
+#     launcher receives it interactively is not yet probed (#305).
 #   - TeammateIdle has agent_id but no background_tasks (code.claude.com/docs/en/hooks), so a
 #     teammate's tasks, and the shells AskUserQuestion counts, are read from those files.
 #   - A shell `&` makes no task at all, so it is refused up front (lib/gate-reader.awk reads the
@@ -60,7 +64,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #   - Without scratchpad_dir (an older Claude Code, or `claude -p` on macOS: 2.1.302 sent none
 #     there), a teammate's tasks and the session's shells cannot be read, and only the agent
 #     records count. A subagent's stop still holds: background_tasks lists what runs.
-#   - Teammates were not probed (no agent teams in the probing build): the owner verifies them.
+#   - Teammates were not probed (no agent teams in the probing build). Seen 2026-10-28: a teammate
+#     lane went idle while its reviewer still ran, and nothing held it (#305 owns the probe).
 #
 # WITHOUT jq, for what it polices (as no-blind-source-rewrite): AskUserQuestion is refused, a
 # subagent's Bash whose raw text holds a backgrounding `&` is refused, and a subagent's stop is
