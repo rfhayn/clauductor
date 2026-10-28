@@ -33,6 +33,8 @@
 # Hooks, checks and guard rules, the framework's, a module's and the project's (guard.d matches
 # .claude/local/guard.d and .claude/modules/<m>/guard.d)
 .claude/hooks
+# The refusing pkill and killall (ST-14). The table names .claude/bin/pkill.
+.claude/bin
 .claude/checks
 .claude/local/checks
 .claude/local/roadmap.d
