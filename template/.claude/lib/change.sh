@@ -79,18 +79,17 @@ table_rows_naming() {
 # reader before OPS-131 dropped it. A reference label, which renders only where a definition names
 # it, is read both ways too. Every entity is decoded: a numeric one to its ASCII character
 # (`Ri&#115;k`), a markup character (`` ` * _ | \ < > & ``, which renders as itself, never as
-# markup) or a space to
-# a space; a named one as its code point is (`&colon;`, `&nbsp;`, `&mdash;`), and a name not listed
-# (`&ratio;`) or a control character as what is not ASCII. Then what is not ASCII: an
-# invisible character (zero-width, soft hyphen, BOM) is nothing; a space, a dash, a quote, a bullet,
-# a middle dot or an arrow is a space; a colon look-alike (`：`, `∶`) is a colon; and anything else
-# is nothing inside a word (`Appro&#847;val`, a combining joiner) and a colon outside one or right
-# after `approval` or `risk` (`Approvalːowner`: a marker, so a reader refuses rather than miss one).
-# Letters that only look Latin (`Аpproval`, a Cyrillic А) are not read: /propose step 3a's judgment.
-# A table line (the default) is read a cell at a time, an escaped `\|` being text, as
-# roadmap-queue.sh splits it, so markup never spans two cells. --prose reads paragraphs, a blank
-# line apart, each joined into one line as it renders. Bytes, not characters (LC_ALL=C), so it
-# reads the same in every locale.
+# markup) or a space to a space; a named one as its code point is (`&colon;`, `&nbsp;`, `&mdash;`),
+# and a name not listed (`&ratio;`) or a control character as what is not ASCII. Then what is not
+# ASCII: an invisible character (zero-width, soft hyphen, BOM) is nothing; a space, a dash, a
+# quote, a bullet, a middle dot or an arrow is a space; a colon look-alike (`：`, `∶`) is a colon;
+# and anything else is nothing inside a word (`Appro&#847;val`, a combining joiner) and a colon
+# outside one or right after `approval` or `risk` (`Approvalːowner`: a marker, so a reader refuses
+# rather than miss one). Letters that only look Latin (`Аpproval`, a Cyrillic А) are not read:
+# /propose step 3a's judgment. A table line (the default) is read a cell at a time, an escaped `\|`
+# being text, as roadmap-queue.sh splits it, so markup never spans two cells. --prose reads
+# paragraphs, a blank line apart, each joined into one line as it renders. Bytes, not characters
+# (LC_ALL=C), so it reads the same in every locale.
 marker_plain() {
   LC_ALL=C awk -v prose="$([ "${1:-}" = --prose ] && echo 1)" '
   function dec(n) {
