@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // PANEL-29: an existing branch is never a raw git error. The HTTP reply carries the
@@ -93,10 +93,7 @@ func newBranchRepo(t *testing.T) *branchRepo {
 
 func (r *branchRepo) git(dir string, args ...string) string {
 	r.t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	out, err := cmd.CombinedOutput()
+	out, err := testgit.Command(dir, args...).CombinedOutput()
 	if err != nil {
 		r.t.Fatalf("git %v: %v %s", args, err, out)
 	}
@@ -281,9 +278,8 @@ func TestABusyBranchReachesThePage(t *testing.T) {
 	}
 	r.git(r.root, "add", "m.txt")
 	r.git(r.root, "commit", "-q", "-m", "main moves")
-	cmd := exec.Command("git", "rebase", "--exec", "false", "main") // stops after the first pick
-	cmd.Dir = wt
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_EDITOR=true")
+	cmd := testgit.Command(wt, "rebase", "--exec", "false", "main") // stops after the first pick
+	cmd.Env = append(cmd.Env, "GIT_EDITOR=true")
 	_ = cmd.Run()
 	sentence := "A branch named change/add-score-photo is in the middle of a rebase in the worktree " + wt +
 		". Finish or abort it there, then start the lane on that worktree."

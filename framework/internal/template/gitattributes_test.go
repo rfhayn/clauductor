@@ -2,10 +2,11 @@ package template
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 const wantAttrs = "# rules\n* text=auto eol=lf\n*.png binary\n"
@@ -26,14 +27,14 @@ func TestMergeGitattributesKeepsTheProjectsOverrides(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+	if out, err := testgit.Command(dir, "init", "-q").CombinedOutput(); err != nil {
 		t.Skipf("git init: %v %s", err, out)
 	}
 	if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte(merged), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]string{"run.sh": "lf", "a/b/hook.sh": "lf", "win.bat": "crlf"} {
-		out, err := exec.Command("git", "-C", dir, "check-attr", "eol", "--", path).Output()
+		out, err := testgit.Command(dir, "check-attr", "eol", "--", path).Output()
 		if err != nil {
 			t.Fatal(err)
 		}

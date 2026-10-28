@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // Rename step 3 changes nothing a user sees: the name and the legacy name are one, so every
@@ -53,7 +55,7 @@ func TestShellBrandMatches(t *testing.T) {
 // focus_file reads a focus file a legacy name's folder holds while the new name's has none.
 func TestShellFocusFileReadsTheLegacyNameFirst(t *testing.T) {
 	repo := t.TempDir()
-	if b, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+	if b, err := testgit.Command(repo, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, b)
 	}
 	gitDir, err := filepath.EvalSymlinks(filepath.Join(repo, ".git"))
@@ -85,7 +87,7 @@ func shell(t *testing.T, root, script string) string {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("sh", "-c", `. "$CONF"; `+script)
-	cmd.Env = append(os.Environ(), "ROOT="+root, "CONF="+conf)
+	cmd.Env = append(testgit.Env(), "ROOT="+root, "CONF="+conf) // the script's git reads root's repository
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("sh: %v: %s", err, out)

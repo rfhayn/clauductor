@@ -136,13 +136,8 @@ func TestDoctorNoPanelInstalledIsANoteWithTheInstallThatWorks(t *testing.T) {
 // test's HOME, with launchctl, plutil and osacompile stood in: nothing reaches launchd.
 func panelInstallWith(t *testing.T, dir string) {
 	t.Helper()
-	oldExec, oldProject, oldRemote, oldPort := panelInstallExec, installProject, installRemote, installPort
-	t.Cleanup(func() {
-		panelInstallExec, installProject, installRemote, installPort = oldExec, oldProject, oldRemote, oldPort
-		panelInstallCmd.SetOut(nil)
-	})
 	bootstrapped := false
-	panelInstallExec = func(argv ...string) ([]byte, error) {
+	out, err := panelInstallRun(t, dir, func(argv ...string) ([]byte, error) {
 		switch {
 		case len(argv) > 1 && argv[1] == "bootout":
 			return nil, errors.New("exit status 3") // not loaded: the first install
@@ -150,15 +145,57 @@ func panelInstallWith(t *testing.T, dir string) {
 			bootstrapped = true
 		}
 		return nil, nil
-	}
-	installProject, installRemote, installPort = dir, install.RemoteOff, 4393
-	var out bytes.Buffer
-	panelInstallCmd.SetOut(&out)
-	if err := panelInstallCmd.RunE(panelInstallCmd, nil); err != nil {
-		t.Fatalf("panel install --project %s: %v\n%s", dir, err, out.String())
+	})
+	if err != nil {
+		t.Fatalf("panel install --project %s: %v\n%s", dir, err, out)
 	}
 	if !bootstrapped {
 		t.Fatal("panel install did not load the agent through the stand-in")
+	}
+}
+
+// panelInstallRun runs `clauductor panel install --project dir --remote-control off` in the
+// test's HOME with exec standing in for launchctl, plutil and osacompile.
+func panelInstallRun(t *testing.T, dir string, exec func(argv ...string) ([]byte, error)) (string, error) {
+	t.Helper()
+	oldExec, oldProject, oldRemote, oldPort := panelInstallExec, installProject, installRemote, installPort
+	t.Cleanup(func() {
+		panelInstallExec, installProject, installRemote, installPort = oldExec, oldProject, oldRemote, oldPort
+		panelInstallCmd.SetOut(nil)
+	})
+	panelInstallExec = exec
+	installProject, installRemote, installPort = dir, install.RemoteOff, 4393
+	var out bytes.Buffer
+	panelInstallCmd.SetOut(&out)
+	err := panelInstallCmd.RunE(panelInstallCmd, nil)
+	return out.String(), err
+}
+
+// A label launchd holds as disabled stops `panel install --project` before it changes anything:
+// the project is not registered, its config not trusted, and nothing reaches launchd (#269,
+// docs/panel.md's "having changed nothing").
+func TestPanelInstallStoppedOnADisabledLabelChangesNothing(t *testing.T) {
+	home := panelHome(t)
+	dir := projectWithConfig(t, "Fine", "")
+	before := treesnap.Take(t, home)
+	var ran []string
+	_, err := panelInstallRun(t, dir, func(argv ...string) ([]byte, error) {
+		ran = append(ran, strings.Join(argv, " "))
+		if len(argv) > 1 && argv[1] == "print-disabled" {
+			return []byte("disabled services = {\n\t\"" + install.LaunchdLabel + "\" => disabled\n}\n"), nil
+		}
+		return nil, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "launchctl enable") {
+		t.Fatalf("the install did not stop on the disabled label: %v", err)
+	}
+	if d := treesnap.Diff(before, treesnap.Take(t, home)); len(d) > 0 {
+		t.Errorf("a stopped install changed the home directory: %v", d)
+	}
+	for _, c := range ran {
+		if !strings.Contains(c, "print-disabled") {
+			t.Errorf("a stopped install ran %q", c)
+		}
 	}
 }
 

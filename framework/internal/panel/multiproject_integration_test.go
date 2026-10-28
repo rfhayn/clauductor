@@ -21,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/web"
 	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/clauductor/clauductor/internal/treesnap"
 )
 
@@ -390,8 +391,8 @@ func TestServingWritesNothing(t *testing.T) {
 				// A daemon a read started would outlive the test. Stopping one that
 				// never started fails, which is the outcome this test wants.
 				t.Cleanup(func() {
-					cmd := exec.Command("git", "fsmonitor--daemon", "stop")
-					cmd.Dir, cmd.Env = root, isolatedGitEnv()
+					cmd := testgit.Command(root, "fsmonitor--daemon", "stop")
+					cmd.Env = isolatedGitEnv()
 					_ = cmd.Run()
 				})
 			}
@@ -470,24 +471,17 @@ func TestGitStatCountsAStagedRenameOnce(t *testing.T) {
 	}
 }
 
-// isolatedGitEnv is the process's environment with no GIT_ variable, no global or
-// system git config, and a committer: git then reads the repository's config alone.
+// isolatedGitEnv is testgit.Env with no global or system git config: git then reads the
+// repository's config alone.
 func isolatedGitEnv() []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_") {
-			env = append(env, kv)
-		}
-	}
-	return append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
-		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	return append(testgit.Env(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 }
 
 // isolatedGitRun is gitRun under isolatedGitEnv.
 func isolatedGitRun(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir, cmd.Env = dir, isolatedGitEnv()
+	cmd := testgit.Command(dir, args...)
+	cmd.Env = isolatedGitEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v %s", args, err, out)
 	}

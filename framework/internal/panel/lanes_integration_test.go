@@ -24,6 +24,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/panel/state"
 	"github.com/clauductor/clauductor/internal/panel/web"
+	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/clauductor/clauductor/internal/testwait"
 	"github.com/coder/websocket"
 )
@@ -45,10 +46,7 @@ func securitySocket(t *testing.T) (string, string) {
 
 func gitRun(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	out, err := cmd.CombinedOutput()
+	out, err := testgit.Command(dir, args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v %s", args, err, out)
 	}
@@ -626,5 +624,20 @@ func TestTypingWhileScrolledBackReachesTheLane(t *testing.T) {
 	expect(`{"type":"scroll","back":false}`)
 	if inMode() != "0" {
 		t.Fatal("Escape did not leave copy mode")
+	}
+}
+
+// gitRun's init, add and commit stay in their own repository under a git hook's GIT_DIR (#302).
+func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
+	touched := testgit.Outer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "init", "-q")
+	gitRun(t, dir, "add", "a.txt")
+	gitRun(t, dir, "commit", "-q", "-m", "fixture")
+	if what := touched(); what != "" {
+		t.Errorf("gitRun ran git there: %s", what)
 	}
 }

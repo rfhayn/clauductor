@@ -11,6 +11,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // PANEL-17: Close lane over HTTP on a throwaway socket. A running lane is stopped
@@ -66,7 +67,7 @@ func TestCloseLaneStopsThenRemovesTheWorktree(t *testing.T) {
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
 		t.Fatalf("close kept a clean worktree: %v", body)
 	}
-	if exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/fix/run").Run() == nil {
+	if testgit.Command(root, "rev-parse", "--verify", "--quiet", "refs/heads/fix/run").Run() == nil {
 		t.Fatalf("close kept a merged branch: %v", body)
 	}
 

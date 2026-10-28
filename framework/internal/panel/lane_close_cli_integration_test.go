@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,6 +21,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/clauductor/clauductor/internal/testwait"
 )
 
@@ -447,7 +447,7 @@ func TestLaneCloseThroughTheSocket(t *testing.T) {
 		_, registered := reg.Get(id)
 		_, serr := os.Stat(wt[id])
 		return laneFacts{Registered: registered, Session: hasSession(tmux, tsock, id), Worktree: serr == nil,
-			Branch: exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/change/"+id).Run() == nil}
+			Branch: testgit.Command(root, "rev-parse", "--verify", "--quiet", "refs/heads/change/"+id).Run() == nil}
 	}
 	all := laneFacts{true, true, true, true}
 	for _, id := range ids {

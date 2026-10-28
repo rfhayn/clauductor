@@ -13,6 +13,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/signals"
 	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/clauductor/clauductor/internal/testgit"
 	"github.com/clauductor/clauductor/internal/treesnap"
 )
 
@@ -39,10 +40,7 @@ func attachRepo(t *testing.T) string {
 	root = signals.ResolvePath(root)
 	git := func(args ...string) {
 		t.Helper()
-		c := exec.Command("git", args...)
-		c.Dir = root
-		c.Env = append(gitFreeEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := c.CombinedOutput(); err != nil {
+		if out, err := testgit.Command(root, args...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
 	}

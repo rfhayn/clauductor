@@ -3425,7 +3425,7 @@ clauductor panel install                                      # once projects.js
      others (`/opt/homebrew/bin` for Homebrew's `go`): otherwise re-run `install` once.
 5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
 
-Before step 2 it reads `launchctl print-disabled gui/$UID`. When launchd holds
+Before step 1 it reads `launchctl print-disabled gui/$UID`. When launchd holds
 `com.clauductor.panel` as disabled (an old uninstall or `launchctl disable` can leave it so),
 every bootstrap would fail with error 5, so `install` stops there, having changed nothing, and
 names the `launchctl enable gui/$UID/com.clauductor.panel` to run before installing again. It
@@ -3815,6 +3815,14 @@ The rules the suite keeps, and a new test must too:
   a plain file's mode is a literal, or a constant declared in the same file. A probe that takes
   a flock unlocks it (`LOCK_UN`) before closing, as `lease.go` does: closing alone leaves the
   lock with the child's copy, and the next taker is refused.
+- **A test's own git stays in its fixture.** Run under a git hook, `GIT_DIR`, `GIT_WORK_TREE`
+  and `GIT_INDEX_FILE` aim every git at the hook's repository, so a fixture's `init`, `add` and
+  `commit` would act there (#281, #302). A test runs git through `testgit.Command`, whose
+  environment holds no `GIT_` variable; `TestNoTestRunsGitAnotherWay` reads every `_test.go`
+  file and fails an `exec.Command` whose program names git. `testgit.Outer` stands in for a
+  hook's environment, and `TestTheFixturesGitStaysInTheFixture` (in `testgit`, `cmd`, `panel`
+  and `template`) holds a fixture helper to it. A git that a shell script under test runs is not
+  seen.
 - **A project removed live leaves no goroutine** (PANEL-22). Each project's runtime runs every
   goroutine it starts (its hub, each source, each source's file watch) under a context and a wait
   group of its own; removing it cancels the context and waits for the group before the request

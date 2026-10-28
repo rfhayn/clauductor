@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/clauductor/clauductor/internal/panel/config"
 	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/clauductor/clauductor/internal/testgit"
 )
 
 // PANEL-57 task 3.1: `clauductor lane close` against a stub panel, a Unix-socket server
@@ -186,10 +186,7 @@ func registerProjects(t *testing.T, home string, idRoots ...string) {
 // laneGitIn runs git in dir with a commit identity, failing the test if it fails.
 func laneGitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	c := exec.Command("git", args...)
-	c.Dir = dir
-	c.Env = append(gitFreeEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-	if out, err := c.CombinedOutput(); err != nil {
+	if out, err := testgit.Command(dir, args...).CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v %s", args, err, out)
 	}
 }
