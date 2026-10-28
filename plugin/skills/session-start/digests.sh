@@ -42,7 +42,13 @@ if [ -n "$entry" ]; then
   else
     printf '%s\n' "$entry" | sed -n '2,8p' | grep -v '^[[:space:]]*$' | head -2 | indent 600
   fi
-  next=$(printf '%s\n' "$entry" | sed -n "/^\*\*What's next/,\$p")
+  # Stop at the next heading. A folded session puts its row blocks after What's next, and
+  # printing them here both blows DIGEST_BUDGET and lets a row's "failed" read as the digest failing.
+  next=$(printf '%s\n' "$entry" | awk '
+    /^\*\*What'"'"'s next/ { p = 1 }
+    p && /^#{2,3} / { exit }
+    p
+  ')
   if [ -n "$next" ]; then
     printf '%s\n' "$next" | indent 400
   else

@@ -114,6 +114,20 @@ bare=$d/bare.md
 printf '## Session 1 — x\n**What happened.** Only this.\n' > "$bare"
 fo2=$(JOURNAL=$bare INSIGHTS=$INSIGHTS ADR_INDEX=$ADR_INDEX PRAC_INDEX=$d/absent.md digests)
 has "fixture: no What's next" "$fo2" "(this entry has no **What's next** paragraph)"
+
+# A daily close puts the folded row blocks after What's next. The digest is the paragraph,
+# not those blocks: they carry the word "failed" and they blow DIGEST_BUDGET.
+foldj=$d/folded.md
+cat > "$foldj" <<'EOF'
+## Session 2 — x
+**What happened.** The close.
+**What's next.** Do the next row.
+### ROW-1 — a folded row
+The row failed in a loaded gate and must not be in the digest.
+EOF
+fof=$(JOURNAL=$foldj INSIGHTS=$INSIGHTS ADR_INDEX=$ADR_INDEX PRAC_INDEX=$PRAC_INDEX digests)
+has "fixture: folded What's next" "$fof" "Do the next row."
+hasnt "fixture: folded rows stay out of the digest" "$fof" "must not be in the digest"
 has "fixture: missing index" "$fo2" "($d/absent.md unreadable)"
 
 # A path that is not there is unreadable. The empty-but-readable message is a different branch:
