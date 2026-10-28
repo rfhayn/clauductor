@@ -50,9 +50,10 @@ for every PR, and on macOS and Ubuntu for every push to `main` (OPS-26, temporar
 the local gate's short suite and scoped race run on the owner's Mac for a PR).
 
 After a template change, bring this repo's own copy along: `framework/clauductor update` from the
-repo root, with the binary built from this checkout (it reads the template beside it, unless
-`CLAUDUCTOR_FRAMEWORK` is set, which wins (`resolve.go`), and prints which). Attribution and provenance are off in `.claude/model-roles.json` alone: build-change reads
-them at run time, so no framework file differs on purpose.
+repo root, with the binary built from this checkout. It reads the template beside it, unless
+`CLAUDUCTOR_FRAMEWORK` is set, which wins (`resolve.go`); it prints which. Attribution and
+provenance are off in `.claude/model-roles.json` alone: build-change reads them at run time, so
+no framework file differs on purpose.
 
 ## Tech stack
 

@@ -72,7 +72,9 @@ started from the panel's **New lane** (or by hand), on one branch:
 
   `.git/config` and `.git/hooks` are denied to every sandboxed command.
   - **A lane that is an agent of the main session** brings its own hooks and skills along
-    (`clauductor update`, a rebase, a merge) inside the sandbox.
+    (`clauductor update`, a rebase, a merge) inside the sandbox. That was seen to work on
+    2026-10-28, though these commands match the `git *` and `clauductor *` entries below; what
+    those entries do is Clauductor's #307.
   - **A lane that is its own session** (a panel lane, or a new terminal tab) cannot: the session
     that opens it syncs them (Clauductor's ST-15). Until that exists, the owner syncs such a lane
     by hand.
@@ -89,7 +91,7 @@ started from the panel's **New lane** (or by hand), on one branch:
     tests. The controls are review before the gate and the approval itself (Clauductor's #307).
     Seen 2026-10-28: a `git` command matching the `git *` entry was still refused `.git/config`,
     and that day's unsandboxed runs each went through an approved bypass, so what the entries do
-    on their own is unverified (#307).
+    on their own is unverified (Clauductor's #307).
   - A plugin install takes its hooks, skills and agents from the plugin cache, so their sync does
     not apply there.
 - **A request is priced before it is relayed to a running lane.** The orchestrator tells the owner

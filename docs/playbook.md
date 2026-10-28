@@ -64,7 +64,9 @@ started from the panel's **New lane** (or by hand), on one branch:
   - **A lane that is an agent of the main session** brings its own hooks and skills along inside
     the sandbox: a rebase, a merge, or `CLAUDUCTOR_FRAMEWORK=$PWD framework/clauductor update` with
     the binary built from the lane's checkout (the owner's shell sets that variable to the MAIN
-    checkout, and it outranks the binary's own checkout in the template search).
+    checkout, and it outranks the binary's own checkout in the template search). That was seen to
+    work on 2026-10-28, though these commands match the `git *` and `clauductor *` entries below;
+    what those entries do is #307's.
   - **A lane that is its own session** cannot: ST-15's launcher will have the opening session sync
     it. Until that exists, the owner syncs such a lane by hand, as before for a panel lane (the
     panel is uninstalled here and removed in PANEL-64).
@@ -75,7 +77,10 @@ started from the panel's **New lane** (or by hand), on one branch:
     outside the sandbox.
   - **No sync or agents step runs a lane's files outside the sandbox.** A lane can edit every file
     in its worktree, so an unsandboxed run of a script, a build or a config there runs whatever the
-    lane wrote (#304, closed for that); a plain rebase, merge or update runs no file the lane wrote.
+    lane wrote (#304, closed for that). A plain `git rebase` or `git merge`, or the INSTALLED
+    `clauductor update`, runs no file the lane wrote. A binary built from the lane's checkout does,
+    so it runs only inside the sandbox. The owner, syncing a lane by hand, runs the installed
+    `clauductor update` from the lane's root.
   - **What does run outside the sandbox:** a command matching `sandbox.excludedCommands` in
     `.claude/settings.json`, and any command run with an approved sandbox bypass. The gate is one,
     since its process checks need `ps`, tmux and loopback, so a lane's gate runs the lane's own
