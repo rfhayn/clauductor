@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/clauductor/clauductor/internal/testbin"
 )
 
 // projectDirs are the template's .claude/ directories a project owns: created when missing,
@@ -230,9 +232,7 @@ func TestTheFixturesGitStaysInTheFixture(t *testing.T) {
 	if err := os.MkdirAll(hooks, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(hooks, "pre-commit"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testbin.Write(t, filepath.Join(hooks, "pre-commit"), "#!/bin/sh\nexit 1\n")
 	if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[core]\n\thooksPath = "+hooks+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
