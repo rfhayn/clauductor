@@ -19,13 +19,17 @@
 #
 # WHAT IS A MOVE. A git subcommand change-process.sh's text check also counts (pull merge reset
 # checkout switch rebase restore stash update-ref; `stash list` and `stash show` excepted), a fetch
-# with -u or --update-head-ok, a subcommand the shell computes (`git "$sub"`), or an alias whose value
-# starts with one of those or with `!` (a shell alias), from the checkout's config or a `-c alias.X=`
-# on the line. `gh pr checkout` and `gh repo sync` move the checkout they run in, as a git checkout
+# with -u (alone or in a cluster: `-fu`) or --update-head-ok, a subcommand the shell computes (`git
+# "$sub"`), or an alias whose value, with the command line's words after it, is one of those or
+# starts with `!` (a shell alias), from the checkout's config or a `-c alias.X=` on the line. A
+# git-core program (`git-pull`, `"$(git --exec-path)/git-merge"`) is git with that subcommand.
+# `gh pr checkout` and `gh repo sync` move the checkout they run in, as a git checkout
 # would. A computed command word (`$g pull`, `eval "$c"`) is a move when the command's text, its
 # quotes and backslashes dropped, names a move word anywhere. Refs are shared by every worktree, so
 # update-ref and a fetch with -u move the main checkout's branch from a lane too: they count as
-# aimed at its repository's main checkout wherever they run.
+# aimed at its repository's main checkout wherever they run. So do a checkout or switch with
+# --ignore-other-worktrees and a symbolic-ref that sets HEAD (two operands): each puts a worktree on
+# a branch the main checkout may hold, which the next move in the command then moves.
 #
 # WHERE IT IS AIMED. The candidates start at the payload's cwd. A literal cd, pushd or chdir this
 # shell surely runs replaces each with its target: one the next command follows by `;`, a newline or
@@ -39,8 +43,15 @@
 # a computed command word, which may itself be a cd; from then on every move counts as aimed at the
 # cwd's main checkout too. The main checkout is the first entry of `git worktree list --porcelain`
 # (merge-pr step 5's own reading), and a candidate is aimed there when its git dir is the main
-# checkout's (so its `.git` counts, and a lane's worktree does not). So a lane's own catch-up merge
-# (merge-pr step 2), in its worktree, or after a literal cd into it, runs.
+# checkout's (so its `.git` counts, and a lane's worktree does not), or when it has the main
+# checkout's branch checked out (the refs say so, however it got there). So a lane's own catch-up
+# merge (merge-pr step 2), in its worktree, or after a literal cd into it, runs.
+#
+# WHEN THE READER IS LOST. The reader is not a shell, and zsh ends a `$( … )` later than it does
+# at a case pattern's `)`, a comment's or a ${…}'s: it would then read a child's cd as this
+# shell's. Rather than model each such spelling, the reader says when it lost its place (ODD: a
+# `)` that closes nothing, a `(` never closed), and then the whole command counts as unknown: every
+# move in it is aimed at the cwd's main checkout too.
 #
 # WHAT IS ASKED. Only clauductor knows whether catch-up is on. Without clauductor on PATH (the repo
 # works without it: ADR-0006), or with any answer but `on` and exit 0, catch-up is off: the command
@@ -55,11 +66,12 @@
 #   - Not a move here: a new commit on the checkout (commit, am, cherry-pick, revert, branch -f).
 #   - A computed command whose text names no move word, running an alias that moves (`c="git up";
 #     eval "$c"`), is not refused.
-#   - Not refused yet (#280): fetch's -u bundled with other short options (`-fu`); a git-core
-#     program run by path (`git-pull`); a case pattern's `)` inside `$( … )`, which ends it early;
-#     a lane's `checkout --ignore-other-worktrees main` and a move after it; a heredoc body's `$( … )`.
-#   - Read too widely, each refused only with catch-up on: a `git` word anywhere in a simple command
-#     starts a git invocation (`echo git pull` in the main checkout); a -C "$(…)" the shell computes
+#   - Not followed either: a write to git's own files (`printf 'ref: …' > "$gitdir/HEAD"`), which
+#     puts a worktree on another branch with no git command; the refs show it from the next command.
+#   - Read too widely, each refused only with catch-up on: a `git` or `git-<sub>` word anywhere in
+#     a simple command starts a git invocation (`echo git pull` in the main checkout); a whole
+#     command the reader lost its place in (a zsh case pattern inside `$( … )`); a lane's checkout
+#     or switch with --ignore-other-worktrees, even of its own branch; a -C "$(…)" the shell computes
 #     is unknown even when it names the lane (`git -C "$(git rev-parse --show-toplevel)" merge`); a
 #     lane's update-ref or `fetch -u` of its own branch; a cd to a directory that does not exist
 #     (`cd sub 2>/dev/null; git reset` in a lane without sub); a cd under if or while, or in a case
@@ -73,8 +85,8 @@
 TAB=$(printf '\t')
 in=$(cat)
 MOVES='pull merge reset checkout switch rebase restore stash update-ref'
-MOVE_RE='(^|[^A-Za-z0-9_-])(pull|merge|reset|checkout|switch|rebase|restore|stash|update-ref|update-head-ok)([^A-Za-z0-9_-]|$)'
-GIT_RE='(^|[^A-Za-z0-9_-])git([^A-Za-z0-9_-]|$)'
+MOVE_RE='(^|[^A-Za-z0-9_-]|git-)(pull|merge|reset|checkout|switch|rebase|restore|stash|update-ref|update-head-ok)([^A-Za-z0-9_-]|$)'
+GIT_RE='(^|[^A-Za-z0-9_-])git([^A-Za-z0-9_]|$)'
 
 catch_up() {  # catch_up MAIN: 0 when the panel catches MAIN up, 2 with no clauductor to ask, else 1
   command -v clauductor >/dev/null 2>&1 || return 2
@@ -130,35 +142,50 @@ reads=$(printf '%s' "$cmd" | LC_ALL=C awk -v gates="" -v gits=1 -f "$(dirname "$
   || raw "$cmd" "(read raw: the reader could not run) $cmd"
 case $reads in *GIT* | *DYN*) ;; *) exit 0 ;; esac
 dynmove=0; plain "$cmd" | grep -Eq "$MOVE_RE" && dynmove=1
+odd=0; printf '%s\n' "$reads" | grep -qx ODD && odd=1
 
-moves_sub() {  # moves_sub SUBCOMMAND NEXT-WORD UPDATE-HEAD: the subcommand moves a checkout
+moves_sub() {  # moves_sub SUBCOMMAND NEXT-WORD SHARED-FLAG OPERANDS: the subcommand moves a checkout
   case $1 in
     *'$'*) return 0 ;;
     stash) case $2 in list | show) return 1 ;; esac; return 0 ;;
     # Refs are shared by every worktree: these move the main checkout's branch from a lane too.
     update-ref) shared=1; return 0 ;;
     fetch) [ "$3" = 1 ] && shared=1; [ "$3" = 1 ]; return ;;
+    # Each puts a worktree on a branch another may hold (the main checkout's), so a move after
+    # it, in the same command, moves that branch: --ignore-other-worktrees, or HEAD set by hand.
+    checkout | switch) [ "$3" = 1 ] && shared=1; return 0 ;;
+    symbolic-ref) [ "${4:-0}" -ge 2 ] && shared=1; [ "${4:-0}" -ge 2 ]; return ;;
   esac
   case " $MOVES " in *" $1 "*) return 0 ;; esac
   return 1
 }
-is_move() {  # is_move DIR SUBCOMMAND NEXT-WORD UPDATE-HEAD ALIAS-VALUE: it, or the alias it names, moves
+is_move() {  # is_move DIR SUBCOMMAND NEXT-WORD SHARED-FLAG OPERANDS ALIAS-VALUE: it, or the alias it names, moves
   shared=0
-  moves_sub "$2" "$3" "$4" && return 0
-  _v=$5
+  moves_sub "$2" "$3" "$4" "$5" && return 0
+  _v=$6
   [ -n "$_v" ] || _v=$(git -C "$1" config --get "alias.$2" 2>/dev/null) || return 1
   case $_v in '!'*) return 0 ;; esac
-  _u=0; case " $_v " in *' -u '* | *' --update-h'*) _u=1 ;; esac
-  moves_sub "$(printf '%s\n' "$_v" | awk '{ print $1; exit }')" "$(printf '%s\n' "$_v" | awk '{ print $2; exit }')" "$_u"
+  # The alias's words come before the command line's: its flags and operands count with theirs.
+  set -- "$(printf '%s\n' "$_v" | awk -v x="$3" -v u="$4" -v n="${5:-0}" '{
+      for (i = 2; i <= NF; i++) { if ($i ~ /^-[^-]*u/ || $i ~ /^--update-h/ || $i ~ /^--ignore-o/) u = 1; if ($i !~ /^-/) n++ }
+      print $1 "\t" (NF > 1 ? $2 : x) "\t" u "\t" n; exit }')"
+  IFS="$TAB" read -r _s _x _u _n <<EOF
+$1
+EOF
+  moves_sub "$_s" "$_x" "$_u" "$_n"
 }
 aimed() {  # aimed DIR: DIR's main checkout, when DIR is in it or its git dir ("?": the cwd's main checkout)
   if [ "$1" = '?' ]; then main_of "$cwd"; return; fi
   [ -d "$1" ] || return 1
   _g=$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null) || return 1
   _m=$(main_of "$1") || return 1
-  [ "$(real "$_g")" = "$(real "$(git -C "$_m" rev-parse --absolute-git-dir 2>/dev/null)")" ] && printf '%s\n' "$_m"
+  if [ "$(real "$_g")" = "$(real "$(git -C "$_m" rev-parse --absolute-git-dir 2>/dev/null)")" ]; then printf '%s\n' "$_m"; return; fi
+  # A worktree on the main checkout's branch moves that branch, however it got there (the refs say
+  # so, not the command that put it there: `checkout --ignore-other-worktrees`, `worktree add -f`).
+  _b=$(git -C "$_m" symbolic-ref -q HEAD 2>/dev/null) || return 1
+  [ "$(git -C "$1" symbolic-ref -q HEAD 2>/dev/null)" = "$_b" ] && printf '%s\n' "$_m"
 }
-move() {  # move DIR SUBCOMMAND NEXT-WORD UPDATE-HEAD ALIAS-VALUE: the main checkout git run in DIR moves
+move() {  # move DIR SUBCOMMAND NEXT-WORD SHARED-FLAG OPERANDS ALIAS-VALUE: the main checkout git run in DIR moves
   is_move "$@" || return 0
   if [ "$shared" = 1 ]; then main_of "$1"; else aimed "$1"; fi
 }
@@ -189,8 +216,11 @@ walk() {  # walk: the reader's lines on stdin; prints each main checkout a move 
   # cands: where this shell may be. pend: a cd it runs, until the operator after it is known.
   # outer: where it is if a conditional cd's && chain stops; pos: commands before, in this list.
   # A `( … )` subshell starts where this shell is, and this shell is back there at its `)`.
-  cands=$cwd; unk=0; pend=; outer=; pos=0; mixed=0; piped=0; lvl=0
-  while IFS="$TAB" read -r kind a b c u val; do
+  # A reading the reader lost (ODD, anywhere in it) is unknown from the start: no cd it read is
+  # sure, so every move counts as aimed at the cwd's main checkout too.
+  cands=$cwd; unk=$odd; pend=; outer=; pos=0; mixed=0; piped=0; lvl=0
+  while IFS="$TAB" read -r kind a b c u np val; do
+    [ "$kind" = ODD ] && continue
     [ "$kind" = SEP ] || settle ';'
     case $kind in
       SEP)
@@ -227,14 +257,14 @@ walk() {  # walk: the reader's lines on stdin; prints each main checkout a move 
         ;;
       GIT)
         if [ "$a" = '?' ]; then
-          is_move "$cwd" "$b" "$c" "$u" "$val" && aimed '?'
+          is_move "$cwd" "$b" "$c" "$u" "$np" "$val" && aimed '?'
         else
           printf '%s\n' "$cands" | while IFS= read -r cand; do
             d=$(under "$cand" "$a")
             # A -C to no directory (a placeholder xargs or find fills in) is unknown.
-            if [ -d "$d" ]; then move "$d" "$b" "$c" "$u" "$val"; else is_move "$cwd" "$b" "$c" "$u" "$val" && aimed '?'; fi
+            if [ -d "$d" ]; then move "$d" "$b" "$c" "$u" "$np" "$val"; else is_move "$cwd" "$b" "$c" "$u" "$np" "$val" && aimed '?'; fi
           done
-          [ "$unk" = 1 ] && is_move "$cwd" "$b" "$c" "$u" "$val" && aimed '?'
+          [ "$unk" = 1 ] && is_move "$cwd" "$b" "$c" "$u" "$np" "$val" && aimed '?'
         fi
         ;;
     esac

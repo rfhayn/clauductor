@@ -37,10 +37,18 @@
 #          core.worktree` or core.bare.
 #   GIT    one line per git invocation, at its end: tab-separated, the -C chain composed ("." for
 #          none, "?" when a -C is computed, or for a git `find -execdir` runs), the subcommand, the
-#          word after it ("-" for none), 1 when a later word is -u or --update-head-ok (else 0), and
-#          the value a `-c alias.<sub>=` on the line gives (empty for none). Git is `git` or a path
-#          ending /git in command position, or ANY such word later in a simple command (an unknown
-#          wrapper: `chronic git`). `gh pr checkout` and `gh repo sync` print as a git checkout.
+#          word after it ("-" for none), 1 when a later word is a short-option cluster holding u
+#          (`-u`, `-fu`: git reads short options a letter at a time), --update-head-ok or
+#          --ignore-other-worktrees, or a prefix of either (else 0), the count of later words that
+#          are no option, and the value a `-c alias.<sub>=` on the line gives (empty for none). Git
+#          is `git`, a path ending /git, or a git-core program (`git-pull`, any path ending
+#          /git-<sub>: git's own dispatch runs it as `git <sub>`), in command position, or ANY such
+#          word later in a simple command (an unknown wrapper: `chronic git`). `gh pr checkout` and
+#          `gh repo sync` print as a git checkout. The `$( … )` and backticks in an unquoted
+#          heredoc's body run, so they are read as commands too.
+#   ODD    the reader lost its place: a `)` at the top level that closes nothing (a `$( … )` it
+#          ended early: zsh reads a case pattern's `)`, a comment's or a ${…}'s inside one as no
+#          end), or a `( … )` still open at the end. What it read after is at the wrong depth.
 #   DYN    a command word the shell computes (`$g`, `$( … )`): it may be git, or a cd. `eval`'s
 #          words are joined and read as one command, as the shell does.
 #   SEP    a tab and the operator that ends a simple command THIS shell runs (`;` for a newline
@@ -109,8 +117,13 @@ function flush(   s) {
   if (ST[D] == "eval") { s = EVB[D]; EVB[D] = ""; ST[D] = "rest"; scan(s) }
 }
 
-# gitstart: a git invocation begins; one `find -execdir` runs is aimed where nobody can read.
-function gitstart() { ST[D] = "git"; GDIR[D] = XD[D] ? "?" : "."; GNX[D] = ""; GCA[D] = ""; GSUB[D] = ""; GARG[D] = "-"; GHA[D] = 0; GU[D] = 0 }
+# gitstart [SC]: a git invocation begins; one `find -execdir` runs is aimed where nobody can read.
+# SC: the subcommand a git-core program (`git-pull`) names, as git's own dispatch runs it.
+function gitstart(sc) { ST[D] = "git"; GDIR[D] = XD[D] ? "?" : "."; GNX[D] = ""; GCA[D] = ""; GSUB[D] = sc; GARG[D] = "-"; GHA[D] = 0; GU[D] = 0; GPN[D] = 0 }
+
+# isgit T: "" when T is git, the subcommand when it is a git-core program (`git-pull`,
+# `/usr/libexec/git-core/git-merge`, `$( … )/git-pull`), "-" when neither.
+function isgit(t,   b) { b = base(t); if (b == "git") return ""; if (b ~ /^git-./) return substr(b, 5); return "-" }
 
 # ghword T: one word after gh, its options skipped; `pr checkout` and `repo sync` move a checkout.
 function ghword(t) {
@@ -159,7 +172,9 @@ function gitword(t,   x) {
     GSUB[D] = t; return
   }
   if (!GHA[D]) { GHA[D] = 1; if (t != "") GARG[D] = t }
-  if (t == "-u" || t ~ /^--update-h/) GU[D] = 1
+  if (t !~ /^-/) GPN[D]++
+  # Short options as git reads them, a letter at a time: a cluster holding u is fetch's -u (`-fu`).
+  if (t ~ /^-[^-]*u/ || t ~ /^--update-h/ || t ~ /^--ignore-o/) GU[D] = 1
 }
 
 function gitend(   k, c, v, i, p) {
@@ -168,7 +183,7 @@ function gitend(   k, c, v, i, p) {
   v = ""; p = "alias." GSUB[D] "="
   k = split(GCA[D], c, "\n")
   for (i = k; i >= 1; i--) if (index(c[i], p) == 1) { v = substr(c[i], length(p) + 1); break }
-  print "GIT\t" GDIR[D] "\t" GSUB[D] "\t" GARG[D] "\t" GU[D] "\t" v
+  print "GIT\t" GDIR[D] "\t" GSUB[D] "\t" GARG[D] "\t" GU[D] "\t" GPN[D] "\t" v
 }
 
 # sep [OP]: a new simple command at this depth, after the operator OP (gits: printed for this shell).
@@ -181,7 +196,7 @@ function sep(op) {
 function endword(   t) {
   if (!HV[D]) return
   t = WB[D]; WB[D] = ""; HV[D] = 0
-  if (HN[D]) { HQ[D, ++HP[D]] = t; HSTRIP[D, HP[D]] = HN[D] == 2; HN[D] = 0; return }
+  if (HN[D]) { HQ[D, ++HP[D]] = t; HSTRIP[D, HP[D]] = HN[D] == 2; HRUN[D, HP[D]] = !HQT[D]; HN[D] = 0; return }
   if (RD[D]) { RD[D] = 0; return }
   onword(t)
 }
@@ -190,7 +205,7 @@ function endword(   t) {
 function onword(t,   b, st) {
   st = ST[D]
   if (st == "rest") {
-    if (gits && base(t) == "git") gitstart()
+    if (gits && isgit(t) != "-") gitstart(isgit(t))
     else if (gits && base(t) == "gh") { ST[D] = "gh"; GH1[D] = ""; GHS[D] = 0 }
     else if (gits && reaims(t)) print "CD\t" gscope() "\t$"
     else if (gits && (t == "-execdir" || t == "-okdir")) XD[D] = 1
@@ -243,7 +258,7 @@ function onword(t,   b, st) {
   if (D == 1 && t == "case") { CASEN++; CASESUB[CASEN] = SUB; ST[D] = "rest"; return }
   if (D == 1 && t == "esac" && CASEN > 0) { CASEN--; ST[D] = "rest"; return }
   if (gits) {
-    if (b == "git") { gitstart(); return }
+    if (isgit(t) != "-") { gitstart(isgit(t)); return }
     if (b == "gh") { ST[D] = "gh"; GH1[D] = ""; GHS[D] = 0; return }
     if (t == "cd" || t == "pushd" || t == "chdir") { ST[D] = "gcd"; GCW[D] = t; return }
     if (t == "popd" || t == "." || t == "source") { print "CD\t" gscope() "\t$"; ST[D] = "rest"; return }
@@ -320,6 +335,20 @@ function subst(s, i,   j) {
   return j + 1
 }
 
+# hbody S I: one line of an unquoted heredoc's body, from I: each `$( … )` and backtick in it read as
+# commands of their own (one may run on past the line); returns the index after the line's newline.
+function hbody(s, i,   n, c) {
+  n = length(s)
+  while (i <= n) {
+    c = substr(s, i, 1)
+    if (c == "\n") return i + 1
+    if (c == "\\") { i += 2; continue }
+    if (c == "`" || (c == "$" && substr(s, i + 1, 1) == "(")) { i = subst(s, i); WB[D] = ""; HV[D] = 0; continue }
+    i++
+  }
+  return i
+}
+
 function scan(s,   n, i, c, c2, j, k, line, e, dl) {
   D++; ST[D] = ""; sep(); WB[D] = ""; HV[D] = 0; HN[D] = 0; HP[D] = 0
   n = length(s); i = 1
@@ -362,14 +391,16 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
     if (c == " " || c == "\t") { endword(); i++; continue }
     if (c == "\n") {
       endword(); sep(";"); i++
-      # The bodies of the heredocs opened on this line: skipped, never read as commands.
+      # The bodies of the heredocs opened on this line: never read as commands, but an unquoted
+      # delimiter's body is expanded, so each `$( … )` and backtick in it runs (hbody).
       for (k = 1; k <= HP[D]; k++) {
         dl = HQ[D, k]
         while (i <= n) {
           e = index(substr(s, i), "\n"); if (e == 0) e = n - i + 2
-          line = substr(s, i, e - 1); i += e
+          line = substr(s, i, e - 1)
           if (HSTRIP[D, k]) sub(/^\t+/, "", line)
-          if (line == dl) break
+          if (line == dl) { i += e; break }
+          if (gits && HRUN[D, k]) i = hbody(s, i); else i += e
         }
       }
       HP[D] = 0
@@ -389,6 +420,9 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
       if (D == 1 && c == "(") { SUB++; if (gits) print "SEP\t(" }
       else if (D == 1 && CASEN > 0 && SUB == CASESUB[CASEN]) { }   # a case pattern's end
       else if (D == 1 && SUB > 0) { SUB--; if (gits) print "SEP\t)" }
+      # A `)` that closes nothing: a `$( … )` ended early (a case pattern's `)`, a comment's, a
+      # ${…}'s, as zsh reads them), so what followed it was read at the wrong depth.
+      else if (D == 1 && gits) print "ODD"
       i++; continue
     }
     if (c == "<" || c == ">") {
@@ -396,7 +430,13 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
       if (HV[D] && WB[D] ~ /^[0-9]+$/) { WB[D] = ""; HV[D] = 0 } else endword()
       if (c2 == "(") { sep(); i += 2; continue }          # <( … ) and >( … ): commands of their own
       if (c == "<" && substr(s, i, 3) == "<<<") { RD[D] = 1; i += 3; continue }
-      if (c == "<" && c2 == "<") { HN[D] = substr(s, i + 2, 1) == "-" ? 2 : 1; i += HN[D] == 2 ? 3 : 2; continue }
+      if (c == "<" && c2 == "<") {
+        HN[D] = substr(s, i + 2, 1) == "-" ? 2 : 1; i += HN[D] == 2 ? 3 : 2
+        # A quote or backslash anywhere in the delimiter word leaves the body unexpanded.
+        for (j = i; j <= n && substr(s, j, 1) ~ /[ \t]/; j++) ;
+        for (HQT[D] = 0; j <= n && substr(s, j, 1) !~ /[ \t\n;&|<>()]/; j++) if (substr(s, j, 1) ~ /['"\\]/) HQT[D] = 1
+        continue
+      }
       RD[D] = 1; i++
       if (c2 == ">" || c2 == "&" || c2 == "|" || (c == "<" && c2 == ">")) i++
       continue
@@ -404,5 +444,7 @@ function scan(s,   n, i, c, c2, j, k, line, e, dl) {
     WB[D] = WB[D] c; HV[D] = 1; i++
   }
   endword(); flush()
+  # A `( … )` still open at the end: a `)` the shell matched was read as something else.
+  if (D == 1 && gits && SUB > 0) print "ODD"
   D--
 }

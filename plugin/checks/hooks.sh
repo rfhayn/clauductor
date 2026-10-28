@@ -701,6 +701,34 @@ cug 2 "a lane's pull after a bare pushd (the stack swaps)" "pushd; git pull" "$M
 cug 2 "a lane's pull by fish -c" "fish -c \"cd $M; git pull\"" "$ML"
 cug 2 "gh pr checkout in the main checkout" "gh pr checkout 5" "$M"
 cug 2 "gh repo sync in the main checkout" "gh -R o/r repo sync" "$M"
+# #280 (OPS-141). Short options are read as git reads them, one letter at a time, so a cluster
+# holding u is fetch's -u; a git-core program is git, as git's own dispatch runs it; a `)` the
+# reader cannot match (a case pattern's, a comment's or a ${…}'s, inside $( … )) leaves it lost, and
+# a lost reading aims every move at the cwd's main checkout; a heredoc's unquoted body runs its
+# $( … ); and a worktree on the main checkout's branch moves it, however that branch got there.
+cug 2 "a lane's fetch -fu into a branch (bundled short options)" "git fetch -fu . HEAD:main" "$ML"
+cug 2 "a fetch -qu in the main checkout" "git fetch -qu origin main:main" "$M"
+cug 2 "a lane's fetch by an alias of fetch -fu" "git -c 'alias.fu=fetch -fu' fu . HEAD:main" "$ML"
+git -C "$M" config alias.fu2 'fetch -qu'
+cug 2 "a lane's fetch by a config alias of fetch -qu" "git fu2 . HEAD:main" "$ML"
+cug 2 "a git-core program run by path" "/usr/libexec/git-core/git-pull" "$M"
+cug 2 "a git-core program under git --exec-path" '"$(git --exec-path)/git-pull" --ff-only' "$M"
+cug 2 "a git-core program through a wrapper" "timeout 60 git-merge origin/main" "$M"
+cug 2 "a pull after a case pattern's ) inside \$( … ) (zsh)" "y=\$(case a in a) cd $ML ;; esac); git pull" "$M"
+cug 2 "a pull after a \${x:-)} inside \$( … ) (zsh)" "y=\$(echo \${x:-)}; cd $ML); git pull" "$M"
+cug 2 "a pull after a comment's ) inside \$( … )" "$(printf 'y=$(echo one # )\ncd %s); git pull' "$ML")" "$M"
+cug 2 "a lane's checkout --ignore-other-worktrees main, then a reset" "git checkout --ignore-other-worktrees main && git reset --hard origin/main" "$ML"
+cug 2 "a lane's switch --ignore-other-worktrees main" "git switch --ignore-other-worktrees main" "$ML"
+cug 2 "a lane's symbolic-ref of HEAD to main, then a reset" "git symbolic-ref HEAD refs/heads/main && git reset --hard HEAD~0" "$ML"
+MT="$M/.claude/worktrees/twin"; git -C "$M" worktree add -q -f "$MT" "$(git -C "$M" symbolic-ref --short HEAD)" 2>/dev/null
+cug 2 "a reset in a worktree on the main checkout's branch" "git reset --hard HEAD" "$MT"
+cug 2 "a lane's pull in an unquoted heredoc's \$( … )" "$(printf 'cat <<EOF\n$(git -C %s pull)\nEOF' "$M")" "$ML"
+cug 2 "a lane's pull in an unquoted heredoc's backticks" "$(printf 'cat <<-EOF\n\tx `git -C %s pull` y\n\tEOF' "$M")" "$ML"
+cug 0 "a lane's quoted heredoc naming a pull" "$(printf "cat <<'EOF'\n\$(git -C %s pull)\nEOF" "$M")" "$ML"
+cug 0 "a lane's fetch -q (no u in the cluster)" "git fetch -q origin main" "$ML"
+cug 0 "a lane's read of its own HEAD by symbolic-ref" "git symbolic-ref --short HEAD" "$ML"
+cug 0 "git-merge-base by path in the main checkout" "/usr/libexec/git-core/git-merge-base HEAD HEAD" "$M"
+cug 0 "a lane's catch-up after a \$( case … ) that leaves nothing lost" "y=\$(case a in (a) echo x ;; esac); git merge origin/main" "$ML"
 cug 2 "without jq: a pull spelled g\\it" 'g\it pull' "$M" "$d/cug-nojq"
 rc=0; printf '{"tool_name":"Bash","cwd":"%s","tool_input":{"command":"git pull"}' "$M" | (cd "$M" && PATH="$d/cug-bin:$PATH" sh "$H/catch-up-guard.sh") >/dev/null 2>&1 || rc=$?
 expect_rc 2 "$rc" "catch-up-guard blocks: a pull in a payload jq cannot read (read raw)"
