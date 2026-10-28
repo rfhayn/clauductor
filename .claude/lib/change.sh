@@ -72,11 +72,12 @@ table_rows_naming() {
 # span is text (a tag or an entity inside it is not markup), and a `<` starts markup only where it
 # opens a real tag (`<b>`, `<span title="a>b">`, `</b>`), a comment (`<!-- -->`), an instruction
 # (`<?…?>`), a declaration or CDATA; those go (`Appro<b></b>val`), and any other `<` is text, so
-# `p95 < 50ms … > 3` hides nothing between. A link CommonMark makes reads as its text
-# (`[Approval](x)`, `[[Risk]](x)`); a destination with a space in it (`[x](Approval: owner)`) is no
-# link, so it stays, and since that line is drawn only by a pattern, s is read both ways, with the
-# destinations a link pattern matches gone and with every one gone; a reference label, which renders
-# only where a definition names it, is read both ways too (a line each). Every entity is decoded: a numeric one to its ASCII character (`Ri&#115;k`), a
+# `p95 < 50ms … > 3` hides nothing between. A link reads as its text (`[Approval](x)`,
+# `[[Risk]](x)`). Its destination is read three ways, a line each: dropped where a pattern (lk) finds
+# a link, so text that is no link (`[x](Approval: owner)`) stays; dropped wherever CommonMark closes
+# it, since lk misses some links CommonMark makes; and dropped to its first `)`, as the reader before
+# OPS-131 dropped it. A reference label, which renders only where a definition names it, is read
+# both ways too. Every entity is decoded: a numeric one to its ASCII character (`Ri&#115;k`), a
 # markup character (`` ` * _ | \ < > & ``, which renders as itself, never as markup) or a space to
 # a space; a named one as its code point is (`&colon;`, `&nbsp;`, `&mdash;`), and a name not listed
 # (`&ratio;`) or a control character as what is not ASCII. Then what is not ASCII: an
@@ -162,31 +163,66 @@ marker_plain() {
     }
     return o s
   }
-  # loose: s with every `](…)` destination gone, whatever it holds (a space, an escape, balanced
-  # parens), up to the `)` that closes it; a `|` between cells ends the search, as it ends a link.
-  function loose(s,   o, i, j, d, c) {
-    o = ""
-    while (i = index(s, "](")) {
-      o = o substr(s, 1, i); s = substr(s, i + 1); d = 0
-      for (j = 1; j <= length(s); j++) {
+  # dest: where the `)` closing the destination s opens (s starts at its `(`) is, by CommonMark
+  # grammar, or 0: a <…> destination, or a bare one with no space, a `(` in it needing its `)`;
+  # then a title in quotes or parens after a space. An escaped character (html follows it with \002)
+  # counts for nothing; in a table line a `|` ends the cell, so the destination never closes. It
+  # may close one CommonMark leaves open (`(a(b "t")`): dropping more is safe, as reading 0 keeps it.
+  function dest(s,   n, j, c, t) {
+    n = length(s); j = 2
+    while (substr(s, j, 1) ~ /[ \t]/) j++
+    if (substr(s, j, 1) == "<") {
+      for (j++; j <= n; j++) {
         c = substr(s, j, 1)
-        if (c == "|") break
-        if (substr(s, j + 1, 1) == "\002") { j++; continue }  # an escaped paren counts for nothing
-        if (c == "(") d++
-        else if (c == ")" && --d == 0) { s = substr(s, j + 1); break }
+        if (substr(s, j + 1, 1) == "\002") { j++; continue }
+        if (!prose && c == "|") return 0
+        if (c == ">") break
+      }
+      if (j++ > n) return 0
+    } else {
+      for (t = 0; j <= n; j++) {
+        c = substr(s, j, 1)
+        if (substr(s, j + 1, 1) == "\002") { j++; continue }
+        if (c ~ /[ \t]/ || (!prose && c == "|")) break
+        if (c == "(") t++
+        else if (c == ")" && t-- == 0) return j
       }
     }
-    return o s
+    if (substr(s, j, 1) ~ /[ \t]/) {
+      while (substr(s, j, 1) ~ /[ \t]/) j++
+      if ((c = substr(s, j, 1)) != "" && index("\"" q "(", c)) {
+        if (c == "(") c = ")"
+        for (j++; j <= n; j++) {
+          if (substr(s, j + 1, 1) == "\002") { j++; continue }
+          if (!prose && substr(s, j, 1) == "|") return 0
+          if (substr(s, j, 1) == c) break
+        }
+        if (j++ > n) return 0
+        while (substr(s, j, 1) ~ /[ \t]/) j++
+      }
+    }
+    return substr(s, j, 1) == ")" ? j : 0
   }
   # plain: s, from html, as text. A link reads as its text, `[Approval](x):` being `[Approval]:` (the
-  # caller drops the brackets), but only a link CommonMark makes: an opener, then a destination with
-  # no space and at most a quoted title (lk); `note](Approval: owner)` keeps its words. lk misses
-  # links CommonMark also makes (`[[Approval]](x)`, `[\*\*Risk\*\*](x)`, `[Risk](https://e.org/a_(b))`),
-  # so the caller reads s both ways: the links lk matches gone, and every destination (all, loose). The
-  # label of a reference (`[x][Approval: owner]`) renders only where a definition names it, which is
-  # not read, so it is read both ways too: the label gone, and kept (ref).
-  function plain(s, ref, all,   o, e, m) {
-    if (all) s = loose(s)
+  # caller drops the brackets). Three readings of its destination, which the caller unites (how):
+  # 0, only a link lk matches, an opener then a destination with no space and at most a quoted title,
+  # so `note](Approval: owner)` keeps its words; 1, every `](` whose destination CommonMark closes
+  # (dest), which lk misses where the text holds a bracket or an escape or the destination a paren
+  # (`[[Approval]](x)`, `[\*\*Risk\*\*](x)`, `[Risk](<a (b>)`); 2, every `](` to its first `)`, as
+  # the reader before OPS-131 read it, so no reading here is ever weaker than that one: it errs
+  # toward a marker (`[Risk](a_(b)):` is `Risk):`, which the caller refuses). The label of a
+  # reference (`[x][Approval: owner]`) renders only where a definition names it, which is not read,
+  # so it is read both ways too: the label gone, and kept (ref).
+  function plain(s, ref, how,   o, e, m, i, j) {
+    if (how == 1) {
+      o = ""
+      while (i = index(s, "](")) {
+        o = o substr(s, 1, i); s = substr(s, i + 1)
+        if (j = dest(s)) s = substr(s, j + 1)
+      }
+      s = o s
+    }
+    if (how == 2) gsub(old, "]", s)
     o = ""
     while (match(s, lk)) {
       m = substr(s, RSTART, RLENGTH); o = o substr(s, 1, RSTART - 1) substr(m, 1, index(m, "]"))
@@ -220,7 +256,10 @@ marker_plain() {
     av = "([^ \t\"" q "=<>`]+|\"[^\"]*\"|" q "[^" q "]*" q ")"
     otag = "^<[A-Za-z][A-Za-z0-9-]*([ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*([ \t]*=[ \t]*" av ")?)*[ \t]*/?>"
     ctag = "^</[A-Za-z][A-Za-z0-9-]*[ \t]*>"
-    lk = "\\[[^][\002|]*\\]\\((<[^<>|]*>|[^ \t()<>|]*)([ \t]+(\"[^\"|]*\"|" q "[^" q "|]*" q "|\\([^()|]*\\)))?[ \t]*\\)"
+    # A `|` ends a cell, so in a table line no link or destination crosses one; in prose it is text.
+    bar = prose ? "" : "|"
+    lk = "\\[[^][\002" bar "]*\\]\\((<[^<>" bar "]*>|[^ \t()<>" bar "]*)([ \t]+(\"[^\"" bar "]*\"|" q "[^" q bar "]*" q "|\\([^()" bar "]*\\)))?[ \t]*\\)"
+    old = "\\]\\([^)" bar "]*\\)"
     # The named entities prose meets, read as their code points are (dec); any other name is read as
     # what is not ASCII, so `Approval&ratio; owner` is a marker and `Appro&DownBreve;val:` one word.
     n = split("colon 58 Tab 9 NewLine 10 nbsp 160 NonBreakingSpace 160 ensp 8194 emsp 8195 emsp13 8196" \
@@ -244,9 +283,9 @@ marker_plain() {
     if (prose) RS = ""
   }
   { gsub(ctl, "\200") }
-  function each(s,   k, r, seen) {  # each distinct reading of s: lk or loose, the label gone or kept
-    for (k = 0; k < 4; k++) {
-      r = plain(s, k % 2, k > 1); if (!prose) r = cells(r)
+  function each(s,   k, r, seen) {  # each distinct reading of s: three of a link, the label gone or kept
+    for (k = 0; k < 6; k++) {
+      r = plain(s, k % 2, int(k / 2)); if (!prose) r = cells(r)
       if (!(r in seen)) { seen[r] = 1; print r }
     }
   }
