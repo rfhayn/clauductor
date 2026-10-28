@@ -50,6 +50,16 @@ started from the panel's **New lane** (or by hand), on one branch:
 
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
   worktree agents while its hooks lag `origin/main`.
+- **A lane syncs its hooks and skills through one command.** Claude Code's sandbox denies writes
+  to `.claude/hooks` and `.claude/skills`, on purpose: an agent cannot edit the hooks that guard
+  it. So a lane's `clauductor update`, rebase, merge or reset fails there whenever it brings a hook
+  or a skill along. `sh .claude/lane-sync.sh update|rebase|merge|reset`, run from the lane's
+  worktree, does those and nothing else (here, `update` builds `framework/clauductor` from the
+  lane's checkout first, so it reads the lane's `template/`), and it is the ONE command a lane asks
+  to run outside the sandbox: the owner (or auto mode's classifier) approves each run. It refuses
+  the main checkout, any directory that is not a linked worktree of this repository, and any other
+  subcommand or argument (`checks/lane-sync.sh`). The approval reads the command, not the script,
+  so before approving, `git diff origin/main -- .claude/lane-sync.sh` in the lane should be empty.
 - **One full gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a
   lane's full gate may queue behind another's; the panel shows who holds it. A `--quick` run takes
   no lease and never queues.

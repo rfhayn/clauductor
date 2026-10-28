@@ -53,6 +53,8 @@ guard.d
 # What prints those fragments and runs the health lines, and the table's other script controls
 .claude/extensions.sh
 .claude/machine-quiet.sh
+# The one command a lane runs outside the sandbox (OPS-151)
+.claude/lane-sync.sh
 .claude/panel-suggest.sh
 .claude/compound.sh
 .gitattributes

@@ -61,6 +61,15 @@ started from the panel's **New lane** (or by hand), on one branch:
   `panel.json` that disagrees with the keys.
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
   worktree agents while its hooks lag `origin/main`.
+- **A lane syncs its hooks and skills through one command.** Claude Code's sandbox denies writes
+  to a checkout's hooks and skills directories under `.claude`, on purpose: an agent cannot edit
+  the hooks that guard it. So a lane's `clauductor update`, rebase, merge or reset fails there
+  whenever it brings a hook or a skill along. `sh .claude/lane-sync.sh update|rebase|merge|reset`,
+  run from the lane's worktree, does those and nothing else, and it is the ONE command a lane asks
+  to run outside the sandbox: you (or auto mode's classifier) approve each run. It refuses the
+  main checkout, any directory that is not a linked worktree of this repository, and any other
+  subcommand or argument (`checks/lane-sync.sh`). The approval reads the command, not the script,
+  so before approving, `git diff --stat origin/main` in the lane should not list the script.
 - **A request is priced before it is relayed to a running lane.** The orchestrator tells the owner
   which lane, its rough cost, what it displaces and whether it lands in a control, with a cheaper
   option when there is one, and the owner chooses (`session-start`, *Rules*; nothing checks it).
