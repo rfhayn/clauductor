@@ -63,13 +63,17 @@ scan() { LC_ALL=C awk -v W="mk""temp" "$SCAN_AWK" "$@"; }
 # scan_repo DIR [PATHSPECS]: scan every tracked file of the repository at DIR (under PATHSPECS, a
 # space-separated list, when given), each as ./<path>; the list is NUL-separated (-z), so a path
 # git would quote reaches awk as it is, and git's stderr is kept out of it. Fails closed: a listing
-# git could not produce, an empty one, or an awk that did not finish, is never clean. set -f: a
-# pathspec's `*` is git's to match, not the shell's.
+# git could not produce, an empty one, one with no shell script in it (a pathspec naming only docs),
+# or an awk that did not finish, is never clean. set -f: a pathspec's `*` is git's to match, not the
+# shell's. The count of scripts read is left in $d/count.
 scan_repo() {
   (set -f; git -C "$1" ls-files -z -- ${2:-} > "$d/files" 2> "$d/ls.err") || { echo "git ls-files failed in $1: $(cat "$d/ls.err")"; return 2; }
   [ -s "$d/files" ] || { echo "git ls-files found no file in $1${2:+ under MKTEMP_CHECK_PATHS=\"$2\"}"; return 2; }
   (cd "$1" && xargs -0 sh -c 'for f do printf "./%s\000" "$f"; done' sh < "$d/files" > "$d/files.dot") \
     || { echo "the file list could not be prefixed in $1"; return 2; }
+  (cd "$1" && LC_ALL=C xargs -0 awk 'BEGIN { for (i = 1; i < ARGC; i++) { f = ARGV[i]; rc = (getline l < f); close(f); if (f ~ /\.sh$/ || (rc > 0 && f !~ /\.[^\/]*$/ && l ~ /^#!.*sh([ \t]|$)/)) n++ }; print n + 0; exit }' < "$d/files.dot") \
+    | awk '{ s += $1 } END { print s + 0 }' > "$d/count"
+  [ "$(cat "$d/count")" -gt 0 ] || { echo "no tracked shell script in $1${2:+ under MKTEMP_CHECK_PATHS=\"$2\"}, so nothing was checked"; return 2; }
   (cd "$1" && LC_ALL=C xargs -0 awk -v W="mk""temp" "$SCAN_AWK" < "$d/files.dot" 2> "$d/scan.err") \
     || { echo "the scan did not finish in $1: $(head -3 "$d/scan.err")"; return 2; }
 }
@@ -162,11 +166,24 @@ case $out in *"vendor/y.sh"*) fail "falsified: MKTEMP_CHECK_PATHS did not narrow
 out=$(scan_repo "$r" "nowhere")
 case $? in 2) ok "MKTEMP_CHECK_PATHS naming no tracked file fails, never passes empty ($out)" ;;
   *) fail "MKTEMP_CHECK_PATHS naming no tracked file passed: $out" ;; esac
+printf '# notes\n' > "$r/README.md"; git -C "$r" add -A && git -C "$r" commit -qm docs
+out=$(scan_repo "$r" "README.md")
+case $? in 2) ok "falsified: MKTEMP_CHECK_PATHS naming files but no shell script fails, never passes with 0 read ($out)" ;;
+  *) fail "MKTEMP_CHECK_PATHS naming only a README passed with no script read: $out" ;; esac
+# A pathspec's `*` is git's: "*.sh" reaches sub/deep.sh, which the shell's own glob, run from the
+# repository's top, would have narrowed to top.sh.
+printf 't=$(%s)\n' "mk""temp" > "$r/top.sh"; mkdir -p "$r/sub"; cp "$r/top.sh" "$r/sub/deep.sh"
+git -C "$r" add -A && git -C "$r" commit -qm glob
+out=$(cd "$r" && scan_repo "$r" "*.sh")
+case $out in *"sub/deep.sh:1: "*) ok "falsified: a pathspec's * is matched by git, not expanded by the shell" ;;
+  *) fail "the pathspec *.sh did not reach sub/deep.sh (scan: $out)" ;; esac
 
 # ── This project ────────────────────────────────────────────────────────────────────────────────
 git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || { fail "cannot check: $ROOT is not a git checkout"; finish; }
-out=$(scan_repo "$ROOT" "${MKTEMP_CHECK_PATHS:-}") || { fail "$out"; finish; }
-n=$(cd "$ROOT" && LC_ALL=C xargs -0 awk 'BEGIN { for (i = 1; i < ARGC; i++) { f = ARGV[i]; rc = (getline l < f); close(f); if (f ~ /\.sh$/ || (rc > 0 && f !~ /\.[^\/]*$/ && l ~ /^#!.*sh([ \t]|$)/)) n++ }; print n + 0; exit }' < "$d/files.dot" | awk '{ s += $1 } END { print s + 0 }')
+# A value of only spaces is no value.
+case ${MKTEMP_CHECK_PATHS:-} in *[![:space:]]*) ;; *) MKTEMP_CHECK_PATHS="" ;; esac
+out=$(scan_repo "$ROOT" "$MKTEMP_CHECK_PATHS") || { fail "$out"; finish; }
+n=$(cat "$d/count")
 reach="the whole repository"; [ -z "${MKTEMP_CHECK_PATHS:-}" ] || reach="MKTEMP_CHECK_PATHS=\"$MKTEMP_CHECK_PATHS\""
 if [ -z "$out" ]; then
   ok "every temporary file is named under \$TMPDIR in $ROOT's $n tracked shell scripts ($reach)"
