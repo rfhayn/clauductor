@@ -367,8 +367,8 @@ has no "who (module people)" "$c" "with the module off, session-start prints no 
 # who.sh's own wiring, comments stripped (a claim in a comment satisfies nothing).
 code=$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$M/context.d/session-start/who.sh")
 has yes 'pr list --state merged --author "$login" --search "sort:updated-desc"' "$code" "who.sh reads merged PRs by most recent update, so an old PR merged today is found"
-has yes 'state=$(mktemp ' "$code" "who.sh makes its state directory with mktemp..."
-case "$code" in *'state=$(mktemp '*') || state='*) ok "...and survives a failed mktemp instead of ending the briefing" ;; *) fail "who.sh: a bare mktemp ends the briefing on failure" ;; esac
+has yes 'state=$(mktemp ' "$code" "who.sh makes its state directory with mktemp..."  # shell-hygiene: text matched in who.sh, not a call
+case "$code" in *'state=$(mktemp '*') || state='*) ok "...and survives a failed mktemp instead of ending the briefing" ;; *) fail "who.sh: a bare mktemp ends the briefing on failure" ;; esac  # shell-hygiene: text matched in who.sh, not a call
 has yes 'CANNOT CHECK — mktemp failed' "$code" "...saying CANNOT CHECK when it fails"
 has yes '--activity --state "$state" 2>&1' "$code" "who.sh runs people.sh with stderr merged, so its CANNOT CHECK is visible"
 for login in $(sh "$PS" --logins --people "$M/people.example.json") alice-gh bob-gh; do
