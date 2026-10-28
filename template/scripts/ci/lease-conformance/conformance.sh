@@ -74,7 +74,7 @@ WAIT=${CONFORMANCE_WAIT:-3}
 TIMEOUT=${CONFORMANCE_TIMEOUT:-20}
 HOST=$(hostname)
 # A clean path: implementations may clean the lock path they report (a/b, not a//b). One line, as
-# checks/shell-hygiene.sh wants the $TMPDIR default on the line of the call (OPS-150).
+# checks/mktemp-in-tmpdir.sh wants the $TMPDIR default on the line of the call (OPS-150).
 tmp=${TMPDIR:-/tmp}; WORK=$(mktemp -d "${tmp%/}/lease-conformance.XXXXXX")
 cleanup() {
 	# Only this shell's own jobs that are still running: a pid it already reaped

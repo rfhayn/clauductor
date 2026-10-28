@@ -351,7 +351,7 @@ M FAKE_GH_FAIL=1; soft "gh failing" "gh could not list"
 M CONTEXT_OFFLINE=1; soft "offline" "offline"
 # A PATH of exactly the tools the scripts use: without gh, then without jq too.
 mkdir -p "$d/nogh" "$d/nojq"
-for t in git jq sh awk sed cat cut head tail tr rm mktemp basename dirname find grep wc sort touch xargs date env mkdir ls; do  # shell-hygiene: a list of tools, not a call
+for t in git jq sh awk sed cat cut head tail tr rm mktemp basename dirname find grep wc sort touch xargs date env mkdir ls; do  # mktemp-in-tmpdir: a list of tools, not a call
   p=$(command -v "$t") || continue
   ln -s "$p" "$d/nogh/$t"; [ "$t" = jq ] || ln -s "$p" "$d/nojq/$t"
 done
@@ -407,7 +407,7 @@ cat > "$d/sortfind/find" <<EOF
 #!/bin/sh
 n=0; for a; do [ "\$a" = -exec ] && break; n=\$((n+1)); done
 if [ "\$n" -eq "\$#" ]; then $(command -v find) "\$@" | LC_ALL=C sort; exit 0; fi
-f=\$(mktemp "$d/sortfind/list.XXXXXX") || exit 2  # shell-hygiene: under $d, the scratch directory made in $TMPDIR
+f=\$(mktemp "$d/sortfind/list.XXXXXX") || exit 2  # mktemp-in-tmpdir: under $d, the scratch directory made in $TMPDIR
 ( i=0; for a; do i=\$((i+1)); shift; [ "\$i" -le "\$n" ] && set -- "\$@" "\$a"; done; $(command -v find) "\$@" ) | LC_ALL=C sort > "\$f"
 i=0; for a; do i=\$((i+1)); shift; if [ "\$i" -gt \$((n+1)) ]; then case \$a in '{}'|+|';') ;; *) set -- "\$@" "\$a" ;; esac; fi; done
 while IFS= read -r p; do set -- "\$@" "\$p"; done < "\$f"; rm -f "\$f"

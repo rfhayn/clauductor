@@ -108,7 +108,7 @@ out=$(SW GH_SCHED='{"message":"not a list"}'); has "scheduled: output gh did not
 out=$(SW GH_SCHED='[]'); has "scheduled: no run on record is NEVER RAN" "$out" "NEVER RAN audit.yml: no scheduled run on record yet"
 # jq absent (not broken: absent): a MACHINE problem, said as one, never "could not parse gh output".
 mkdir -p "$d/nojq"
-for t in sh git awk sed grep tr sort cut head tail wc dirname basename pwd printf env date mktemp rm cat; do  # shell-hygiene: a list of tools, not a call
+for t in sh git awk sed grep tr sort cut head tail wc dirname basename pwd printf env date mktemp rm cat; do  # mktemp-in-tmpdir: a list of tools, not a call
   p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$d/nojq/$t"
 done
 ln -sf "$d/bin/gh" "$d/nojq/gh"
