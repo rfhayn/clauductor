@@ -38,7 +38,7 @@ if [ -n "$entry" ]; then
   if printf '%s\n' "$entry" | grep -q -m 1 '^\*\*What happened'; then
     printf '%s\n' "$entry" | grep -m 1 '^\*\*What happened' | indent 600
   elif printf '%s\n' "$entry" | grep -q -m 1 '^#### What happened'; then
-    printf '%s\n' "$entry" | awk '/^#### What happened/{getline; while (/^[[:space:]]*$/) getline; print; exit}' | indent 600
+    printf '%s\n' "$entry" | awk '!got && /^#### What happened/{getline; while (/^[[:space:]]*$/ && (getline) > 0) ; print; got = 1}' | indent 600
   else
     printf '%s\n' "$entry" | sed -n '2,8p' | grep -v '^[[:space:]]*$' | head -2 | indent 600
   fi

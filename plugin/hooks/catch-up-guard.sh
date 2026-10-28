@@ -167,9 +167,10 @@ is_move() {  # is_move DIR SUBCOMMAND NEXT-WORD SHARED-FLAG OPERANDS ALIAS-VALUE
   [ -n "$_v" ] || _v=$(git -C "$1" config --get "alias.$2" 2>/dev/null) || return 1
   case $_v in '!'*) return 0 ;; esac
   # The alias's words come before the command line's: its flags and operands count with theirs.
-  set -- "$(printf '%s\n' "$_v" | awk -v x="$3" -v u="$4" -v n="${5:-0}" '{
+  # awk reads all its input (NR == 1, no exit), so printf never writes to a closed pipe (OPS-150).
+  set -- "$(printf '%s\n' "$_v" | awk -v x="$3" -v u="$4" -v n="${5:-0}" 'NR == 1 {
       for (i = 2; i <= NF; i++) { if ($i ~ /^-[^-]*u/ || $i ~ /^--update-h/ || $i ~ /^--ignore-o/) u = 1; if ($i !~ /^-/) n++ }
-      print $1 "\t" (NF > 1 ? $2 : x) "\t" u "\t" n; exit }')"
+      print $1 "\t" (NF > 1 ? $2 : x) "\t" u "\t" n }')"
   IFS="$TAB" read -r _s _x _u _n <<EOF
 $1
 EOF

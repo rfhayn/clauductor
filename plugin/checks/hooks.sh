@@ -141,7 +141,7 @@ nb 0 "node -c" "node -c fix.js"
 nb 0 "perl -c" "perl -c x.pl $T"
 # Only a literal or glob target that resolves to a TRACKED file is judged in a script's text:
 # what the script cannot name (a variable, a cd to one) is not refused, unlike on the command line.
-printf 'm=$(mktemp -d)\ncp src/lib/app.ts "$m/app.ts"\nsed -i "" s/x/y/ "$m/app.ts"\n' > "$d/mut.sh"
+printf 'm=$(mktemp -d)\ncp src/lib/app.ts "$m/app.ts"\nsed -i "" s/x/y/ "$m/app.ts"\n' > "$d/mut.sh"  # mktemp-in-tmpdir: fixture text the hook reads, never run
 printf 'sed -i "" "s/^version=.*/version=$1/" "$VERSION_FILE"\n' > "$R/bump.sh"
 printf 'PROFILE="$HOME/.profile"\ncd "$HOME"\nsed -i "" /nvm/d "$PROFILE"\n' > "$d/install.sh"
 nb 0 "a scratch mutation script editing a copy" "sh $d/mut.sh"
@@ -218,7 +218,7 @@ expect_rc 0 "$rc" "no-blind-source-rewrite allows an empty payload rather than b
 
 # Without jq it must fail CLOSED for a command it polices, and stay open for anything else.
 mkdir -p "$d/nojq"
-for t in sh cat git awk sed grep tr sort cut xargs mktemp dirname basename wc head tail pwd printf; do
+for t in sh cat git awk sed grep tr sort cut xargs mktemp dirname basename wc head tail pwd printf; do  # mktemp-in-tmpdir: a list of tools, not a call
   p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$d/nojq/$t"
 done
 nojq() {

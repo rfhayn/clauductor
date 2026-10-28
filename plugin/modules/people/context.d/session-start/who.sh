@@ -24,7 +24,7 @@ fi
 logins=$(sh "$P" --logins 2>&1) || { printf '%s\n' "$logins"; exit 0; }
 # A failed mktemp must not end the briefing: say so and stop this section only.
 state=$(mktemp -d "${TMPDIR:-/tmp}/people-who.XXXXXX" 2>/dev/null) || state=
-[ -n "$state" ] || { echo "CANNOT CHECK — mktemp failed, so nothing read from GitHub could be handed over"; exit 0; }
+[ -n "$state" ] || { echo "CANNOT CHECK — mktemp failed, so nothing read from GitHub could be handed over"; exit 0; }  # mktemp-in-tmpdir: a message, not a call
 trap 'rm -rf "$state"' EXIT
 
 # Every gh call is bounded (PEOPLE_GH_TIMEOUT seconds each), and the serial per-branch lookups
