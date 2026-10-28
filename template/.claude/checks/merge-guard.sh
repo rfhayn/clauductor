@@ -74,6 +74,16 @@ case "$1 $2" in
     esac ;;
   # GH_RUNS_DEFAULT: the successes gh's default repo has for that commit, which a list naming no repo gets.
   "run list") case "$*" in *" -R "*) echo "${GH_RUNS:-0}" ;; *) echo "${GH_RUNS_DEFAULT-${GH_RUNS:-0}}" ;; esac ;;
+  # gh api repos/<owner>/<name> --jq .full_name: the name GitHub answers. GH_RENAMED: the names that
+  # redirect to GH_CANON (a renamed or transferred repository's). GH_API_ERR: gh itself fails.
+  # GH_API_HOST: the GitHub Enterprise host this repo lives on; asked anywhere else, it is not found.
+  "api --hostname" | "api repos/"*)
+    host=""; [ "$2" = --hostname ] && { host=$3; shift 3; set -- api "$@"; }
+    [ -n "${GH_API_LOG:-}" ] && echo "$2" >> "$GH_API_LOG"
+    [ -n "${GH_API_ERR:-}" ] && { echo "$GH_API_ERR" >&2; exit 1; }
+    [ -n "${GH_API_HOST:-}" ] && [ "$2" = repos/acme/app ] && [ "$host" != "$GH_API_HOST" ] && { echo "HTTP 404: Not Found" >&2; exit 1; }
+    asked=${2#repos/}
+    case " ${GH_RENAMED:-} " in *" $asked "*) echo "${GH_CANON:-Acme/App}" ;; *) echo "$asked" ;; esac ;;
   *) exit 1 ;;
 esac
 EOF
@@ -900,6 +910,27 @@ guard 2 "two merges in one command" "gh pr merge 5 --squash && gh pr merge 6 --s
 guard 0 "another repo's merge, in the allowlisted shape" "gh pr merge 2 -R other/tool --squash --delete-branch"
 guard 2 "another repo named outside the shape" "echo x | xargs gh pr merge 2 -R other/tool"
 guard 2 "this repo named by -R is still policed" "gh pr merge 5 -R acme/app --squash" GH_HEAD=0000000000000000000000000000000000000000
+# #282 (OPS-141): GitHub redirects a renamed or transferred repository's old name to it, so a merge
+# naming the old name merges this repo's PR, and is policed as this repo's. And an origin remote
+# left on the old name is this repo under the new one.
+Z=0000000000000000000000000000000000000000
+guard 2 "#282: this repo's old name in the foreign shape, with no evidence" "gh pr merge 5 -R old/app --squash --delete-branch" GH_RENAMED=old/app GH_HEAD=$Z
+guard 2 "#282: this repo's old name in the foreign shape, the PR CLOSED" "gh pr merge 5 -R old/app --squash" GH_RENAMED=old/app GH_STATE=CLOSED
+guard 0 "#282: this repo's old name in the foreign shape, with evidence for its head" "gh pr merge 5 -R old/app --squash" GH_RENAMED=old/app
+guard 0 "#282: this repo's old name in a PR URL, with evidence for its head" "gh pr merge https://github.com/old/app/pull/5 --squash" GH_RENAMED=old/app
+guard 2 "#282: this repo's old name in a gh api merge, with no evidence" "gh api -X PUT repos/old/app/pulls/5/merge" GH_RENAMED=old/app GH_HEAD=$Z
+guard 2 "#282: origin left on the old name, the merge naming the new one, with no evidence" "gh pr merge 5 -R new/app --squash" GH_RENAMED="acme/app new/app" GH_CANON=New/App GH_HEAD=$Z
+guard 2 "#282: gh cannot say which repository another name is (fails closed)" "gh pr merge 2 -R other/tool --squash --delete-branch" GH_API_ERR="HTTP 401: Bad credentials"
+grep -q 'GitHub did not say which repository' "$d/err" && ok "#282: ...saying gh could not resolve the name" || fail "#282: the refusal does not say gh could not resolve the name: $(head -3 "$d/err")"
+# With a GitHub Enterprise origin, this repo is asked about on its own host, not gh's default.
+git -C "$R" remote set-url origin https://ghe.example.com/acme/app.git
+guard 0 "#282: another repo's merge from a GitHub Enterprise checkout" "gh pr merge 2 -R other/tool --squash --delete-branch" GH_API_HOST=ghe.example.com
+git -C "$R" remote set-url origin acme/app.git
+# Each name is asked about once a run, though the guard reads the merge's name twice.
+: > "$d/api.log"
+guard 0 "#282: this repo's old name, asked about once each" "gh pr merge 5 -R old/app --squash" GH_RENAMED=old/app GH_API_LOG="$d/api.log"
+[ "$(sort "$d/api.log" | uniq -d | wc -l | tr -d ' ')" = 0 ] && [ "$(wc -l < "$d/api.log" | tr -d ' ')" = 2 ] \
+  && ok "#282: ...two gh api calls, one per name" || fail "#282: gh api calls for one merge: $(tr '\n' ' ' < "$d/api.log")"
 
 # Non-ASCII in a UTF-8 locale (#100): BSD awk died on a byte of `✅` or `🤖` taken apart one at a
 # time, and the guard refused harmless commands as unreadable. Only a UTF-8 locale shows it (mawk

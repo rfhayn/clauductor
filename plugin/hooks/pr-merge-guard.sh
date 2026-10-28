@@ -603,10 +603,51 @@ api_foreign_shape() {
 SHAPE='[cd <path> && ][VAR=value ]gh pr merge <n> -R <owner>/<name> [--squash|--merge|--rebase] [--delete-branch[=false]] [--subject "<text>"] [--body "<text>"] [2>/dev/null|2>&1], or gh api -X PUT repos/<owner>/<name>/pulls/<n>/merge [-f <key>=<value>]... — one merge, nothing piped, no xargs/env/subshell, no $, backtick, backslash or comment'
 
 this_repo=$(repo_key "$(git --no-optional-locks remote get-url origin 2>/dev/null)")
+# A NAME IS NOT A REPOSITORY (#282). GitHub redirects a renamed or transferred repository's old
+# owner/name to its new one, for the API as for the web, so a merge naming the old name merges this
+# repo's PR, and an origin remote never updated after a rename names the old one. A named repo that
+# differs from origin's counts as another only when GitHub resolves the two to different
+# repositories; when gh cannot answer, it is not known to be another.
+# canon KEY — sets canon_out to the owner/name GitHub answers for KEY, lowercased; empty when gh
+# cannot say. Each answer is kept for this run in the shell itself, never in a $( … ) subshell: a
+# merge's name is asked about twice (the foreign shape, then argv), and this repo's every time.
+# HOST, when given, is the server asked (gh api --hostname); else gh's own, as the merge's is.
+canon_seen="" canon_out=""
+canon() {
+  _ck="${2:-.}:$1"
+  case $canon_seen in
+    *"
+$_ck "*) canon_out=${canon_seen##*"
+$_ck "}; canon_out=${canon_out%%"
+"*}; return ;;
+  esac
+  canon_out=$(gh api ${2:+--hostname "$2"} "repos/$1" --jq .full_name </dev/null 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed -n '1{/^[a-z0-9._-][a-z0-9._-]*\/[a-z0-9._-][a-z0-9._-]*$/p;}')
+  canon_seen="$canon_seen
+$_ck $canon_out
+"
+}
+# this_host — origin's server when it is a GitHub Enterprise one (a dotted host name, not github.com
+# or *.github.com, which gh reads as github.com): this repo is asked about there. An ssh alias
+# (`git@github-work:o/n`) has no dot, and stays gh's own.
+this_host=$(git --no-optional-locks remote get-url origin 2>/dev/null | tr '[:upper:]' '[:lower:]' \
+  | sed -n -e 's|^[a-z+]*://\([^@/]*@\)\{0,1\}\([^/:]*\).*|\2|p' -e 's|^[^/@:]*@\([^/:]*\):.*|\1|p' | sed -n 1p)
+case $this_host in *.*) case $this_host in github.com | *.github.com) this_host= ;; esac ;; *) this_host= ;; esac
+# same_repo KEY — 0 when KEY is this repo, 1 when GitHub resolves it to another, 2 when it cannot say.
+same_repo() {
+  [ "$1" = "$this_repo" ] && return 0
+  canon "$this_repo" "$this_host"; _t=$canon_out
+  canon "$1"; _c=$canon_out
+  [ -n "$_t" ] && [ -n "$_c" ] || return 2
+  [ "$_c" = "$_t" ]
+}
 if [ -n "$api_pr" ]; then shaped=$(repo_key "$(api_foreign_shape)"); else shaped=$(repo_key "$(foreign_shape)"); fi
 if [ -n "$this_repo" ] && [ -n "$shaped" ] && [ "$shaped" != "$this_repo" ]; then
-  say "merge targets $shaped, not this repo ($this_repo). This guard polices only this repo's merges beyond --auto/--admin; allowing."
-  allow
+  same_repo "$shaped"; _same=$?
+  [ "$_same" != 2 ] || block "this merge names $shaped, and GitHub did not say which repository that is (gh api repos/$shaped failed), so it may be this repo ($this_repo) under an old name: a renamed or transferred repository's old name still reaches it. Check gh can reach GitHub (gh auth status), then merge again."
+  if [ "$_same" = 1 ]; then
+    say "merge targets $shaped, not this repo ($this_repo). This guard polices only this repo's merges beyond --auto/--admin; allowing."
+    allow
+  fi
 fi
 
 if [ -n "$api_pr" ]; then
@@ -638,7 +679,8 @@ while IFS= read -r line; do
       key=$(repo_key "$named")
       # An empty -R "" overrides nothing: gh falls back to GH_REPO or the directory, past the -R before it.
       if [ -z "$key" ]; then unparsed=${named:-an empty -R}
-      elif [ "$key" = "$this_repo" ]; then
+      # This repo under another name (#282) is this repo: policed, its reads by the name it gave.
+      elif same_repo "$key"; then
         own=1
         case "$line" in "R "*) own_repo=$named ;; esac
       else other=$key
