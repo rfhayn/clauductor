@@ -80,7 +80,9 @@ started from the panel's **New lane** (or by hand), on one branch:
     lane wrote (#304, closed for that). A plain `git rebase` or `git merge`, or the INSTALLED
     `clauductor update`, runs no file the lane wrote. A binary built from the lane's checkout does,
     so it runs only inside the sandbox. The owner, syncing a lane by hand, runs the installed
-    `clauductor update` from the lane's root.
+    binary from the lane's root as `CLAUDUCTOR_FRAMEWORK=$PWD clauductor update`: without the
+    prefix it would copy the main checkout's template, not the lane's. That reads the lane's
+    template only as data to copy, and runs no lane code.
   - **What does run outside the sandbox:** a command matching `sandbox.excludedCommands` in
     `.claude/settings.json`, and any command run with an approved sandbox bypass. The gate is one,
     since its process checks need `ps`, tmux and loopback, so a lane's gate runs the lane's own
