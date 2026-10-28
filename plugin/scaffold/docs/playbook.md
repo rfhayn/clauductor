@@ -61,6 +61,39 @@ started from the panel's **New lane** (or by hand), on one branch:
   `panel.json` that disagrees with the keys.
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
   worktree agents while its hooks lag `origin/main`.
+- **Who brings a lane's `.claude` files up to date.** Claude Code's own protections (not this
+  model's `settings.json`) refuse some sandboxed writes under `.claude`, and what a lane may write
+  depends on how it was started (seen 2026-10-28):
+
+  | Directory under `.claude` | A lane that is an agent of the main session | A lane that is its own session | The main checkout |
+  |---|---|---|---|
+  | `hooks`, `skills` | writable | denied | denied |
+  | `agents` | denied | denied | denied |
+
+  `.git/config` and `.git/hooks` are denied to every sandboxed command.
+  - **A lane that is an agent of the main session** brings its own hooks and skills along
+    (`clauductor update`, a rebase, a merge) inside the sandbox. That was seen to work on
+    2026-10-28, though these commands match the `git *` and `clauductor *` entries below; what
+    those entries do is Clauductor's #307.
+  - **A lane that is its own session** (a panel lane, or a new terminal tab) cannot: the session
+    that opens it syncs them (Clauductor's ST-15). Until that exists, the owner syncs such a lane
+    by hand.
+  - **The main session** creates every lane's worktree. `git worktree add` writes `.git/config`,
+    and its checkout writes the agents, so it runs outside the sandbox: a fixed git command, not
+    lane code. No lane can write an agent definition: it hands its change over as a diff, and after
+    review the main session applies that reviewed diff, again outside the sandbox.
+  - **No sync or agents step runs a lane's files outside the sandbox.** A lane can edit every file
+    in its worktree, so an unsandboxed run of a script, a build or a config there runs whatever the
+    lane wrote; a plain rebase, merge or update runs no file the lane wrote.
+  - **What does run outside the sandbox:** a command matching `sandbox.excludedCommands` in
+    `settings.json`, and any command run with an approved sandbox bypass. The gate is one, since
+    its process checks need `ps`, tmux and loopback, so a lane's gate runs the lane's own checks and
+    tests. The controls are review before the gate and the approval itself (Clauductor's #307).
+    Seen 2026-10-28: a `git` command matching the `git *` entry was still refused `.git/config`,
+    and that day's unsandboxed runs each went through an approved bypass, so what the entries do
+    on their own is unverified (Clauductor's #307).
+  - A plugin install takes its hooks, skills and agents from the plugin cache, so their sync does
+    not apply there.
 - **A request is priced before it is relayed to a running lane.** The orchestrator tells the owner
   which lane, its rough cost, what it displaces and whether it lands in a control, with a cheaper
   option when there is one, and the owner chooses (`session-start`, *Rules*; nothing checks it).
