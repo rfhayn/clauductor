@@ -40,14 +40,25 @@ func pushStandIn(t *testing.T, tail string) (prog, runs string) {
 	return prog, runs
 }
 
-// pushRuns lists the arguments of each run the stand-in recorded.
+// pushRuns lists the arguments of each run the stand-in recorded, in the order the
+// stand-in finished each run: run.$$ is not chronological (OPS-133, #234).
 func pushRuns(t *testing.T, runs string) [][]string {
 	t.Helper()
 	es, err := os.ReadDir(runs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sort.Slice(es, func(i, j int) bool { return es[i].Name() < es[j].Name() })
+	sort.Slice(es, func(i, j int) bool {
+		a, err := es[i].Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := es[j].Info()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a.ModTime().Before(b.ModTime())
+	})
 	var out [][]string
 	for _, e := range es {
 		b, err := os.ReadFile(filepath.Join(runs, e.Name()))
