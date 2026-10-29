@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -74,18 +73,13 @@ func TestHelperLaunchesClaude(t *testing.T) {
 // Main acts on the guard's record (#93): a run whose test launched claude exits 1 and
 // names the call, though the test itself passed.
 func TestMainFailsARunThatLaunchedClaude(t *testing.T) {
-	c := exec.Command(os.Args[0], "-test.run=^TestHelperLaunchesClaude$", "-test.timeout=30s")
 	// No claude on this PATH but the guard's: a regressed Main reaches none.
-	c.Env = append(os.Environ(), "LEAKCHECK_HELPER_MAIN=1", "PATH=/usr/bin:/bin")
-	var stderr strings.Builder
-	c.Stderr = &stderr
-	err := c.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
-		t.Fatalf("the run: %v, want exit status 1\n%s", err, stderr.String())
+	code, stderr := helperMain(t, "^TestHelperLaunchesClaude$", nil, "PATH=/usr/bin:/bin")
+	if code != 1 {
+		t.Fatalf("the run: exit %d, want 1\n%s", code, stderr)
 	}
-	if want := "leakcheck: a test launched the real claude (#93): claude probe;"; !strings.Contains(stderr.String(), want) {
-		t.Fatalf("stderr does not report the call (%q):\n%s", want, stderr.String())
+	if want := "leakcheck: a test launched the real claude (#93): claude probe;"; !strings.Contains(stderr, want) {
+		t.Fatalf("stderr does not report the call (%q):\n%s", want, stderr)
 	}
 }
 
@@ -115,8 +109,17 @@ func startBlocker(t *testing.T, c *exec.Cmd) {
 	}
 }
 
+// needPS fails the test where ps cannot list processes (a sandbox): Main finds no
+// helper there, so a test of what it finds would prove nothing.
+func needPS(t *testing.T) {
+	t.Helper()
+	if err := exec.Command("ps", "-A", "-o", "pid=").Run(); err != nil {
+		t.Fatalf("ps cannot list processes here (%v): leakcheck finds no helper without it", err)
+	}
+}
+
 // helperMain runs this binary as a package of the panel's kind (Main around it) with
-// the test run selects, and returns its exit code and stderr.
+// the test run selects, env added, and returns its exit code and stderr.
 func helperMain(t *testing.T, run string, stdin io.Reader, env ...string) (int, string) {
 	t.Helper()
 	c := exec.Command(os.Args[0], "-test.run="+run, "-test.timeout=60s")
@@ -138,6 +141,7 @@ func helperMain(t *testing.T, run string, stdin io.Reader, env ...string) (int, 
 // Main neither reports nor kills a copy of its binary it did not start: before the
 // fix it killed it, as it did OPS-99's measured run.
 func TestMainLeavesAnotherRunsCopyAlone(t *testing.T) {
+	needPS(t)
 	other := exec.Command(os.Args[0], "-test.run=^TestHelperBlocks$")
 	other.Env = append(os.Environ(), "LEAKCHECK_BLOCK=1")
 	stop, err := other.StdinPipe()
@@ -180,6 +184,7 @@ func TestHelperLeaksAHelper(t *testing.T) {
 // The detection the fix keeps: a helper this run started and left, its child and the
 // binary run again below it, is reported and killed, and fails the run.
 func TestMainKillsAHelperItLeft(t *testing.T) {
+	needPS(t)
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -209,15 +214,20 @@ func TestMainKillsAHelperItLeft(t *testing.T) {
 			t.Errorf("no report of the helper running %q:\n%s", want, stderr)
 		}
 	}
+	// Killed is gone, reaped or not: a zombie waits on whoever adopted it.
 	for _, pid := range pids {
 		testwait.For(t, "leaked helper "+strconv.Itoa(pid)+" to be gone", 10*time.Second, func() bool {
-			return syscall.Kill(pid, 0) != nil
+			out, _ := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+			stat := strings.TrimSpace(string(out))
+			return stat == "" || strings.HasPrefix(stat, "Z")
 		})
 	}
 }
 
 // leftovers over a fixed listing: this run is pid 100, its parent (go test, which runs
 // the same binary) is 90, and 200 is another run of the binary under its own parent.
+// 106 names an earlier run's mark (the same pid, a longer suffix); 400 is a helper of
+// this run's whose parent exited, a known limit (processes): neither is listed.
 func TestLeftoversListsOnlyWhatThisRunStarted(t *testing.T) {
 	const bin, mark = "/b/x.test", "/tmp/leakcheck-100-7"
 	ps := `
@@ -233,6 +243,9 @@ func TestLeftoversListsOnlyWhatThisRunStarted(t *testing.T) {
 200   150    09:00 /b/x.test -test.count=50
 201   200    08:00 /b/x.test -test.run=TheirHelper
 110   300 1-00:00:00 /b/x.test -test.run=Reused
+106     1    00:30 /usr/bin/tail -f /tmp/leakcheck-100-71234/log
+107     1    00:30 /usr/bin/tail -f /tmp/leakcheck-100-71234/x /tmp/leakcheck-100-7
+400     1    00:30 /b/x.test -test.run=Orphan
 300   100    00:01 /bin/sh
 120   100    00:00 ps -A -ww -o pid=
 `
@@ -242,6 +255,7 @@ func TestLeftoversListsOnlyWhatThisRunStarted(t *testing.T) {
 		"102 /bin/sh -c x",
 		"103 /b/x.test -test.run=Helper",
 		"105 /usr/bin/tail -f /tmp/leakcheck-100-7/log",
+		"107 /usr/bin/tail -f /tmp/leakcheck-100-71234/x /tmp/leakcheck-100-7",
 		"300 /bin/sh",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {

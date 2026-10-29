@@ -252,8 +252,10 @@ func settle(list func() []string) []string {
 //
 // A process running this binary that is no descendant is someone else's: another
 // run of the same binary path (two lanes, two scripts) is never listed, so Main never
-// kills it (#319, ADR-0005). The cost: a helper whose parent exited before it, and
-// whose command line names no path in mark, is no longer found.
+// kills it (#319, ADR-0005). The cost, a known limit: a helper whose parent exited
+// before it (`sh -c "bin ... &"`), and whose command line names no path in mark, is no
+// longer found. Its environment still carries TMPDIR=mark, but reading another
+// process's environment differs by OS (ps -E, /proc/<pid>/environ) and is not done.
 func processes(self int, bin, mark string) []string {
 	out, err := exec.Command("ps", "-A", "-ww", "-o", "pid=", "-o", "ppid=", "-o", "etime=", "-o", "command=").Output()
 	if err != nil {
@@ -309,13 +311,32 @@ func leftovers(out string, self int, bin, mark string) []string {
 			continue
 		}
 		argv0 := strings.Fields(p.cmd)[0]
-		ours := descends(pid) && (p.ppid == self || argv0 == bin)
-		if ours || (mark != "" && strings.Contains(p.cmd, mark)) {
+		ours := (p.ppid == self || argv0 == bin) && descends(pid)
+		if ours || namesMark(p.cmd, mark) {
 			found = append(found, strconv.Itoa(pid)+" "+p.cmd)
 		}
 	}
 	sort.Strings(found)
 	return found
+}
+
+// namesMark reports whether cmd names mark or a path in it. MkdirTemp ends mark with a
+// decimal of varying length, so "leakcheck-100-7" must not match an earlier run's
+// "leakcheck-100-71234" (the same pid, reused): a digit after mark is another mark.
+func namesMark(cmd, mark string) bool {
+	if mark == "" {
+		return false
+	}
+	for rest := cmd; ; {
+		i := strings.Index(rest, mark)
+		if i < 0 {
+			return false
+		}
+		rest = rest[i+len(mark):]
+		if rest == "" || rest[0] < '0' || rest[0] > '9' {
+			return true
+		}
+	}
 }
 
 // elapsed reads ps's etime, [[dd-]hh:]mm:ss, the same on macOS and Linux and in any
