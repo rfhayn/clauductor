@@ -130,9 +130,14 @@ CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals
 # The project.conf keys that may differ between the two ROOTs: no CHECKS_ONCE check reads them
 # (check-sets.sh fails one that names any). Every other key must be the same in both.
 # GATE_PR_CHECKS among them: this repo turns it back on when Actions minutes return (OPS-98).
-# APPROVAL_DELEGATED and GATE_DOCS: this repo's own are "1" (OPS-127, OPS-89); their readers,
-# change-approval.sh and run-local.sh, run in a check's fixture, over its own project.conf (OPS-170).
+# APPROVAL_DELEGATED and GATE_DOCS: this repo's own are "1" (OPS-89, OPS-127). Only
+# change-approval.sh and run-local.sh read them; no CHECKS_ONCE check runs change-approval.sh, gate
+# and ci-status run run-local.sh only in fixtures whose project.conf they write, and conf.sh sets
+# both defaults before it reads one (OPS-170).
 CONF_NOT_READ="PROJECT_NAME PROJECT_SLUG STATUS_MARK OWNER_NAME INSIGHT_AREAS TEST_GLOBS FORMAT_CMD FORMAT_EXT GATE_PR_CHECKS APPROVAL_DELEGATED GATE_DOCS"
+# The compared keys this repo may set apart from the template's, accepting that every gate then runs
+# CHECKS_ONCE in both sets. check-sets.sh fails any other key that differs (OPS-170).
+CONF_DOUBLE_RUN_OK=""
 
 # framework_verdict: reads `clauductor diff --json` on stdin; passes when every framework file is the
 # template's (an extra file passes only under .claude/checks/: a check of this repo's own, which this

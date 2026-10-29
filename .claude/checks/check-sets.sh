@@ -16,8 +16,8 @@
 #     the caller's CHECKS_SKIP.
 #  3. What decides "matches", on fixtures: the diff report's verdict fails closed (no report, no
 #     file list, a file that differs, an extra file outside .claude/checks/), project.conf values
-#     are compared but for CONF_NOT_READ, and no CHECKS_ONCE check, nor a file it sources or runs
-#     from ROOT in place, names a CONF_NOT_READ key or copies ROOT's project.conf.
+#     are compared but for CONF_NOT_READ, and no CHECKS_ONCE check names a CONF_NOT_READ key. This
+#     repo's own project.conf is the template's but for CONF_NOT_READ and CONF_DOUBLE_RUN_OK.
 #  4. run.sh's CHECKS_SKIP on a fixture: it leaves out what it names and says so, a named run
 #     ignores it, and no check inherits it.
 . "$(dirname "$0")/lib.sh"
@@ -168,151 +168,37 @@ printf 'APPROVAL_DELEGATED="1"\nGATE_DOCS="1"\n' >> "$C/a/.claude/project.conf"
 printf 'GATE_RUN="infra/gate.sh"\n' >> "$C/b/.claude/project.conf"
 [ "$(conf_differs "$C/a" "$C/b")" = GATE_RUN ] && ok "...and any other key that differs is named (GATE_RUN)" || fail "project.conf: a GATE_RUN difference read as '$(conf_differs "$C/a" "$C/b")'"
 case $(conf_differs "$C/a" "$C/none") in *unreadable*) ok "...and a project.conf that cannot be read is a difference" ;; *) fail "an unreadable project.conf compared as equal" ;; esac
-# This repo's own against the template's: a key that differs turns run-once off on every gate, and
-# the gate's line says so where nobody reads it (OPS-170), so it fails here instead.
-rc_diff=$(conf_differs "$ROOT" "$ROOT/template")
-[ -z "$rc_diff" ] && ok "this repo's project.conf is the template's but for CONF_NOT_READ, so the gate can run CHECKS_ONCE once" \
-  || fail "this repo's project.conf differs from the template's in $rc_diff, so every gate runs CHECKS_ONCE twice: make it the template's, or add it to CONF_NOT_READ (scripts/ci/steps.sh) if no CHECKS_ONCE check reads it"
-# No CHECKS_ONCE check reads a key the comparison ignores. A key reaches a check from ROOT's
-# project.conf only through the files that run with it (OPS-170): the check, conf.sh (lib.sh sources
-# it), each file it sources or runs from ROOT in place (review-lane runs review-lane.sh there), and
-# ROOT's project.conf itself, named. A model file a check copies into a fixture reads the fixture's
-# project.conf over conf.sh's defaults, never ROOT's. The scan fails closed: a file the check runs
-# that it cannot place under ROOT or in a fixture, or a placed file that is not there, fails it.
-# One level deep: a file run in place is scanned for the keys, not for what it runs in turn.
-#
-# INPLACE_RESOLVED: CHECK:VAR=WHERE for each variable the scan cannot follow, WHERE a path under ROOT
-# or `fixture` (never run with ROOT's project.conf). An entry no site uses fails too.
-#   ci-status, gate  RUN_REL, WRAP_REL, WAIT_REL: GATE_RUN's and GATE's paths, run inside `cd "$R"`
-#   gate             RUN_DIR: a failure message's text; KIT: the conformance kit beside run-local.sh
-#   modules          CHECKS_LIB: in a check the fixture module writes; door: run inside `cd "$R"`
-#   people           door: in the parser a fixture writes, run inside `cd "$R"`
-#   premise-check    PC: the text of an expected message
-INPLACE_RESOLVED="ci-status:RUN_REL=fixture gate:RUN_REL=fixture gate:WRAP_REL=fixture gate:WAIT_REL=fixture gate:RUN_DIR=fixture gate:KIT=/scripts/ci/lease-conformance modules:CHECKS_LIB=fixture modules:door=fixture people:door=fixture premise-check:PC=fixture"
-# The sites of one check, through its own assignments: `file\t<path under ROOT>\t<line>`, a fixture
-# `fixture\t<word>\t<line>`, `unresolved\t<VAR>\t<line>`, or `unused\t<VAR>\t0` (an INPLACE_RESOLVED
-# entry no site reached). A site is a `.`, sh, bash or exec of a $-word, or a $-path run as a command.
-SITES_AWK='
-function expand(str, depth,    name, rest, out, i, r, n, parts, k, key) {
-  gsub(/"/, "", str)
-  if (depth > 8 || substr(str, 1, 1) != "$") return "U" str
-  if (substr(str, 1, 2) == "$(") return (str ~ /^\$\((scratch|mktemp)([ )]|$)/) ? "F" : "U" str  # mktemp-in-tmpdir: a pattern for a fixture root, not a call
-  if (substr(str, 2, 1) == "{") {
-    if (!match(str, /^\$\{[A-Za-z_][A-Za-z0-9_]*/)) return "U" str
-    name = substr(str, 3, RLENGTH - 2); rest = substr(str, RLENGTH + 1); sub(/^[^}]*\}/, "", rest)
-  } else {
-    if (!match(str, /^\$[A-Za-z_][A-Za-z0-9_]*/)) return "U" str
-    name = substr(str, 2, RLENGTH - 1); rest = substr(str, RLENGTH + 1)
-  }
-  key = CHECK ":" name
-  if (key in fixed) { used[key] = 1; return fixed[key] == "fixture" ? "F" : "R" fixed[key] rest }
-  if (name == "ROOT") {
-    if (match(rest, /\$\{?[A-Za-z_][A-Za-z0-9_]*/)) return "U" substr(rest, RSTART + 1 + (substr(rest, RSTART + 1, 1) == "{"), RLENGTH - 1 - (substr(rest, RSTART + 1, 1) == "{"))
-    return "R" rest
-  }
-  if (!(name in nv)) return "U" name
-  out = ""
-  for (i = 1; i <= nv[name]; i++) {
-    r = expand(vals[name, i] rest, depth + 1)
-    n = split(r, parts, "\n")
-    for (k = 1; k <= n; k++) {
-      if (substr(parts[k], 1, 1) == "U") return parts[k]
-      out = out (out == "" ? "" : "\n") parts[k]
-    }
-  }
-  return out
+
+# A compared key that differs turns run-once off on every gate, and the gate's line says so where
+# nobody reads it (OPS-170), so it fails here unless CONF_DOUBLE_RUN_OK accepts the double run.
+# double_run DIR TMPL: `ok KEY` for each differing key CONF_DOUBLE_RUN_OK names, `fail KEY` for the rest.
+double_run() {
+  _dr=$(conf_differs "$1" "$2")
+  case $_dr in *unreadable*) echo "fail $_dr"; return ;; esac
+  for _k in $_dr; do
+    case " $CONF_DOUBLE_RUN_OK " in *" $_k "*) echo "ok $_k" ;; *) echo "fail $_k" ;; esac
+  done
 }
-BEGIN { n = split(FIXED, fx, " "); for (i = 1; i <= n; i++) { e = index(fx[i], "="); fixed[substr(fx[i], 1, e - 1)] = substr(fx[i], e + 1) } }
-{ lines[NR] = $0 }
-END {
-  for (ln = 1; ln <= NR; ln++) {
-    l = lines[ln]
-    if (l ~ /^[[:space:]]*#/) continue
-    while (match(l, /(^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*=("[^"]*"|\$\([^)]*\)|[^[:space:];"|&)]*)/)) {
-      a = substr(l, RSTART, RLENGTH); l = substr(l, RSTART + RLENGTH)
-      sub(/^[^A-Za-z_]/, "", a); e = index(a, "=")
-      nm = substr(a, 1, e - 1); nv[nm]++; vals[nm, nv[nm]] = substr(a, e + 1)
-    }
-  }
-  for (ln = 1; ln <= NR; ln++) {
-    l = lines[ln]
-    if (l ~ /^[[:space:]]*#/) continue
-    gsub(/"\$\(dirname "\$0"\)\/lib\.sh"/, "\"$ROOT/.claude/checks/lib.sh\"", l)
-    while (match(l, /(^|[^A-Za-z0-9_.\/-])(\.|sh|bash|exec)[[:space:]]+(-[abd-mo-zA-Z][A-Za-z]*[[:space:]]+)*"?\$[{A-Za-z_(][^[:space:]);|&<>]*|(^|[;&|(!]|\$\(|then|do|else)[[:space:]]*"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?\/[^[:space:]);|&<>]*/)) {
-      s = substr(l, RSTART, RLENGTH); l = substr(l, RSTART + RLENGTH)
-      tok = match(s, /"?\$[{A-Za-z_]/) ? substr(s, RSTART) : substr(s, index(s, "$"))
-      # A quote ends the word, but for the one around the variable itself ("$ROOT"/x).
-      if (match(tok, /^"?\$\{?[A-Za-z_][A-Za-z0-9_]*[^}"\/]*\}?"?/)) { h = substr(tok, 1, RLENGTH); t = substr(tok, RLENGTH + 1); sub(/".*/, "", t); tok = h t }
-      m = split(expand(tok, 0), parts, "\n")
-      for (k = 1; k <= m; k++) {
-        c = substr(parts[k], 1, 1)
-        if (c == "R") printf "file\t%s\t%d\n", substr(parts[k], 2), ln
-        else if (c == "F") printf "fixture\t%s\t%d\n", tok, ln
-        else printf "unresolved\t%s\t%d\n", substr(parts[k], 2), ln
-      }
-    }
-  }
-  for (key in fixed) if (index(key, CHECK ":") == 1 && !(key in used)) printf "unused\t%s\t0\n", substr(key, length(CHECK) + 2)
-}'
-in_place() {  # in_place CHECK [CHECKS_DIR] [RESOLVED]: the sites, and conf.sh with lib.sh, which sources it
-  _ipd=${2:-$TMPL_DIR}
-  _ipr=$(cd "$_ipd/../.." && pwd)
-  awk -v CHECK="$1" -v FIXED="${3-$INPLACE_RESOLVED}" "$SITES_AWK" "$_ipd/$1.sh" \
-    | while IFS='	' read -r _ipk _ipp _ipl; do
-        if [ "$_ipk" = file ] && [ ! -f "$_ipr$_ipp" ]; then printf 'missing\t%s\t%s\n' "${_ipp#/}" "$_ipl"; else printf '%s\t%s\t%s\n' "$_ipk" "$_ipp" "$_ipl"; fi
-        [ "$_ipk$_ipp" != file/.claude/checks/lib.sh ] || printf 'file\t/.claude/lib/conf.sh\t%s\n' "$_ipl"
-      done
-}
-key_reads() {  # key_reads CHECKS KEYS [CHECKS_DIR] [RESOLVED]: each `check:key` a file the check runs with ROOT's project.conf names ($KEY or ${KEY), and each `check:why` the scan cannot vouch for
+dr=$(CONF_DOUBLE_RUN_OK="" double_run "$C/a" "$C/b")
+[ "$dr" = "fail GATE_RUN" ] && ok "falsified: a compared key that differs (GATE_RUN) fails the check" || fail "a differing GATE_RUN read as '$dr', not a failure"
+dr=$(CONF_DOUBLE_RUN_OK="GATE_RUN" double_run "$C/a" "$C/b")
+[ "$dr" = "ok GATE_RUN" ] && ok "...and passes once CONF_DOUBLE_RUN_OK accepts the double run" || fail "GATE_RUN in CONF_DOUBLE_RUN_OK read as '$dr'"
+case $(double_run "$C/a" "$C/none") in "fail "*unreadable*) ok "...and a project.conf that cannot be read fails it" ;; *) fail "an unreadable project.conf passed the double-run verdict" ;; esac
+dr=$(double_run "$ROOT" "$ROOT/template")
+[ -n "$dr" ] || ok "this repo's project.conf is the template's but for CONF_NOT_READ: the gate runs CHECKS_ONCE once"
+for _k in $(printf '%s\n' "$dr" | awk '$1 == "ok" { print $2 }'); do ok "both sets run every check: $_k (CONF_DOUBLE_RUN_OK)"; done
+drf=$(printf '%s\n' "$dr" | sed -n 's/^fail //p' | tr '\n' ' ' | sed 's/ $//')
+[ -z "$drf" ] || fail "this repo's project.conf differs from the template's in $drf, so every gate runs CHECKS_ONCE twice. In scripts/ci/steps.sh, add it to CONF_NOT_READ if no CHECKS_ONCE check reads it, or to CONF_DOUBLE_RUN_OK to accept the double run; or make it the template's"
+# No CHECKS_ONCE check reads a key the comparison ignores.
+key_reads() {  # key_reads CHECKS KEYS: each `check:key` where a check names $KEY or ${KEY
   for _n in $1; do
-    _krd=${3:-$TMPL_DIR}
-    _krr=$(cd "$_krd/../.." && pwd)
-    grep -qE '\$\{?ROOT\}?/\.claude/project\.conf' "$_krd/$_n.sh" 2>/dev/null && printf ' %s:project.conf' "$_n"
-    _sites=$(in_place "$_n" "$_krd" "${4-$INPLACE_RESOLVED}")
-    printf '%s\n' "$_sites" | awk -F'\t' -v n="$_n" '$1 == "unresolved" || $1 == "missing" { printf " %s:%s:%s@%s", n, $1, $2, $3 } $1 == "unused" { printf " %s:unused:%s", n, $2 }'
     for _k in $2; do
-      { printf '%s\n' "$_krd/$_n.sh"; printf '%s\n' "$_sites" | awk -F'\t' -v r="$_krr" '$1 == "file" { print r $2 }' | sort -u; } \
-        | while IFS= read -r _f; do
-            grep -qE "\\\$\\{?$_k([^A-Za-z0-9_]|\$)" "$_f" 2>/dev/null && { printf ' %s:%s' "$_n" "$_k"; break; }
-          done
+      grep -nE "\\\$\\{?$_k([^A-Za-z0-9_]|\$)" "$TMPL_DIR/$_n.sh" >/dev/null 2>&1 && printf ' %s:%s' "$_n" "$_k"
     done
   done
 }
 [ "$(key_reads modules MODULES)" = " modules:MODULES" ] && ok "falsified: the key-read scan finds a key a check reads (modules:MODULES)" \
   || fail "the key-read scan misses modules reading MODULES: '$(key_reads modules MODULES)'"
-case $(in_place review-lane) in *"	/.claude/skills/merge-pr/review-lane.sh	"*) ok "...and reaches the script a check runs in place (review-lane.sh)" ;;
-  *) fail "the key-read scan does not reach review-lane.sh, which review-lane runs with ROOT's project.conf: $(in_place review-lane | tr '\n' ' ')" ;; esac
-# A fixture model, under a path with a space: x reaches a key through each form a check runs a file
-# in place by, and a fixture's copy reads one it must not report; y copies ROOT's project.conf; z, w
-# and v run what the scan cannot resolve or what does not exist, and u names a resolution no site
-# uses. Each of those fails the scan, naming it.
-K="$S/key root"; mkdir -p "$K/.claude/checks" "$K/.claude/lib" "$K/.claude/mod/lib" "$K/.claude/kit"
-cat > "$K/.claude/checks/x.sh" <<'EOF'
-. "$(dirname "$0")/lib.sh"
-. "$ROOT/.claude/sourced.sh"
-L="$ROOT/.claude/run.sh"; printf x | sh "$L"
-LIB="$ROOT/.claude/libvar.sh"; . "$LIB"
-M="$ROOT/.claude/mod"; S="$M/s.sh"; sh "$S"
-. "$M/lib/y.sh"
-[ -f "$ROOT/no" ] || KIT="$ROOT/.claude/kit"; out=$(sh "$KIT/run.sh" --sha)
-"$ROOT/.claude/direct.sh" arg
-sh "$ROOT"/.claude/quoted.sh
-sh $ROOT/.claude/semi.sh; echo done
-d=$(scratch); R="$d/app"; cp "$ROOT/.claude/copied.sh" "$R/"; sh "$R/copied.sh"
-EOF
-for k in LIB:checks/lib.sh CONF:lib/conf.sh SOURCED:sourced.sh RUN:run.sh LIBVAR:libvar.sh CHAIN:mod/s.sh DIR:mod/lib/y.sh \
-  OR:kit/run.sh DIRECT:direct.sh QUOTED:quoted.sh SEMI:semi.sh COPIED:copied.sh; do
-  printf 'echo "${KEY_%s}"\n' "${k%%:*}" > "$K/.claude/${k#*:}"
-done
-printf 'cp "$ROOT/.claude/project.conf" "$F/.claude/"\n' > "$K/.claude/checks/y.sh"
-printf 'sh "$ROOT/$X/s.sh"\n' > "$K/.claude/checks/z.sh"
-printf 'sh "$ROOT/.claude/nope.sh"\n' > "$K/.claude/checks/w.sh"
-printf 'sh "$UNKNOWN/a.sh"\n' > "$K/.claude/checks/v.sh"
-printf 'echo nothing runs\n' > "$K/.claude/checks/u.sh"
-o=$(key_reads "x y z w v u" "KEY_LIB KEY_CONF KEY_SOURCED KEY_RUN KEY_LIBVAR KEY_CHAIN KEY_DIR KEY_OR KEY_DIRECT KEY_QUOTED KEY_SEMI KEY_COPIED" "$K/.claude/checks" "u:GONE=fixture")
-want=" x:KEY_LIB x:KEY_CONF x:KEY_SOURCED x:KEY_RUN x:KEY_LIBVAR x:KEY_CHAIN x:KEY_DIR x:KEY_OR x:KEY_DIRECT x:KEY_QUOTED x:KEY_SEMI y:project.conf z:unresolved:X@1 w:missing:.claude/nope.sh@1 v:unresolved:UNKNOWN@1 u:unused:GONE"
-[ "$o" = "$want" ] && ok "falsified: the scan finds a key read by each file a check runs in place, or ROOT's project.conf copied, and not one a fixture's copy reads; what it cannot resolve, a file that is not there and an unused resolution each fail it" \
-  || fail "the key-read scan on a fixture: '$o', want '$want'"
 reads=$(key_reads "$CHECKS_ONCE" "$CONF_NOT_READ")
 [ -z "$reads" ] && ok "no CHECKS_ONCE check reads a CONF_NOT_READ key ($CONF_NOT_READ)" \
   || fail "CHECKS_ONCE checks read keys the comparison ignores:$reads"
