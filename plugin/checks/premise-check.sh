@@ -295,6 +295,11 @@ MCMD='cd sub && gh pr merge 290 -R acme/app --squash --body-file tidy.md'
 rulep 2 "a relative --body-file after a cd (fails closed)" "Tidy." "" "Tidy the card"
 has yes "relative --body-file after another command" "$(cat "$d/err")" "guard rule: ...and says why"
 rm -rf "$G/sub"
+# A command before the merge may write the file after the rule reads it (OPS-156): the cp puts
+# "Resolves #239" in, so what the rule reads is not what gh sends.
+MCMD="cp other.md $G/tidy.md && gh pr merge https://github.com/acme/app/pull/290 --squash --body-file $G/tidy.md"
+rulep 2 "a --body-file after a command that may write it (fails closed)" "Tidy." "" "Tidy the card"
+has yes "after a command other than cd" "$(cat "$d/err")" "guard rule: ...and says what came before it, not that the body is unreadable"
 MCMD='gh pr merge 290 --squash --subject "Fixes #239: card" --body-file tidy.md'
 merge 2 "a squash whose --subject closes an issue (through the guard)" "Tidy." "" "Tidy the card"
 has yes "fixes #239 with no premise-check receipt" "$(cat "$d/err")" "guard rule: ...the squash subject closes it"

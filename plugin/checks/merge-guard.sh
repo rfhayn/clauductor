@@ -770,7 +770,26 @@ sguard 2 "rule 15: --body-file /dev/stdin, a trailer redirected in" "gh pr merge
 sguard 2 "rule 15: a cp of a trailer over the body file before the merge" "cp $R/co.txt $R/body.txt && gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/body.txt"
 sguard 2 "rule 15: the merge's own redirect empties its body file" "gh pr merge 5 --squash --body-file $R/body.txt >$R/body.txt"
 sguard 0 "rule 15: only cd <path> before the merge, the body written out in full" "cd $R && gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/body.txt"
+sguard 0 "rule 15: only cd to a quoted path with a blank (a WSL2 path) before the merge" "cd '$R/a b' && gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/body.txt"
 sguard 0 "rule 15: the merge's output to /dev/null" "gh pr merge 5 --squash --body-file body.txt >/dev/null 2>&1"
+sguard 0 "rule 15: the merge's output to /dev/null with &>" "gh pr merge 5 --squash --body-file body.txt &>/dev/null"
+sguard 0 "rule 15: the merge's output appended to /dev/null with &>>, split" "gh pr merge 5 --squash --body-file body.txt &>> /dev/null"
+sguard 0 "rule 15: the merge's stdin from /dev/null" "gh pr merge 5 --squash --body-file body.txt </dev/null"
+# Only a regular file reads here as it reads for gh. A directory reads as nothing, and a link to
+# /dev/stdin reads the hook's own stdin, not the merge's.
+sguard 2 "rule 15: a --body-file that is a directory" "gh pr merge 5 --squash --body-file $R"
+ln -s /dev/stdin "$R/in.md"
+sguard 2 "rule 15: a --body-file that links to /dev/stdin" "gh pr merge 5 --squash --body-file $R/in.md"
+rm -f "$R/in.md"
+# On Linux a /proc file passes -f but is the reader's own: the path is matched resolved.
+if [ -f /proc/self/cmdline ]; then
+  sguard 2 "rule 15: a --body-file under //proc (slashes doubled)" "gh pr merge 5 --squash --body-file //proc/self/cmdline"
+  ln -s /proc/self/cmdline "$R/p.md"
+  sguard 2 "rule 15: a --body-file that links into /proc" "gh pr merge 5 --squash --body-file $R/p.md"
+  rm -f "$R/p.md"
+else
+  ok "rule 15: no /proc here, so its two rows run on Linux (CI) only"
+fi
 jq '.attribution.enabled = true' "$R/.claude/model-roles.json" > "$d/mr" && cp "$d/mr" "$R/.claude/model-roles.json"
 sguard 0 "rule 15 is off while attribution.enabled is true" "gh pr merge 5 --squash --body-file co.txt"
 printf '{"attribution": ' > "$R/.claude/model-roles.json"

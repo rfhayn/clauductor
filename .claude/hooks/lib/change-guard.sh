@@ -228,23 +228,24 @@ cg_field() {
       if (bad) exit 2
       if (!found) exit 1
       if (vo) exit 2
-      # pre: 0 when nothing comes before the merge; 1 when only `cd <path>` commands do, which may
-      # change directory but write nothing; 2 when anything else does, which may write the file
-      # (gh --version; cd sub && gh pr merge … is 2), or when the merge itself redirects other than
-      # to /dev/null or another descriptor: the shell opens > body.md, emptying it, before gh runs.
+      # pre: 0 when nothing comes before the merge; 1 when only `cd <path>` commands do, each path
+      # one word with no expansion or redirect, which change directory but write nothing; 2 when
+      # anything else does, which may write the file (gh --version; cd sub && gh pr merge … is 2),
+      # or when the merge itself redirects other than to or from /dev/null or onto another
+      # descriptor: the shell opens > body.md, emptying it, before gh runs.
       pre = 0
       if (g > 1) {
         pre = 1
         if (sg[g] == sg[g - 1]) pre = 2
         for (k = 1; k < g && pre == 1; k++) {
           if (k > 1 && sg[k] == sg[k - 1]) { pre = 2; break }
-          if (t[k] != "cd" || k + 1 >= g || sg[k + 1] != sg[k] || oddt[k + 1] || rdt[k + 1] || t[k + 1] !~ /^[A-Za-z0-9_.\/~@:+-]+$/) { pre = 2; break }
+          if (t[k] != "cd" || k + 1 >= g || sg[k + 1] != sg[k] || oddt[k + 1] || rdt[k + 1]) { pre = 2; break }
           k++
         }
       }
       for (k = g; k <= nt && sg[k] == sg[g]; k++) {
-        if (!rdt[k] || t[k] ~ /^[0-9]*>(&[0-9]|>?\/dev\/null)$/) continue
-        if (t[k] ~ /^[0-9]*>>?$/ && k < nt && sg[k + 1] == sg[g] && t[k + 1] == "/dev/null") { k++; continue }
+        if (!rdt[k] || t[k] ~ /^[0-9]*>&[0-9]$/ || t[k] ~ /^([0-9]*|&)>>?\/dev\/null$/ || t[k] ~ /^[0-9]*<\/dev\/null$/) continue
+        if ((t[k] ~ /^([0-9]*|&)>>?$/ || t[k] ~ /^[0-9]*<$/) && k < nt && sg[k + 1] == sg[g] && t[k + 1] == "/dev/null") { k++; continue }
         pre = 2
       }
       printf "%s\n%d\n%s", kind, pre, v
@@ -262,8 +263,14 @@ cg_field() {
       case "$_val" in /*) _f=$_val ;; *) [ "$_pre" = 0 ] || return 3; _f="${2:-.}/$_val" ;; esac
       # Only a regular file reads here as it reads for gh: /dev/stdin is this hook's own stdin,
       # drained by its payload read, while gh's is whatever the merge redirects into it (OPS-156).
-      case "$_f" in /dev/* | /proc/*) return 2 ;; esac
+      # -f follows a symlink (in.md -> /dev/stdin is a pipe here); on Linux a /proc file passes -f
+      # but is the reader's own (/proc/self/cmdline), so the path is matched resolved: //proc,
+      # /x/../proc and a link to it are /proc. A path that does not resolve is refused.
       { [ -f "$_f" ] && [ -r "$_f" ]; } || return 2
+      _r=$(readlink -f "$_f" 2>/dev/null) \
+        || _r=$(cd "$(dirname "$_f")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$_f")") \
+        || return 2
+      case "$_r" in /dev/* | /proc/* | '') return 2 ;; esac
       cat "$_f" ;;
     *) printf '%s\n' "$_val" ;;
   esac
@@ -278,7 +285,7 @@ Model: <the model that wrote it>
 Session: ${3:-<the id of this session>}"
   case "$_rc" in
     1) printf 'this squash merge sets no --body, so its commit would carry no provenance trailers. Write the body to a file ending in:\n%s\nthen merge with: gh pr merge <n> --squash --delete-branch --body-file <file>\n' "$_want"; return ;;
-    2) printf 'cannot read this merge'"'"'s body (a substitution in --body, or an unreadable --body-file), so its provenance trailers cannot be checked. Write the body to a file and pass --body-file <file>. It must end in:\n%s\n' "$_want"; return ;;
+    2) printf 'cannot read this merge'"'"'s body (a substitution in --body, or a --body-file that is unreadable or not a regular file: stdin, /dev, /proc), so its provenance trailers cannot be checked. Write the body to a file and pass --body-file <file>. It must end in:\n%s\n' "$_want"; return ;;
     3) printf 'this merge names a relative --body-file after another command, which may have changed directory, so the file gh reads cannot be checked. Write its path out in full (--body-file /abs/path/body.md), or run the merge on its own. It must end in:\n%s\n' "$_want"; return ;;
     4) printf 'this merge names a --body-file after a command other than cd <path>, or beside a redirect, which may write the file after this check reads it. Run the merge on its own (or after only cd <path> &&), with --body-file <file>. It must end in:\n%s\n' "$_want"; return ;;
   esac
