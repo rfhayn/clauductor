@@ -173,20 +173,21 @@ and extends the drift hook to `.claude/bin/`, each refusal seen first on an edit
 **D6. Three PRs in sequence, each a roadmap row at Risk high,** added with this acceptance to the
 roadmap's merge-guard section. PR 1 comes before OPS-77 and OPS-78, so each writes its rule into
 `merge.sh` once; PRs 2 and 3 come after them (the owner, 2026-10-29):
-1. **OPS-161**: `merge.sh` with the rules moved and the pin; `merge-pr` calls it; the hook still
+1. **OPS-162**: `merge.sh` with the rules moved and the pin; `merge-pr` calls it; the hook still
    runs.
-2. **OPS-162**: the wrapper and D3's measurement; the hook still runs.
-3. **OPS-163**: D4, the reader deleted. `checks/merge-guard.sh`'s block rows are ported as acceptance cases
-   against the wrapper under bash 3.2, bash 5 and zsh, each seen merging a stub gh without the
-   control first. Its allow rows, #120's commands and the three refusals above become allow cases.
+2. **OPS-163**: the wrapper and D3's measurement; the hook still runs.
+3. **OPS-164**: D4, the reader deleted. `checks/merge-guard.sh`'s block rows are ported as
+   acceptance cases against the wrapper under bash 3.2, bash 5 and zsh, each seen merging a stub
+   gh without the control first. Its allow rows, #120's commands and the three refusals above
+   become allow cases.
 
 Each PR moves AGENTS.md's What-executes rows for the executors it moves, in the same PR.
 
-**D7. A server-side required check, as a complement (E).** **OPS-164**: a ruleset on `main` that
+**D7. A server-side required check, as a complement (E).** **OPS-165**: a ruleset on `main` that
 requires the remote `test` check, with no bypass actor, built after CI is back (Deps OPS-98). It
 covers what no client-side control can (a click on the website, another client, a Cursor lane) and
 replaces none of D1–D6. Configuring the ruleset in GitHub is the owner's step: it goes to the owner
-queue when OPS-164 starts (the owner, 2026-10-29).
+queue when OPS-165 starts (the owner, 2026-10-29).
 
 **Known limits, accepted under the guard's purpose:**
 - a gh reached without PATH: a computed path the text does not show, a script or make target that
@@ -194,7 +195,7 @@ queue when OPS-164 starts (the owner, 2026-10-29).
 - a session kind or dotfile D3's measurement did not cover: the route check proves configuration,
   the measurement proves resolution on the machines it ran on;
 - any client but gh, a click on the website, and an agent that runs no Claude Code hook (a Cursor
-  lane): only E covers these, once OPS-164 lands, and only for the remote check;
+  lane): only E covers these, once OPS-165 lands, and only for the remote check;
 - the evidence `merge.sh` reads is self-reported, as the gate receipt is today.
 
 ## Consequences
@@ -234,7 +235,7 @@ queue when OPS-164 starts (the owner, 2026-10-29).
   its dependency on OPS-86.** It changes which files `no-blind-source-rewrite.sh` protects, not how
   any reader reads shell, and that hook is not the merge guard. This record does not decide the
   rewrite hook's own parser.
-- **OPS-77 and OPS-78** (S21, after OPS-161) read D1: merged-tree evidence and the review line are
+- **OPS-77 and OPS-78** (S21, after OPS-162) read D1: merged-tree evidence and the review line are
   rules of `merge.sh`, judged on the one PR read and its pinned SHA, and their refusals reach the
   merging agent on stderr. OPS-77's own ADR (the cost of merged-tree evidence) is unaffected.
 - **OPS-156** (no `Co-authored-by` in a squash, queued in S16) lands in the hook now and moves with
@@ -251,14 +252,14 @@ The draft put five questions to the owner; the answers are written into D1–D7 
    repository's own guard (D1).
 3. **A gh location holding a `$` is refused outright** (D4), and the refusal says to write `gh`
    directly. `merge.sh`'s own lookup is exempt by its path (D2).
-4. **Yes to E as a complement:** a roadmap row (OPS-164, D7), Deps OPS-98, built after CI is back.
+4. **Yes to E as a complement:** a roadmap row (OPS-165, D7), Deps OPS-98, built after CI is back.
    Configuring the ruleset is the owner's step, queued for the owner when the row starts, not now.
-5. **D6 PR 1 (OPS-161) before OPS-77 and OPS-78; PRs 2 and 3 (OPS-162, OPS-163) after them.**
-   The Session plan matches: S21 is OPS-161, OPS-77, OPS-78; S22–S23 are OPS-162, OPS-163 and
-   OPS-164; every later session moves two places.
+5. **D6 PR 1 (OPS-162) before OPS-77 and OPS-78; PRs 2 and 3 (OPS-163, OPS-164) after them.**
+   The Session plan matches: S21 is OPS-162, OPS-77, OPS-78; S22–S23 are OPS-163, OPS-164 and
+   OPS-165; every later session moves two places.
 
 ## Enforcement
-**Nothing yet: this record is accepted, not built.** OPS-161, OPS-162, OPS-163 and OPS-164 build
+**Nothing yet: this record is accepted, not built.** OPS-162, OPS-163, OPS-164 and OPS-165 build
 it; until they merge, the guard keeps the limits its header lists. Once built:
 `.claude/merge.sh` and `lib/change-guard.sh` for the rules; `.claude/bin/gh` for the refusal of
 every other merge; `pr-merge-guard.sh` for the route check and D4; `checks/merge-guard.sh` for the
@@ -270,5 +271,5 @@ acceptance cases; for D5, the drift refusals of `merge.sh` and the wrapper, and 
 - `docs/principles.md`, *A check that reads source is a parser*.
 - Standing Tee: PRAC-0041, row `2C.30`, #681, #698, #617.
 - ST-14 (`pattern-kill-path.sh`, `.claude/bin/pkill`): the route D2 reuses.
-- OPS-161, OPS-162, OPS-163, OPS-164 (the build); OPS-32, OPS-58, OPS-68, OPS-77, OPS-78,
+- OPS-162, OPS-163, OPS-164, OPS-165 (the build); OPS-32, OPS-58, OPS-68, OPS-77, OPS-78,
   OPS-92c, OPS-98, OPS-156; #120, #146, #268.
