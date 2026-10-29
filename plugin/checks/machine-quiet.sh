@@ -41,7 +41,7 @@ done
 # Two orphans (parent pid 1: started from a subshell that exits at once), both naming a hook in a
 # worktree: one whose argv[0] is tmux, shaped like the panel's server; one a plain hook process.
 hookpath="$WT/lane/.claude/hooks/x.sh"
-bash -c '(exec -a tmux sh -c "sleep 60; :" "-L" "sock" "new-session" "-c" "'"$hookpath"'" & echo $! > "'"$d"'/tmux.pid") &' 2>/dev/null; sleep 0.3
+bash -c '(exec -a tmux sh -c "sleep 60; :" "-L" "sock" "new-session" "-c" "'"$hookpath"'" & echo $! > "'"$d"'/tmux.pid") &' 2>/dev/null
 bash -c '(exec -a hook-loop sh -c "sleep 60; :" "'"$hookpath"'" & echo $! > "'"$d"'/hook.pid") &' 2>/dev/null
 # Both written and both orphaned, waited for: a guessed second is one load outruns (OPS-168).
 orphaned() { for _o in tmux hook; do _p=$(cat "$d/$_o.pid" 2>/dev/null); [ -n "$_p" ] && ps -o ppid= -p "$_p" 2>/dev/null | grep -qx ' *1' || return 1; done; }
