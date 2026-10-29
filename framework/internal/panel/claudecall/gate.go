@@ -68,7 +68,8 @@ func RetryAfter(err error) (wait time.Duration, ok bool) {
 // spawn counter) still sees every process that starts.
 //
 //   - The slot (D3): one claude at a time, held until the inner call returns, which is
-//     when its process has been reaped.
+//     when its process has been reaped and what was left of its group killed
+//     (ExecRunner, #318).
 //   - The lock pause (D4): no start while either refresh lock is live.
 //   - The stop (D2): the caller gets its timeout at its deadline; the process runs on
 //     under a context of the gate's own, which is cancelled then, so ExecRunner sends

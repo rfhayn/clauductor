@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -195,16 +196,20 @@ func TestGateStopsATimedOutClaudeWithSIGTERM(t *testing.T) {
 }
 
 // [CLAUDECALLS-1-S2] A claude call that ignores SIGTERM is killed once 15 s have
-// passed since SIGTERM, and not before.
+// passed since SIGTERM, and not before. A child it started dies with it (#318): the
+// grace's SIGKILL reached the claude alone, and the child outlived the call.
 func TestGateKillsAClaudeThatIgnoresSIGTERMAfterTheGrace(t *testing.T) {
 	if testing.Short() {
 		t.Skip("-short: waits out the real 15 s grace (the full run covers it)")
 	}
-	marks := filepath.Join(t.TempDir(), "marks")
-	fakeProgram(t, "claude", fmt.Sprintf(`trap 'echo TERM >> %[1]s' TERM
+	dir := t.TempDir()
+	marks, childFile := filepath.Join(dir, "marks"), filepath.Join(dir, "child")
+	fakeProgram(t, "claude", fmt.Sprintf(`sleep 60 &
+echo $! > %[2]s
+trap 'echo TERM >> %[1]s' TERM
 echo ready >> %[1]s
 while :; do sleep 1; done
-`, shq(marks)))
+`, shq(marks), shq(childFile)))
 	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
 	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
@@ -220,6 +225,7 @@ while :; do sleep 1; done
 	if lines := stopLines(t, home); len(lines) != 1 || !slices.Equal(lines[0].Signals, []string{"SIGTERM", "SIGKILL"}) || lines[0].Lock {
 		t.Fatalf("stopped-call lines: %+v", lines)
 	}
+	waitGone(t, childPID(t, childFile), "the claude's child")
 }
 
 // A caller whose context has already ended never starts a claude: not once in many
@@ -284,39 +290,35 @@ func TestGateCallRefusedAtCloseDoesNotFireAcquired(t *testing.T) {
 // A call whose process had exited before its caller gave up was sent no signal, so
 // it is no stopped call: the log names only signals actually sent.
 func TestGateLogsNoSignalItDidNotSend(t *testing.T) {
-	// The process exits at once; a child keeps its stdout open, so the call is still
-	// running (reading) when its caller gives up. The caller gives up only once the
-	// process is gone (reaped: Wait reaps it before it drains the output), never at a
-	// fixed time: under load a 500 ms timeout fired before the shell had exited, and
-	// the SIGTERM reached it (#177).
-	// The child holds the output until the test releases it (at most 60 s), not for a
-	// fixed time a slow look at the reap could outlast.
-	dir := t.TempDir()
-	marks, release := filepath.Join(dir, "marks"), filepath.Join(dir, "release")
-	fakeProgram(t, "claude", fmt.Sprintf("(i=0; while [ ! -e %s ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done) &\necho $$ > %s\nexit 0\n", shq(release), shq(marks)))
-	defer os.WriteFile(release, nil, 0o600)
-	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
+	// The process exits at once, and ExecRunner returns once it is reaped and its group
+	// is gone (#318); the call is still running when its caller gives up because the
+	// runner below the gate holds it until the test releases it. The caller gives up
+	// only once ExecRunner has returned, never at a fixed time: under load a 500 ms
+	// timeout fired before the shell had exited, and the SIGTERM reached it (#177).
+	fakeProgram(t, "claude", "exit 0\n")
+	reaped, release := make(chan struct{}), make(chan struct{})
+	held := func(ctx context.Context, dir string, argv []string) ([]byte, error) {
+		out, err := signals.ExecRunner(ctx, dir, argv)
+		close(reaped)
+		<-release
+		return out, err
+	}
+	g, home := newGate(t, held, Reader{}, clock.System)
 	ctx, cancel := newExpiring(t)
 	defer cancel()
 	errc := goRun(g, ctx, agentsArgv)
-	deadline := time.Now().Add(testwait.Scale(10 * time.Second))
-	for {
-		pid := strings.TrimSpace(readMarks(t, marks))
-		if pid != "" && exec.Command("ps", "-p", pid).Run() != nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the claude (pid %q) never exited", pid)
-		}
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-reaped:
+	case <-time.After(testwait.Scale(10 * time.Second)):
+		close(release)
+		t.Fatal("the claude was never reaped")
 	}
 	cancel()
 	if err := <-errc; !errors.Is(err, context.DeadlineExceeded) {
+		close(release)
 		t.Fatalf("err %v, want the timeout", err)
 	}
-	if err := os.WriteFile(release, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	close(release)
 	cs := waitCalls(t, g, "the call's end", 1, ended)
 	if !cs[0].stopped || cs[0].term {
 		t.Fatalf("call %+v: want stopped by its caller, with no SIGTERM delivered", cs[0])
@@ -402,6 +404,88 @@ func TestGateCloseKillsAClaudeThatKeepsForking(t *testing.T) {
 		if lines := stopLines(t, home); len(lines) != 1 || !slices.Equal(lines[0].Signals, []string{"SIGTERM", "SIGKILL"}) {
 			t.Fatalf("shutdown %d: stopped-call lines when Close returned: %+v", i, lines)
 		}
+	}
+}
+
+// A stopped claude that exits on SIGTERM while a child it started still holds the
+// call's output leaves nothing of its group behind, and its call ends, and frees the
+// slot, when it exits (#318). The SIGTERM reached the claude alone, so the child held
+// the output until WaitDelay closed it at the grace and outlived the call: the slot
+// was held the whole 15 s, and the window CLAUDECALLS-4-S9 attributes locks to ran to
+// the grace, so another's lock taken in it read as the panel's own.
+func TestGateStoppedClaudeLeavesNoChildBehind(t *testing.T) {
+	dir := t.TempDir()
+	marks, childFile := filepath.Join(dir, "marks"), filepath.Join(dir, "child")
+	fakeProgram(t, "claude", fmt.Sprintf("sleep 60 &\necho $! > %s\n%s\n", shq(childFile), trapsTERM(marks, "exit 0")))
+	g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
+	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err %v, want the timeout", err)
+	}
+	child := childPID(t, childFile)
+	if !g.Quiesce(context.Background(), testwait.Scale(30*time.Second)) {
+		t.Fatal("the stopped call never freed the slot")
+	}
+	freed := time.Now()
+	cs := g.calls()
+	if len(cs) != 1 || !ended(cs[0]) || !cs[0].stopped {
+		t.Fatalf("the slot was free before the stopped call ended: %+v", cs)
+	}
+	if took := freed.Sub(cs[0].stoppedAt); took >= signals.ClaudeStopGrace {
+		t.Fatalf("the slot was freed %v after the stop: held to the grace, not to the claude's exit", took)
+	}
+	if took := cs[0].ended.Sub(cs[0].stoppedAt); took >= signals.ClaudeStopGrace {
+		t.Fatalf("the call ended %v after the stop: dated at the grace, not when it was reaped", took)
+	}
+	waitGone(t, child, "the claude's child")
+	if lines := stopLines(t, home); len(lines) != 1 || !slices.Equal(lines[0].Signals, []string{"SIGTERM"}) {
+		t.Fatalf("stopped-call lines: %+v", lines)
+	}
+}
+
+// A claude that exits by itself while a child it started holds the output is the
+// same gap without a stop: its call ends, with its output and no error, when it
+// exits, and the child does not outlive it. It waited the grace and failed with
+// exec.ErrWaitDelay, and the child was orphaned.
+func TestGateClaudeThatExitsLeavesNoChildBehind(t *testing.T) {
+	childFile := filepath.Join(t.TempDir(), "child")
+	fakeProgram(t, "claude", fmt.Sprintf("sleep 60 &\necho $! > %s\necho '[]'\nexit 0\n", shq(childFile)))
+	g, _ := newGate(t, signals.ExecRunner, Reader{}, clock.System)
+	ctx, cancel := context.WithTimeout(context.Background(), testwait.Scale(30*time.Second))
+	defer cancel()
+	start := time.Now()
+	out, err := g.Run(ctx, t.TempDir(), agentsArgv)
+	took := time.Since(start)
+	child := childPID(t, childFile)
+	if err != nil || string(out) != "[]\n" {
+		t.Fatalf("out %q, err %v: want the claude's output and no error", out, err)
+	}
+	if took >= signals.ClaudeStopGrace {
+		t.Fatalf("the call returned %v after it started: at the grace, not at the claude's exit", took)
+	}
+	waitGone(t, child, "the claude's child")
+}
+
+// childPID reads the pid a fake claude wrote to path. A run that fails leaves that
+// `sleep` to end by itself: killing it by pid later could reach a reused pid.
+func childPID(t *testing.T, path string) int {
+	t.Helper()
+	pid, err := strconv.Atoi(strings.TrimSpace(readMarks(t, path)))
+	if err != nil {
+		t.Fatalf("the fake claude wrote no child pid to %s: %v", path, err)
+	}
+	return pid
+}
+
+// waitGone waits until pid is no longer a process. The child's parent, the claude,
+// has exited, so init reaps it as soon as it dies.
+func waitGone(t *testing.T, pid int, what string) {
+	t.Helper()
+	deadline := time.Now().Add(testwait.Scale(5 * time.Second))
+	for syscall.Kill(pid, 0) == nil {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s (pid %d) outlived the call", what, pid)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
