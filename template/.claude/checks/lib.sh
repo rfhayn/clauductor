@@ -11,6 +11,8 @@
 #                        2 run alone or under CHECKS_DOUBLE_PASS=1
 # bare_report            bare_assert reported as ok or fail (returns 0 or 1); 2: the caller re-runs
 # unmarked CMD           run CMD with CHECKS_BARE, CHECKS_SET and CHECKS_DOUBLE_PASS cleared
+# slow SECONDS           SECONDS times CLAUDUCTOR_TEST_SLOW, rounded up: a deadline to wait on
+# wait_for SECONDS CMD   run CMD until it succeeds, or `slow SECONDS` have passed (status 1)
 #
 # A check that cannot run what it checks must FAIL, never pass: a skipped check reads exactly
 # like a passing one (*A control needs a named addressee*: a green result names its subject).
@@ -47,6 +49,28 @@ scratch() { printf '%s' "$_scratch"; }
 
 payload() {
   jq -cn --arg c "$1" --arg d "${2:-}" '{tool_name:"Bash", cwd:$d, tool_input:{command:$c}}'
+}
+
+# ── Time under load (OPS-168): the checks' half of internal/testwait ──
+# A check waits on the condition it needs, never on a guessed sleep, and a deadline is only how long
+# it may take before the check gives up: a passing case never reaches it, so it can be long. slow
+# stretches one by CLAUDUCTOR_TEST_SLOW (a factor, default 1; unset, not a number, below 1 or
+# infinite, it is 1), as testwait.Scale does. A duration a check ASSERTS is never scaled: its bound
+# is the least the broken behaviour must cost (a stopped 30 s command that took 30 s was not
+# stopped), so load cannot reach it and the case still fails when the behaviour breaks.
+# checks/wall-clock.sh holds every clock read in a check to a reason.
+slow() {
+  awk -v f="${CLAUDUCTOR_TEST_SLOW:-1}" -v s="$1" 'BEGIN { f += 0; if (!(f >= 1) || f == f + 1) f = 1
+    v = s * f; printf "%d", (v == int(v)) ? v : int(v) + 1 }'
+}
+# One look every tenth of a second, and one more once the deadline has passed, so a condition that
+# came true just as it passed still counts. Ticks, not the clock: under load they only run long.
+wait_for() {
+  _wft=$(( $(slow "$1") * 10 )) _wfi=0; shift
+  until "$@"; do
+    [ "$_wfi" -lt "$_wft" ] || return 1
+    sleep 0.1; _wfi=$((_wfi + 1))
+  done
 }
 
 # ── The no-clauductor environment (ADR-0006): PATH without clauductor, and a HOME with no panel ──

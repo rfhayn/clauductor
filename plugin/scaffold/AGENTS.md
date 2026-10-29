@@ -93,6 +93,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A branch is named by its `BRANCH_*` key, never a literal prefix | **`checks/branch-prefixes.sh`**: the model's files and `panel.json` |
 | Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | A script's temporary file lands in `$TMPDIR`: every `mktemp` line holds a `${TMPDIR:-` template or says why not | **`checks/mktemp-in-tmpdir.sh`** over every tracked shell script |
+| A check's time bound is one load cannot outrun: every clock read in a check says why (`# wall-clock:`) | **`checks/wall-clock.sh`** over every check `run.sh` runs; `slow` and `wait_for` in **`checks/lib.sh`** |
 | **This file stays a budget, not an archive** | **`${CLAUDE_PLUGIN_ROOT}/checks/agents-md-budget.sh`** |
 | **Everything else in this file and `docs/conventions.md`** | **Nothing. You.** Including all four rules above. |
 

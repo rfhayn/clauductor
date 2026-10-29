@@ -168,11 +168,24 @@ base; printf 'phase-1 Ann\nphase-2 Bo\nphase-3 Cy\n' > "$R/src/owners.txt"
 red "claims: a family missing a member its authority defines FAILS" "no claim on the page for: 3"
 base; printf 'phase-1 Ann\n' > "$R/src/owners.txt"
 red "claims: a family claiming a member its authority does not define FAILS" "claimed, but not a member the authority defines: 2"
-base; reg '.pages["docs/page.html"].claims["item-count"] = "sleep 5; echo 3"'
-start=$(date +%s); red "claims: a command over LIVING_COMMAND_SECONDS is stopped and FAILS" "did not finish within 1s" LIVING_COMMAND_SECONDS=1
-[ $(( $(date +%s) - start )) -le 4 ] && ok "claims: ...promptly" || fail "claims: the stopped command took $(( $(date +%s) - start ))s"
-base; start=$(date +%s); green "speed: a command that finishes does not wait for its watcher"
-[ $(( $(date +%s) - start )) -le 3 ] && ok "speed: the whole check ran in $(( $(date +%s) - start ))s" || fail "speed: the check took $(( $(date +%s) - start ))s (each command waiting a second?)"
+# Each time bound below is the least the broken behaviour must cost, never a guess at the pace of a
+# machine: a guess of 4 s failed under nine lanes (OPS-168). A command left to run its 30 s takes
+# 30 s; a watcher waited for costs each command a second at least (with_timeout's poll). `exec`: the
+# stop ends the sleep itself, so none outlives the case.
+long=30
+base; reg ".pages[\"docs/page.html\"].claims[\"item-count\"] = \"exec sleep $long\""
+start=$(date +%s)  # wall-clock: the stopped case starts; its bound is the length of the command
+red "claims: a command over LIVING_COMMAND_SECONDS is stopped and FAILS" "did not finish within 1s" LIVING_COMMAND_SECONDS=1
+took=$(( $(date +%s) - start ))  # wall-clock: asserted below the length of the command, which a command left to run takes whole
+[ "$took" -lt "$long" ] && ok "claims: ...before the command could end by itself (${took}s of its ${long}s)" || fail "claims: the stopped command took ${took}s, its whole ${long}s: it was not stopped"
+# Thirty family members: 34 commands, so 34 s at least if each waited for its watcher.
+base; i=3 more=""
+while [ "$i" -le 30 ]; do printf 'phase-%s P%s\n' "$i" "$i" >> "$R/src/owners.txt"; more="$more<b data-claim=\"owner-$i\">P$i</b>"; i=$((i + 1)); done
+page "<p>$more</p>"; n=34
+start=$(date +%s)  # wall-clock: the speed case starts; its bound is a second for each of its commands
+green "speed: a command that finishes does not wait for its watcher"
+took=$(( $(date +%s) - start ))  # wall-clock: asserted below a second a command, the least a waited-for watcher costs
+[ "$took" -lt "$n" ] && ok "speed: $n commands ran in ${took}s" || fail "speed: $n commands took ${took}s (each waiting a second for its watcher?)"
 
 # ── durations ──────────────────────────────────────────────────────────────────────────────────
 # Falsified by dropping the round trip: red on 2026-02-30.

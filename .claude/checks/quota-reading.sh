@@ -17,7 +17,7 @@ d=$(scratch)
 new_repo "$d/repo"
 git -C "$d/repo" commit -q --allow-empty -m init
 sl="$ROOT/.claude/statusline.sh"
-now=$(date +%s)
+now=$(date +%s)  # wall-clock: the origin of the reset times, a fixture, and the floor of `at` below
 future=$((now + 3600)); past=$((now - 60)); later=$((now + 7200))
 
 # status HOME JSON: run the status line; prints "<exit> <stderr bytes>" then the line.
@@ -25,15 +25,10 @@ status() {
   out=$(printf '%s' "$2" | HOME="$1" sh "$sl" 2> "$d/err"); rc=$?
   printf '%s %s\n%s\n' "$rc" "$(wc -c < "$d/err" | tr -d ' ')" "$out"
 }
-# settle FILE: wait (up to 5s) for the backgrounded write to land, and for no temp file beside it.
-settle() {
-  i=0
-  while [ "$i" -lt 50 ]; do
-    [ -f "$1" ] && [ -z "$(find "$(dirname "$1")" -name '.quota-reading.*' 2>/dev/null)" ] && return 0
-    sleep 0.1; i=$((i + 1))
-  done
-  return 1
-}
+# settle FILE: wait (up to 30s, times CLAUDUCTOR_TEST_SLOW) for the backgrounded write to land, and
+# for no temp file beside it. A write that lands never waits for the deadline.
+landed() { [ -f "$1" ] && [ -z "$(find "$(dirname "$1")" -name '.quota-reading.*' 2>/dev/null)" ]; }
+settle() { wait_for 30 landed "$1"; }
 in_json() {  # in_json RATE_LIMITS_JSON (or "" for none)
   if [ -n "$1" ]; then
     jq -cn --arg c "$d/repo" --argjson r "$1" '{session_id:"s", cwd:$c, context_window:{used_percentage:30}, rate_limits:$r}'
@@ -58,7 +53,7 @@ want=$(jq -cn --argjson f "$future" --argjson l "$later" '[["five_hour",12.5,$f]
 [ "$got" = "$want" ] && ok "...windows[].{key,pct,resetsAt} as the panel keeps them; bad keys, no pct, a non-integer reset dropped" || fail "windows: $got (want $want)"
 jq -e '.windows[] | select(.key == "nimbus") | has("resetsAt") | not' "$F" >/dev/null 2>&1 && ok "...a null resets_at is left out, not saved as null" || fail "nimbus: $(jq -c '.windows' "$F" 2>/dev/null)"
 at=$(jq -r '.at' "$F" 2>/dev/null)
-[ "$at" -ge $((now * 1000)) ] 2>/dev/null && [ "$at" -le $(( ($(date +%s) + 1) * 1000)) ] && ok "...and when it was read (at, unix ms)" || fail "at: $at"
+[ "$at" -ge $((now * 1000)) ] 2>/dev/null && [ "$at" -le $(( ($(date +%s) + 1) * 1000)) ] && ok "...and when it was read (at, unix ms)" || fail "at: $at"  # wall-clock: at lies between two reads of the clock, which load only spreads
 extra=$(jq -r '[keys[] | select(. != "windows" and . != "at")] | join(",")' "$F")
 [ -z "$extra" ] && ok "...and nothing else (no session, account or token)" || fail "extra fields: $extra"
 
@@ -68,8 +63,8 @@ mode=$(ls -l "$F" | cut -c1-10)
 chmod 644 "$F"; ln "$F" "$d/link"; before=$(cat "$F")
 rl2=$(jq -cn --argjson f "$future" '{five_hour:{used_percentage:20, resets_at:$f}}')
 status "$H" "$(in_json "$rl2")" >/dev/null
-i=0; while [ "$i" -lt 50 ] && [ "$(jq -r '.windows[0].pct' "$F" 2>/dev/null)" != 20 ]; do sleep 0.1; i=$((i + 1)); done
-settle "$F"
+pct20() { [ "$(jq -r '.windows[0].pct' "$F" 2>/dev/null)" = 20 ]; }
+wait_for 30 pct20; settle "$F"
 [ "$(cat "$d/link")" = "$before" ] && [ "$(cat "$F")" != "$before" ] \
   && ok "the file is replaced by a rename (a hard link to the old one still holds the old reading)" \
   || fail "the file was rewritten in place, or not at all"
@@ -108,16 +103,17 @@ HOME="$H" quota_save '{"rate_limits":{"huge":{"used_percentage":1,"resets_at":99
 jq -e '[.windows[].key] | index("huge") | not' "$F" >/dev/null && ok "a reset time past int64 drops its window" || fail "a reset time past int64 was saved: $(cat "$F")"
 
 # ── 3b. The save never holds the line ───────────────────────────────────────────────────────────
-# A save that takes 3s (a mktemp that sleeps) must not delay the printed line: the status line
+# A save that takes 6s (a mktemp that sleeps) must not delay the printed line: the status line
 # backgrounds it AND gives it no copy of the stdout Claude Code reads, or $(…) would wait for it.
-# Waiting 3s shows as at least 2 in whole seconds; then the slow save is waited out, so it never
-# outlives the check or races the scratch directory's removal.
-H="$d/home-slow"; mkdir -p "$H" "$d/slowbin"
-printf '#!/bin/sh\nsleep 3\nexec %s "$@"\n' "$(command -v mktemp)" > "$d/slowbin/mktemp"; chmod +x "$d/slowbin/mktemp"  # mktemp-in-tmpdir: a stand-in that execs the real one, not a call
-t0=$(date +%s)
+# A line that waited takes the whole 6s, so the bound is 6, never a guess at how long a loaded
+# machine takes to print a line (2 s was one: OPS-168); then the slow save is waited out, so it
+# never outlives the check or races the scratch directory's removal.
+H="$d/home-slow"; mkdir -p "$H" "$d/slowbin"; save=6
+printf '#!/bin/sh\nsleep %s\nexec %s "$@"\n' "$save" "$(command -v mktemp)" > "$d/slowbin/mktemp"; chmod +x "$d/slowbin/mktemp"  # mktemp-in-tmpdir: a stand-in that execs the real one, not a call
+t0=$(date +%s)  # wall-clock: the slow save case starts; its bound is the length of the save
 line=$(printf '%s' "$(in_json "$rl")" | HOME="$H" PATH="$d/slowbin:$PATH" sh "$sl" 2>/dev/null)
-t1=$(date +%s)
-case "$line" in *"30% ctx"*) [ $((t1 - t0)) -lt 2 ] && ok "a 3s save does not delay the line ($((t1 - t0))s)" || fail "the line waited $((t1 - t0))s for the save" ;;
+took=$(( $(date +%s) - t0 ))  # wall-clock: asserted below the length of the save, which a line that waited took whole
+case "$line" in *"30% ctx"*) [ "$took" -lt "$save" ] && ok "a ${save}s save does not delay the line (${took}s)" || fail "the line waited ${took}s for the ${save}s save" ;;
   *) fail "slow save: no line: $line" ;; esac
 settle "$H/.clauductor/quota-reading.json" && ok "...and the slow save still lands" || fail "the slow save never landed"
 

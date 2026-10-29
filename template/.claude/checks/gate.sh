@@ -303,9 +303,9 @@ blind() {  # blind MAXWAIT: lease_run with ps erroring and kill -0 denied; kille
   if kill -0 "$bp" 2>/dev/null; then kill "$bp" 2>/dev/null; echo hung > "$U/rc"; fi
   wait "$bp" 2>/dev/null
 }
-holder $(( $(date +%s) - 3600 )) 60; blind 0
+holder $(( $(date +%s) - 3600 )) 60; blind 0  # wall-clock: a heartbeat an hour old, a fixture, not a bound
 [ "$(cat "$U/rc")" = 0 ] && grep -q '^RAN$' "$U/out" && ok "uninspectable: a holder whose heartbeat expired is reclaimed, and the waiter (never judging itself) runs" || fail "uninspectable, expired heartbeat: rc $(cat "$U/rc"): $(tr '\n' ' ' < "$U/out")"
-holder "$(date +%s)" 0; blind 3
+holder "$(date +%s)" 0; blind 3  # wall-clock: a heartbeat of now, a fixture, not a bound
 [ "$(cat "$U/rc")" = 124 ] && ok "uninspectable: a holder it cannot judge is waited for at most CLAUDUCTOR_LEASE_MAX_WAIT, exit 124" || fail "uninspectable, live-looking holder: rc $(cat "$U/rc") (want 124, not a hang): $(tr '\n' ' ' < "$U/out")"
 grep -q 'gave up after .*held by pid 999999' "$U/out" && grep -q "rm -rf '$UL'" "$U/out" && ok "...and names the holder and how to remove the lock" || fail "give-up message: $(tr '\n' ' ' < "$U/out")"
 rm -rf "$UL" "$UL.waiters"
@@ -330,7 +330,7 @@ rm -rf "$LOCK" "$LOCK.waiters"
 sleep 60 & other=$!
 mkdir -p "$LOCK"
 printf '{"v":1,"nonce":"0123456789abcdef","pid":%s,"pstart":"","host":"%s","lane":"other","cmd":"gate","started":%s,"renewed":%s,"ttl":600}\n' \
-  "$other" "$(hostname)" "$(date +%s)" "$(date +%s)" > "$LOCK/owner.json"
+  "$other" "$(hostname)" "$(date +%s)" "$(date +%s)" > "$LOCK/owner.json"  # wall-clock: when the record started, a fixture
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LEASE_MAX_WAIT=3 bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
 expect_rc 0 "$rc" "a --quick run passes while another gate holds the lease (it takes none)"
 grep -q '"lane":"other"' "$LOCK/owner.json" 2>/dev/null && ok "...and leaves the holder's lease alone" || fail "the quick run changed the holder's lease: $(cat "$LOCK/owner.json" 2>/dev/null || echo gone)"
@@ -490,9 +490,11 @@ mkdir -p "$R/local"; touch "$R/local/HOLD"
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
 bg=$!
 n=0; while ! grep -q '^==> hold' "$d/bg" 2>/dev/null && [ "$n" -lt 30 ]; do sleep 1; n=$((n + 1)); done
-s=$(date +%s); gw 1; rc=$?; took=$(( $(date +%s) - s ))
+# The bound is what a gate-wait that ignored its own costs: its 540 s default, or the hold, which
+# lasts until it returns. 10 s was a guess at a loaded machine's pace (OPS-168).
+s=$(date +%s); gw 1; rc=$?; took=$(( $(date +%s) - s ))  # wall-clock: asserted below a minute, far under the 540 s a broken bound costs
 expect_rc 3 "$rc" "gate-wait while a gate runs: STILL RUNNING (3), call again"
-[ "$took" -lt 10 ] && ok "...within its bound (GATE_WAIT_SECONDS=1: ${took}s), never a hang" || fail "gate-wait took ${took}s with GATE_WAIT_SECONDS=1"
+[ "$took" -lt 60 ] && ok "...within its bound (GATE_WAIT_SECONDS=1: ${took}s), never a hang" || fail "gate-wait took ${took}s with GATE_WAIT_SECONDS=1"
 gw 1 "$d/nops:$d/bin:$np"; rc=$?
 expect_rc 3 "$rc" "...and where ps cannot inspect it (a sandbox), kill -0 still finds it running (3)"
 rm -f "$R/local/HOLD"
