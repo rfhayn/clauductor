@@ -65,7 +65,8 @@ trust recorded against the config's path and content hash, wherever that file li
      2026-10-28), may live beside it.
 6. **Order:** PANEL-42 comes after the in-flight rows and before MAPS phase 1. The owner's standing answer to
    `/propose` step 0a (PRD-maps) names PANEL-42 too: it goes ahead of the approved PANEL-25, PANEL-30 and PANEL-31
-   proposals, which keep their approval and wait.
+   proposals, which keep their approval and wait (PANEL-30 and PANEL-31 cancelled at the direction shift,
+   2026-10-27; their proposals removed by OPS-154).
 7. **Standing Tee's own attach (ST-7)** is worked out in the open in `docs/panel.md`, as the example of a repository
    with a model of its own:
    - cards run `infra/roadmap-queue.mjs`, `.claude/founder-queue.sh` and its health readers;

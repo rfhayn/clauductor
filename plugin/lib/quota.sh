@@ -1,5 +1,6 @@
 # quota.sh: sourced (never run) by .claude/statusline.sh, which saves the reading, and by whatever
-# needs the account's current quota (the orchestrating session, which reads it by hand). ONE file
+# needs the account's current quota. Nothing reads it yet but checks/quota-reading.sh: its reader
+# went with OPS-42, and OPS-167 wires one or removes it. ONE file
 # per machine, written on every status-line refresh that carries `rate_limits`, with or without the
 # panel, so nothing needs the clauductor binary or the panel to read it (ADR-0006). Needs jq.
 #

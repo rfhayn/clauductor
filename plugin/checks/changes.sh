@@ -56,7 +56,9 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk design; printf '\nA later thought.\n' >> "$F/$C/design.md"; case_bad "a design edited after approval" "CHANGED since the owner approved"
   mk risk; edit $C/proposal.md 's/^\*\*Risk:\*\* low/**Risk:** normal/'; case_bad "a risk tier changed after approval" "CHANGED since the owner approved"
   mk cancelled; edit docs/roadmap.md 's/⬜ queued/❌ cancelled — the owner, 2026-01-03/'; case_bad "an open change whose roadmap row is cancelled" "its roadmap row 1.1 is cancelled"
-  mk norisk; edit $C/proposal.md '/^\*\*Risk:\*\*/d';(ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null); case_bad "a proposal with no Risk line" "needs '**Risk:**"
+  mk revived; edit docs/roadmap.md 's/⬜ queued/❌ cancelled — the owner, 2026-01-03/'; printf '| 1.2 | `add-greeting-name` — revived. Risk: low | s · Budget: $15 | — | ⬜ queued |\n' >> "$F/docs/roadmap.md"
+  case_ok "a cancelled change revived under a new row with the same change id"
+  mk norisk; edit $C/proposal.md '/^\*\*Risk:\*\*/d'; (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null); case_bad "a proposal with no Risk line" "needs '**Risk:**"
   # A delegated approval (OPS-127) holds only with APPROVAL_DELEGATED="1" and no guarded path
   # touched. The fixture writes its own list: a project that has not updated may lack the shipped one.
   # It is a repository with no remote, the one place the key and the lists are read from disk.
@@ -260,8 +262,9 @@ for c in "$dir"/*/; do
   # ── A cancelled change leaves no directory (OPS-154) ────────────────────────────────────────────
   # Its roadmap row (`❌ cancelled — <why>`) and git history are its record, and the archive holds
   # only finished changes, so the directory goes: left here it reads as proposed and not yet built,
-  # at session start and in every count of open changes. An unreadable roadmap is checks/roadmap.sh's.
-  cx=$(printf '%s\n' "$roadmap_tsv" | awk -F'\t' -v c="$id" '$5 == c && $7 == "cancelled" { print $4; exit }')
+  # at session start and in every count of open changes. A change revived under a new row with the
+  # same change id is live: any other row naming it clears it. An unreadable roadmap is checks/roadmap.sh's.
+  cx=$(printf '%s\n' "$roadmap_tsv" | awk -F'\t' -v c="$id" '$5 == c { if ($7 == "cancelled") { if (cx == "") cx = $4 } else live = 1 } END { if (!live && cx != "") print cx }')
   if [ -n "$cx" ]; then
     fail "$id: its roadmap row $cx is cancelled. Remove the directory (git rm -r $CHANGES_DIR/$id): the row and git history are its record ($CHANGES_DIR/README.md)"
     continue
