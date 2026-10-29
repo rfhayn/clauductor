@@ -2,7 +2,7 @@
 
 - **PR**: #324
 - **Session**: S16, started 2026-10-29 10:32 ET
-- **Review**: 2 rounds, peak medium, cap 3 (round 1 medium, round 2 low; all lows fixed)
+- **Review**: 3 rounds, peak medium, cap 3 (round 1 medium, round 2 low, round 3 on the acceptance delta low; all lows fixed)
 - **Gate**: CANNOT CHECK — the lane stopped before the gate on the lead's instruction (a worktree gate is broken in this sandbox)
 - **Cost**: CANNOT CHECK — a subagent lane shares the orchestrator's session id, so no row-only cost can be read
 - **Session start**: CANNOT CHECK — no marker ran: the lane was told not to push, and the marker opens a draft PR
