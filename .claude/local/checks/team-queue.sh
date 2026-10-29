@@ -197,6 +197,21 @@ has "3 team-queue issue(s) from authors without write access skipped" "authors: 
 printf '%s\n' "$out" | grep -q 'more not shown' && fail "authors: skipped items were counted as not shown" || ok "authors: ...and not again as 'more not shown'"
 [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 4 ] && ok "authors: the header, two items and the skipped line, nothing else" || fail "authors: $(printf '%s\n' "$out" | tr '\n' '|')"
 case $(cat "$S/gh.log.args") in *authorAssociation*) ok "authors: the listing's query asks for authorAssociation" ;; *) fail "authors: the query does not ask for authorAssociation" ;; esac
+# 45 writers' items with 60-character titles, then 5 strangers' items after the size cut: the
+# skipped are counted over every fetched item, not only those before the cut; the skipped line has
+# its room (11 items shown, not 12); and the skipped are not counted again as not shown.
+{
+  i=100; while [ "$i" -lt 145 ]; do item "$i" "$(printf 'T%.0s' $(seq 1 60))" "$(body "$(text "$i" X-1 "")")" "$TQ" "$LA" "" ""; i=$((i + 1)); done
+  while [ "$i" -lt 150 ]; do item "$i" "STRANGER-MARKER $i" "$(body "$(text "$i" X-1 "")")" "$TQ" "$LA" "" "" "" NONE; i=$((i + 1)); done
+} | answer > "$S/s50.json"
+out=$(run "$S/s50.json")
+has "5 team-queue issue(s) from authors without write access skipped" "authors: strangers' items past the size cut are still counted as skipped"
+[ "$(printf '%s\n' "$out" | grep -c '^#')" = 11 ] && ok "authors: the skipped line has its room in the size budget (11 items shown)" \
+  || fail "authors: $(printf '%s\n' "$out" | grep -c '^#') items shown, want 11"
+has "... and 34 more not shown (the listing stops near 2,000 characters; at most 50 are fetched)." "authors: ...and the skipped are not counted again as not shown"
+sz=$(printf '%s\n' "$out" | wc -m | tr -d ' ')
+[ "$sz" -le 2000 ] && ok "authors: the listing with a skipped line stays within 2,000 characters ($sz)" || fail "authors: the listing is $sz characters"
+case $out in *STRANGER-MARKER*) fail "authors: a skipped item's title was printed past the cut" ;; *) ok "authors: ...and no skipped title is printed" ;; esac
 
 # --hash prints the hash the listing compares, for whoever composes an item.
 body "$(text 1 X-1 "$good")" > "$S/body.md"
@@ -229,6 +244,8 @@ cannot "gh did not answer within 1 s" "case 9: ...gh that does not answer in tim
 [ $(($(date +%s) - t0)) -lt 7 ] && ok "case 9: ...and the deadline stops it" || fail "the deadline did not stop gh"
 jq '.data.repository.issues.nodes += [{ number: "x1", title: "t", body: "", authorAssociation: "OWNER", labels: { nodes: [] }, timelineItems: { nodes: [] } }]' "$S/b.json" > "$S/partway.json"
 cannot "an issue has no number" "case 9: ...a failure part-way prints the one line, no facts beside it" "$S/partway.json"
+jq '.data.repository.issues.nodes += [null]' "$S/b.json" > "$S/nullnode.json"
+cannot "GitHub's answer is an error or does not parse" "case 9: ...an issue that is not an object (null) is not counted as a stranger's (OPS-166)" "$S/nullnode.json"
 mv "$F/docs/roadmap.md" "$S/roadmap.md"
 cannot "the change queue is UNKNOWN" "case 9: ...a change queue that cannot be read" "$S/a.json"
 mv "$S/roadmap.md" "$F/docs/roadmap.md"
@@ -394,6 +411,13 @@ jq '.data.repository.pullRequests.totalCount = 101' "$S/n1.json" > "$S/n101.json
 ncannot "more than 100 open team-queue issues or PRs" "--next-id: a second page is refused, not read short" "$S/n101.json"
 jq '.data.repository.issues.totalCount = 101' "$S/n1.json" > "$S/i101.json"
 ncannot "more than 100 open team-queue issues or PRs" "--next-id: ...of issues too" "$S/i101.json"
+# OPS-166: an issue node that is not an object, beside a writer's Row X-50, is refused, never read
+# as no Row line (a wrong id with exit 0); and a jq error on the Row lines is not hidden behind the
+# PR titles' sed.
+jq '.data.repository.issues.nodes += [{ body: "Row: X-50\n", authorAssociation: "OWNER" }, 5] | .data.repository.issues.totalCount = 2' "$S/n0.json" > "$S/nnon.json"
+ncannot "GitHub's answer is an error or does not parse" "--next-id: an issue that is not an object is CANNOT CHECK, not a guessed id" "$S/nnon.json"
+jq '.data.repository.issues.nodes += [{ body: 5, authorAssociation: "OWNER" }] | .data.repository.issues.totalCount = 1' "$S/n0.json" > "$S/nbody.json"
+ncannot "the open issues' Row lines could not be read" "--next-id: a writer's body jq cannot read is CANNOT CHECK, not skipped" "$S/nbody.json"
 pr 77 "$PR9_SHA" > "$S/n77.json"
 ncannot "the open PRs' heads could not be fetched" "--next-id: an open PR whose head cannot be fetched is CANNOT CHECK, not skipped" "$S/n77.json"
 pr 9 "not-a-sha" > "$S/nbad.json"

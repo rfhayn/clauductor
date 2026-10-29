@@ -34,10 +34,12 @@
 # says the label's source is unverifiable.
 # An author is a GATE, though, not evidence (OPS-166): an issue whose authorAssociation is not
 # OWNER, MEMBER or COLLABORATOR (a stranger's, once the repository is public; or one with no
-# association at all) is skipped before anything of it is read, even if someone with triage
+# association at all) is skipped, nothing of it read but its number, even if someone with triage
 # rights labels it. The listing counts the skipped in one line and never prints their titles;
-# `--row` refuses such an item, and `--next-id` reads no Row line from one. MEMBER is the row's
-# choice: an organization member, who may hold read access only; a personal repository has none.
+# `--row` refuses such an item, and `--next-id` reads no Row line from one. MEMBER and
+# COLLABORATOR are GitHub's associations, not permissions: on an organization's repository either
+# may hold read access only; on a personal repository there are no members, and a collaborator
+# can write.
 #
 # WHY so narrow: the text is written by bots and lands in the session's context. So it prints no
 # body, no patch and no comment (comments are never read), cleans titles of control and format
@@ -64,7 +66,8 @@ cannot() {
 # joined by LF, trailing whitespace dropped. The template (.github/ISSUE_TEMPLATE/team-queue.md)
 # states the same rule.
 CANON='gsub("\r"; "") | split("\n") | map(select(startswith("Content-SHA256:") | not)) | join("\n") | sub("\\s+\\z"; "")'
-# An issue whose author can write to the repository (OPS-166); a missing association is not one.
+# An issue whose author GitHub associates as OWNER, MEMBER or COLLABORATOR (on a personal
+# repository, those who can write; OPS-166). A missing association is none of them.
 WRITER='(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR")'
 
 if [ "${1:-}" = --hash ]; then
@@ -120,6 +123,7 @@ if [ -n "$NEXT_ID" ]; then
     *) cannot "gh exited $rc" ;;
   esac
   jq -e '(.errors // [] | length == 0) and (.data.repository.issues.nodes | type == "array")
+    and (.data.repository.issues.nodes | all(type == "object"))
     and (.data.repository.pullRequests.nodes | type == "array")' "$t/resp" >/dev/null 2>&1 \
     || cannot "GitHub's answer is an error or does not parse"
   jq -e '.data.repository | (.issues.totalCount <= (.issues.nodes | length)) and (.pullRequests.totalCount <= (.pullRequests.nodes | length))' "$t/resp" >/dev/null 2>&1 \
@@ -147,13 +151,15 @@ if [ -n "$NEXT_ID" ]; then
   # The history's ids are taken too (OPS-147): the reset moved finished rows out of the roadmap,
   # and REL-2 and o.10 were above everything the roadmap still held.
   sh "$ROOT/.claude/local/roadmap.d/history.sh" --ids > "$t/hist" || cannot "docs/roadmap-history.md's ids could not be read"
-  {
-    awk -F'\t' '{ print $4 }' "$t/tsv"
-    cat "$t/hist"
-    jq -r ".data.repository.issues.nodes[] | select($WRITER)"' | .body // "" | gsub("\r"; "") | split("\n")[]
-      | select(startswith("Row:")) | sub("^Row:[ \t]*"; "") | sub("[ \t]+$"; "")' "$t/resp"
-    jq -r '.data.repository.pullRequests.nodes[].title // ""' "$t/resp" | sed -n "s/^\($NEXT_ID-[0-9][0-9]*\):.*/\1/p"
-  } > "$t/ids" || cannot "the ids could not be read"
+  # Each source with its own status: in a group or a pipe only the last command's would count, and
+  # a source read short is a duplicate id later.
+  { awk -F'\t' '{ print $4 }' "$t/tsv" && cat "$t/hist"; } > "$t/ids" || cannot "the ids could not be read"
+  jq -r ".data.repository.issues.nodes[] | select($WRITER)"' | .body // "" | gsub("\r"; "") | split("\n")[]
+    | select(startswith("Row:")) | sub("^Row:[ \t]*"; "") | sub("[ \t]+$"; "")' "$t/resp" >> "$t/ids" 2>/dev/null \
+    || cannot "the open issues' Row lines could not be read"
+  jq -r '.data.repository.pullRequests.nodes[].title // ""' "$t/resp" > "$t/titles" 2>/dev/null \
+    || cannot "the open PRs' titles could not be read"
+  sed -n "s/^\($NEXT_ID-[0-9][0-9]*\):.*/\1/p" "$t/titles" >> "$t/ids" || cannot "the ids could not be read"
   max=$(grep -xE "$NEXT_ID-[0-9]{1,9}" "$t/ids" | sed "s/^$NEXT_ID-//" | awk '$1 + 0 > m { m = $1 + 0 } END { print m + 0 }')
   [ "${max:-0}" -gt 0 ] || cannot "no id is $NEXT_ID-<number>"
   echo "$NEXT_ID-$((max + 1))"
@@ -177,7 +183,9 @@ case $rc in
   137 | 143) cannot "gh did not answer within ${TEAM_QUEUE_TIMEOUT:-10} s" ;;
   *) cannot "gh exited $rc" ;;
 esac
-jq -e '(.errors // [] | length == 0) and (.data.repository.issues.nodes | type == "array")' "$t/resp" >/dev/null 2>&1 \
+# A node that is not an object is refused here, never counted below as a stranger's issue.
+jq -e '(.errors // [] | length == 0) and (.data.repository.issues.nodes | type == "array")
+  and (.data.repository.issues.nodes | all(type == "object"))' "$t/resp" >/dev/null 2>&1 \
   || cannot "GitHub's answer is an error or does not parse"
 # fetch_main's fetch, under the same deadline (a slow network must not hold session start).
 with_timeout "${TEAM_QUEUE_TIMEOUT:-10}" git fetch -q origin "$MAIN_BRANCH" </dev/null >/dev/null 2>&1 \
@@ -207,7 +215,7 @@ i=0
 while [ "$i" -lt "$n" ]; do
   jq -c ".data.repository.issues.nodes[$i]" "$t/resp" > "$t/issue"
   i=$((i + 1))
-  # A stranger's issue: nothing of it is read past its number, which --row needs for its refusal.
+  # A stranger's issue: nothing of it is read but its number, which --row needs for its refusal.
   if ! jq -e "$WRITER" "$t/issue" >/dev/null 2>&1; then
     [ -n "$ROW_N" ] && jq -e --argjson n "$ROW_N" '.number == $n' "$t/issue" >/dev/null 2>&1 \
       && cannot "#$ROW_N's author has no write access"
