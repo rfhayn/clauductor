@@ -22,7 +22,10 @@
 # Bash call in the main checkout: its `cd <worktree> && scripts/ci/gate.sh` ran sandboxed, where `ps`,
 # git's caches and the loopback name fail whatever the code does. So a lane names its worktree
 # instead, and this runs THAT checkout's own gate.sh from its top level, as if started there: the
-# tree under test runs its own wrapper, runner, steps and config, never the caller's.
+# tree under test runs its own wrapper, runner, steps and config, never the caller's. Only a checkout
+# of THIS repository (one git common dir) is accepted: the exclusion is the main checkout's, and -C
+# must not stretch it to run any other tree outside the sandbox (another project, or a repository
+# an agent made in $TMPDIR).
 #
 # GATE_FAIL_PATTERN (project.conf) is the extended regex of failure lines for YOUR tools; it is
 # matched against a colour-stripped copy, and never anchored at line start, because many runners
@@ -33,7 +36,7 @@
 set -uo pipefail
 
 if [ "${1:-}" = -C ]; then
-  [ $# -ge 2 ] || { echo "gate: -C needs a directory" >&2; exit 2; }
+  [ -n "${2:-}" ] || { echo "gate: -C needs a directory" >&2; exit 2; }
   top=$(cd "$2" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || { echo "gate: -C $2 is not inside a git checkout" >&2; exit 2; }
   # This script's path in its own checkout is its path in DIR's (git prints physical paths, as pwd -P).
   here=$(cd "$(dirname "$0")" && pwd -P); self=$(cd "$here" && git rev-parse --show-toplevel 2>/dev/null)
@@ -42,6 +45,8 @@ if [ "${1:-}" = -C ]; then
     "$self"/*) rel=${here#"$self"/}/$(basename "$0") ;;
     *) echo "gate: $0 is not inside a git checkout, so its path in $top is unknown" >&2; exit 2 ;;
   esac
+  common() { (cd "$1" && cd "$(git rev-parse --git-common-dir)" && pwd -P) 2>/dev/null; }
+  own=$(common "$self"); [ -n "$own" ] && [ "$(common "$top")" = "$own" ] || { echo "gate: -C $2 is not a checkout of this repository ($self): -C runs only this repository's worktrees" >&2; exit 2; }
   [ -f "$top/$rel" ] || { echo "gate: $top has no $rel to run" >&2; exit 2; }
   shift 2
   cd "$top" && exec bash "$rel" "$@"

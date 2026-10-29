@@ -274,18 +274,38 @@ if [ -n "$WRAP" ] && [ -f "$R/$RUN_DIR/gate-wait.sh" ]; then
   expect_rc 0 "$rc" "fixture: gate-wait in the main checkout reads its own passing run"
   wgw -C "$W"; rc=$?
   expect_rc 1 "$rc" "gate-wait.sh -C <worktree>, from the main checkout, reads the worktree's FAIL, not the caller's PASS"
-  grep -qF "$wgd/ci-gate.log" "$d/wgw" && ok "...and names the worktree's log" || fail "gate-wait -C: $(tr '\n' ' ' < "$d/wgw")"
+  grep -qF "$wgd/ci-gate.log" "$d/wgw" && grep -qF ", in $wtop: the gate exited 1" "$d/wgw" \
+    && ok "...and names the worktree as the checkout, and its log" || fail "gate-wait -C: $(tr '\n' ' ' < "$d/wgw")"
+  wgw "$W"; rc=$?
+  expect_rc 2 "$rc" "gate-wait.sh <dir> without -C refuses (2), never answers for the caller's tree"
+  wgw -C "$W" --quick; rc=$?
+  expect_rc 2 "$rc" "gate-wait.sh -C <worktree> with anything after it refuses (2)"
   echo edit > "$W/new-file"
   wgw -C "$W"; rc=$?
   expect_rc 4 "$rc" "gate-wait.sh -C <worktree> after an edit there: NO RESULT (4)"
   grep -qF "FOREGROUND: $WRAP_REL -C $wtop (" "$d/wgw" && ok "...and the gate it names carries the same -C, so the lane can run it as given" || fail "gate-wait -C hint: $(tr '\n' ' ' < "$d/wgw")"
+  # Another repository, holding the same scripts (it would run, and pass, if -C took it): the
+  # exclusion is this repository's, and -C must not carry it to any other tree.
+  O="$d/other"; new_repo "$O"; mkdir -p "$O/$RUN_DIR/lib" "$O/$(dirname "$WRAP_REL")" "$O/$(dirname "$STEPS_REL")" "$O/.claude/lib"
+  for f in "$WRAP_REL" "$RUN_REL" "$RUN_DIR/lease.sh" "$RUN_DIR/lib/steps.sh" "$RUN_DIR/lib/gate-state.sh" "$RUN_DIR/gate-wait.sh" \
+    "$STEPS_REL" .claude/project.conf .claude/lib/conf.sh .claude/lib/change.sh .claude/scenario-trace.sh .gitignore; do cp "$R/$f" "$O/$f"; done
+  git -C "$O" add -A && git -C "$O" commit -qm init
+  (cd "$O" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check bash "$WRAP_REL" --quick) >/dev/null 2>&1; rc=$?
+  expect_rc 0 "$rc" "fixture: the other repository's own quick gate passes when run there"
   for s in "bash $WRAP_REL" "sh $RUN_DIR/gate-wait.sh"; do
     # shellcheck disable=SC2086  # interpreter and path, split on purpose
+    rc=0; (cd "$R" && PATH="$d/bin:$np" $s -C "$O") > "$d/other.out" 2>&1 || rc=$?
+    expect_rc 2 "$rc" "${s##*/} -C <another repository> refuses (2): -C runs only this repository's worktrees"
+    grep -q 'not a checkout of this repository' "$d/other.out" && ok "...and says why" || fail "${s##*/} -C <another repository>: $(tr '\n' ' ' < "$d/other.out")"
+    # shellcheck disable=SC2086
     rc=0; (cd "$R" && PATH="$d/bin:$np" $s -C "$d/nowhere") >/dev/null 2>&1 || rc=$?
     expect_rc 2 "$rc" "${s##*/} -C <not a checkout> refuses (2), never runs the caller's tree"
     # shellcheck disable=SC2086
     rc=0; (cd "$R" && PATH="$d/bin:$np" $s -C) >/dev/null 2>&1 || rc=$?
     expect_rc 2 "$rc" "${s##*/} -C with no directory refuses (2)"
+    # shellcheck disable=SC2086
+    rc=0; (cd "$R" && PATH="$d/bin:$np" $s -C "") >/dev/null 2>&1 || rc=$?
+    expect_rc 2 "$rc" "${s##*/} -C '' refuses (2), never runs the caller's tree (cd '' stays put)"
   done
   rm -rf "$W"; git -C "$R" worktree prune
 fi
@@ -505,7 +525,7 @@ grep -q "^started pid=[0-9]* at=[0-9]* mode=full subject=worktree head=$SHA tree
   && ok "the state file has the run's started line (a clean tree's id is HEAD) and its exit line" || fail "state: $(tr '\n' '|' < "$STATE" 2>/dev/null)"
 gw; rc=$?
 expect_rc 0 "$rc" "gate-wait after a passing run: PASS (0)"
-says "PASS for HEAD $(printf %.9s "$SHA"). Receipt" "...naming HEAD and the receipt"
+says "PASS for HEAD $(printf %.9s "$SHA"), in $(git -C "$R" rev-parse --show-toplevel). Receipt" "...naming HEAD, the checkout and the receipt"
 
 touch "$R/FAIL_UNIT"; run --quick; rm -f "$R/FAIL_UNIT"
 tail -n 1 "$RUNS" | awk -F'\t' '$5 == "quick" && $6 == "fail" && $7 == "1" && $10 ~ /;hold=[0-9]+;unit=[0-9]+$/ { ok = 1 } END { exit !ok }' \

@@ -104,9 +104,13 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
 # arguments, and nothing chained, piped or redirected around it. A subagent lane's Bash starts in the
 # main checkout, so `cd <worktree> && <gate>` was the natural instruction, and it ran the gate
 # sandboxed, where `ps`, git's caches and the loopback name fail whatever the code does. The lane
-# form is `<gate> -C <worktree>`. This reads every command the agents' instructions give for the
-# gate or gate-wait (backticked, or a line of a fenced block, `<placeholder>`s filled with a path)
-# and matches it against settings.json's own list, so an instruction and the exclusion cannot part.
+# form is `<gate> -C <worktree>`. This reads every command the Markdown instructions give for the
+# gate or gate-wait (AGENTS.md, CLAUDE.md, the skills' and agents' files, the playbook and the
+# conventions), backticked or a line of a fenced block, and matches it, `<placeholder>`s filled
+# with a path, against settings.json's own list, so an instruction and the exclusion cannot part.
+# A span is read across the paragraph's line breaks, as Markdown renders it: a hard-wrapped
+# `cd <worktree> &&` / `<gate>` is one command. A fenced `#` comment is not a command. build-change's
+# gate prompts are JavaScript, held to its LONE rule by checks/build-change.sh instead.
 excluded() {  # excluded SETTINGS CMD: CMD runs outside the sandbox by SETTINGS' excludedCommands
   case $2 in *'&'* | *'|'* | *';'* | *'>'* | *'<'* | *'$('* | *'`'* | *'
 '*) return 1 ;; esac
@@ -125,9 +129,13 @@ gate_commands() {
   _gt=$(gate_cmd "$GATE"); [ -n "$_gt" ] || _gt=scripts/ci/gate.sh
   _re=$(printf '%s\n%s\n' "$_gt" "$(gate_wait_path)" | sed 's/[].[\*^$]/\\&/g' | paste -sd'|' -)
   awk '
-    /^[ \t]*```/ { fence = !fence; next }
-    fence { l = $0; sub(/[ \t]+#.*/, "", l); gsub(/^[ \t]+|[ \t]+$/, "", l); if (l != "") print FILENAME "\t" l; next }
-    { l = $0; while (match(l, /`[^`]+`/)) { print FILENAME "\t" substr(l, RSTART + 1, RLENGTH - 2); l = substr(l, RSTART + RLENGTH) } }
+    function flush(l) { l = para; para = ""; while (match(l, /`[^`]+`/)) { print file "\t" substr(l, RSTART + 1, RLENGTH - 2); l = substr(l, RSTART + RLENGTH) } }
+    FNR == 1 { flush(); file = FILENAME; fence = 0 }
+    /^[ \t]*```/ { flush(); fence = !fence; next }
+    fence { l = $0; gsub(/^[ \t]+|[ \t]+$/, "", l); if (l ~ /^#/) next; sub(/[ \t]+#.*/, "", l); if (l != "") print file "\t" l; next }
+    /^[ \t]*$/ { flush(); next }
+    { l = $0; sub(/^[ \t]+/, "", l); para = para (para == "" ? "" : " ") l }
+    END { flush() }
   ' "$@" 2>/dev/null | grep -E "	(.*[[:space:];&|(])?(\\./)?($_re)([[:space:];&|)]|\$)"
 }
 check_lane_gates() {  # check_lane_gates SETTINGS FILE...: prints ok/FAIL lines
@@ -137,7 +145,7 @@ check_lane_gates() {  # check_lane_gates SETTINGS FILE...: prints ok/FAIL lines
   while IFS='	' read -r _f _c; do
     _n=$((_n + 1))
     _x=$(printf '%s' "$_c" | sed 's|<[A-Za-z_-]*>|/abs/lane|g')
-    excluded "$_s" "$_x" || echo "FAIL ${_f#"$ROOT"/}: \`$_c\` matches no sandbox.excludedCommands entry: run as written, the gate runs sandboxed and its process checks fail. Name the checkout with -C instead of cd, and never pipe it"
+    excluded "$_s" "$_x" || echo "FAIL ${_f#"$ROOT"/}: \`$_c\` matches no sandbox.excludedCommands entry: run as written, the gate runs sandboxed and its process checks fail. Name the checkout with -C instead of cd, and never pipe it. To cite it as what NOT to do, leave the gate's path out (\`cd <worktree> && …\`)"
   done < "$d/gatecmds"
   echo "ok   $_n gate command(s) in the instructions checked against sandbox.excludedCommands"
   grep -q ' -C ' "$d/gatecmds" && echo "ok   an instruction gives the lane form, the gate with -C <worktree>" \
@@ -220,6 +228,10 @@ lanetest fail "a gate started by cd (S16's lanes)" 'Run `cd <worktree> && script
 lanetest fail "a piped gate" 'Run `scripts/ci/gate.sh -C <worktree> | tail -n 40`.'
 lanetest fail "a gate-wait started by cd" 'Then `cd <worktree>; scripts/ci/gate-wait.sh`.'
 lanetest fail "a fenced cd && gate" '```' 'cd /abs/lane && scripts/ci/gate.sh' '```'
+lanetest fail "a cd && gate span hard-wrapped across two lines" 'Run `cd <worktree> &&' '  scripts/ci/gate.sh` from the lane.'
+lanetest pass "a fenced # comment naming a cd && gate" '```sh' '# not: cd <worktree> && scripts/ci/gate.sh' 'scripts/ci/gate.sh -C <worktree>' '```'
+lanetest pass "a counter-example written as the FAIL line says (the gate's path left out)" 'Never `cd <worktree> && …`.'
+lanetest pass "spans in two paragraphs are never joined" 'Run `cd <worktree>` first.' '' 'Then `scripts/ci/gate.sh -C <worktree>`.'
 lanetest fail "the gate as ./scripts/ci/gate.sh (no entry names it)" 'Run `./scripts/ci/gate.sh --quick`.'
 printf 'Run `scripts/ci/gate.sh`.\n' > "$d/nolane.md"
 lanes_at_template "$d/lane.json" "$d/nolane.md" | grep -q '^FAIL no instruction gives the lane form' \
@@ -229,11 +241,11 @@ printf 'Lane: `scripts/ci/gate.sh -C <worktree>`.\n' > "$d/lane.md"
 n=$(lanes_at_template "$d/nostar.json" "$d/lane.md" | grep -c '^FAIL')
 [ "$n" -gt 0 ] && ok "lane self-test: the lane form fails once \`scripts/ci/gate.sh *\` leaves the settings" || fail "lane self-test: the lane form passed with no \`scripts/ci/gate.sh *\` entry"
 
-# The real instructions: what agents load, and the playbook. The model's copy is the project's, or
-# the plugin's (CLAUDUCTOR_FW).
+# The real instructions: the Markdown agents load, the playbook and the conventions. The skills and
+# agents are the model's copy: the project's, or the plugin's (CLAUDUCTOR_FW).
 FW=${CLAUDUCTOR_FW:-$ROOT/.claude}
-set -- "$FW"/skills/*/SKILL.md "$FW"/agents/*.md
-for f in "$ROOT/AGENTS.md" "$ROOT/docs/playbook.md" "$ROOT/docs/conventions.md"; do [ -f "$f" ] && set -- "$@" "$f"; done
+set -- "$FW"/skills/*/*.md "$FW"/agents/*.md
+for f in "$ROOT/AGENTS.md" "$ROOT/CLAUDE.md" "$ROOT/docs/playbook.md" "$ROOT/docs/conventions.md"; do [ -f "$f" ] && set -- "$@" "$f"; done
 check_lane_gates "$st" "$@" > "$d/lanes"
 cat "$d/lanes"; _fails=$((_fails + $(grep -c '^FAIL' "$d/lanes")))
 finish
