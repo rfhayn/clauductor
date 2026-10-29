@@ -41,7 +41,8 @@ A phase is several changes. Decompose as you go, phase by phase.
   cancelled one is an error. A note about a dependency goes in the Change cell, never in Deps.
 - `Status` leads with one of: `⬜ queued` · `⬜ in flight (#N)` · `✅ merged (#N)` ·
   `❌ cancelled — <why>`. Text may follow. `session-close` moves a row to in flight when its PR
-  opens and to merged when it merges.
+  opens and to merged when it merges. A cancelled change's `changes/<id>/` is removed with it
+  (`git rm -r`; `changes/README.md`).
 - **An open row in its own word**: `⬜ <word>`, one lowercase word (`⬜ planned`,
   `⬜ deferred — <trigger>`, `⬜ placeholder — <what it waits for>`). It is open, so it keeps its
   phase current and `--text` lists it under its word, but it is never NEXT, never `--queued` and

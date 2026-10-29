@@ -123,10 +123,9 @@ started from the panel's **New lane** (or by hand), on one branch:
   units: `windows[].{key, pct, resetsAt}` and `at` in milliseconds, with no `expired` flag). Read it
   with `${CLAUDE_PLUGIN_ROOT}/lib/quota.sh`: `quota_read` lists each window, `quota_pct five_hour` prints one,
   `quota_at` says when it was saved. A window whose reset has passed, or that has no reset time,
-  has no reading (`-`, exit 1), never its old number. It is there for routines (OPS-42) and the
-  orchestrating session, in place of the panel's `quota.json`, which is written only while the
-  panel runs.
-  `checks/quota-reading.sh` holds it.
+  has no reading (`-`, exit 1), never its old number. It stands in for the panel's `quota.json`,
+  which is written only while the panel runs. Nothing reads it yet but `checks/quota-reading.sh`,
+  which holds it: its reader went with OPS-42, and OPS-167 wires one or removes it.
 
 ## Several people
 
