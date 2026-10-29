@@ -43,7 +43,9 @@ docs/prds/          ← the product requirements the rows come from
   `❌ cancelled — <why>`. A cancelled change's `changes/<id>/` is removed with it (`git rm -r`;
   `changes/README.md`).
 - The current phase is derived: the first phase with a queued or in-flight row.
-- `Budget: $N` anywhere in a row is the change's cost appetite; `(due YYYY-MM-DD)` dates a row.
+- `Budget: $N` anywhere in a row is the change's cost appetite, `Budget: $N, soft` a soft one
+  (the row is the authority for both; the proposal repeats them: OPS-91); `(due YYYY-MM-DD)`
+  dates a row.
 
 Rows that merged or were cancelled before the reset of 2026-10-27 (OPS-147), and sessions S4–S13,
 are in `docs/roadmap-history.md`, word for word. Their ids stay taken:

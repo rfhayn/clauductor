@@ -54,8 +54,10 @@ If the line above shows as literal text instead of output, run
    - `proposal.md` opens with `**Status:** awaiting approval`, the `**Roadmap row:**`, a
      `**Risk:** low | normal | high` (your recommendation: it picks the build's models and review cap,
      and is approved with the design, by the owner or on their delegation: step 3a) and, when the row carries `Budget: $N`, `**Budget:** $N`:
-     write `**Budget:** $N, soft` when the owner wants an overrun reported while the build goes on
-     (this line, not the design's prose, is what `build-change` reads; unmarked is hard).
+     `**Budget:** $N, soft` exactly when the row says `Budget: $N, soft` on `origin/<main>` (the row
+     is the authority for the kind, and only the owner marks it there, landed on main before the
+     proposal carries it; `checks/changes.sh` fails any difference).
+     This line, not the design's prose, is what `build-change` reads; unmarked is hard.
      It ends with `## How we'll know`: the `**Signal:**` you will observe, and `**Check on:**
      YYYY-MM-DD` or `**Check after:** <n> days` (after merge).
    - Every open decision in `design.md` carries your recommendation AND the alternative it beat.

@@ -81,6 +81,9 @@ cat > "$d/dated.md" <<'EOF'
 |---|---|---|---|---|
 | 1.1 | `add-a` — a | s · Budget: $40 | — | ⬜ queued |
 | 1.2 | `add-b` — b | s | — | ⬜ queued |
+| 1.3 | `add-c` — c | s · Budget: $25, soft (the owner) | — | ⬜ queued |
+| 1.4 | `add-d` — d | s · Budget: $30, softly | — | ⬜ queued |
+| 1.5 | `add-e` — e | s · Budget: $35, hard | — | ⬜ queued |
 ## Outcome checks
 | # | Change | Scope | Deps | Status |
 |---|---|---|---|---|
@@ -89,6 +92,11 @@ cat > "$d/dated.md" <<'EOF'
 EOF
 tsv=$(rq --tsv "$d/dated.md")
 [ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="1.1"{print $11}')" = 40 ] && ok "reads 'Budget: \$40' as the row's budget (tsv column 11)" || fail "budget not read: $(printf '%s\n' "$tsv" | grep '	1.1	')"
+# Its kind (OPS-91), the authority checks/changes.sh holds a proposal's Budget line to: column 16.
+kinds=$(printf '%s\n' "$tsv" | awk -F'\t' '$4 ~ /^1\./ { printf "%s=%s|%s ", $4, $11, $16 }')
+[ "$kinds" = "1.1=40|hard 1.2=| 1.3=25|soft 1.4=30|hard 1.5=35|hard " ] \
+  && ok "reads a row's budget kind as tsv column 16: ', soft' soft; unmarked, ', hard' or ', softly' hard; no budget, none" \
+  || fail "budget kinds read as: $kinds"
 [ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="o.1"{print $12}')" = 2026-01-10 ] && ok "reads '(due YYYY-MM-DD)' as the row's date (tsv column 12)" || fail "due date not read"
 text=$(ROADMAP_TODAY=2026-02-01 rq --text "$d/dated.md")
 case "$text" in *"DUE    o.1"*) ok "--text lists an outcome check that is due, outside every phase" ;; *) fail "--text did not list the due outcome check: $text" ;; esac
@@ -191,9 +199,9 @@ cat > "$d/deps.md" <<'EOF'
 EOF
 out=$(rq --check "$d/deps.md"); expect_rc 0 $? "a roadmap whose Deps name rows and #N, and whose merged and cancelled rows waited on a cancelled one (history), passes --check ($out)"
 tsv=$(rq --tsv "$d/deps.md")
-[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="2.2"{print NF "|" $15}')" = "15|2.1,#45,1.1" ] && ok "Deps are --tsv column 15: ids and #N, comma-separated, no spaces" || fail "row 2.2's Deps read as: $(printf '%s\n' "$tsv" | grep '	2.2	' | cut -f4,14-)"
-[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="1.1"{print NF "|" $15 "|"}')" = "15||" ] && ok "a Deps cell of — is an empty column 15" || fail "row 1.1's Deps read as: $(printf '%s\n' "$tsv" | grep '	1.1	' | cut -f4,14-)"
-(printf '%s\n' "$tsv" | roadmap_tsv_errors) >/dev/null && ok "the template parser's 15 columns meet the --tsv contract" || fail "the template parser's rows broke the contract: $(printf '%s\n' "$tsv" | roadmap_tsv_errors)"
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="2.2"{print NF "|" $15}')" = "16|2.1,#45,1.1" ] && ok "Deps are --tsv column 15: ids and #N, comma-separated, no spaces" || fail "row 2.2's Deps read as: $(printf '%s\n' "$tsv" | grep '	2.2	' | cut -f4,14-)"
+[ "$(printf '%s\n' "$tsv" | awk -F'\t' '$4=="1.1"{print NF "|" $15 "|"}')" = "16||" ] && ok "a Deps cell of — is an empty column 15" || fail "row 1.1's Deps read as: $(printf '%s\n' "$tsv" | grep '	1.1	' | cut -f4,14-)"
+(printf '%s\n' "$tsv" | roadmap_tsv_errors) >/dev/null && ok "the template parser's 16 columns meet the --tsv contract" || fail "the template parser's rows broke the contract: $(printf '%s\n' "$tsv" | roadmap_tsv_errors)"
 deps_bad() {  # deps_bad LABEL ROWS ERROR-TEXT: refused by --check, --text and --tsv alike
   printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n%s\n' "$2" > "$d/dbad.md"
   for m in --check --text --tsv; do
@@ -221,6 +229,11 @@ tsv15 '1.2' | grep -q 'which is cancelled' && ok "the --tsv contract refuses a p
 tsv15 '1.2, #3' | grep -q '"1.2, #3" is not a row id or #N' && ok "the --tsv contract refuses a column 15 that is not comma-separated ids" || fail "the contract accepted a spaced column 15: $(tsv15 '1.2, #3')"
 tsv15 '7.7' | grep -q 'Deps name 7.7, which is no row' && ok "the --tsv contract refuses a parser's Deps naming no row" || fail "the contract accepted an unknown dependency: $(tsv15 '7.7')"
 tsv15 '#3' >/dev/null && ok "the --tsv contract accepts #N, a dependency outside the roadmap" || fail "the contract refused #N: $(tsv15 '#3')"
+# ...and its column 16, the kind of a budget (OPS-91): soft, hard or empty, and only with a budget.
+tsv16() { printf '1\t1\t\t1.1\tadd-a\tchange\tqueued\t\tAna\ta\t%s\t\t\t\t\t%s\n' "$1" "$2" | roadmap_tsv_errors; }
+tsv16 15 soft >/dev/null && tsv16 15 hard >/dev/null && tsv16 15 '' >/dev/null && ok "the --tsv contract accepts a budget kind of soft, hard or empty" || fail "the contract refused a budget kind: $(tsv16 15 soft; tsv16 15 hard)"
+tsv16 15 Soft | grep -q 'column 16 (budget kind) "Soft" is not soft, hard or empty' && ok "the --tsv contract refuses a budget kind that is not soft or hard" || fail "the contract accepted a budget kind 'Soft': $(tsv16 15 Soft)"
+tsv16 '' soft | grep -q 'for a row with no budget' && ok "the --tsv contract refuses a budget kind on a row with no budget" || fail "the contract accepted a kind without a budget: $(tsv16 '' soft)"
 
 # ── ROADMAP_PARSER: a project's own parser, plugged in through the contract ──────────────────────
 # A project shaped like one whose roadmap has its own grammar (phases with gates, owner lines per
