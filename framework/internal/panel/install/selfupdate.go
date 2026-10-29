@@ -360,7 +360,7 @@ func (r *Rebuild) runNew(ctx context.Context, args ...string) error {
 	cmd := exec.CommandContext(cctx, r.NewBinary(), args...)
 	cmd.Dir = r.Home
 	cmd.Env = append(buildEnv(), "HOME="+r.Home)
-	cmd.WaitDelay = time.Second
+	cmd.WaitDelay = signals.HeldOutputWait
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil

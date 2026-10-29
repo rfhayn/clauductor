@@ -20,12 +20,12 @@ type Runner func(ctx context.Context, dir string, argv []string) ([]byte, error)
 
 const maxCmdOutput = 1 << 20
 
-// commandWaitDelay bounds how long ExecRunner reads the output of a command other than
+// HeldOutputWait bounds how long ExecRunner reads the output of a command other than
 // claude once it has exited or been killed at its timeout: a child it started can hold
 // the output open (a `git fetch`'s remote helper), and it shares the panel's group, so
-// it is not the panel's to kill (ADR-0005). Past the bound the pipes are closed, as
-// push.go's are.
-const commandWaitDelay = time.Second
+// it is not the panel's to kill (ADR-0005). Past the bound the pipes are closed. Every
+// exec.Cmd.WaitDelay the panel sets for that reason is this one.
+const HeldOutputWait = time.Second
 
 // ExecRunner runs argv directly (no shell) with a limited stdout.
 //
@@ -33,8 +33,9 @@ const commandWaitDelay = time.Second
 // done it gets SIGTERM, and SIGKILL only ClaudeStopGrace later, since a process
 // SIGKILLed while it holds the login-refresh lock strands it. Its process is reported
 // to WithProcessStart's callback, and it returns once the claude is reaped and nothing
-// of its group is left (runClaude). Every other command keeps exec.CommandContext's
-// SIGKILL at once, and its output is read at most commandWaitDelay past its exit.
+// of its group is left, or ClaudeStopGrace after its exit (runClaude). Every other
+// command keeps exec.CommandContext's SIGKILL at once, and its output is read at most
+// HeldOutputWait past its exit; one that exited 0 still succeeds.
 func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	claude := IsClaude(argv)
@@ -64,8 +65,12 @@ func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) 
 		err = runClaude(ctx, cmd, &out, &errb, ClaudeStopGrace)
 	} else {
 		cmd.Stdout, cmd.Stderr = &out, &errb
-		cmd.WaitDelay = commandWaitDelay
+		cmd.WaitDelay = HeldOutputWait
 		err = cmd.Run()
+		// A command that exited 0 did its work: only a child of its still held the output.
+		if errors.Is(err, exec.ErrWaitDelay) && ctx.Err() == nil && cmd.ProcessState != nil && cmd.ProcessState.Success() {
+			err = nil
+		}
 	}
 	if err != nil {
 		// %w: the gate reads how a stopped claude ended (its *exec.ExitError).
@@ -89,7 +94,8 @@ func ExecRunner(ctx context.Context, dir string, argv []string) ([]byte, error) 
 const groupKillAgain = 50 * time.Millisecond
 
 // runClaude runs a `claude` ExecRunner has set up, on output pipes of its own, and
-// returns once the claude is reaped and nothing of its group is left (#318). On exec's
+// returns once the claude is reaped and nothing of its group is left, or bound after
+// the reap with an error that says which was not (drain) (#318). On exec's
 // pipes Wait returns only when every holder of the output has closed it, and a child
 // the claude started holds it: a stopped claude that exited on SIGTERM left that
 // child running, and the call ended only when WaitDelay closed the pipes at the grace,
@@ -186,16 +192,23 @@ func (o *callOutput) copy() {
 	}()
 }
 
+// errGroupOutlived is drain's error when the output ended but something of the
+// claude's group still answered its kill at the bound (a member stuck in an
+// uninterruptible wait): the call ends then, and says so rather than nothing.
+var errGroupOutlived = errors.New("a process of the claude's group outlived the kill")
+
 // drain kills what is left of the reaped claude p's group until none is left, and
-// waits for its output to end: both at most bound, then it stops the reads and
-// returns exec.ErrWaitDelay if the output had not ended. The output can end before
-// the group is gone (a child whose output goes elsewhere, or one forked as a kill
-// landed), so it waits for both.
+// waits for its output to end: both at most bound. Then it stops the reads and
+// returns exec.ErrWaitDelay if the output had not ended, or errGroupOutlived if the
+// group had not gone. The output can end before the group is gone (a child whose
+// output goes elsewhere, or one forked as a kill landed), so it waits for both.
 func (o *callOutput) drain(p *os.Process, bound time.Duration) error {
 	group := true
 	kill := func() {
 		if _, err := KillCall(p); err != nil {
-			group = false // none is left (os.ErrProcessDone), or it cannot be signalled
+			// None is left (os.ErrProcessDone), or it cannot be signalled: macOS answers
+			// EPERM for a group of zombies only.
+			group = false
 		}
 	}
 	kill()
@@ -213,7 +226,18 @@ func (o *callOutput) drain(p *os.Process, bound time.Duration) error {
 				kill()
 			}
 		case <-limit.C:
+			if output != nil {
+				// select picks at random among ready cases: the output may have ended too.
+				select {
+				case <-output:
+					output = nil
+				default:
+				}
+			}
 			if output == nil {
+				if group {
+					return errGroupOutlived
+				}
 				return nil
 			}
 			for _, r := range o.r {

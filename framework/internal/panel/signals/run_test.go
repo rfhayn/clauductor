@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -79,8 +80,17 @@ exit 0`
 	}
 }
 
+// heldOutputChild is a shell line that starts a child holding the shell's stderr (and
+// stdout, unless redirect says otherwise) until release exists, or for three times
+// wait at most: longer than any wait of the test's, so the child's own end can never
+// pass for ExecRunner's bound, and a run that fails leaves nothing for long.
+func heldOutputChild(release, redirect string, wait time.Duration) string {
+	polls := int(3 * testwait.Scale(wait) / (50 * time.Millisecond))
+	return fmt.Sprintf(`(i=0; while [ ! -e %q ] && [ $i -lt %d ]; do sleep 0.05; i=$((i+1)); done) %s &`, release, polls, redirect)
+}
+
 // A command other than claude, SIGKILLed at its timeout, returns within
-// commandWaitDelay though a child it started still holds its output: Wait read the
+// HeldOutputWait though a child it started still holds its output: Wait read the
 // pipes until every holder had closed them, so a `git fetch` whose remote helper
 // held stderr outlived its timeout without bound. The child shares the panel's group,
 // so it is left alone (ADR-0005); it ends when the test releases it.
@@ -88,33 +98,54 @@ func TestExecRunnerBoundsAKilledCommandsHeldOutput(t *testing.T) {
 	dir := t.TempDir()
 	started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
-	script := `(i=0; while [ ! -e "$1" ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done) &
+	const wait = 10 * time.Second
+	script := heldOutputChild(release, "", wait) + `
 echo started > "$0"
 while :; do sleep 0.1; done`
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errc := make(chan error, 1)
 	go func() {
-		_, err := ExecRunner(ctx, dir, []string{"sh", "-c", script, started, release})
+		_, err := ExecRunner(ctx, dir, []string{"sh", "-c", script, started})
 		errc <- err
 	}()
-	deadline := time.Now().Add(testwait.Scale(10 * time.Second))
-	for {
-		if _, err := os.Stat(started); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the command never started its child")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	testwait.For(t, "the command's child", wait, func() bool {
+		_, err := os.Stat(started)
+		return err == nil
+	})
 	cancel()
 	select {
 	case err := <-errc:
 		if err == nil {
 			t.Fatal("a command killed at its timeout returned no error")
 		}
-	case <-time.After(commandWaitDelay + testwait.Scale(10*time.Second)):
+	case <-time.After(HeldOutputWait + testwait.Scale(wait)):
+		t.Fatal("ExecRunner never returned: it waited for the child that holds the output")
+	}
+}
+
+// A command other than claude that exits 0 while a child it started still holds its
+// stderr succeeded: past HeldOutputWait ExecRunner returns its output and no error,
+// not exec.ErrWaitDelay, which reported a command that had done its work as failed.
+func TestExecRunnerKeepsASuccessWhoseOutputIsHeld(t *testing.T) {
+	dir := t.TempDir()
+	release := filepath.Join(dir, "release")
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
+	const wait = 10 * time.Second
+	script := heldOutputChild(release, ">/dev/null", wait) + "\necho done\nexit 0"
+	errc := make(chan error, 1)
+	var out []byte
+	go func() {
+		var err error
+		out, err = ExecRunner(context.Background(), dir, []string{"sh", "-c", script})
+		errc <- err
+	}()
+	select {
+	case err := <-errc:
+		if err != nil || string(out) != "done\n" {
+			t.Fatalf("out %q, err %v: want the command's output and no error", out, err)
+		}
+	case <-time.After(HeldOutputWait + testwait.Scale(wait)):
 		t.Fatal("ExecRunner never returned: it waited for the child that holds the output")
 	}
 }

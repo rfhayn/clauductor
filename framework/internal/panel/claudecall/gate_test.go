@@ -377,7 +377,9 @@ while :; do sleep 1; done
 // grace keeps the forty quick. Linux's fork does not lose the kill.
 func TestGateCloseKillsAClaudeThatKeepsForking(t *testing.T) {
 	marks := filepath.Join(t.TempDir(), "marks")
-	fakeProgram(t, "claude", fmt.Sprintf("trap '' TERM\necho forking > %s\nwhile :; do sleep 2 & sleep 2 & sleep 2 & sleep 2 & sleep 0.005; done\n", shq(marks)))
+	// The children's output goes elsewhere, so it ends with the claude: only a call that
+	// ends once its group is gone, not once its output does, leaves none behind (#318).
+	fakeProgram(t, "claude", fmt.Sprintf("trap '' TERM\necho forking > %s\nwhile :; do sleep 2 & sleep 2 & sleep 2 & sleep 2 & sleep 0.005; done >/dev/null 2>&1\n", shq(marks)))
 	for i := 0; i < 40; i++ {
 		_ = os.Remove(marks)
 		g, home := newGate(t, signals.ExecRunner, Reader{}, clock.System)
@@ -402,8 +404,8 @@ func TestGateCloseKillsAClaudeThatKeepsForking(t *testing.T) {
 		if len(cs) != 1 || !ended(cs[0]) {
 			t.Fatalf("shutdown %d: the call had not ended when Close returned: %+v", i, cs)
 		}
-		if err := syscall.Kill(-cs[0].pid, 0); !errors.Is(err, syscall.ESRCH) {
-			t.Fatalf("shutdown %d: the call's group outlived Close (kill -0: %v)", i, err)
+		if !groupGone(cs[0].pid) {
+			t.Fatalf("shutdown %d: the call's group outlived Close", i)
 		}
 		if lines := stopLines(t, home); len(lines) != 1 || !slices.Equal(lines[0].Signals, []string{"SIGTERM", "SIGKILL"}) {
 			t.Fatalf("shutdown %d: stopped-call lines when Close returned: %+v", i, lines)
@@ -430,10 +432,18 @@ func TestGateCallEndsOnlyOnceItsGroupIsGone(t *testing.T) {
 		if len(cs) != 1 || !ended(cs[0]) {
 			t.Fatalf("run %d: the call had not ended when Run returned: %+v", i, cs)
 		}
-		if err := syscall.Kill(-cs[0].pid, 0); !errors.Is(err, syscall.ESRCH) {
-			t.Fatalf("run %d: the claude's group outlived its call (kill -0: %v)", i, err)
+		if !groupGone(cs[0].pid) {
+			t.Fatalf("run %d: the claude's group outlived its call", i)
 		}
 	}
+}
+
+// groupGone says whether no live process is left in the group pgid: kill -0 finds
+// none (ESRCH), or macOS refuses it (EPERM), as it does for a group of zombies only.
+// A live process of the test's own group would take the signal.
+func groupGone(pgid int) bool {
+	err := syscall.Kill(-pgid, 0)
+	return errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.EPERM)
 }
 
 // A stopped claude that exits on SIGTERM while a child it started still holds the
