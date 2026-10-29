@@ -34,20 +34,24 @@ from process substitution or a zsh glob qualifier, then a regression from narrow
 `c\d` and a split `export`. PRAC-0010 records the pattern: a review that refutes one instance at a
 time searches a space the fix never bounded.
 
-**Known limits are left** in the hook header, and the owner's call on #146 round 5 was to list
-them and rethink the guard here rather than close each one:
+**Known limits are left,** listed in the hook header's KNOWN LIMITS and in #268's body, and the
+owner's call on #146 round 5 was to list them and rethink the guard here rather than close each
+one:
 - a definition inside quoted program text: `eval 'f() { gh "$@"; }'; f api …`, `sh -c 'alias …'`;
 - zsh's parameter tables: `functions[jq]='gh "$@"'` or `commands[jq]=/usr/bin/gh`, then `jq api …`;
 - git's own aliases: `git -c alias.y='!gh pr' y merge 5`;
 - a command whose every word is computed (`$A $B $C 5`), a program that is computed, piped or in a
   file, and a shell profile's aliases, functions and environment;
-- a merge through another client, a click on the website, and a merge between the guard's reads
-  and the merge itself (#268's *time of check*).
+- a merge through another client and a click on the website (the header); a merge between the
+  guard's reads and the merge itself (#268's KNOWN LIMITS, *time of check*).
 
 **It refuses work that is not a merge.** Agents routed commands around it (#120, fixed by #146 for
-the forms found then). While this record was drafted, it refused two read-only commands: a pipe of
-`gh pr merge --help` into a `grep` for the flag it bans (refused as an `--auto` merge), and
-`gh help pr merge` (refused as a merge it cannot read).
+the forms found then). While this record was drafted, it refused three commands that merge
+nothing, in this row's lane on 2026-10-29, the first two seen twice each:
+- `gh pr merge --help` piped into a `grep` for `--auto`: "'--auto' merges before checks settle";
+- `gh help pr merge`: "this command may merge in a form this guard cannot read: the merge reads
+  as [help pr merge], and what comes before pr is not a plain gh";
+- a heredoc holding this record's own edits, refused as an `--auto` merge.
 
 **Its purpose is narrower than its parser.** The owner set it on 2026-10-12 (OPS-58's row): an
 accidental merge without evidence, not a determined adversary with the same token on the same
@@ -98,15 +102,16 @@ construction. D splits C's wrapper in two:
 - **The wrapper only refuses.** It answers one question, "is this a merge route?", the shape of
   the pkill wrapper. No rule, no evidence read, no exception for a caller it would have to trust.
 - **The rules run in one named command** a person or an agent can run, read and test without a
-  PATH route. `merge.sh --explain <n>` is OPS-92c's `--explain`, which that row already ties to
-  this choice.
-- **A mod cannot undo it.** A mod can approve a tool call a `PreToolUse` hook refused (OPS-32), but
-  the wrapper refuses inside the command's own process, after any approval.
+  PATH route. `merge.sh --explain <n>` takes OPS-92c's `--explain`, which that row puts on
+  `pr-merge-guard.sh` and moves to `merge.sh` "if OPS-86 picks B"; D needs the same move (below).
+- **A mod should not undo it.** A mod can approve a tool call a `PreToolUse` hook refused (OPS-32),
+  but the wrapper refuses inside the command's own process, after any approval. That is expected,
+  not tested: D3's measurement includes a session with such a mod loaded.
 
 **Why not B.** B keeps the text as the authority, so it cannot tell a read from a merge without a
 grammar, and a grammar is A again.
 
-**Why not A.** Five PRs in a month, peaks of high in four, and the limits that remain need a
+**Why not A.** Five PRs in a month, peaks of high in three, and the limits that remain need a
 different design, as the owner said on #146.
 
 **E is not an alternative.** It cannot see the local gate, and Standing Tee's founder rejected it
@@ -133,11 +138,16 @@ merge, a GraphQL `mergePullRequest` or auto-merge mutation, and any route it can
 could merge (an alias or extension, a computed endpoint, an `--input` body it cannot read). It
 reads gh's grammar by position, never a substring: `gh -R o/n pr view 5 --json mergeCommit` passes
 (Standing Tee's false refusal is an acceptance case). Every other gh command execs the real gh
-unchanged. `merge.sh` reaches the real gh past the wrapper; that is the only place that does.
+unchanged. `merge.sh` reaches the real gh past the wrapper, by a lookup that skips the wrapper's
+directory: a computed gh location, the form D4 refuses in a command's text. D4 reads the command,
+not the script it runs, so `merge.sh` passes; nothing else in the model may take that route. An
+agent that writes the same lookup into its own command is refused when the location holds a `$`
+(open question 3), and otherwise is the first known limit below.
 
 **D3. The route is measured, and fails closed.** The build measures, through the Bash tool, that
 `gh` resolves to the wrapper in each kind of session that can merge here: a main session, a
-worktree lane, a panel lane, a subagent, before and after a `cd`, and a plugin install. A kind
+worktree lane, a panel lane, a subagent, before and after a `cd`, a plugin install, and a session
+with a mod loaded that handles `tool.call` (the mod's approval must not reach the wrapper). A kind
 where the route is not established refuses any command holding a `gh` word and the letters `merg`,
 naming the cause. If no route holds in a main session, the build stops for the owner.
 
@@ -148,16 +158,21 @@ gh word, `command -p`, `env -i`, `hash`), and a gh location holding a `$`. Each 
 no grammar, the form Standing Tee's founder chose after #698's round 6. `merge-reader.awk`,
 `merge_hint`, the prose allowlist, `foreign_shape` and the raw-JSON fallback are deleted.
 
-**D5. A lane cannot loosen its own path.** The wrapper and `merge.sh` are held to `origin/main` as
-the hooks are (`worktree-hook-drift.sh`), so an edit in a lane's worktree does not change what
-judges its merge.
+**D5. A lane cannot loosen its own path.** An edit to the wrapper or `merge.sh` in a lane's
+worktree must not change what judges its merge. No executor does this today:
+`worktree-hook-drift.sh` compares only `.claude/hooks/` and `.claude/settings.json` with
+`origin/<main>`, and only when a worktree agent is spawned. So D6 PR 1 makes `merge.sh` refuse to
+run while its own copy differs from `origin/<main>`'s, and D6 PR 2 does the same for the wrapper
+and extends the drift hook to `.claude/bin/`, each refusal seen first on an edited copy.
 
-**D6. Three PRs in sequence, each a roadmap row at Risk high,** added when the owner accepts:
+**D6. Three PRs in sequence, each a roadmap row at Risk high.** None of the rows exists yet. The PR
+that records the owner's acceptance (the owner queue's S16 item, *OPS-86: accept or amend its
+ADR*) adds all three to the roadmap's merge-guard section, and E's row if question 4 says so:
 1. `merge.sh` with the rules moved and the pin; `merge-pr` calls it; the hook still runs.
 2. The wrapper and D3's measurement; the hook still runs.
 3. D4: the reader deleted. `checks/merge-guard.sh`'s block rows are ported as acceptance cases
    against the wrapper under bash 3.2, bash 5 and zsh, each seen merging a stub gh without the
-   control first. Its allow rows, #120's commands and the two refusals above become allow cases.
+   control first. Its allow rows, #120's commands and the three refusals above become allow cases.
 
 Each PR moves AGENTS.md's What-executes rows for the executors it moves, in the same PR.
 
@@ -210,7 +225,11 @@ Each PR moves AGENTS.md's What-executes rows for the executors it moves, in the 
   agent on stderr. If either lands before D6 PR 1, it lands in `lib/change-guard.sh`, which moves
   under `merge.sh` whole. OPS-77's own ADR (the cost of merged-tree evidence) is unaffected.
 - **OPS-156** (no `Co-authored-by` in a squash, queued in S16) lands in the hook now and moves with
-  the rules in D6 PR 1. **OPS-92c**'s `--explain` is `merge.sh --explain`.
+  the rules in D6 PR 1.
+- **OPS-92c** (lite's guard): **keep, its PR c1 rescoped.** c1 puts `--explain` on
+  `pr-merge-guard.sh`, whose rules D6 PR 1 moves out and whose detection D6 PR 3 deletes. Under D,
+  `--explain` is `merge.sh --explain <pr>`: the same verdict from the same rules. If c1 is built
+  before D6 PR 1, it moves into `merge.sh` with the rules. c2's lite table is unaffected.
 
 ## Open questions for the owner
 1. Accept D, or another option.
@@ -222,11 +241,12 @@ Each PR moves AGENTS.md's What-executes rows for the executors it moves, in the 
    once, or let them land in `change-guard.sh` first.
 
 ## Enforcement
-**Nothing yet: this record is Proposed, not built.** On acceptance, the session that records it
+**Nothing yet: this record is Proposed, not built.** The PR that records the owner's acceptance
 adds D6's three rows; until they merge, the guard keeps the limits its header lists. Once built:
 `.claude/merge.sh` and `lib/change-guard.sh` for the rules; `.claude/bin/gh` for the refusal of
 every other merge; `pr-merge-guard.sh` for the route check and D4; `checks/merge-guard.sh` for the
-acceptance cases; `worktree-hook-drift.sh` for D5.
+acceptance cases; for D5, the drift refusals of `merge.sh` and the wrapper, and the extended
+`worktree-hook-drift.sh`.
 
 ## Related
 - PRAC-0010 (close the class, not the instance): this record applies it to the merge guard.
