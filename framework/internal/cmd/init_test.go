@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +15,10 @@ func TestInitNextStepsCdIsShellQuoted(t *testing.T) {
 	t.Parallel()
 	framework, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
+		t.Fatal(err)
+	}
+	// init reads the template beside the framework: a missing one would fail init for another reason.
+	if _, err := os.Stat(filepath.Join(framework, "template")); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(signals.ResolvePath(t.TempDir()), "o'k proj")
