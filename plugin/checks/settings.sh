@@ -106,8 +106,9 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
 # sandboxed, where `ps`, git's caches and the loopback name fail whatever the code does. The lane
 # form is `<gate> -C <worktree>`. This reads the Markdown instructions (AGENTS.md, CLAUDE.md, the
 # skills' and agents' files, the playbook and the conventions) in UNITS: a paragraph's code spans,
-# read across its line breaks as Markdown renders them, a table row's, or a code block that reads as commands
-# (unlabelled, or sh, bash, shell, console, zsh; its `#` comments and `$ ` prompts dropped). Two rules:
+# read across its line breaks as Markdown renders them, a table row's, or a code block, read as
+# commands unless its label (any case) names prose or another language (text, diff, json, go, …);
+# its `#` comments and `$ ` prompts dropped. Two rules:
 #   1. each span or block line that names the gate or gate-wait matches an entry of settings.json's
 #      own list, `<placeholder>`s filled with a path, so an instruction and the exclusion cannot part;
 #   2. no unit both changes directory (cd, pushd) and names the gate or gate-wait without -C. A
@@ -134,7 +135,8 @@ excluded() {  # excluded SETTINGS CMD: CMD runs outside the sandbox by SETTINGS'
 # `U<TAB>file<TAB>unit<TAB>the unit's commands joined by " ; "`, for every unit not marked an example.
 gate_units() {
   awk -v example="$GATE_EXAMPLE" '
-    function add(s) { c[++n] = s; j = j (j == "" ? "" : " ; ") s }
+    # A tab is a space to the shell, and the field separator here: kept, it would cut the command.
+    function add(s) { gsub(/\t/, " ", s); c[++n] = s; j = j (j == "" ? "" : " ; ") s }
     function out(i) {
       if (unit) {
         if (pending) pending = 0
@@ -159,8 +161,9 @@ gate_units() {
     }
     /^[ \t]*(```|~~~)/ {
       flush(); l = $0; sub(/^[ \t]+/, "", l); fence = substr(l, 1, 3)
-      info = l; sub(/^[`~]+[ \t]*/, "", info); sub(/[ \t{].*/, "", info)
-      cmds = (info == "" || info ~ /^(sh|bash|shell|console|zsh)$/); unit = 1; next
+      info = tolower(l); sub(/^[`~]+[ \t]*/, "", info); sub(/[ \t{].*/, "", info)
+      # Fail closed: a block reads as commands unless its label names something else.
+      cmds = (info !~ /^(text|txt|plaintext|diff|json|yaml|yml|toml|go|js|javascript|ts|typescript|python|py|html|css|md|markdown)$/); unit = 1; next
     }
     { l = $0; gsub(/^[ \t]+|[ \t]+$/, "", l) }
     l == example { flush(); pending = 1; next }
@@ -289,6 +292,10 @@ lanetest pass "a block that cds and runs the gate with -C" '```sh' 'cd <worktree
 lanetest pass "a counter-example marked $GATE_EXAMPLE (a block)" "$GATE_EXAMPLE" '```' 'cd <worktree> && scripts/ci/gate.sh' '```'
 lanetest pass "a counter-example marked $GATE_EXAMPLE (a paragraph)" "$GATE_EXAMPLE" 'Never `cd <worktree> && scripts/ci/gate.sh`.'
 lanetest fail "the mark covers one unit only" "$GATE_EXAMPLE" 'Never `cd <worktree> && scripts/ci/gate.sh`.' '' 'Run `cd <worktree> && scripts/ci/gate.sh`.'
+lanetest fail "a tab between cd && and the gate" "Run \`cd <worktree> &&	scripts/ci/gate.sh\`."
+lanetest fail "a \`\`\`Bash block (any case, any label not listed as prose)" '```Bash' 'cd <worktree>' 'scripts/ci/gate.sh' '```'
+lanetest fail "a \`\`\`shell-session block" '```shell-session' '$ cd <worktree> && scripts/ci/gate.sh' '```'
+lanetest pass "a console block's lane form after its prompt" '```console' '$ scripts/ci/gate.sh -C <worktree>' '```'
 lanetest pass "a text block quoting gate-wait's hint (not commands)" '```text' 'NO RESULT: Start a gate in the FOREGROUND: cd <worktree> && scripts/ci/gate.sh (Bash timeout 600000).' '```'
 lanetest fail "the gate as ./scripts/ci/gate.sh (no entry names it)" 'Run `./scripts/ci/gate.sh --quick`.'
 printf 'Run `scripts/ci/gate.sh`.\n' > "$d/nolane.md"
