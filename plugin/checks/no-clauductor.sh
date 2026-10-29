@@ -191,7 +191,7 @@ sig_fx() {  # sig_fx SIG
   G="$d/sig-$1"; fx_project "$G"; mkdir -p "$G/tmp"
   cat > "$G/.claude/checks/a.sh" <<'EOF'
 trap 'kill "$z" 2>/dev/null; touch "$ROOT/a.stopped"; exit 1' INT TERM
-sleep 10 & z=$!
+sleep 60 & z=$!
 echo $$ > "$ROOT/a.started"
 wait "$z"
 touch "$ROOT/a.done"
@@ -199,8 +199,10 @@ EOF
   printf 'touch "$ROOT/b.started"\n' > "$G/.claude/checks/b.sh"
   # The sender signals only once the check has started (so the run is alive and its pid not reused),
   # and is stopped when the run returns.
-  (n=0; while [ ! -s "$G/a.started" ] && [ "$n" -lt 20 ]; do sleep 1; n=$((n + 1)); done
-   [ -s "$G/a.started" ] && kill -"$1" "$(cat "$G/run.pid")" "$(cat "$G/a.started")") 2>/dev/null &
+  # The check runs 60 s unless stopped, and the sender waits on its marker (lib.sh wait_for), so a
+  # loaded machine only makes both slower; a guessed 20 s poll and a 10 s check were bounds it could
+  # outrun (OPS-168).
+  (started() { [ -s "$G/a.started" ]; }; wait_for 30 started && kill -"$1" "$(cat "$G/run.pid")" "$(cat "$G/a.started")") 2>/dev/null &
   _sp=$!
   (cd "$G" && unmarked TMPDIR="$G/tmp" PATH="$BARE_PATH" sh -c 'echo $$ > "$1"; exec sh .claude/checks/run.sh' sig "$G/run.pid") > "$G/out" 2>&1; _rc=$?
   kill "$_sp" 2>/dev/null; wait "$_sp" 2>/dev/null

@@ -48,7 +48,7 @@ sh -c 'exit 0' & dead=$!; wait "$dead" 2>/dev/null
 # through `$(sh "$f" 2>&1)`, and a holder that kept the check's stderr would keep the gate waiting
 # past the deadline. Each case has its own directory, so a holder still running past its deadline
 # writes into its own case's files, never the next one's.
-ticks=$(awk -v f="${CLAUDUCTOR_TEST_SLOW:-1}" 'BEGIN { f += 0; if (!(f >= 1)) f = 1; printf "%d", 100 * f }')
+ticks=$(( $(slow 10) * 10 ))
 run() {  # run PID_CONTENT (or "-" for no pid file): prints "<exit> <posts> <case dir> <line>"
   c=$(mktemp -d "$d/case.XXXXXX"); home="$c/home"; mkdir -p "$home/.clauductor/panel"  # mktemp-in-tmpdir: under $d, the scratch directory made in $TMPDIR
   echo 4999 > "$home/.clauductor/panel/port"
@@ -97,19 +97,24 @@ for c in "-:unset" "abc:not a number" "200k:digits and letters" "0200000:a leadi
 done
 
 # The deadline frees the check's caller, not only the check (review of #147). The post is held
-# past a one-second deadline until $d/hold goes, six seconds on (times CLAUDUCTOR_TEST_SLOW), and
+# past a one-second deadline until $d/hold goes, twenty seconds on (times CLAUDUCTOR_TEST_SLOW), and
 # the case is read the way run.sh reads a check, `$(… 2>&1)`: that read must come back at the
 # deadline, well before the release. With the case's errors left on the check's stderr, it came
-# back only at the release.
-rel=$(awk -v f="${CLAUDUCTOR_TEST_SLOW:-1}" 'BEGIN { f += 0; if (!(f >= 1)) f = 1; printf "%d", 6 * f }')
+# back only at the release. The bound is the release, less the two seconds it may have started
+# before t0 and whole seconds round off: what the broken read costs, which load cannot reach the
+# way it reached six seconds (OPS-168). A passing read never waits for the release, and the case
+# releases the hold itself once it is read, so the releaser, in tenth-second ticks, ends with it.
+rel=$(slow 20)
 : > "$d/hold"
-( sleep "$rel"; rm -f "$d/hold" ) > /dev/null 2>&1 &
-t0=$(date +%s)
+( i=0; while [ -f "$d/hold" ] && [ "$i" -lt $((rel * 10)) ]; do sleep 0.1; i=$((i + 1)); done; rm -f "$d/hold" ) > /dev/null 2>&1 &
+relp=$!
+t0=$(date +%s)  # wall-clock: the held case starts; its bound is the release
 out=$(ticks=10; run "$live" 2>&1)
-took=$(( $(date +%s) - t0 ))
+took=$(( $(date +%s) - t0 ))  # wall-clock: asserted below the release, which a broken read waits for
 case "$out" in still-running-after-1s*) ok "a case still running at its deadline fails" ;; *) fail "a case held past its deadline reported: $out" ;; esac
 [ "$took" -lt $((rel - 2)) ] && ok "the deadline frees the check's reader (${took}s, release at ${rel}s)" \
   || fail "the check's reader waited ${took}s for a case with a one-second deadline (release at ${rel}s)"
+rm -f "$d/hold"; wait "$relp" 2>/dev/null
 mkdir -p "$d/home.-"
 
 line=$(printf '%s' "$input" | HOME="$d/home.-" PATH="$d/bin:$PATH" sh "$sl")

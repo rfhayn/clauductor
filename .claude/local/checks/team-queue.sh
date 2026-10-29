@@ -53,12 +53,13 @@ git -C "$F" fetch -q origin
 printf 'one\nlocal\nthree\n' > "$F/a.txt"
 
 # The fake gh: logs its arguments, then answers from $FAKE_JSON, or fails with $FAKE_RC, or
-# sleeps $FAKE_SLEEP first.
+# sleeps $FAKE_SLEEP first, in tenth-second ticks, so a TERM that stops it leaves no long sleep
+# behind (OPS-168).
 cat > "$S/bin/gh" <<'EOF'
 #!/bin/sh
 echo call >> "$FAKE_LOG"
 printf '%s\n' "$*" >> "$FAKE_LOG.args"
-[ -z "${FAKE_SLEEP:-}" ] || sleep "$FAKE_SLEEP"
+i=0; while [ "$i" -lt "$(( ${FAKE_SLEEP:-0} * 10 ))" ]; do sleep 0.1; i=$((i + 1)); done
 [ "${FAKE_RC:-0}" = 0 ] || exit "$FAKE_RC"
 cat "$FAKE_JSON"
 EOF
@@ -242,9 +243,13 @@ printf '{"errors":[{"message":"x"}],"data":null}' > "$S/err.json"
 cannot "GitHub's answer is an error or does not parse" "case 9: ...a GraphQL error" "$S/err.json"
 cannot offline "case 9: ...offline (CONTEXT_OFFLINE=1), without calling gh" "$S/a.json" CONTEXT_OFFLINE=1
 [ -s "$S/gh.log" ] && fail "offline, gh was still called" || ok "case 9: ...offline, gh is never called"
-t0=$(date +%s)
-cannot "gh did not answer within 1 s" "case 9: ...gh that does not answer in time" "$S/a.json" TEAM_QUEUE_TIMEOUT=1 FAKE_SLEEP=8
-[ $(($(date +%s) - t0)) -lt 7 ] && ok "case 9: ...and the deadline stops it" || fail "the deadline did not stop gh"
+# The bound is the fake's own sleep: a listing that waited for gh took all of it. 7 s of 8 was a
+# guess at a loaded machine's pace (OPS-168).
+fs=30
+t0=$(date +%s)  # wall-clock: the slow gh case starts; its bound is the sleep of the fake
+cannot "gh did not answer within 1 s" "case 9: ...gh that does not answer in time" "$S/a.json" TEAM_QUEUE_TIMEOUT=1 FAKE_SLEEP=$fs
+took=$(( $(date +%s) - t0 ))  # wall-clock: asserted below the sleep of the fake, which a listing that waited took whole
+[ "$took" -lt "$fs" ] && ok "case 9: ...and the deadline stops it (${took}s of gh's ${fs}s)" || fail "the deadline did not stop gh: the listing took ${took}s, gh's whole ${fs}s"
 jq '.data.repository.issues.nodes += [{ number: "x1", title: "t", body: "", authorAssociation: "OWNER", labels: { nodes: [] }, timelineItems: { nodes: [] } }]' "$S/b.json" > "$S/partway.json"
 cannot "an issue has no number" "case 9: ...a failure part-way prints the one line, no facts beside it" "$S/partway.json"
 jq '.data.repository.issues.nodes += [null]' "$S/b.json" > "$S/nullnode.json"

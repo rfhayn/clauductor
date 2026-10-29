@@ -288,7 +288,10 @@ sleep 7373 </dev/null >/dev/null 2>&1 & decoy=$!
 trap '{ kill "$decoy"; wait "$decoy"; } 2>/dev/null; rm -rf "$_scratch"' EXIT
 trap '{ kill "$decoy"; wait "$decoy"; } 2>/dev/null; rm -rf "$_scratch"; exit 1' INT TERM
 c=$(ctx PEOPLE_GH_TIMEOUT="$wd")
-sleep 1
+# A watchdog's kill lands a moment after its gh returns: waited for, never a guessed second, which
+# load outruns (OPS-168). One that never goes keeps its count above 0 to the deadline.
+nowd() { ps -A -o pid= -o args= 2>/dev/null | awk -v wd="$wd" -v dc="$decoy" '$2 == "sleep" && $3 == wd && NF == 3 && $1 != dc { n++ } END { exit n > 0 }'; }
+wait_for 10 nowd
 if ! psout=$(ps -A -o pid= -o args= 2>/dev/null) || [ -z "$psout" ]; then
   fail "cannot list processes (ps), so the watchdog count and cleanup are unchecked"
 else
@@ -334,12 +337,17 @@ else
   trap 'rtkill; rm -rf "$_scratch"; exit 1' INT TERM
   FN=$fn T=$rt notes=/dev/null GD="$d/watchdogs" sh -c 'gh() { :; }; eval "$FN"
     i=0; while [ "$i" -lt 300 ]; do x=$(ghb race; echo "$_gd" >> "$GD"); i=$((i + 1)); done' </dev/null >/dev/null 2>&1
-  sleep 1
-  left=$(ps -A -o pid= -o ppid= -o args= 2>/dev/null | awk -v t="$rt" -v gd="$d/watchdogs" '
-    BEGIN { while ((getline l < gd) > 0) mine[l] = 1 }
-    $3 == "sleep" && $4 == t && NF == 4 { print $1, (($2 in mine) ? "lost" : "race") }')
-  n=$(printf '%s\n' "$left" | grep -c ' race$')
-  lost=$(printf '%s\n' "$left" | grep -c ' lost$')
+  # The last TERMs land a moment after the loop ends: counted once the counts are under their limits,
+  # or at the deadline, never after a guessed second (OPS-168). An orphan or a lost TERM stays.
+  race_settled() {
+    left=$(ps -A -o pid= -o ppid= -o args= 2>/dev/null | awk -v t="$rt" -v gd="$d/watchdogs" '
+      BEGIN { while ((getline l < gd) > 0) mine[l] = 1 }
+      $3 == "sleep" && $4 == t && NF == 4 { print $1, (($2 in mine) ? "lost" : "race") }')
+    n=$(printf '%s\n' "$left" | grep -c ' race$')
+    lost=$(printf '%s\n' "$left" | grep -c ' lost$')
+    [ "$n" -le 10 ] && [ "$lost" -le 30 ]
+  }
+  wait_for 10 race_settled
   if [ "$n" -gt 10 ]; then
     fail "who.sh: $n of 300 watchdog sleeps were orphaned under a near-instant gh: the TERM races the sleep's fork (#71)"
   elif [ "$lost" -gt 30 ]; then
