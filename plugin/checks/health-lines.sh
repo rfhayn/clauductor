@@ -219,8 +219,13 @@ has "push-main: no push workflow says there is no post-merge net" "$(PM)" "OK no
 # commit that adds the line (the default baseline), then the cases. Every trailer names an address
 # under secret.invalid, which no output may show: the line names a commit by its sha and title only.
 # Every step that builds the fixture runs through `must`: a step that fails stops the check by name,
-# so no case asserts on a history it never built. The fixture has no project.conf, so its line reads
-# origin/main whatever this project's MAIN_BRANCH is; its local branch is whatever new_repo made (FB).
+# so no case asserts on a history it never built. The fixture's project.conf (when a case writes one)
+# never sets MAIN_BRANCH, so its line reads origin/main whatever this project's MAIN_BRANCH is; its
+# local branch is whatever new_repo made (FB).
+# The line under test is the fixture's own thin caller over lib/health.sh (a framework file), never
+# this project's .claude/health/coauthor-trailers.sh: that file is the project's to keep or delete
+# (README there), so a check that needed it would fail a project that declined it. The project's
+# copy, when present, is run last against the same fixture and must say what the caller says.
 must() { "$@" >/dev/null || { fail "coauthor: a fixture step failed, so the cases after it would read a history never built: $*"; finish; }; }
 C="$d/co"; new_repo "$C"
 FB=$(git -C "$C" symbolic-ref --short HEAD)
@@ -237,7 +242,14 @@ must git init -q --bare "$d/co.git"
 must git -C "$C" remote add origin "$d/co.git"
 cpush() { must git -C "$C" push -q origin HEAD:main; must git -C "$C" fetch -q origin; }
 cpush
-must cp "$ROOT/.claude/health/coauthor-trailers.sh" "$C/.claude/health/"
+cat > "$d/coauthor-caller.sh" <<'EOF'
+#!/bin/sh
+ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$CLAUDUCTOR_FW/lib/health.sh"
+health_coauthor ".claude/health/$(basename "$0")"
+EOF
+must cp "$d/coauthor-caller.sh" "$C/.claude/health/coauthor-trailers.sh"
 CO() { (cd "$C" && env "$@" sh .claude/health/coauthor-trailers.sh 2>&1); }
 cos=""  # every output, for the contract below
 out=$(CO); cos="$cos$out
@@ -352,7 +364,7 @@ rm -f "$C/.claude/project.conf"
 Mf="$d/co-master"; new_repo "$Mf"
 mkdir -p "$Mf/.claude/lib" "$Mf/.claude/health"
 must cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/health.sh" "$Mf/.claude/lib/"
-must cp "$ROOT/.claude/health/coauthor-trailers.sh" "$Mf/.claude/health/"
+must cp "$d/coauthor-caller.sh" "$Mf/.claude/health/coauthor-trailers.sh"
 must cp "$C/.claude/model-roles.json" "$Mf/.claude/"
 printf 'MAIN_BRANCH="master"\n' > "$Mf/.claude/project.conf"
 must git -C "$Mf" add -A
@@ -366,6 +378,18 @@ out=$(cd "$Mf" && sh .claude/health/coauthor-trailers.sh 2>&1); cos="$cos$out
 "
 has "coauthor: MAIN_BRANCH=master reads origin/master" "$out" "FAILED Co-authored-by on origin/master in $(git -C "$Mf" rev-parse --short HEAD) \"Y-1: From elsewhere\""
 has "coauthor: ...and names that branch in the fix" "$out" "rewrite master to remove the trailer from it"
+# This project's own copy of the line, only where it keeps one: on the same fixture it must say
+# exactly what the thin caller says (it adds only the CANNOT CHECK lines for a missing library).
+if [ -f "$ROOT/.claude/health/coauthor-trailers.sh" ]; then
+  want=$(CO)
+  must cp "$ROOT/.claude/health/coauthor-trailers.sh" "$C/.claude/health/coauthor-trailers.sh"
+  got=$(CO)
+  must cp "$d/coauthor-caller.sh" "$C/.claude/health/coauthor-trailers.sh"
+  [ -n "$want" ] && [ "$got" = "$want" ] && ok "coauthor: this project's .claude/health/coauthor-trailers.sh says what the fixture's caller says" \
+    || fail "coauthor: this project's coauthor-trailers.sh differs from the caller over lib/health.sh: $got"
+else
+  ok "coauthor: this project keeps no .claude/health/coauthor-trailers.sh (its call); the line's logic is tested through the fixture's caller"
+fi
 bad=$(printf '%s' "$cos" | grep -vE '^(OK|FAILED|CANNOT CHECK —) ')
 [ -z "$bad" ] && ok "coauthor: every line starts with its verdict" || fail "coauthor: lines without a verdict: $bad"
 

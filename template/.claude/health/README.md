@@ -42,5 +42,5 @@ needs a named addressee*, `docs/principles.md`).
 | `coauthor-trailers.sh` | While `attribution.enabled` in `.claude/model-roles.json` is not true: each commit on `origin/<main>` that carries a `Co-authored-by` trailer, by short sha and title (never the trailer), `FAILED`. It reads the commits after (not including) the one that added this line, or after `COAUTHOR_HEALTH_SINCE` in `.claude/project.conf`; with no `model-roles.json` it is `OK`, not checked, and with one that does not parse, `CANNOT CHECK`. Merge-guard rule 15 stops Claude Code's merges; this sees a merge made anywhere else (Cursor, the website) and a co-author line GitHub appends itself. Local git only. |
 
 The two GitHub ones and `coauthor-trailers.sh` are thin callers: their logic is `.claude/lib/health.sh`, which `clauductor
-update` keeps current while this directory stays yours. Delete them if you do not use Actions. Project-specific health (a dependency audit, a
+update` keeps current while this directory stays yours. Delete the two GitHub ones if you do not use Actions. Project-specific health (a dependency audit, a
 migration ledger, a backup's age) goes here as its own script.
