@@ -98,7 +98,8 @@ cg_archives() {  # cg_archives BASE HEAD
 # cannot be read or is not a regular file, stdin or any /dev or /proc path, an API merge whose
 # fields come from --input, a command with no merge or more than one, a substitution left open), 3
 # when it names a relative file after `cd`, 4 when it names a file after anything but `cd <path>`
-# or beside a redirect of the merge's own: what runs first can write the file after this read
+# or beside a redirect of the merge's own other than to or from /dev/null or onto a descriptor:
+# what runs first can write the file after this read
 # (`cp other.md body.md && gh pr merge … --body-file body.md`), so the file read is not the one gh
 # sends (OPS-156). Only the merge's own simple command is read: a flag in a comment or in another
 # command is not the merge's (OPS-132).

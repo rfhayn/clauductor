@@ -86,7 +86,7 @@ case $mrc in
        || no "could not read the commit messages of $GUARD_BASE..$GUARD_HEAD (the squash commit's default body), so the issues they close cannot be checked." ;;
   3) no "this merge names a relative --body-file after another command, which may have changed directory, so the issues the squash commit closes cannot be checked. Write its path out in full, or run the merge on its own." ;;
   4) no "this merge names a --body-file after a command other than cd <path>, or beside a redirect, which may write the file after this check reads it, so the issues the squash commit closes cannot be checked. Run the merge on its own (or after only cd <path> &&)." ;;
-  *) no "cannot read this merge's --body/--body-file (a substitution, an unreadable file, stdin, or an API merge's --input), so the issues the squash commit closes cannot be checked. Write the body to a file and pass --body-file <file>." ;;
+  *) no "cannot read this merge's --body/--body-file (a substitution, a --body-file that is unreadable or not a regular file: stdin, /dev, /proc, or an API merge's --input), so the issues the squash commit closes cannot be checked. Write the body to a file and pass --body-file <file>." ;;
 esac
 # The squash SUBJECT closes issues too ("Fixes #239: the card"); unset, GitHub uses the PR title,
 # which is read below.

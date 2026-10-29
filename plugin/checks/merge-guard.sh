@@ -778,6 +778,7 @@ sguard 0 "rule 15: the merge's stdin from /dev/null" "gh pr merge 5 --squash --b
 # Only a regular file reads here as it reads for gh. A directory reads as nothing, and a link to
 # /dev/stdin reads the hook's own stdin, not the merge's.
 sguard 2 "rule 15: a --body-file that is a directory" "gh pr merge 5 --squash --body-file $R"
+grep -q 'not a readable regular file' "$d/err" && ok "rule 15: ...and says the file is not a regular file" || fail "rule 15: the directory block does not say it is not a regular file: $(head -3 "$d/err")"
 ln -s /dev/stdin "$R/in.md"
 sguard 2 "rule 15: a --body-file that links to /dev/stdin" "gh pr merge 5 --squash --body-file $R/in.md"
 rm -f "$R/in.md"
