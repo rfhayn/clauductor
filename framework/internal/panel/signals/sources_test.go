@@ -55,6 +55,11 @@ func TestParseCardOutput(t *testing.T) {
 	if o := ParseCardOutput([]byte(long)); len(o.Lines) != maxCardLines+1 {
 		t.Fatalf("lines %d", len(o.Lines))
 	}
+	// Exactly the limit is all of it: no line was cut, so none says so (PANEL-47).
+	exact := ParseCardOutput([]byte(strings.Repeat("line\n", maxCardLines) + "\n\n"))
+	if len(exact.Lines) != maxCardLines || exact.Lines[maxCardLines-1] != "line" {
+		t.Fatalf("%d lines at the limit, ending %q", len(exact.Lines), exact.Lines[len(exact.Lines)-1])
+	}
 }
 
 // ExecRunner keeps at most maxCmdOutput of a command's stdout, and of its stderr when
@@ -100,5 +105,17 @@ func TestCardOutputWithStderr(t *testing.T) {
 	near := ParseCardOutput([]byte(strings.Repeat("x\n", maxCardLines-1)))
 	if got := near.WithStderr([]byte("e1\ne2\n")); len(got.Lines) != maxCardLines+1 || got.Lines[maxCardLines-1] != "e1" {
 		t.Errorf("the limit holds with stderr: %d lines, %q", len(got.Lines), got.Lines[maxCardLines-1:])
+	}
+	// Reaching the limit exactly cuts nothing; a line past it, from either stream, is
+	// cut and says so (PANEL-47).
+	if got := near.WithStderr([]byte("e1\n\n")); len(got.Lines) != maxCardLines || got.Lines[maxCardLines-1] != "e1" {
+		t.Errorf("stderr filling the card exactly: %d lines, %q", len(got.Lines), got.Lines[maxCardLines-1:])
+	}
+	exact := ParseCardOutput([]byte(strings.Repeat("x\n", maxCardLines)))
+	if got := exact.WithStderr(nil); len(got.Lines) != maxCardLines {
+		t.Errorf("a card exactly full with no stderr: %d lines", len(got.Lines))
+	}
+	if got := exact.WithStderr([]byte("e1\n")); len(got.Lines) != maxCardLines+1 || got.Lines[maxCardLines] != "… (truncated)" {
+		t.Errorf("stderr past a card exactly full: %d lines, %q", len(got.Lines), got.Lines[maxCardLines-1:])
 	}
 }

@@ -1208,7 +1208,12 @@ func (r *Runtime) pollGit(ctx context.Context, now time.Time) (update, time.Dura
 }
 
 // servingGit is the argv of every git read the panel makes of a served checkout,
-// so no read can leave a flag out (PANEL-42, ATTACH-2: serving writes nothing).
+// so no read can leave a flag out (PANEL-42, ATTACH-2: serving writes nothing). Two
+// readers are outside it. signals.ReadWorktrees runs `git worktree list` bare, which
+// reads no index, so neither flag below has anything to turn off there. Catch-up
+// (catchup.go, and the self-update's reads in install/selfupdate.go) is not serving:
+// it is opted into per machine, refuses an attached project, and writes on purpose
+// (a fetch and a fast-forward), so its reads take --no-optional-locks alone.
 // --no-optional-locks: git takes no index.lock to write back a refreshed .git/index.
 // core.fsmonitor= (empty): a repository that sets it would have git start its fsmonitor
 // daemon, which writes .git/fsmonitor--daemon/ (or run the hook it names). Empty, not

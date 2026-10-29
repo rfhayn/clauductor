@@ -93,7 +93,9 @@ TAB, what to do). Their rows, if any:
 ### 3. Update the written record
 - **The fold** first, on the close's branch cut from `origin/main`:
   `clauductor-model skills/session-close/fold.sh <N> --focus "<short focus>"`, `--dry-run` first. `N` is
-  the first plan session the close covers (the Context block's `Fragments:` line lists what waits).
+  the Context block's `This close's session` (the session Up next offers this close as); with none
+  offered, the first plan session the close covers (its `Fragments:` line lists what waits). With
+  no fragment to fold (a session that only proposed), `/clauductor:dev-journal` writes that same `## Session N`.
   It writes one `## Session N` entry from every fragment, moves their insight rows to the top of the
   log, sets each folded row's Status `✅ merged (#PR)`, and removes the fragments. It is all or
   nothing: a malformed fragment, a taken number or a log with no table stops it with every file
@@ -101,7 +103,7 @@ TAB, what to do). Their rows, if any:
 - **The roadmap** (`ROADMAP`), statuses first, because session-start reads the queue off it: a
   merged change `✅ merged (#N)`, an open PR's row `⬜ in flight (#N)` (every `QUEUED ON` line in
   the Context block is one still reading queued on `origin/main`), a dropped one
-  `❌ cancelled — <why>`. Only a row waiting on something else takes its own word (`⬜ planned`,
+  `❌ cancelled — <why>`, and `git rm -r` its `changes/<id>/` (`changes/README.md`). Only a row waiting on something else takes its own word (`⬜ planned`,
   `⬜ deferred — <trigger>`); a misspelling of these four is an error. Then `clauductor-model roadmap-queue.sh --check`.
 - **Remote branches with no open PR** (the Context block): land each of yours, hand it off in the
   journal, or delete it. **Living specs still carrying TBD**: fill each one's text.

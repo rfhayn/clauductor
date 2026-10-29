@@ -169,15 +169,24 @@ func interpreterKind(w string) string {
 
 // codeFlag is an interpreter's flags whose argument is code, not a path: single
 // letters (matched in a single-dash cluster too: `-lc`, `-Bc`, `-mhttp.server`) and
-// long flags (matched alone or as `--flag=…`).
+// long flags (matched alone or as `--flag=…`). abbrev: the interpreter's parser takes
+// any unambiguous prefix of a long flag (getopt_long), so a prefix is matched too; an
+// ambiguous one is refused as well, which costs nothing, since it would not run.
 type codeFlag struct {
 	letters string
 	long    []string
+	abbrev  bool
 }
 
 var codeFlagsOf = map[string]codeFlag{
-	"shell":     {letters: "c"},
-	"fish":      {letters: "c", long: []string{"--command"}}, // --command: fish's long form of -c
+	"shell": {letters: "c"},
+	// --command is fish's long form of -c; -C (--init-command) runs code before the
+	// script, so a script file would not make it safe (the owner, 2026-10-17). fish
+	// abbreviates long flags; probed, bash, zsh, python3, perl, ruby, node and bun do
+	// not (they refuse a `--vers`-style prefix, or read the code as a file). deno was
+	// not probed; php and osascript list no long code flag, so a prefix has nothing to
+	// match (PANEL-47).
+	"fish":      {letters: "cC", long: []string{"--command", "--init-command"}, abbrev: true},
 	"python":    {letters: "cm"},
 	"node":      {letters: "epr", long: []string{"--eval", "--print", "--import", "--require", "--loader", "--experimental-loader"}},
 	"deno":      {letters: "ep", long: []string{"--eval", "--print"}},
@@ -208,6 +217,10 @@ func codeFlags(argv []string, refuse func(int, string, ...any)) {
 func (f codeFlag) matches(w string) bool {
 	for _, l := range f.long {
 		if w == l || strings.HasPrefix(w, l+"=") {
+			return true
+		}
+		// `--` and at least one letter of the name: `--` alone ends the options.
+		if name, _, _ := strings.Cut(w, "="); f.abbrev && len(name) > 2 && strings.HasPrefix(l, name) {
 			return true
 		}
 	}

@@ -32,6 +32,10 @@ func TestParseGitStatusV2(t *testing.T) {
 	if p, ok := TrackedChangedPaths([]byte(raw)); !ok || strings.Join(p, "|") != "r\xffw\tname|\xff\a\b\f\v\"\\" {
 		t.Fatalf("raw-byte paths %q %v", p, ok)
 	}
+	// \n and \r: a path holding a line break is one path, not a line of its own.
+	if p, ok := TrackedChangedPaths([]byte("1 .M N... 100644 100644 100644 a b \"line\\nbreak\\rreturn\"\n")); !ok || len(p) != 1 || p[0] != "line\nbreak\rreturn" {
+		t.Fatalf("line-break paths %q %v", p, ok)
+	}
 	for _, bad := range []string{"1 .M N... 100644 100644 100644 a b \"unterminated\n", "1 .M N... 100644 100644 100644 a b \"bad\\qescape\"\n", "1 .M N... 100644 100644 100644 a b \"short\\37\"\n", "2 R. N... 100644 100644 100644 a b R100 no-tab\n", "1 .M short\n"} {
 		if p, ok := TrackedChangedPaths([]byte(bad)); ok {
 			t.Errorf("%q read as the whole list: %q", bad, p)

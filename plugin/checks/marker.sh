@@ -116,7 +116,11 @@ out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESS
 [ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S12 .* row A-1$' \
   && ok "marker: with no arguments, the branch's row and the plan's session (S12)" || fail "marker: no arguments: exit $rc: $out; body: $(body | sed -n 1p)"
 # A row planned twice, its `(proposal)` then its build: the proposal's session until its proposal
-# exists, the build's after (OPS-126).
+# exists, the build's after (OPS-126). Only a change row has a proposal (roadmap-plan.sh refuses
+# one on an ops row, OPS-129), so A-1 becomes the change a-one, on its change branch.
+as_change() {
+  sed 's/`ops\/a-one`/`a-one`/' "$F/docs/roadmap.md" > "$F/r" && mv "$F/r" "$F/docs/roadmap.md" && git -C "$F" checkout -q -b change/a-one
+}
 for has in no yes; do
   setup
   cat >> "$F/docs/roadmap.md" <<'EOF'
@@ -127,7 +131,8 @@ for has in no yes; do
 | S11 | soon | propose it | A-1 (proposal) | — |
 | S12 | later | build it | A-1 | — |
 EOF
-  want=S11; [ $has = yes ] && { mkdir -p "$F/changes/ops/a-one"; echo x > "$F/changes/ops/a-one/proposal.md"; want=S12; }
+  as_change
+  want=S11; [ $has = yes ] && { mkdir -p "$F/changes/a-one"; echo x > "$F/changes/a-one/proposal.md"; want=S12; }
   out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
   [ $rc -eq 0 ] && body | sed -n 1p | grep -q "^session-start: $want .* row A-1$" \
     && ok "marker: a row planned as its proposal and its build, proposal $has: $want" || fail "marker: proposal and build, proposal $has: exit $rc: $out; body: $(body | sed -n 1p)"
@@ -142,7 +147,20 @@ cat >> "$F/docs/roadmap.md" <<'EOF'
 |---|---|---|---|---|
 | S11 | soon | propose it | A-1 (proposal) | — |
 EOF
-mkdir -p "$F/changes/ops/a-one"; echo x > "$F/changes/ops/a-one/proposal.md"
+as_change
+mkdir -p "$F/changes/a-one"; echo x > "$F/changes/a-one/proposal.md"
+# A plan error (here `(proposal)` on the ops row A-1, OPS-129) is said, never a silent fall back to
+# the journal's count, which would stamp a session the plan never named.
+cp "$F/docs/roadmap.md" "$S/keep.md"; git -C "$F" checkout -q ops/a-one
+sed 's/`a-one`/`ops\/a-one`/' "$S/keep.md" > "$F/docs/roadmap.md"
+out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
+[ $rc -eq 0 ] && printf '%s\n' "$out" | tail -1 | grep -q '^marker: WARNING — the Session plan did not parse (.*no proposal' && [ "$(jq length "$S/prs.json")" = 0 ] \
+  && ok "marker: a Session plan that does not parse is a WARNING naming why, and no PR" || fail "marker: plan error: exit $rc: $out"
+# ...quoting the error whole: only the file's path is cut, never text after a slash in the message.
+sed -e 's/`a-one`/`ops\/a-one`/' -e 's/| A-1 (proposal) |/| ops\/x |/' "$S/keep.md" > "$F/docs/roadmap.md"
+out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1)
+case $out in *'(roadmap.md:'*'"ops/x" is not a row id)'*) ok "marker: the plan error is quoted whole, the file named without its path" ;; *) fail "marker: plan error with a slash: $out" ;; esac
+cp "$S/keep.md" "$F/docs/roadmap.md"; git -C "$F" checkout -q change/a-one
 out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
 [ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S10 .* row A-1$' \
   && ok "marker: a proposed row whose build is not planned yet takes the journal's count (S10)" || fail "marker: proposed, build unplanned: exit $rc: $out; body: $(body | sed -n 1p)"

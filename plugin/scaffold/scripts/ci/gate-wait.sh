@@ -10,6 +10,11 @@
 # each call waits at most GATE_WAIT_SECONDS, under that ceiling, and says whether to call again.
 #
 #   scripts/ci/gate-wait.sh        from the checkout whose gate is running; Bash timeout 600000
+#   scripts/ci/gate-wait.sh -C DIR the same for the checkout DIR is in, from anywhere (OPS-161): a
+#                                  lane whose Bash starts in the main checkout names its worktree,
+#                                  as it ran its gate (scripts/ci/gate.sh -C DIR), since the sandbox
+#                                  exclusion holds only for the script alone. It runs DIR's own copy,
+#                                  and every command it then names carries the same -C.
 #
 # Exit codes:
 #   0  PASS  the latest gate here exited 0 on this tree (or, with no state at all, the tree is clean
@@ -18,7 +23,8 @@
 #   3  STILL RUNNING: call again
 #   4  NO RESULT: no gate has run here, one died without a verdict, or the last one tested another
 #      tree (another commit, or uncommitted changes made since it started)
-#   2  not inside a git repository, or lib/gate-state.sh is missing
+#   2  not inside a git repository, lib/gate-state.sh is missing, or the arguments are not
+#      nothing or `-C DIR` with DIR in a checkout of this repository
 #
 # WHAT IT READS, all in THIS checkout's git dir (a linked worktree has its own): ci-gate.state, which
 # run-local.sh writes through lib/gate-state.sh (its header has the format), and ci-receipt.
@@ -30,6 +36,31 @@
 #
 # GATE_WAIT_SECONDS (default 540) bounds one call; GATE_WAIT_POLL (default 5) is the look interval.
 # Checked by .claude/checks/gate.sh.
+
+# Nothing but a leading `-C DIR`: a bare path or a stray argument would otherwise be ignored, and the
+# answer given for the wrong checkout. -C takes only this repository's checkouts, as gate.sh's does.
+case $#:${1:-} in
+  0:) ;;
+  2:-C) [ -n "$2" ] || { echo "gate-wait: -C needs a directory" >&2; exit 2; } ;;
+  *:-C) echo "gate-wait: -C takes one directory and nothing after it" >&2; exit 2 ;;
+  *) echo "gate-wait: takes no arguments but -C DIR (got: $*)" >&2; exit 2 ;;
+esac
+if [ $# -eq 2 ]; then
+  top=$(cd "$2" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || { echo "gate-wait: -C $2 is not inside a git checkout" >&2; exit 2; }
+  # This script's path in its own checkout is its path in DIR's (git prints physical paths, as pwd -P).
+  here=$(cd "$(dirname "$0")" && pwd -P); self=$(cd "$here" && git rev-parse --show-toplevel 2>/dev/null)
+  case $here in
+    "$self") rel=$(basename "$0") ;;
+    "$self"/*) rel=${here#"$self"/}/$(basename "$0") ;;
+    *) echo "gate-wait: $0 is not inside a git checkout, so its path in $top is unknown" >&2; exit 2 ;;
+  esac
+  common() { (cd "$1" && cd "$(git rev-parse --git-common-dir)" && pwd -P) 2>/dev/null; }
+  own=$(common "$self"); [ -n "$own" ] && [ "$(common "$top")" = "$own" ] || { echo "gate-wait: -C $2 is not a checkout of this repository ($self): -C reads only this repository's worktrees" >&2; exit 2; }
+  [ -f "$top/$rel" ] || { echo "gate-wait: $top has no $rel to run" >&2; exit 2; }
+  cd "$top" && GATE_WAIT_DIR=$top exec sh "$rel"
+fi
+# Called through -C: the commands this names must reach the same checkout from where the agent is.
+ON=${GATE_WAIT_DIR:+ -C $GATE_WAIT_DIR}
 
 GD=$(git rev-parse --absolute-git-dir 2>/dev/null) || { echo "gate-wait: not inside a git repository" >&2; exit 2; }
 LIB="$(dirname "$0")/lib/gate-state.sh"
@@ -46,11 +77,18 @@ POLL=${GATE_WAIT_POLL:-5}
 case $POLL in ''|*[!0-9]*|0) echo "gate-wait: GATE_WAIT_POLL=$POLL is not whole seconds; using 5" >&2; POLL=5 ;; esac
 TOP=$(git rev-parse --show-toplevel)
 GATE_CMD=$( [ -f "$TOP/.claude/project.conf" ] && . "$TOP/.claude/project.conf" >/dev/null 2>&1; printf '%s' "${GATE:-scripts/ci/gate.sh}")
+GATE_HINT=$GATE_CMD
+if [ -n "$ON" ]; then
+  case $GATE_CMD in /*) _gp=$GATE_CMD ;; *) _gp=$TOP/$GATE_CMD ;; esac
+  # A project's own wrapper may not take -C: then say where to run it instead.
+  if grep -q -- '-C DIR' "$_gp" 2>/dev/null; then GATE_HINT="$GATE_CMD$ON"; else GATE_HINT="$GATE_CMD, in $GATE_WAIT_DIR"; fi
+fi
 HEAD_SHA=$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)
 CUR=$(gate_state_tree)
 short() { printf '%.9s' "$1"; }
-if [ "$CUR" = "$HEAD_SHA" ]; then SUBJECT="HEAD $(short "$HEAD_SHA")"
-else SUBJECT="HEAD $(short "$HEAD_SHA") + uncommitted changes (tree $(short "$CUR"))"; fi
+# Every verdict names its checkout: a lane may ask from another (-C).
+if [ "$CUR" = "$HEAD_SHA" ]; then SUBJECT="HEAD $(short "$HEAD_SHA"), in $TOP"
+else SUBJECT="HEAD $(short "$HEAD_SHA") + uncommitted changes (tree $(short "$CUR")), in $TOP"; fi
 
 # receipt_for_head: the receipt line when it names HEAD; fails otherwise.
 receipt_for_head() {
@@ -79,7 +117,7 @@ nothing() {
     echo "PASS for $SUBJECT, on its receipt ($1). Receipt: $RECEIPT ($(printf '%s' "$r" | tr '\t' ' '))"
     exit 0
   fi
-  echo "NO RESULT for $SUBJECT: $1. Start a gate in the FOREGROUND: $GATE_CMD (Bash timeout 600000)." >&2
+  echo "NO RESULT for $SUBJECT: $1. Start a gate in the FOREGROUND: $GATE_HINT (Bash timeout 600000)." >&2
   exit 4
 }
 
@@ -112,14 +150,14 @@ while :; do
     if [ "$(gate_state_field "$first" subject)" = commit ]; then
       if [ "$head" = "$HEAD_SHA" ]; then
         match=1
-        [ "$CUR" = "$HEAD_SHA" ] || SUBJECT="HEAD $(short "$HEAD_SHA") (a clean-room run of the commit: your uncommitted changes were not tested)"
+        [ "$CUR" = "$HEAD_SHA" ] || SUBJECT="HEAD $(short "$HEAD_SHA") (a clean-room run of the commit: your uncommitted changes were not tested), in $TOP"
       fi
     elif [ "$tree" = "$CUR" ] && [ "$tree" != unknown ]; then
       match=1
     fi
     if [ -n "$match" ]; then
       [ "$code" = 0 ] && pass "$mode"
-      if [ "$code" = signal ]; then echo "FAIL for $SUBJECT: the gate was interrupted (a signal) before its verdict. Run it again in the foreground: $GATE_CMD (Bash timeout 600000)." >&2
+      if [ "$code" = signal ]; then echo "FAIL for $SUBJECT: the gate was interrupted (a signal) before its verdict. Run it again in the foreground: $GATE_HINT (Bash timeout 600000)." >&2
       else echo "FAIL for $SUBJECT: the gate exited $code. Its failure lines, when it ran through $GATE_CMD: grep -nE '^==> ' $LOG" >&2; fi
       exit 1
     fi
@@ -129,7 +167,7 @@ while :; do
   alive "$pid" "${script:-run-local.sh}" || nothing "the gate (pid $pid) is no longer running and wrote no verdict: it was killed or crashed"
   elapsed=$(( $(date +%s) - start ))
   if [ "$elapsed" -ge "$LIMIT" ]; then
-    echo "STILL RUNNING after ${elapsed}s (pid $pid, $mode, testing HEAD $(short "$(gate_state_field "$first" head)"); this is $SUBJECT). Call $0 again, in the foreground (Bash timeout 600000)."
+    echo "STILL RUNNING after ${elapsed}s (pid $pid, $mode, testing HEAD $(short "$(gate_state_field "$first" head)"); this is $SUBJECT). Call $0$ON again, in the foreground (Bash timeout 600000)."
     [ -f "$LOG" ] && echo "  last line of $LOG: $(tail -n 1 "$LOG" | cut -c1-200)"
     exit 3
   fi

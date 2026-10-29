@@ -282,6 +282,82 @@ for bad in '| 1.1, 1.5 (proposal) |::| 1.2 + 1.3, 1.5 (proposal) |' '| 1.1, 1.5 
   out=$(sh "$C/.claude/roadmap-plan.sh" "$C/r.bad" 2>&1 >/dev/null) && fail "the plan '$bad' parsed" \
     || case $out in *"planned in S5 and S6"* | *"built in S5 before its proposal in S6"*) ok "a plan error: $out" ;; *) fail "the plan '$bad' failed for another reason: $out" ;; esac
 done
+# OPS-129: an ops or fix row has no proposal to land, so its `(proposal)` would hold its session's
+# close for ever: a plan error, never a silent wait.
+sed 's/1\.2 + 1\.3 (proposal) |/1.2 + 1.3 |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+sh "$C/.claude/roadmap-plan.sh" "$C/docs/roadmap.md" >/dev/null 2>&1 && ok "a change row planned as its proposal parses" || fail "a change row's (proposal) was refused"
+awk '/^\| 1\.5 /{ print; print "| 1.4 | `fix/4-crash` — crash | s | — | ⬜ queued |"; next } { print }' "$C/docs/roadmap.md" > "$C/r.ok"
+for bad in '1.1 (proposal)::1.1 is an ops row' '1.4 (proposal)::1.4 is a fix row'; do
+  sed "s/| 1\.1, 1\.5 (proposal) |/| ${bad%%::*}, 1.5 (proposal) |/" "$C/r.ok" > "$C/r.bad"
+  out=$(sh "$C/.claude/roadmap-plan.sh" "$C/r.bad" 2>&1 >/dev/null); rc=$?
+  [ $rc -eq 1 ] && case $out in *"${bad##*::}"*"no proposal"*) true ;; *) false ;; esac \
+    && ok "a plan error: $out" || fail "'${bad%%::*}' on a row with no proposal parsed or failed otherwise (exit $rc): $out"
+done
+rm -f "$C/r.bad" "$C/r.ok"
+# OPS-129: a session that only proposes is offered its close once every proposal it plans is on
+# main, with no fragment waiting (a proposal writes none); once the journal holds its session, the
+# close has run, and it is not offered again.
+rm -f "$C/docs/journal.d/"*.md
+cat > "$C/docs/roadmap.md" <<'RM'
+## Phase 1 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.5 | `add-p` — p | s | — | ⬜ queued |
+| 1.6 | `add-q` — q | s | — | ⬜ queued |
+## Session plan
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S5 | | propose | 1.5 (proposal), 1.6 (proposal) | — |
+| S6 | | build | 1.5, 1.6 | — |
+RM
+[ -f "$C/changes/add-p/proposal.md" ] && [ ! -d "$C/changes/add-q" ] || fail "the fixture should hold add-p's proposal and not add-q's"
+cnone && ok "close: a proposal-only session waits while one of its proposals is not on main" || fail "close with add-q unproposed printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+mkdir -p "$C/changes/add-q" && echo '**Status:** approved' > "$C/changes/add-q/proposal.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: a proposal-only session is offered its close once every proposal is on main, no fragment waiting" || fail "close with S5's proposals on main offered: $(cnames)"
+printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+cnone && ok "...and not once the journal holds Session 5 (its close ran), while S6's builds wait" || fail "close after Session 5 printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+sed 's/^| S5 | |/| S5 | (done) |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+cnone && ok "...nor once S5 is marked done, with no fragment waiting" || fail "close with S5 done printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+sed 's/^| S6 | |/| S6 | (done) |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+cnone && ok "...nor with every session done, a landed proposal and no fragment: nothing to fold" || fail "close with every session done printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+# The open session spans days (S5–S7) and the landed proposal's own session was closed (the journal
+# holds Session 4): with no fragment waiting, a spanning entry is offered nothing.
+cp "$C/docs/roadmap.md" "$C/keep.md"
+sed -e 's/^| S5 | (done) | propose |/| S4 | | propose |/' -e 's/^| S6 | (done) |/| S5–S7 | |/' "$C/keep.md" > "$C/docs/roadmap.md"
+cnone && ok "...nor while a spanning session is open, a landed proposal's session closed and no fragment waiting" || fail "close with S5–S7 open and no fragment printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+mv "$C/keep.md" "$C/docs/roadmap.md"
+# The close's number is computed once, here: the dev-journal and session-close contexts print the
+# session Up next offers the close as, so a no-fragment close (fold.sh folds nothing, dev-journal
+# writes the heading) writes the Session the suggestion waits for, even when its label is not one
+# past the journal's top (S5 after Session 3), and is not offered again.
+sed -e 's/^| S5 | (done) |/| S5 | |/' -e 's/^| S6 | (done) |/| S6 | |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+printf '# Journal\n\n## Session 3 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+mkdir -p "$C/.claude/skills/dev-journal" "$C/.claude/skills/session-close"
+cp "$CLAUDUCTOR_FW/skills/dev-journal/context.sh" "$C/.claude/skills/dev-journal/"
+[ "$(cnames)" = "session-5-close" ] && ok "close: S5 after Session 3 is offered as Session 5" || fail "close for S5 after Session 3 offered: $(cnames)"
+case $(cd "$C" && CONTEXT_OFFLINE=1 sh .claude/skills/dev-journal/context.sh 2>&1) in
+  *"This close's session"*": 5"*) ok "...and dev-journal's context names Session 5 for its entry, not the count's 4" ;;
+  *) fail "dev-journal's context does not name the close's session 5: $(cd "$C" && CONTEXT_OFFLINE=1 sh .claude/skills/dev-journal/context.sh 2>&1 | grep -i session)" ;;
+esac
+# Both contexts read the number where they read main: a copy of the fixture with an origin/main,
+# so session-close's context reaches its fetched branch, and each must print the number itself.
+C2="$d/close2"; cp -R "$C" "$C2"; cp "$CLAUDUCTOR_FW/skills/session-close/context.sh" "$C2/.claude/skills/session-close/"
+(cd "$C2" && git init -q && git add -A && git -c user.name=Ann -c user.email=a@example.com commit -qm base && git update-ref refs/remotes/origin/main HEAD) >/dev/null 2>&1 || fail "the second close fixture could not commit"
+ctx() { (cd "$C2" && env PATH="$d/nogh:$PATH" CONTEXT_OFFLINE=1 sh ".claude/skills/$1/context.sh" 2>&1) | grep "This close's session"; }
+mkdir -p "$d/nogh"; printf '#!/bin/sh\nexit 1\n' > "$d/nogh/gh"; chmod +x "$d/nogh/gh"
+for s in dev-journal session-close; do
+  case $(ctx $s) in *"This close's session"*": 5"*) ok "...and $s's context, reading origin/main, names Session 5" ;; *) fail "$s's context with origin/main: [$(ctx $s)]" ;; esac
+done
+# A suggestion that fails is CANNOT CHECK, never read as no close offered: the count would number it.
+sed 's/| 1\.5 (proposal), 1\.6 (proposal) |/| 1.5 (proposal), 1.6 (proposal), 1.5 (proposal) |/' "$C2/docs/roadmap.md" > "$C2/r" && mv "$C2/r" "$C2/docs/roadmap.md"
+(cd "$C2" && git -c user.name=Ann -c user.email=a@example.com commit -qam bad && git update-ref refs/remotes/origin/main HEAD) >/dev/null 2>&1
+for s in dev-journal session-close; do
+  case $(ctx $s) in *"This close's session"*"CANNOT CHECK"*) ok "...and a suggestion that fails is CANNOT CHECK in $s's context" ;; *) fail "$s's context with a failing suggestion: [$(ctx $s)]" ;; esac
+done
+printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 3 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+cnone && ok "...and once that entry is written, the close is not offered again" || fail "close after Session 5 printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 
 # The preset panel config: every command it names exists in this project.
 pj="$ROOT/.clauductor/panel.json"

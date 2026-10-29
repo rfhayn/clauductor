@@ -38,9 +38,9 @@ clauductor/
 ## Build, test, gate
 
 ```bash
-cd framework && go build -o clauductor ./cmd/clauductor
-cd framework && go test -short ./...          # seconds, while working
-scripts/ci/gate.sh                             # the full gate (steps: scripts/ci/steps.sh)
+go -C framework build -o clauductor ./cmd/clauductor
+go -C framework test -short ./...              # seconds, while working
+scripts/ci/gate.sh                             # the full gate (steps: scripts/ci/steps.sh); a lane: -C <worktree>
 sh .claude/checks/run.sh                       # this repo's process checks
 sh template/.claude/checks/run.sh              # the template's checks
 scripts/build-plugin.sh                        # after ANY template/ change (TestCommittedPluginIsCurrent)

@@ -1,5 +1,6 @@
 # quota.sh: sourced (never run) by .claude/statusline.sh, which saves the reading, and by whatever
-# needs the account's current quota (routines, OPS-42 D4/D17; the orchestrating session). ONE file
+# needs the account's current quota. Nothing reads it yet but checks/quota-reading.sh: its reader
+# went with OPS-42, and OPS-167 wires one or removes it. ONE file
 # per machine, written on every status-line refresh that carries `rate_limits`, with or without the
 # panel, so nothing needs the clauductor binary or the panel to read it (ADR-0006). Needs jq.
 #
@@ -17,7 +18,7 @@
 # different plan) is carried until its own reset: the panel drops its copy on an account change.
 #
 # THE RULE THE READER KEEPS: a window whose reset time has passed, or that has none, has NO reading.
-# A window's use only grows until its reset, so a reading before the reset is a floor (OPS-42 D4);
+# A window's use only grows until its reset, so a reading before the reset is a floor;
 # after it, the old number says nothing. The panel's quota.json was once read 9 days stale as
 # current: quota_read never prints a number it cannot vouch for.
 #

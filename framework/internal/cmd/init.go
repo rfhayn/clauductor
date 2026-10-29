@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/clauductor/clauductor/internal/panel/install"
 	"github.com/clauductor/clauductor/internal/template"
 	"github.com/spf13/cobra"
 )
@@ -58,7 +59,7 @@ hooks, checks, agents, docs and settings. If path doesn't exist, it will be crea
 
 		printPrereqs(cmd.OutOrStdout(), src.Dir)
 		fmt.Println("\nDone! Next steps:")
-		fmt.Printf("  cd %s\n", targetDir)
+		fmt.Printf("  cd %s\n", install.ShellWord(targetDir)) // runs as printed (PANEL-47)
 		fmt.Println("  claude")
 		fmt.Println("  /session-start")
 		return nil

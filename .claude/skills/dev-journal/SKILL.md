@@ -27,8 +27,9 @@ writing a second entry.
 ## Steps
 1. **Take N from `origin/main`, not from this branch** (the context block prints it). A branch cut
    before someone else's session merged reads a stale top number; `pr-merge-guard` blocks the
-   duplicate at merge, but it is cheaper not to write it. If this session already wrote an entry,
-   update it instead.
+   duplicate at merge, but it is cheaper not to write it. When it prints `This close's session`,
+   that is N (the session Up next offered this close as), not the count. If this session already
+   wrote an entry, update it instead.
 2. Write the entry at the top, `<author>` being the first word of `git config user.name`:
 
    ```

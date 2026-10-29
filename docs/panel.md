@@ -359,7 +359,7 @@ that model's own panel setup, the same as the template's preset, for the files i
 |---|---|
 | `.claude/owner-queue.sh` | the pinned card **Owner queue**: `sh -c "sh .claude/owner-queue.sh 2>&1"`, refreshed on `watch:docs/owner-queue.md` |
 | `.claude/roadmap-queue.sh` | the pinned card **Change queue**: `sh -c "sh .claude/roadmap-queue.sh --text 2>&1"`, refreshed on `watch:docs/roadmap.md` |
-| either of those | the five lane templates **build**, **propose**, **fix**, **ops** and **close**, and the lanes they use (`change/` → `build`, `fix/` → `fix`, `ops/` → `ops`; a detected prefix mapped otherwise is changed, and said so). The fix and ops prompts start the row's session (`session-start/marker.sh`) and end it with the row's fragment, the gate and `/merge-pr`; build's workflow runs the marker in its preflight and names the fragment, gate and merge steps in its description (OPS-126); close runs `/session-close` (OPS-125) |
+| either of those | the five lane templates **build**, **propose**, **fix**, **ops** and **close**, and the lanes they use (`change/` → `build`, `fix/` → `fix`, `ops/` → `ops`; a detected prefix mapped otherwise is changed, and said so). The fix and ops prompts start the row's session (`session-start/marker.sh`) and end it with the row's fragment, the gate and `/merge-pr`; build's workflow runs the marker once its preflight passes (OPS-126, OPS-129) and names the fragment, gate and merge steps in its description (OPS-126); close runs `/session-close` (OPS-125) |
 | `.claude/panel-suggest.sh` | each template's **Up next** (`sh .claude/panel-suggest.sh <template>`); without it, the templates have none. `build`, `ops` and `propose` never offer a row that has landed (its fragment on main), nor a batch's later row (`A + B` in the plan) while its lead is open (OPS-126). `close` offers `session-<N>-close` once every row of the plan's open session has landed (merged or cancelled, or its fragment on main, a batched PR's **Also closes** counting, a planned `ID (proposal)` once its proposal is on main, though its build planned later still waits for its own), `<N>` that session's label as `fold.sh` takes it (`S4.5` is `session-4-5-close`), or one past the journal's top when the journal already holds it; in a plan entry spanning sessions (`S15–S18`), with no plan, or with no open session, while any fragment waits, `<N>` one past the journal's top |
 | `scripts/ci/run-local.sh` | the `gate` queue on it, instead of a gate found in `package.json` or a `Makefile` (those are printed as "also found") |
 
@@ -3226,7 +3226,9 @@ as a script.
   - The names are `sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`, `python`, `python3`,
     `python3.<n>`, `node`, `deno`, `bun`, `perl`, `ruby`, `php` and `osascript`. They are matched
     whole (`pythonic` is not Python), with case folded, since macOS runs `BASH` as bash.
-  - The flags: a shell's `-c`, also in a single-dash cluster (`-lc`), and fish's `--command`;
+  - The flags: a shell's `-c`, also in a single-dash cluster (`-lc`); fish's `--command`, and its
+    `-C` (also in a cluster) and `--init-command`, which run code before any script. fish takes
+    any prefix of a long flag (`--comm`, `--init=…`), so each prefix is refused too;
     Python's `-c` and `-m`; `-e`, `-p`, `--eval` and `--print` for node, deno and bun; node's
     `--import`, `-r`, `--require`, `--loader` and `--experimental-loader`; perl's `-e` and `-E`,
     ruby's `-e`, php's `-r` and osascript's `-e`.
@@ -3297,17 +3299,17 @@ the rule only holds a sidecar to the repository's own scripts. These are outside
 - what the repository's own content does: a script file, a Makefile target, a `package.json`
   script;
 - the environment the panel inherits (`PATH`, `CDPATH`, `OLDPWD`);
-- a program that runs code from a flag of its own, other than the interpreters above. These are
-  named, not closed:
+- what a program other than the interpreters above does with its own flags and words. The rule
+  closes none of these; the ones known are:
   - `ssh` runs its command on another machine;
   - `docker` runs an image's code, and can reach the host past the path rule (`--privileged`, a
     volume a compose file names). A literal host path in `--mount` or `-v` is judged as a path;
   - an scp-style remote (`git@host:o/r.git`, `host:path`) passes as words to `git clone`, `rsync`
     or `scp`;
   - a package install runs the scripts it fetches (`npm install`'s lifecycle scripts);
-  - two cards can cooperate, one fetching a file into the repository and the other running it;
   - `go test -exec <bare word>` runs a program of that name;
   - `flock -c <word>` runs its word through a shell;
+- two cards that cooperate, one fetching a file into the repository and the other running it;
 - the program-position rules behind a launcher not on their list (`sudo`, `caffeinate`): `sudo
   npx tool` passes. Code flags are still judged there, and so is an `env`'s own words, wherever
   it stands (`caffeinate env FOO=1 make` is refused);
