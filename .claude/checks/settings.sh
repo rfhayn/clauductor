@@ -292,7 +292,8 @@ lanetest pass "a counter-example marked $GATE_EXAMPLE (a block)" "$GATE_EXAMPLE"
 lanetest pass "a counter-example marked $GATE_EXAMPLE (a paragraph)" "$GATE_EXAMPLE" 'Never `cd <worktree> && scripts/ci/gate.sh`.'
 lanetest fail "the mark covers one unit only" "$GATE_EXAMPLE" 'Never `cd <worktree> && scripts/ci/gate.sh`.' '' 'Run `cd <worktree> && scripts/ci/gate.sh`.'
 lanetest fail "a tab between cd && and the gate" "Run \`cd <worktree> &&	scripts/ci/gate.sh\`."
-lanetest fail "a \`\`\`Bash block (any case, any label not listed as prose)" '```Bash' 'cd <worktree>' 'scripts/ci/gate.sh' '```'
+lanetest fail "a \`\`\`Bash block (fail closed: a label not listed as prose reads as commands)" '```Bash' 'cd <worktree>' 'scripts/ci/gate.sh' '```'
+lanetest pass "a \`\`\`Text block quoting gate-wait's hint (labels any case)" '```Text' 'NO RESULT: Start a gate in the FOREGROUND: cd <worktree> && scripts/ci/gate.sh (Bash timeout 600000).' '```'
 lanetest fail "a \`\`\`shell-session block" '```shell-session' '$ cd <worktree> && scripts/ci/gate.sh' '```'
 lanetest pass "a console block's lane form after its prompt" '```console' '$ scripts/ci/gate.sh -C <worktree>' '```'
 lanetest pass "a text block quoting gate-wait's hint (not commands)" '```text' 'NO RESULT: Start a gate in the FOREGROUND: cd <worktree> && scripts/ci/gate.sh (Bash timeout 600000).' '```'
