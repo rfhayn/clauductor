@@ -182,8 +182,10 @@ var codeFlagsOf = map[string]codeFlag{
 	"shell": {letters: "c"},
 	// --command is fish's long form of -c; -C (--init-command) runs code before the
 	// script, so a script file would not make it safe (the owner, 2026-10-17). fish
-	// alone of these abbreviates: bash, zsh, python3, perl, ruby, node and bun refuse
-	// `--vers`-style prefixes, or read the code as a file (PANEL-47).
+	// abbreviates long flags; probed, bash, zsh, python3, perl, ruby, node and bun do
+	// not (they refuse a `--vers`-style prefix, or read the code as a file). deno was
+	// not probed; php and osascript list no long code flag, so a prefix has nothing to
+	// match (PANEL-47).
 	"fish":      {letters: "cC", long: []string{"--command", "--init-command"}, abbrev: true},
 	"python":    {letters: "cm"},
 	"node":      {letters: "epr", long: []string{"--eval", "--print", "--import", "--require", "--loader", "--experimental-loader"}},

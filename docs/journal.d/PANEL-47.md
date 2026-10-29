@@ -2,7 +2,7 @@
 
 - **PR**: #321
 - **Session**: S16, started 2026-10-29 12:12 ET
-- **Review**: 1 round, peak medium, cap 3
+- **Review**: 2 rounds, peak medium, cap 3
 - **Gate**: CANNOT CHECK — the lane stops before the gate; the main session runs it
 - **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id, so no reading is the row's own
 - **Session start**: 141778173 tokens, 207 min
