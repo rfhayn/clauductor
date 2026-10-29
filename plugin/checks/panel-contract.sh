@@ -188,7 +188,7 @@ while IFS= read -r t; do
   esac
   # OPS-125: a row's lane starts its session and closes it with nothing pasted in. A /build-change
   # prompt must start with the command (the panel's approval warning reads it), so the workflow
-  # runs the marker itself, in its preflight (OPS-126), and the fragment and merge steps are its
+  # runs the marker itself (OPS-126), in its own agent past every preflight stop (OPS-129), and the fragment and merge steps are its
   # description, which the lane's session reads.
   case $id in build | fix | ops)
     steps=$fp
@@ -196,7 +196,7 @@ while IFS= read -r t; do
       steps="$fp $(grep -m1 'whenToUse:' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null)"
       # The plugin's build spells the step `clauductor-model skills/…`; either form runs the marker.
       grep -qE '^[0-9]+\. \\`(sh \.claude/|clauductor-model )skills/session-start/marker\.sh' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \
-        && ok "template $id: build-change's preflight runs the marker itself" || fail "template $id: build-change's preflight does not run sh .claude/skills/session-start/marker.sh, so a build lane starts with no marker"
+        && ok "template $id: build-change runs the marker itself" || fail "template $id: build-change does not run sh .claude/skills/session-start/marker.sh, so a build lane starts with no marker"
       grep -qE '^if \(!MARKER_OK\.test\(markerLine\)\) report\.warnings\.push' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \
         && ok "template $id: a marker that did not report success reaches report.warnings" || fail "template $id: build-change.js does not push a marker that did not report success to report.warnings, so a failed marker reaches nobody" ;;
     esac

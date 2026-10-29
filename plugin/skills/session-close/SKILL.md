@@ -93,7 +93,9 @@ TAB, what to do). Their rows, if any:
 ### 3. Update the written record
 - **The fold** first, on the close's branch cut from `origin/main`:
   `clauductor-model skills/session-close/fold.sh <N> --focus "<short focus>"`, `--dry-run` first. `N` is
-  the first plan session the close covers (the Context block's `Fragments:` line lists what waits).
+  the Context block's `This close's session` (the session Up next offers this close as); with none
+  offered, the first plan session the close covers (its `Fragments:` line lists what waits). With
+  no fragment to fold (a session that only proposed), `/clauductor:dev-journal` writes that same `## Session N`.
   It writes one `## Session N` entry from every fragment, moves their insight rows to the top of the
   log, sets each folded row's Status `✅ merged (#PR)`, and removes the fragments. It is all or
   nothing: a malformed fragment, a taken number or a log with no table stops it with every file

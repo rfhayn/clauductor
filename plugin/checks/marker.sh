@@ -149,6 +149,14 @@ cat >> "$F/docs/roadmap.md" <<'EOF'
 EOF
 as_change
 mkdir -p "$F/changes/a-one"; echo x > "$F/changes/a-one/proposal.md"
+# A plan error (here `(proposal)` on the ops row A-1, OPS-129) is said, never a silent fall back to
+# the journal's count, which would stamp a session the plan never named.
+cp "$F/docs/roadmap.md" "$S/keep.md"; git -C "$F" checkout -q ops/a-one
+sed 's/`a-one`/`ops\/a-one`/' "$S/keep.md" > "$F/docs/roadmap.md"
+out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
+[ $rc -eq 0 ] && printf '%s\n' "$out" | tail -1 | grep -q '^marker: WARNING — the Session plan did not parse (.*no proposal' && [ "$(jq length "$S/prs.json")" = 0 ] \
+  && ok "marker: a Session plan that does not parse is a WARNING naming why, and no PR" || fail "marker: plan error: exit $rc: $out"
+cp "$S/keep.md" "$F/docs/roadmap.md"; git -C "$F" checkout -q change/a-one
 out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
 [ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S10 .* row A-1$' \
   && ok "marker: a proposed row whose build is not planned yet takes the journal's count (S10)" || fail "marker: proposed, build unplanned: exit $rc: $out; body: $(body | sed -n 1p)"

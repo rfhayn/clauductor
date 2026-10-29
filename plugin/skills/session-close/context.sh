@@ -79,6 +79,8 @@ if [ -n "$fetched" ]; then
   # OPS-108: the rows whose records wait for a daily close's fold (step 3), read off main.
   frags=$(git ls-tree --name-only "$base:$JOURNAL_FRAGMENTS" 2>/dev/null | grep '\.md$' | grep -vx README.md | sed 's/\.md$//' | paste -sd ' ' -)
   echo "- Fragments: rows waiting on $base for a daily close's fold: ${frags:-none}"
+  cn=$(close_session_number)
+  echo "- This close's session (the one Up next offers it as, panel-suggest.sh close): ${cn:-none offered}${cn:+: fold.sh's N and the journal entry's, whatever the count above says}"
 else
   echo "- Journal: next session number CANNOT CHECK (no $base); do not take it from this branch"
   echo "- Fragments: CANNOT CHECK (no $base)"

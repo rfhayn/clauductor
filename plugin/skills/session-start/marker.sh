@@ -47,14 +47,16 @@ branch=$(printf '%s\n' "$branches" | awk -F'\t' -v a="$rowid" '!got && $1 == a {
 [ "$here" = "$branch" ] || warn "this checkout is on '$here', not row $rowid's branch '$branch'"
 
 if [ -z "$sn" ] && [ -f "$CLAUDUCTOR_FW/roadmap-plan.sh" ]; then
-  # A plan that does not parse numbers nothing here: the journal's count below still does.
+  # A plan that does not parse is a WARNING naming why (OPS-129), never a silent fall back to the
+  # journal's count, which would stamp a session the plan never named.
   # An entry spanning sessions (`S15–S18`) names no one day: the journal's count below numbers
   # it, as panel-suggest numbers that day's close.
   # A change planned twice, `ID (proposal)` then its build: the build's session once its proposal
   # exists here, else the proposal's. A proposal with no build planned yet names no session for
   # the build, so the journal's count below numbers it; with no proposal, any entry does.
   want=proposal; [ -f "$ROOT/$CHANGES_DIR/$(printf '%s\n' "$row" | cut -f5)/proposal.md" ] && want=""
-  sn=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null | awk -F'\t' -v a="$rowid" -v w="$want" '$1 == "R" && $2 == a { s[$6] = $3 }
+  plan=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>&1) || warn "the Session plan did not parse ($(printf '%s\n' "$plan" | head -1 | sed 's|^.*/||'))"
+  sn=$(printf '%s\n' "$plan" | awk -F'\t' -v a="$rowid" -v w="$want" '$1 == "R" && $2 == a { s[$6] = $3 }
     END { v = (w in s) ? s[w] : (w == "proposal" ? s[""] : ""); if (v ~ /^S[0-9]+(\.[0-9]+)*$/) print v }')
 fi
 if [ -z "$sn" ]; then

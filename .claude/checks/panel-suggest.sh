@@ -318,6 +318,26 @@ cnone && ok "...and not once the journal holds Session 5 (its close ran), while 
 printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 sed 's/^| S5 | |/| S5 | (done) |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
 cnone && ok "...nor once S5 is marked done, with no fragment waiting" || fail "close with S5 done printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+sed 's/^| S6 | |/| S6 | (done) |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+cnone && ok "...nor with every session done, a landed proposal and no fragment: nothing to fold" || fail "close with every session done printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+# The close's number is computed once, here: the dev-journal and session-close contexts print the
+# session Up next offers the close as, so a no-fragment close (fold.sh folds nothing, dev-journal
+# writes the heading) writes the Session the suggestion waits for, even when its label is not one
+# past the journal's top (S5 after Session 3), and is not offered again.
+sed -e 's/^| S5 | (done) |/| S5 | |/' -e 's/^| S6 | (done) |/| S6 | |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+printf '# Journal\n\n## Session 3 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+mkdir -p "$C/.claude/skills/dev-journal" "$C/.claude/skills/session-close"
+cp "$ROOT/.claude/skills/dev-journal/context.sh" "$C/.claude/skills/dev-journal/"
+[ "$(cnames)" = "session-5-close" ] && ok "close: S5 after Session 3 is offered as Session 5" || fail "close for S5 after Session 3 offered: $(cnames)"
+case $(cd "$C" && CONTEXT_OFFLINE=1 sh .claude/skills/dev-journal/context.sh 2>&1) in
+  *"This close's session"*": 5"*) ok "...and dev-journal's context names Session 5 for its entry, not the count's 4" ;;
+  *) fail "dev-journal's context does not name the close's session 5: $(cd "$C" && CONTEXT_OFFLINE=1 sh .claude/skills/dev-journal/context.sh 2>&1 | grep -i session)" ;;
+esac
+grep -q 'close_session_number' "$ROOT/.claude/skills/session-close/context.sh" \
+  && ok "...and session-close's context prints the same number (close_session_number)" || fail "session-close's context does not print the close's number (close_session_number)"
+printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 3 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+cnone && ok "...and once that entry is written, the close is not offered again" || fail "close after Session 5 printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 
 # The preset panel config: every command it names exists in this project.
 pj="$ROOT/.clauductor/panel.json"
