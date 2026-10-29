@@ -41,7 +41,11 @@
 #      deliberate forger is review's and the owner's to catch (lib/change-guard.sh, SCOPE).
 #  14. A merge is blocked unless the PR's state is OPEN, read before any evidence; a state gh cannot
 #      read blocks too. A close is how one session tells another not to land a PR (OPS-132).
-#   Rules 9–13 live in lib/change-guard.sh.
+#  15. While model-roles.json `attribution.enabled` is not true, only a squash merges, and it is
+#      blocked unless it names its body (--body-file, or a literal --body) and no line of it is a
+#      Co-authored-by trailer: GitHub's default squash body copies the branch's trailers, and a
+#      merge commit or a rebase lands the branch's commits as they are (OPS-156).
+#   Rules 9–13 live in lib/change-guard.sh; rule 15 reads the merge with that library's cg_field.
 #   (Numbering follows the rules this was extracted from; 5 and 6 were project-specific, and so
 #   was the other half of 8, which the artifacts module adds as an extension rule.)
 #
@@ -431,7 +435,8 @@ repo_key() {
       }'
 }
 # merge_argv — one line per finding: `M` more than one merge, `R <repo>` per repo named, `P <word>`
-# the PR argument, `U` words it cannot read that gh still gets, `A` an --auto/--admin word. For POLICING only: it decides which PR rules 2-8 check and whether a foreign repo
+# the PR argument, `U` words it cannot read that gh still gets, `A` an --auto/--admin word, `W
+# <method>` per merge method enabled (squash, merge, rebase). For POLICING only: it decides which PR rules 2-8 check and whether a foreign repo
 # is named at all. It never decides that a merge is foreign — foreign_shape does, by allowlist.
 # LC_ALL=C for the reason merge_scan has it (#100): it, too, matches one character at a time.
 merge_argv() {
@@ -516,11 +521,18 @@ merge_argv() {
           if (x == "-R" || x == "--repo") { if (k < nt) { y = t[++k]; gsub(/\n/, " ", y); print "R " y } else print "R ?"; continue }
           if (x ~ /^--repo=/) { print "R " substr(x, 8); continue }
           if (x ~ /^(--body|--body-file|--subject|--match-head-commit|--author-email)$/) { if (k == nt) VCUT = 1; k++; continue }
+          # The method, for rule 15: a value pflag reads as false enables none.
+          if (x ~ /^--(squash|merge|rebase)(=|$)/) {
+            m = substr(x, 3); sub(/=.*/, "", m)
+            if (x !~ /=(0|f|F|false|FALSE|False)$/) print "W " m
+            continue
+          }
           if (x ~ /^--/) continue
           # A cluster of shorthands, as gh reads it: on/off letters (-d -m -r -s) in turn, until one
           # that takes a value (-R -A -b -F -t) takes the rest of the word, or the next word.
           for (p = 2; p <= length(x); p++) {
             ch = substr(x, p, 1)
+            if (ch == "s") print "W squash"; else if (ch == "m") print "W merge"; else if (ch == "r") print "W rebase"
             if (ch ~ /[dmrs]/) continue
             if (ch !~ /[RAbFt]/) break
             v = substr(x, p + 1); sub(/^=/, "", v)
@@ -667,11 +679,12 @@ $argv"
 else
   argv=$(merge_argv)
 fi
-many=""; hidden=""; own=""; own_repo=""; other=""; unparsed=""; pr_arg=""; pr=""
+many=""; hidden=""; own=""; own_repo=""; other=""; unparsed=""; pr_arg=""; pr=""; ways=""
 while IFS= read -r line; do
   case "$line" in
     M) many=1 ;;
     U) hidden=1 ;;
+    "W "*) ways="$ways ${line#W }" ;;
     A) block "this merge passes --auto or --admin, quoted or escaped (rule 1): neither waits for checks to settle. Watch checks green first, then merge explicitly: gh pr merge <n> --squash --delete-branch" ;;
     "R "* | "P http://"* | "P https://"*)
       named=${line#? }
@@ -736,8 +749,9 @@ ghpr() {
 # what its words leave open:
 #   - a PR URL, or -R HOST/OWNER/NAME: nothing. Anything may come before it, so long as the reader
 #     can read the merge's words (not after eval, or env or sudo with a flag outside the reader's
-#     short list, as env -S and sudo -s parse them again: merge-reader.awk heads()), and a
-#     --body-file after it is written out in full (rule 12 cannot know the directory: cg_field).
+#     short list, as env -S and sudo -s parse them again: merge-reader.awk heads()); but a
+#     --body-file is read only after nothing or `cd <path>` alone, written out in full after a cd
+#     (rules 12 and 15 cannot know the directory, nor what wrote the file since: cg_field).
 #   - -R OWNER/NAME: the host, which gh takes from GH_HOST. Only `cd <path> && ` may come before it.
 #   - no repo (the bare number, gh api's {owner}/{repo}): the repository, from GH_REPO and the
 #     directory's remotes. Nothing may come before it, and the payload's cwd (the Bash tool's
@@ -1068,7 +1082,7 @@ if [ -n "${CHANGES_LEGACY:-}" ]; then
   . "$rec_lib"
   command -v change_is_legacy >/dev/null 2>&1 || block "$rec_lib did not define change_is_legacy, so CHANGES_LEGACY cannot be read."
 fi
-for f in open_tasks cg_build_tasks cg_trace cg_archives cg_trailers; do
+for f in open_tasks cg_build_tasks cg_trace cg_archives cg_trailers cg_body cg_field; do
   command -v "$f" >/dev/null 2>&1 || block "$cg_lib or $ch_lib did not define $f (a syntax error?), so rules 9–12 cannot be checked. Run: sh -n $cg_lib"
 done
 [ -n "$have_head" ] || block "cannot find PR #$pr's head $head_sha locally, so rules 9–12 cannot be evaluated. Run: git fetch origin pull/$pr/head"
@@ -1089,6 +1103,54 @@ if jq -e '.provenance.enabled == true' "$roles_json" >/dev/null 2>&1; then
   [ -z "$why" ] || block "rule 12: $why"
   say "rule 12: the squash body carries its provenance trailers."
 fi
+
+# Rule 15 — while attribution is off, a squash merge carries no Co-authored-by trailer (OPS-156).
+# A squash that sets no body gets GitHub's default, the branch's commit messages with their
+# trailers: that is how #289, #290 and #291, merged from Cursor, came to carry one. So a squash
+# names its body, a file (--body-file) or a literal --body read the same way (cg_body), and no line
+# of it is a Co-authored-by trailer: a line whose first word, past blanks, is the key, in any case,
+# then its colon. A mention inside a line (prose, a code span) is no trailer, and is allowed: the
+# squash body of this very rule's PR names the key. The switch is model-roles.json's
+# attribution.enabled, the one build-change reads (project-config.sh): off unless it is true, while
+# the file is there; a file that does not parse keeps the rule on. While it is off, ONLY a squash
+# merges: a merge commit or a rebase lands every branch commit as it is, trailers and all, and one
+# squash commit per PR is this model's convention anyway. gh pr merge names its method in words
+# (merge_argv's W lines; none at all is held as a squash, which gh requires anyway when it cannot
+# prompt); a gh api merge in its merge_method field (cg_field), and GitHub's default there is a
+# merge commit, so an API merge must say squash. Self-contained, so it moves to .claude/merge.sh
+# whole (ADR-0012, OPS-162): it needs cg_body and cg_field (lib/change-guard.sh) and the methods
+# merge_argv read.
+coauthor_why() {  # coauthor_why COMMAND CWD ROLES_JSON METHODS API: why to refuse; empty allows
+  [ -f "$3" ] || return 0
+  jq -e '.attribution.enabled == true' "$3" >/dev/null 2>&1 && return 0
+  _off="while attribution is off (.claude/model-roles.json)"
+  _fix="Write the squash body to a file with no Co-authored-by line and merge with: gh pr merge <n> --squash --delete-branch --body-file <file>"
+  if [ -n "$5" ]; then
+    _cm=$(cg_field "$1" "$2" method); _cmr=$?
+    case "$_cmr" in
+      0) _cm=$(printf '%s' "$_cm" | tr -d '[:space:]') ;;
+      1) _cm=merge ;;   # the API's default
+      *) echo "cannot read this gh api merge's merge_method, so whether it squashes cannot be checked; $_off only a squash merges. Pass it as plain text: -f merge_method=squash"; return ;;
+    esac
+    [ "$_cm" = squash ] || { echo "this gh api merge's method is '$_cm', not squash: a merge commit or a rebase lands every branch commit, Co-authored-by trailers and all, so $_off only a squash merges. Add -f merge_method=squash and a commit_message with no Co-authored-by line."; return; }
+  else
+    for _w in $4; do
+      [ "$_w" = squash ] || { echo "this merge uses --$_w, not --squash: a merge commit or a rebase lands every branch commit, Co-authored-by trailers and all, so $_off only a squash merges. $_fix"; return; }
+    done
+  fi
+  _cb=$(cg_body "$1" "$2"); _crc=$?
+  case "$_crc" in
+    0) ;;
+    1) echo "this squash merge sets no body, so GitHub writes its default: the branch's commit messages, Co-authored-by trailers and all, $_off. $_fix"; return ;;
+    3) echo "this merge names a relative --body-file after another command, which may have changed directory, so whether its body holds a Co-authored-by trailer cannot be checked. Write its path out in full, or run the merge on its own. $_fix"; return ;;
+    4) echo "this merge names a --body-file after a command other than cd <path>, or beside a redirect, which may write the file after this check reads it, so the body gh sends cannot be checked. Run the merge on its own (or after only cd <path> &&). $_fix"; return ;;
+    *) echo "cannot read this merge's body (a substitution in --body, or a --body-file that is not a readable regular file: stdin, /dev or /proc), so whether it holds a Co-authored-by trailer cannot be checked. $_fix"; return ;;
+  esac
+  _cl=$(printf '%s\n' "$_cb" | grep -Ein '^[[:space:]]*co-authored-by[[:space:]]*:' | head -n 1)
+  [ -z "$_cl" ] || echo "the squash body holds a Co-authored-by trailer (line ${_cl%%:*}: ${_cl#*:}), $_off. Remove the line from the body. $_fix"
+}
+why=$(coauthor_why "$cmd" "$(printf '%s' "$payload" | jq -r '.cwd // empty')" "$roles_json" "$ways" "$api_pr")
+[ -z "$why" ] || block "rule 15: $why"
 
 # Rule 13 — a model choice rests on evidence (OPS-10). The evals library is tested for, parsed and
 # proved complete before use, exactly as the change libraries above: a missing function's empty
