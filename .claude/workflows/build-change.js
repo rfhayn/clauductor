@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-change',
   description: 'Build an approved change group by group: the builder implements, the quick gate runs, an independent reviewer reviews, fixes repeat until severity converges, then one commit per group, a full gate receipt and the verify step',
-  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: <rounds; default .claude/review-cap.sh\'s cap>, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>"}. Before the run, a row\'s session runs session-start; the run\'s preflight runs its row step, sh .claude/skills/session-start/marker.sh (no arguments: it finds the branch\'s row and its session), itself. The changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, write the row\'s fragment, docs/journal.d/<row id>.md (session-close, A row\'s close), check it with sh .claude/checks/run.sh journal, run the full gate on the new head, then push and run /merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
+  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: <rounds; default .claude/review-cap.sh\'s cap>, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>"}. A build lane runs no session-start orientation (its first prompt is this workflow): once its preflight passes, the run runs the row\'s one session-start step itself, sh .claude/skills/session-start/marker.sh (no arguments: it finds the branch\'s row and its session). The changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, write the row\'s fragment, docs/journal.d/<row id>.md (session-close, A row\'s close), check it with sh .claude/checks/run.sh journal, run the full gate on the new head, then push and run /merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
   phases: [
     { title: 'Preflight', detail: 'branch, clean tree, open task groups' },
     { title: 'Build', detail: 'the builder agent implements one group' },
@@ -212,7 +212,6 @@ const PREFLIGHT = {
     gitDir: { type: 'string', description: 'verbatim output of git rev-parse --absolute-git-dir' },
     risk: { type: 'string', description: 'the value of proposal.md\'s **Risk:** line, verbatim; empty if there is none' },
     reviewCap: { type: 'string', description: 'the verbatim output (stdout and stderr) of sh .claude/review-cap.sh <change> --why' },
-    marker: { type: 'string', description: 'the verbatim output (stdout and stderr) of sh .claude/skills/session-start/marker.sh' },
     budgetUsd: { type: ['number', 'null'], description: 'budgetUsd from change-cost.sh --json, verbatim; null if it printed null or nothing' },
     budgetKind: { type: ['string', 'null'], description: 'budgetKind from change-cost.sh --json, verbatim (hard, soft, none or unreadable); null if it printed no budgetKind' },
     costUsd: { type: ['number', 'null'], description: 'costUsd from change-cost.sh --json; null if it could not check' },
@@ -230,7 +229,12 @@ const PREFLIGHT = {
       },
     },
   },
-  required: ['branch', 'clean', 'groups', 'gitDir', 'commonDir', 'toplevel', 'risk', 'budgetUsd', 'budgetKind', 'costUsd', 'economy', 'today', 'marker'],
+  required: ['branch', 'clean', 'groups', 'gitDir', 'commonDir', 'toplevel', 'risk', 'budgetUsd', 'budgetKind', 'costUsd', 'economy', 'today'],
+}
+const MARKER = {
+  type: 'object',
+  properties: { marker: { type: 'string', description: 'the verbatim output (stdout and stderr) of sh .claude/skills/session-start/marker.sh' } },
+  required: ['marker'],
 }
 const BUILD = {
   type: 'object',
@@ -326,7 +330,7 @@ GATE_WAIT = CFG.gateWait
 QUICK = CFG.quickFlags
 log(`Settings: branch ${BRANCH}, changes in ${CHANGES}/, gate ${GATE_CMD} (quick: ${QUICK || 'no flags'}; wait: ${GATE_WAIT}), provenance ${CFG.provenance ? 'on' : 'off'}, attribution ${CFG.attribution ? `'${CFG.attribution}'` : 'off'}`)
 const pre = await agent(
-  `Repo root is the cwd. Report, changing nothing but what step 10 says it may, and running every step:
+  `Repo root is the cwd. Report, changing nothing, and running every step:
 1. \`git rev-parse --abbrev-ref HEAD\` → branch.
 2. \`git status --porcelain\` → clean (true only if empty) and the dirty paths.
 3. Parse ${CHANGES}/${change}/tasks.md: every heading of the form "## <n>. <title>" is a group; count its "- [ ]" lines as openTasks.
@@ -336,22 +340,11 @@ const pre = await agent(
 7. \`cat ${ECONOMY_FILE} 2>/dev/null\` → economy: true only if that prints JSON whose "economy" is true; false otherwise (no file included).
 8. \`date +%Y-%m-%d\` → today.
 9. \`sh .claude/review-cap.sh ${change} --why 2>&1\` → reviewCap, verbatim, whatever its exit code.
-10. \`sh .claude/skills/session-start/marker.sh 2>&1\` (no arguments) → marker, its output verbatim, whatever its exit code; but only when step 1 printed ${BRANCH}: otherwise skip it and set marker to "marker: WARNING: not run, on a branch other than ${BRANCH}". The one step here that may change something: it opens or marks the row's draft PR.
 Read the files; do not infer.`,
   { label: 'preflight', phase: 'Preflight', schema: PREFLIGHT, ...ROLES.mechanic },
 )
 if (!pre) return stop('preflight', 'preflight agent returned nothing')
 if (pre.branch !== BRANCH) return stop('preflight', `on branch ${pre.branch}, expected ${BRANCH}`)
-// OPS-126: the row's draft-PR marker is run HERE, not left to the description: a build lane's first
-// prompt must start with /build-change (the panel's approval warning), so nothing else runs it.
-// The marker never fails a build; its warning reaches the owner with the outcome. marker.sh's
-// success lines are a closed set, so anything else (a WARNING, a shell error, a step the agent
-// skipped) is the warning, never taken for a marker.
-const markerLine = String(pre.marker || '').trim().split('\n').pop()
-log(`Marker: ${markerLine || 'printed nothing'}`)
-const MARKER_OK = /^marker: (opened \S+ as a draft|PR #\d+ already carries it|put first in PR #\d+'s body|no roadmap row is built on )/
-if (!MARKER_OK.test(markerLine)) report.warnings.push(!markerLine ? 'marker.sh printed nothing: the row has no session-start marker on its PR'
-  : /^marker: WARNING/.test(markerLine) ? markerLine : `marker.sh did not report a marker ("${markerLine}"): the row may have no session-start marker on its PR`)
 // The main checkout stays on main: every hook runs from "$CLAUDE_PROJECT_DIR", the main checkout,
 // so a build holding it on a change branch leaves every worktree agent guarded by that branch's
 // hooks, and worktree-hook-drift.sh then refuses every new worktree agent. The comparison is done
@@ -443,6 +436,22 @@ if (skipped.length) log(`Not running open groups ${skipped.map((g) => g.n).join(
 const before = RESUME == null ? [] : pre.groups.filter((g) => g.n < RESUME && g.openTasks > 0)
 if (before.length) log(`Not running open groups ${before.map((g) => g.n).join(', ')} (before resume group ${RESUME}); run them separately`)
 if (!todo.length) return stop('preflight', 'nothing to build: no open task groups matched')
+// OPS-126: the row's draft-PR marker is run HERE, not left to the description: a build lane's first
+// prompt must start with /build-change (the panel's approval warning), so nothing else runs it.
+// OPS-129: and only now, past every preflight stop, since it may push and open the draft PR,
+// which a run that then stopped would leave behind. The marker never fails a build; its warning
+// reaches the owner with the outcome. marker.sh's success lines are a closed set, so anything else
+// (a WARNING, a shell error, a step the agent skipped) is the warning, never taken for a marker.
+const mk = await spawn(
+  `Run this one step and report, changing nothing else:
+1. \`sh .claude/skills/session-start/marker.sh 2>&1\` (no arguments) → marker, its output verbatim, whatever its exit code. It may open or mark the row's draft PR.`,
+  { label: 'marker', phase: 'Preflight', schema: MARKER, ...CHEAP },
+)
+const markerLine = String((mk && mk.marker) || '').trim().split('\n').pop()
+log(`Marker: ${markerLine || 'printed nothing'}`)
+const MARKER_OK = /^marker: (opened \S+ as a draft|PR #\d+ already carries it|put first in PR #\d+'s body|no roadmap row is built on )/
+if (!MARKER_OK.test(markerLine)) report.warnings.push(!markerLine ? 'marker.sh printed nothing: the row has no session-start marker on its PR'
+  : /^marker: WARNING/.test(markerLine) ? markerLine : `marker.sh did not report a marker ("${markerLine}"): the row may have no session-start marker on its PR`)
 
 const ORCHESTRATOR_TASKS = `Tasks that call for a FULL gate run on HEAD, or a review of this group, are run by the orchestrating workflow after you: leave those unticked and do not run them.`
 const LOG = `Keep ${CHANGES}/${change}/tasks.md's log current, so a resumed run continues from the file: under "## Decision log" add one line (${pre.today}, group, the choice, the alternative, why) for each decision you took that design.md does not settle; if you stop before the group is done, add a line under "## Progress" saying what is finished and what is left. A decision that would CHANGE design.md is not yours: return design-issue.`

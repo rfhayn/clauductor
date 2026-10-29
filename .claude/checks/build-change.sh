@@ -307,6 +307,7 @@ async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {},
     if (label.startsWith('review:')) return reviews.shift()
     if (label.startsWith('commit:')) return { committed: true, sha: 'abc1234', costUsd: costs.length > 1 ? costs.shift() : costs[0] }
     if (label === 'verify') return { passed: true, output: 'ok' }
+    if (label === 'marker') return { marker: 'marker' in budget ? budget.marker : OPENED }
     throw new Error(`unexpected agent label ${label}`)
   }
   const body = SCRIPT.replace(/^export const meta\b/m, 'const meta')
@@ -434,7 +435,7 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('args.maxRounds overrides the printed cap', r.report.stoppedAt === 'group 3 review' && /after 1 rounds/.test(r.report.reason), [r.report.stoppedAt, r.report.reason])
   r = await run([], { args: { maxRounds: 2 }, budget: { reviewCap: 'ERROR: no cap' } })
   t('with args.maxRounds, a refusing review-cap.sh does not stop the run', r.report.stoppedAt === null, [r.report.stoppedAt, r.report.reason])
-  // The marker (OPS-126): the preflight runs marker.sh, and what it says reaches report.warnings.
+  // The marker (OPS-126): the run runs marker.sh past its preflight, and what it says reaches report.warnings.
   const markerWarned = (r) => r.report.warnings.some((w) => /^marker/.test(w))
   r = await run([])
   t('a marker that opened the draft PR adds no warning', r.report.stoppedAt === null && !markerWarned(r), r.report.warnings)
@@ -442,13 +443,28 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('a marker WARNING (its last line) reaches report.warnings verbatim, and the build goes on', r.report.stoppedAt === null && r.report.warnings.includes('marker: WARNING — gh is not installed; the session goes on without a marker'), r.report.warnings)
   r = await run([], { budget: { marker: '' } })
   t('a marker that printed nothing is a warning, not silence', r.report.stoppedAt === null && warned(r, 'marker.sh printed nothing'), r.report.warnings)
-  r = await run([], { budget: { marker: 'marker: WARNING: not run, on a branch other than change/demo' } })
-  t('a marker skipped off the branch is a warning too', warned(r, 'not run, on a branch other than'), r.report.warnings)
+  r = await run([], { budget: { branch: 'change/other' } })
+  t('off the change branch, the run stops before any marker runs', r.report.stoppedAt === 'preflight' && !r.calls.some((c) => /session-start\/marker\.sh/.test(c.prompt)), [r.report.stoppedAt, r.calls.map((c) => c.opts.label)])
   // Success is a closed set, not "anything but WARNING": a skipped step or a shell error warns.
   for (const bad of ['marker: skipped (preflight changes nothing)', 'sh: marker.sh: No such file or directory']) {
     r = await run([], { budget: { marker: bad } })
     t(`a marker line that is no success form warns, quoting it: ${bad}`, r.report.stoppedAt === null && warned(r, 'did not report a marker', bad), r.report.warnings)
   }
+  // OPS-129: the marker may push and open the draft PR, so it runs only once no preflight stop
+  // can follow: a run that stops at preflight has run no marker, and a run that goes on runs it
+  // pinned, after the preflight agent.
+  const ranMarker = (r) => r.calls.some((c) => /session-start\/marker\.sh/.test(c.prompt))
+  for (const [why, opts] of [['a dirty tree', { budget: { clean: false, dirtyFiles: ['x'] } }], ['the main checkout', { where: MAIN }], ['an unreadable cap', { budget: { reviewCap: 'ERROR: no cap' } }], ['no open group', { groups: [{ n: 1, title: 'Done', openTasks: 0 }] }]]) {
+    r = await run([], opts)
+    t(`a run that stops at preflight (${why}) runs no marker`, r.report.stoppedAt !== null && !ranMarker(r), [r.report.stoppedAt, r.calls.map((c) => c.opts.label)])
+  }
+  r = await run([])
+  const mi = r.calls.findIndex((c) => c.opts.label === 'marker')
+  t('a run past preflight runs the marker in its own pinned agent, after preflight, before any build', mi > r.calls.findIndex((c) => c.opts.label === 'preflight') && r.calls[mi].prompt.startsWith('Repo root: ') && !r.calls.slice(0, mi).some((c) => c.opts.label.startsWith('build:')), r.calls.map((c) => c.opts.label))
+  // OPS-129: the description names no step nothing runs: a build lane's first prompt is
+  // /build-change, so no session-start orientation runs, and only the marker, which the run runs.
+  const WHEN = (SCRIPT.match(/whenToUse: '((?:[^'\\]|\\.)*)'/) || [])[1] || ''
+  t('whenToUse claims no session-start run before the build, and names the marker the run runs', WHEN.includes('session-start/marker.sh') && !/runs session-start\b/.test(WHEN), WHEN.slice(0, 400))
   for (const good of ['marker: PR #7 already carries it (session-start: S1 2026-10-01 09:00 ET row DEMO-1)', "marker: put first in PR #7's body (session-start: S1 2026-10-01 09:00 ET row DEMO-1)", "marker: no roadmap row is built on 'change/demo', so this lane is no row's session; no marker"]) {
     r = await run([], { budget: { marker: good } })
     t(`a success form adds no warning: ${good.slice(0, 40)}`, !markerWarned(r), r.report.warnings)

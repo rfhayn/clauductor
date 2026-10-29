@@ -59,7 +59,7 @@ A phase is several changes. Decompose as you go, phase by phase.
   check that way in `## Outcome checks` below, and the queue lists it as DUE from that date.
 - **A session plan (optional)**: a `## Session plan` section holding one table,
   `| Session | When | Focus | Rows | The owner decides |`, whose Rows cell lists row ids,
-  comma-separated, each planned once (`ID (proposal)`: the session only proposes it, and it has
+  comma-separated, each planned once (`ID (proposal)`, a change row only: the session only proposes it, and it has
   landed once its proposal is on main; the same id may then be planned once more, in a later
   session, as its build; `A + B`: one PR titled by A closes both, and B is offered no lane while
   A is open). It orders the queued rows into working sessions;

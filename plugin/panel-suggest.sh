@@ -14,8 +14,10 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # session is the first not `(done)` with a row the roadmap does not show merged; it is offered once
 # every one of its rows is merged, or landed: named by a fragment on main (its file, or its
 # **Also closes**, lib/fragments.sh). With no plan, it is offered while any fragment waits, N one
-# past the journal's top session. No fragment waiting offers nothing. A planned `ID (proposal)`
-# lands with its proposal on main, since it writes no fragment (OPS-126).
+# past the journal's top session. A planned `ID (proposal)` lands with its proposal on main, since
+# it writes no fragment (OPS-126), so a session that only proposes is offered its close with no
+# fragment waiting, until the journal holds its entry (OPS-129). Otherwise no fragment waiting
+# offers nothing.
 # build, ops, propose (OPS-126): never a row a fragment on main names, nor a batch's later rows
 # (`A + B` in the plan: only A gets a lane).
 # It prints the panel's JSON: [{"name","title","detail","issue"}]. The rows come from
@@ -102,21 +104,30 @@ for f in "$tmp/frags"/*.md; do [ -f "$f" ] || continue; nf=$((nf + 1)); fragment
 
 if [ "$kind" = close ]; then
   top=$(sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' "$tmp/journal" 2>/dev/null | head -1)
-  [ "$nf" -gt 0 ] || { echo "[]"; exit 0; }
   # A planned `ID (proposal)` lands with its proposal on main (or archived): it writes no fragment.
   # It is counted per entry, never added to landed, so the same id's build entry still waits for
   # its own fragment.
   printf '%s\n' "$plan" | awk -F'\t' -v have=" $have $done_ids " 'NR == FNR { ch[$4] = $5; next }
     $1 == "R" && $6 == "proposal" && ($2 in ch) && index(have, " " ch[$2] " ") { print $2 }' "$tmp/tsv" - > "$tmp/proposed"
+  # Nothing to close: no fragment waits and no planned proposal has landed.
+  [ "$nf" -gt 0 ] || [ -s "$tmp/proposed" ] || { echo "[]"; exit 0; }
   if [ -s "$tmp/plan" ]; then
+    # The sessions the journal holds an entry for: a plain label's close has run (OPS-129).
+    { sed -n 's/^## Session \([0-9][0-9.]*\).*/S\1/p' "$tmp/journal" 2>/dev/null | sed 's/\.$//'; } > "$tmp/held"
     # The open session: the first not (done) with a planned row the roadmap does not show merged or
-    # cancelled, nor a proposal entry whose proposal has landed (as `waiting` below counts them).
+    # cancelled. A proposal entry whose proposal has landed keeps its session open only until that
+    # session's close has run (a plain label the journal holds), since its row stays queued for its
+    # build: a session that only proposes is offered its close with no fragment waiting (OPS-129).
+    # A spanning entry (`S15–S18`) is closed day by day while fragments wait, so it is never held.
     sess=$(printf '%s\n' "$plan" | awk -F'\t' 'FILENAME == ARGV[1] { if ($7 == "merged" || $7 == "cancelled") m[$4] = 1; next }
       FILENAME == ARGV[2] { p[$0] = 1; next }
+      FILENAME == ARGV[3] { held[$0] = 1; next }
       $1 == "S" && $4 !~ /\(done\)/ { order[++k] = $2; num[$2] = $3; next }
-      $1 == "R" && !($2 in m) && !($6 == "proposal" && ($2 in p)) { open[$3] = 1 }
-      END { for (i = 1; i <= k; i++) if (order[i] in open) { print order[i] "\t" num[order[i]]; exit } }' "$tmp/tsv" "$tmp/proposed" -)
+      $1 == "R" && !($2 in m) && !($6 == "proposal" && ($2 in p) && (($3 in held) || $3 !~ /^S[0-9]+(\.[0-9]+)*$/)) { open[$3] = 1 }
+      END { for (i = 1; i <= k; i++) if (order[i] in open) { print order[i] "\t" num[order[i]]; exit } }' "$tmp/tsv" "$tmp/proposed" "$tmp/held" -)
     s=$(printf '%s\n' "$sess" | cut -f1); n=$(( ${top:-0} + 1 ))
+    # With no fragment waiting, only a plain session's landed proposals are a close to offer.
+    if [ "$nf" -eq 0 ] && ! printf '%s\n' "$s" | grep -qE '^S[0-9]+(\.[0-9]+)*$'; then echo "[]"; exit 0; fi
     # The close's N is the one fold.sh and session-close name (OPS-108): the first plan session it
     # covers that no entry holds. A plain label is that session (`S4.5` folds Session 4.5); one the
     # journal already holds (an entry before it ran long), or a session no label names, takes one
@@ -137,7 +148,8 @@ if [ "$kind" = close ]; then
         FILENAME == ARGV[3] { p[$0] = 1; next }
         $1 == "R" && $3 == s && !($2 in d) && !($6 == "proposal" ? ($2 in p) : ($2 in l)) { print $2 }' "$tmp/tsv" "$tmp/landed" "$tmp/proposed" -)
       [ -z "$waiting" ] || { echo "[]"; exit 0; }
-      if [ "$n" = "${s#S}" ]; then title="Close $s: fold $nf fragment(s)"; else title="Close $s (session $n): fold $nf fragment(s)"; fi
+      what="fold $nf fragment(s)"; [ "$nf" -gt 0 ] || what="its proposals landed, no fragment to fold"
+      if [ "$n" = "${s#S}" ]; then title="Close $s: $what"; else title="Close $s (session $n): $what"; fi
     fi
   else
     n=$(( ${top:-0} + 1 )); title="Close session $n: fold $nf fragment(s)"

@@ -3,8 +3,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # roadmap-plan.sh: THE parser of the roadmap's optional `## Session plan` table, which orders the
 # queue's rows into working sessions. The panel's Up next (panel-suggest.sh) and a project's own
 # readers (Clauductor's roadmap tracker) call it, never a second copy of its grammar. The rows
-# themselves, and their states, come from roadmap_queue (lib/conf.sh): this script reads only the
-# plan's own table, whose header is not the queue header, so the queue parser skips it.
+# themselves, and their states, come from roadmap_queue (lib/conf.sh): this script parses only the
+# plan's own table, whose header is not the queue header, so the queue parser skips it, and asks
+# roadmap_queue for each row's kind (a `(proposal)` belongs to a change row).
 #
 #   sh .claude/roadmap-plan.sh FILE    the plan in FILE, as tab-separated records, in table order:
 #     S  session  order  when  focus  owner     a session (order: the first number in its name)
@@ -26,11 +27,21 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # header or cell count, a session planned twice, an id planned twice (beyond its proposal and its
 # build) or built before its proposal is an error (exit 1, each named on stderr), never a
 # shorter plan. No `## Session plan` section prints nothing and exits 0: the plan is optional.
+# So is `ID (proposal)` on an ops or fix row (OPS-129): it has no proposal to land, so its session's
+# close would wait for ever. That one rule reads each row's kind from the queue, through
+# roadmap_queue (the queue's one parser); an id the queue does not hold is not judged here.
 set -u
+ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+# shellcheck disable=SC1091
+. "$CLAUDUCTOR_FW/lib/conf.sh"
 f=${1:-}
 [ -n "$f" ] || { echo "usage: roadmap-plan.sh FILE" >&2; exit 2; }
 [ -f "$f" ] || { echo "roadmap-plan: $f is missing" >&2; exit 1; }
+tsv=$(roadmap_queue --tsv "$f" 2>&1) || { echo "roadmap-plan: the queue in $f did not parse, so no row's kind is known: $(printf '%s' "$tsv" | head -1)" >&2; exit 1; }
+# Through the environment: BSD awk refuses a newline in a -v value.
+RP_KINDS=$(printf '%s\n' "$tsv" | awk -F'\t' 'NF >= 6 { print $4 "\t" $6 }') \
 awk '
+BEGIN { n = split(ENVIRON["RP_KINDS"], kl, "\n"); for (i = 1; i <= n; i++) if (split(kl[i], kv, "\t") == 2) kind_of[kv[1]] = kv[2] }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function err(m) { printf "%s:%d: %s\n", FILENAME, NR, m > "/dev/stderr"; bad = 1 }
 /^## / { insec = ($0 ~ /^## Session plan[ \t]*$/); if (insec) found = 1; next }
@@ -65,6 +76,7 @@ function err(m) { printf "%s:%d: %s\n", FILENAME, NR, m > "/dev/stderr"; bad = 1
       # Once, or twice as the two sessions of a change: its `(proposal)`, then its build.
       if ((id SUBSEP kind) in where) { err(id " is planned in " where[id SUBSEP kind] " and " s); continue }
       if (kind != "" && ((id SUBSEP "") in where)) { err(id " is built in " where[id SUBSEP ""] " before its proposal in " s); continue }
+      if (kind != "" && (id in kind_of) && kind_of[id] != "change") { err(id " is a" (kind_of[id] ~ /^[aeiou]/ ? "n " : " ") kind_of[id] " row, which has no proposal to land: plan it without (proposal)"); continue }
       where[id SUBSEP kind] = s; printf "R\t%s\t%s\t%d\t%d\t%s\t%s\n", id, s, ord, ++pos, kind, lead
     }
   }
