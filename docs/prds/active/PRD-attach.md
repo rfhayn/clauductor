@@ -61,7 +61,8 @@ trust recorded against the config's path and content hash, wherever that file li
 5. **The records stay in the repository.** The roadmap, changes, `AGENTS.md` and the gate are the repository's.
    - Attach adds no sidecar for records, because the `no-clauductor` check holds that a repository works without
      Clauductor, and its people and CI read the rules from the repository.
-   - Only the panel's own config, and MAPS' routines registry (PRD-maps), may live beside it.
+   - Only the panel's own config, and MAPS' routines registry (PRD-maps; never built, since OPS-42 was cancelled on
+     2026-10-28), may live beside it.
 6. **Order:** PANEL-42 comes after the in-flight rows and before MAPS phase 1. The owner's standing answer to
    `/propose` step 0a (PRD-maps) names PANEL-42 too: it goes ahead of the approved PANEL-25, PANEL-30 and PANEL-31
    proposals, which keep their approval and wait.

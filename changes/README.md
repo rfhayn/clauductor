@@ -6,6 +6,11 @@ One directory per capability change that is proposed or in flight: `changes/<id>
 promoted into `specs/`. At most ONE change sits here proposed and unbuilt. To capture an idea for
 later, write a roadmap row instead.
 
+**A cancelled change is removed, not archived.** The PR that marks its row `❌ cancelled — <why>`
+also removes `changes/<id>/` (`git rm -r`): the row and git history are its record, and
+`archive/` holds only finished changes (`pr-merge-guard` rule 11). Left here, it reads as proposed
+and not yet built. `.claude/checks/changes.sh` fails a directory whose roadmap row is cancelled.
+
 **The fast path.** A diff that fits in one sentence (a typo, a bump, a one-line fix) gets no change
 directory: it goes to a `fix/` or `ops/` lane and `/merge-pr`. A change is for what alters what a
 user can do.

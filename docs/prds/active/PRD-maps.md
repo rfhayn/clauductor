@@ -5,8 +5,13 @@
 Each capability row is still proposed just in time and approved on its own `design.md`. This PRD gives direction;
 it does not approve a design.
 
-**Reduced on 2026-10-14 to Pulse** (OPS-71; see *Rescope* below). What remains of this PRD is the routines
-section (OPS-42, PANEL-37) and Today (PANEL-38), now built on the redesigned panel (`PRD-ui.md`). The rest is kept
+**Nothing of it remains to build (2026-10-28).** PANEL-37 (routines) and PANEL-38 (Today) were cancelled at the
+direction shift of 2026-10-27, since the browser panel goes; OPS-42 (the routines runner) was cancelled on
+2026-10-28 (OPS-149), since Claude Code schedules work itself (`/schedule`). Whether the terminal UI shows routines or a
+Today view is PRD-tui's (PANEL-60). The whole PRD, *Open* included, is kept as the record of what was decided.
+
+**Reduced on 2026-10-14 to Pulse** (OPS-71; see *Rescope* below). What remained of this PRD then was the routines
+section (OPS-42, PANEL-37) and Today (PANEL-38), to be built on the redesigned panel (`PRD-ui.md`). The rest was kept
 as the record of what was decided on 2026-10-12.
 
 ## Rescope (the owner, 2026-10-14)
