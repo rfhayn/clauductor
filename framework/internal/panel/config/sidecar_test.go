@@ -98,6 +98,8 @@ func TestSidecarCodeFlags(t *testing.T) {
 		{"sh", "-c"}, {"bash", "-c"}, {"bash", "-lc"}, {"zsh", "-c"}, {"dash", "-c"}, {"ksh", "-c"}, {"fish", "-c"},
 		// fish's long form of -c (an alias of a named form; tasks.md's decision log).
 		{"fish", "--command"}, {"fish", "--command=make"},
+		// fish's -C runs code before the script, as -c does (the owner, 2026-10-17; PANEL-47).
+		{"fish", "-C"}, {"fish", "-lC"}, {"fish", "--init-command"}, {"fish", "--init-command=make"},
 		{"python", "-c"}, {"python3", "-c"}, {"python3", "-m"}, {"python3.12", "-c"}, {"python3", "-Bc"}, {"python3", "-mhttp.server"},
 		{"node", "-e"}, {"node", "-p"}, {"node", "--eval"}, {"node", "--print=1"}, {"node", "--import"}, {"node", "-r"},
 		{"node", "--require"}, {"node", "--loader"}, {"node", "--experimental-loader"},

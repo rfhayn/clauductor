@@ -176,8 +176,10 @@ type codeFlag struct {
 }
 
 var codeFlagsOf = map[string]codeFlag{
-	"shell":     {letters: "c"},
-	"fish":      {letters: "c", long: []string{"--command"}}, // --command: fish's long form of -c
+	"shell": {letters: "c"},
+	// --command is fish's long form of -c; -C (--init-command) runs code before the
+	// script, so a script file would not make it safe (the owner, 2026-10-17).
+	"fish":      {letters: "cC", long: []string{"--command", "--init-command"}},
 	"python":    {letters: "cm"},
 	"node":      {letters: "epr", long: []string{"--eval", "--print", "--import", "--require", "--loader", "--experimental-loader"}},
 	"deno":      {letters: "ep", long: []string{"--eval", "--print"}},

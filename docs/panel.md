@@ -3226,7 +3226,8 @@ as a script.
   - The names are `sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`, `python`, `python3`,
     `python3.<n>`, `node`, `deno`, `bun`, `perl`, `ruby`, `php` and `osascript`. They are matched
     whole (`pythonic` is not Python), with case folded, since macOS runs `BASH` as bash.
-  - The flags: a shell's `-c`, also in a single-dash cluster (`-lc`), and fish's `--command`;
+  - The flags: a shell's `-c`, also in a single-dash cluster (`-lc`); fish's `--command`, and its
+    `-C` (also in a cluster) and `--init-command`, which run code before any script;
     Python's `-c` and `-m`; `-e`, `-p`, `--eval` and `--print` for node, deno and bun; node's
     `--import`, `-r`, `--require`, `--loader` and `--experimental-loader`; perl's `-e` and `-E`,
     ruby's `-e`, php's `-r` and osascript's `-e`.
@@ -3297,8 +3298,8 @@ the rule only holds a sidecar to the repository's own scripts. These are outside
 - what the repository's own content does: a script file, a Makefile target, a `package.json`
   script;
 - the environment the panel inherits (`PATH`, `CDPATH`, `OLDPWD`);
-- a program that runs code from a flag of its own, other than the interpreters above. These are
-  named, not closed:
+- what a program other than the interpreters above does with its own flags and words. The rule
+  closes none of these; the ones known are:
   - `ssh` runs its command on another machine;
   - `docker` runs an image's code, and can reach the host past the path rule (`--privileged`, a
     volume a compose file names). A literal host path in `--mount` or `-v` is judged as a path;

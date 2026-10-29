@@ -208,6 +208,43 @@ func TestAttachNeverOverwritesASidecar(t *testing.T) {
 	}
 }
 
+// PANEL-47: the command lines attach's refusals print run as printed. The home and
+// the root hold a space and a quote, so each path is one shell word only if quoted.
+func TestAttachRefusalsQuoteTheirCommandLines(t *testing.T) {
+	t.Parallel()
+	home := filepath.Join(signals.ResolvePath(t.TempDir()), "o'k home")
+	quoted := func(name string) string {
+		t.Helper()
+		root := newRepo(t, nil)
+		moved := filepath.Join(filepath.Dir(root), name)
+		if err := os.Rename(root, moved); err != nil {
+			t.Fatal(err)
+		}
+		return moved
+	}
+	// A working project: remove it, or add it with another config.
+	working := quoted("o'k web")
+	own := filepath.Join(working, config.DefaultConfigRel)
+	os.MkdirAll(filepath.Dir(own), 0o755)
+	os.WriteFile(own, []byte(`{"name":"Web"}`), 0o644)
+	if _, err := AddProject(context.Background(), AddOptions{Home: home, Project: working, Run: signals.ExecRunner, Strict: true}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := attach(t, home, working, "")
+	if want := "`clauductor panel remove web` first, or `clauductor panel add --project " + shq(working) + " --config <file>`"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("a working project's refusal does not say %q: %v", want, err)
+	}
+	// A sidecar there already: add it as it is.
+	other := quoted("o'k other")
+	path := config.SidecarPath(home, "other")
+	os.MkdirAll(filepath.Dir(path), 0o700)
+	os.WriteFile(path, []byte("someone else's"), 0o600)
+	_, err = attach(t, home, other, "other")
+	if want := "`clauductor panel add --project " + shq(other) + " --config " + shq(path) + "`"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("an existing sidecar's refusal does not say %q: %v", want, err)
+	}
+}
+
 // [ATTACH-1-S4] A registered project whose registry config is empty and whose
 // repository has no .clauductor/panel.json (it cannot load) is attached in place: the
 // same id and socket, its lane registry unchanged, and it loads.
