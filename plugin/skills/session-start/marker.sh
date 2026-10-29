@@ -90,7 +90,7 @@ if [ -n "$open" ]; then
 fi
 
 if [ "$(git -C "$ROOT" rev-list --count "origin/$MAIN_BRANCH..HEAD" 2>/dev/null)" = 0 ]; then
-  # From HEAD's tree, never the index: build-change's preflight runs this beside a resumed run's
+  # From HEAD's tree, never the index: build-change runs this, past its preflight, beside a resumed run's
   # staged, unreviewed work, which must stay uncommitted (OPS-126).
   c=$(git -C "$ROOT" commit-tree "HEAD^{tree}" -p HEAD -m "$rowid: Start the row's session ($sn)" 2>/dev/null) \
     && git -C "$ROOT" update-ref HEAD "$c" || warn "the empty marker commit failed"

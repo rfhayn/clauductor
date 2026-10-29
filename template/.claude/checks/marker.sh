@@ -115,7 +115,11 @@ out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESS
 [ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S12 .* row A-1$' \
   && ok "marker: with no arguments, the branch's row and the plan's session (S12)" || fail "marker: no arguments: exit $rc: $out; body: $(body | sed -n 1p)"
 # A row planned twice, its `(proposal)` then its build: the proposal's session until its proposal
-# exists, the build's after (OPS-126).
+# exists, the build's after (OPS-126). Only a change row has a proposal (roadmap-plan.sh refuses
+# one on an ops row, OPS-129), so A-1 becomes the change a-one, on its change branch.
+as_change() {
+  sed 's/`ops\/a-one`/`a-one`/' "$F/docs/roadmap.md" > "$F/r" && mv "$F/r" "$F/docs/roadmap.md" && git -C "$F" checkout -q -b change/a-one
+}
 for has in no yes; do
   setup
   cat >> "$F/docs/roadmap.md" <<'EOF'
@@ -126,7 +130,8 @@ for has in no yes; do
 | S11 | soon | propose it | A-1 (proposal) | — |
 | S12 | later | build it | A-1 | — |
 EOF
-  want=S11; [ $has = yes ] && { mkdir -p "$F/changes/ops/a-one"; echo x > "$F/changes/ops/a-one/proposal.md"; want=S12; }
+  as_change
+  want=S11; [ $has = yes ] && { mkdir -p "$F/changes/a-one"; echo x > "$F/changes/a-one/proposal.md"; want=S12; }
   out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
   [ $rc -eq 0 ] && body | sed -n 1p | grep -q "^session-start: $want .* row A-1$" \
     && ok "marker: a row planned as its proposal and its build, proposal $has: $want" || fail "marker: proposal and build, proposal $has: exit $rc: $out; body: $(body | sed -n 1p)"
@@ -141,7 +146,8 @@ cat >> "$F/docs/roadmap.md" <<'EOF'
 |---|---|---|---|---|
 | S11 | soon | propose it | A-1 (proposal) | — |
 EOF
-mkdir -p "$F/changes/ops/a-one"; echo x > "$F/changes/ops/a-one/proposal.md"
+as_change
+mkdir -p "$F/changes/a-one"; echo x > "$F/changes/a-one/proposal.md"
 out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
 [ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S10 .* row A-1$' \
   && ok "marker: a proposed row whose build is not planned yet takes the journal's count (S10)" || fail "marker: proposed, build unplanned: exit $rc: $out; body: $(body | sed -n 1p)"

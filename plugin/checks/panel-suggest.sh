@@ -282,6 +282,43 @@ for bad in '| 1.1, 1.5 (proposal) |::| 1.2 + 1.3, 1.5 (proposal) |' '| 1.1, 1.5 
   out=$(sh "$C/.claude/roadmap-plan.sh" "$C/r.bad" 2>&1 >/dev/null) && fail "the plan '$bad' parsed" \
     || case $out in *"planned in S5 and S6"* | *"built in S5 before its proposal in S6"*) ok "a plan error: $out" ;; *) fail "the plan '$bad' failed for another reason: $out" ;; esac
 done
+# OPS-129: an ops or fix row has no proposal to land, so its `(proposal)` would hold its session's
+# close for ever: a plan error, never a silent wait.
+sed 's/1\.2 + 1\.3 (proposal) |/1.2 + 1.3 |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+sh "$C/.claude/roadmap-plan.sh" "$C/docs/roadmap.md" >/dev/null 2>&1 && ok "a change row planned as its proposal parses" || fail "a change row's (proposal) was refused"
+awk '/^\| 1\.5 /{ print; print "| 1.4 | `fix/4-crash` — crash | s | — | ⬜ queued |"; next } { print }' "$C/docs/roadmap.md" > "$C/r.ok"
+for bad in '1.1 (proposal)::1.1 is an ops row' '1.4 (proposal)::1.4 is a fix row'; do
+  sed "s/| 1\.1, 1\.5 (proposal) |/| ${bad%%::*}, 1.5 (proposal) |/" "$C/r.ok" > "$C/r.bad"
+  out=$(sh "$C/.claude/roadmap-plan.sh" "$C/r.bad" 2>&1 >/dev/null); rc=$?
+  [ $rc -eq 1 ] && case $out in *"${bad##*::}"*"no proposal"*) true ;; *) false ;; esac \
+    && ok "a plan error: $out" || fail "'${bad%%::*}' on a row with no proposal parsed or failed otherwise (exit $rc): $out"
+done
+rm -f "$C/r.bad" "$C/r.ok"
+# OPS-129: a session that only proposes is offered its close once every proposal it plans is on
+# main, with no fragment waiting (a proposal writes none); once the journal holds its session, the
+# close has run, and it is not offered again.
+rm -f "$C/docs/journal.d/"*.md
+cat > "$C/docs/roadmap.md" <<'RM'
+## Phase 1 — Now
+| # | Change | Scope | Deps | Status |
+|---|---|---|---|---|
+| 1.5 | `add-p` — p | s | — | ⬜ queued |
+| 1.6 | `add-q` — q | s | — | ⬜ queued |
+## Session plan
+| Session | When | Focus | Rows | The owner decides |
+|---|---|---|---|---|
+| S5 | | propose | 1.5 (proposal), 1.6 (proposal) | — |
+| S6 | | build | 1.5, 1.6 | — |
+RM
+[ -f "$C/changes/add-p/proposal.md" ] && [ ! -d "$C/changes/add-q" ] || fail "the fixture should hold add-p's proposal and not add-q's"
+cnone && ok "close: a proposal-only session waits while one of its proposals is not on main" || fail "close with add-q unproposed printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+mkdir -p "$C/changes/add-q" && echo '**Status:** approved' > "$C/changes/add-q/proposal.md"
+[ "$(cnames)" = "session-5-close" ] && ok "close: a proposal-only session is offered its close once every proposal is on main, no fragment waiting" || fail "close with S5's proposals on main offered: $(cnames)"
+printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+cnone && ok "...and not once the journal holds Session 5 (its close ran), while S6's builds wait" || fail "close after Session 5 printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
+sed 's/^| S5 | |/| S5 | (done) |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
+cnone && ok "...nor once S5 is marked done, with no fragment waiting" || fail "close with S5 done printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
 
 # The preset panel config: every command it names exists in this project.
 pj="$ROOT/.clauductor/panel.json"
