@@ -2,12 +2,13 @@
 name: Team queue new row
 about: The bot team proposes a new roadmap row. It becomes a row only once the owner approves it.
 title: ""
-labels: team-queue, new-row
 ---
 
 <!--
 I apply the `approved` label myself, by hand, on github.com. Bots never apply it. The `new-row`
-label grants nothing: it says this item proposes a row, and nothing more.
+label grants nothing: it says this item proposes a row, and nothing more. This template applies
+no label: someone with triage rights adds `team-queue` and `new-row` by hand, so an issue a
+stranger files never reaches session start's listing on its own (OPS-155, the repository public).
 
 How Claude Code reads this issue (.claude/local/context.d/session-start/team-queue.sh, OPS-100):
 - Approval is the same as for every team-queue item (team-queue.md): the `approved` label, a

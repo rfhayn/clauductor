@@ -73,7 +73,7 @@ trust recorded against the config's path and content hash, wherever that file li
    - templates match its kinds of session.
 
    **Applying it** to the installed panel, which runs the owner's live Standing Tee lanes, waits for the owner's go.
-   **ST-6**, Damian's optional onboarding section, is a change in Standing Tee's repository and waits for the owner
+   **ST-6**, the designer's optional onboarding section, is a change in Standing Tee's repository and waits for the owner
    too.
 
 ## What PANEL-42's proposal settles
