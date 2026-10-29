@@ -34,8 +34,12 @@
 # says the label's source is unverifiable.
 # An author is a GATE, though, not evidence (OPS-166): an issue whose authorAssociation is not
 # OWNER, MEMBER or COLLABORATOR (a stranger's, once the repository is public; or one with no
-# association at all) is skipped, nothing of it read but its number, even if someone with triage
-# rights labels it. The listing counts the skipped in one line and never prints their titles;
+# association at all) is skipped, nothing of it read but its number. Since OPS-155 the issue
+# templates apply no label, so a stranger's issue reaches this query only when someone with
+# triage rights labels it `team-queue`; this skip closes that path. Left open: a triager who
+# labels many strangers' issues fills the 50 fetched (100 for --next-id), and writers' items past
+# that window go unread (the listing says how many are not shown, `--row` finds no such item,
+# `--next-id` refuses). The listing counts the skipped in one line and never prints their titles;
 # `--row` refuses such an item, and `--next-id` reads no Row line from one. MEMBER and
 # COLLABORATOR are GitHub's associations, not permissions: on an organization's repository either
 # may hold read access only; on a personal repository there are no members, and a collaborator
