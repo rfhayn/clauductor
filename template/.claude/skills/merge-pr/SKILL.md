@@ -161,7 +161,9 @@ Model: <that role's model, from model-roles.json>
 Session: <this session's id: $CLAUDE_CODE_SESSION_ID>
 ```
 
-and, if `attribution.enabled` is true, `attribution.trailer` as its last line. Then:
+and, if `attribution.enabled` is true, `attribution.trailer` as its last line. While it is false,
+no line of the body starts with `Co-authored-by:` (any case): rule 15 refuses one, and refuses a
+squash with no body, because GitHub's default body copies the branch commits' trailers. Then:
 ```bash
 gh pr merge <n> --squash --delete-branch --body-file <file>
 ```
