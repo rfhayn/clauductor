@@ -89,6 +89,9 @@ started from the panel's **New lane** (or by hand), on one branch:
     `settings.json`, and any command run with an approved sandbox bypass. The gate is one, since
     its process checks need `ps`, tmux and loopback, so a lane's gate runs the lane's own checks and
     tests. The controls are review before the gate and the approval itself (Clauductor's #307).
+    An entry matches only the script run alone, so a subagent lane, whose Bash starts in the main
+    checkout, runs `scripts/ci/gate.sh -C <worktree>` (and `scripts/ci/gate-wait.sh -C <worktree>`),
+    never `cd <worktree> && …` or a pipe: those run sandboxed and fail (`checks/settings.sh`).
     Seen 2026-10-28: a `git` command matching the `git *` entry was still refused `.git/config`,
     and that day's unsandboxed runs each went through an approved bypass, so what the entries do
     on their own is unverified (Clauductor's #307).

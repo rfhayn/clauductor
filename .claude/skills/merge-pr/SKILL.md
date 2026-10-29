@@ -68,6 +68,13 @@ guard reads receipts in every worktree's git dir. `--quick` writes no receipt; a
 uncommitted or untracked files writes one marked `dirty`, which the guard refuses. If you commit
 again, the receipt is stale: re-run.
 
+**A lane whose Bash starts in another checkout** (a subagent's every call starts in the main
+checkout) names its worktree rather than `cd`-ing to it: `scripts/ci/gate.sh -C <worktree>`, and
+`scripts/ci/gate-wait.sh -C <worktree>` if the tool backgrounds it. Run each alone, as written:
+`settings.json` lifts the sandbox only for the script run alone, so a change of directory before
+it, a pipe or a redirect runs the gate sandboxed, where its process checks fail. Never
+`dangerouslyDisableSandbox`.
+
 **A prose-only PR** (Markdown outside `.claude/`, `agents/`, `commands/`, the specs, and the files
 agents load, AGENTS.md, CLAUDE.md, CLAUDE.local.md and SKILL.md, in any case: a record, a roadmap
 row, a close) may run the docs gate instead, where `GATE_DOCS` is on in

@@ -98,6 +98,51 @@ check_settings() {  # check_settings FILE: prints ok/FAIL lines
   fi
 }
 
+# ── Every gate command an instruction gives runs outside the sandbox (OPS-161) ───────────────
+# An exclusion lifts the sandbox only for a command that IS the script: `P` exactly, `P *` with
+# arguments, and nothing chained, piped or redirected around it. A subagent lane's Bash starts in the
+# main checkout, so `cd <worktree> && <gate>` was the natural instruction, and it ran the gate
+# sandboxed, where `ps`, git's caches and the loopback name fail whatever the code does. The lane
+# form is `<gate> -C <worktree>`. This reads every command the agents' instructions give for the
+# gate or gate-wait (backticked, or a line of a fenced block, `<placeholder>`s filled with a path)
+# and matches it against settings.json's own list, so an instruction and the exclusion cannot part.
+excluded() {  # excluded SETTINGS CMD: CMD runs outside the sandbox by SETTINGS' excludedCommands
+  case $2 in *'&'* | *'|'* | *';'* | *'>'* | *'<'* | *'$('* | *'`'* | *'
+'*) return 1 ;; esac
+  jq -r '(.sandbox.excludedCommands // [])[]' "$1" | {
+    while IFS= read -r _e; do
+      case $_e in
+        *' *') case $2 in "${_e% \*} "?*) exit 0 ;; esac ;;
+        *) [ "$2" = "$_e" ] && exit 0 ;;
+      esac
+    done
+    exit 1
+  }
+}
+# gate_commands FILE...: FILE<TAB>command, for each span or fenced line that runs the gate or gate-wait.
+gate_commands() {
+  _gt=$(gate_cmd "$GATE"); [ -n "$_gt" ] || _gt=scripts/ci/gate.sh
+  _re=$(printf '%s\n%s\n' "$_gt" "$(gate_wait_path)" | sed 's/[].[\*^$]/\\&/g' | paste -sd'|' -)
+  awk '
+    /^[ \t]*```/ { fence = !fence; next }
+    fence { l = $0; sub(/[ \t]+#.*/, "", l); gsub(/^[ \t]+|[ \t]+$/, "", l); if (l != "") print FILENAME "\t" l; next }
+    { l = $0; while (match(l, /`[^`]+`/)) { print FILENAME "\t" substr(l, RSTART + 1, RLENGTH - 2); l = substr(l, RSTART + RLENGTH) } }
+  ' "$@" 2>/dev/null | grep -E "	(.*[[:space:];&|(])?(\\./)?($_re)([[:space:];&|)]|\$)"
+}
+check_lane_gates() {  # check_lane_gates SETTINGS FILE...: prints ok/FAIL lines
+  _s=$1; shift
+  _n=0
+  gate_commands "$@" > "$d/gatecmds"
+  while IFS='	' read -r _f _c; do
+    _n=$((_n + 1))
+    _x=$(printf '%s' "$_c" | sed 's|<[A-Za-z_-]*>|/abs/lane|g')
+    excluded "$_s" "$_x" || echo "FAIL ${_f#"$ROOT"/}: \`$_c\` matches no sandbox.excludedCommands entry: run as written, the gate runs sandboxed and its process checks fail. Name the checkout with -C instead of cd, and never pipe it"
+  done < "$d/gatecmds"
+  echo "ok   $_n gate command(s) in the instructions checked against sandbox.excludedCommands"
+  grep -q ' -C ' "$d/gatecmds" && echo "ok   an instruction gives the lane form, the gate with -C <worktree>" \
+    || echo "FAIL no instruction gives the lane form (\`<gate> -C <worktree>\`): a subagent lane is left to cd into its worktree, and its gate runs sandboxed"
+}
+
 # Self-test: the template's settings pass; each broken shape fails.
 st="$ROOT/.claude/settings.json"
 d=$(scratch)
@@ -151,4 +196,43 @@ selftest fail "GATE absolute (/abs/gate.sh), the settings naming only the defaul
 
 check_settings "$st" > "$d/real"
 cat "$d/real"; _fails=$((_fails + $(grep -c '^FAIL' "$d/real")))
+
+# The lane's gate commands, self-tested at the template's paths whatever this project's are: each
+# broken instruction fails, against settings that exclude both scripts bare and with arguments.
+jq -n '{sandbox: {excludedCommands: ["git *", "scripts/ci/gate.sh", "scripts/ci/gate.sh *", "scripts/ci/gate-wait.sh", "scripts/ci/gate-wait.sh *"]}}' > "$d/lane.json"
+lanes_at_template() {  # lanes_at_template SETTINGS FILE...: check_lane_gates with the template's gate paths
+  (GATE=scripts/ci/gate.sh; GATE_RUN=scripts/ci/run-local.sh; check_lane_gates "$@")
+}
+lanetest() {  # lanetest pass|fail LABEL LINE...: instructions holding LINEs after the lane form
+  _want=$1 _lbl=$2; shift 2
+  { printf 'Lane: `scripts/ci/gate.sh -C <worktree>`, then `scripts/ci/gate-wait.sh -C <worktree>`.\n'
+    printf '%s\n' "$@"; } > "$d/lane.md"
+  n=$(lanes_at_template "$d/lane.json" "$d/lane.md" | grep -c '^FAIL')
+  if [ "$_want" = pass ] && [ "$n" -eq 0 ]; then ok "lane self-test: $_lbl passes"
+  elif [ "$_want" = fail ] && [ "$n" -gt 0 ]; then ok "lane self-test: $_lbl fails"
+  else fail "lane self-test: $_lbl ($n FAIL line(s), want $_want)"; fi
+}
+lanetest pass "the lane form, a quick gate with -C, the bare gate" 'Run `scripts/ci/gate.sh -C <worktree> --quick` or `scripts/ci/gate.sh`.'
+lanetest pass "a fenced block naming the gate, with a comment" '```bash' 'scripts/ci/gate.sh -C <worktree>   # the full gate' '```'
+lanetest pass "a script of the same file name (tools/ci/gate.sh) is no gate" 'Run `cd x && sh tools/ci/gate.sh`.'
+lanetest fail "a gate started by cd (S16's lanes)" 'Run `cd <worktree> && scripts/ci/gate.sh`.'
+lanetest fail "a piped gate" 'Run `scripts/ci/gate.sh -C <worktree> | tail -n 40`.'
+lanetest fail "a gate-wait started by cd" 'Then `cd <worktree>; scripts/ci/gate-wait.sh`.'
+lanetest fail "a fenced cd && gate" '```' 'cd /abs/lane && scripts/ci/gate.sh' '```'
+lanetest fail "the gate as ./scripts/ci/gate.sh (no entry names it)" 'Run `./scripts/ci/gate.sh --quick`.'
+printf 'Run `scripts/ci/gate.sh`.\n' > "$d/nolane.md"
+lanes_at_template "$d/lane.json" "$d/nolane.md" | grep -q '^FAIL no instruction gives the lane form' \
+  && ok "lane self-test: instructions with no -C form fail" || fail "lane self-test: instructions with no -C form passed"
+jq '.sandbox.excludedCommands -= ["scripts/ci/gate.sh *"]' "$d/lane.json" > "$d/nostar.json"
+printf 'Lane: `scripts/ci/gate.sh -C <worktree>`.\n' > "$d/lane.md"
+n=$(lanes_at_template "$d/nostar.json" "$d/lane.md" | grep -c '^FAIL')
+[ "$n" -gt 0 ] && ok "lane self-test: the lane form fails once \`scripts/ci/gate.sh *\` leaves the settings" || fail "lane self-test: the lane form passed with no \`scripts/ci/gate.sh *\` entry"
+
+# The real instructions: what agents load, and the playbook. The model's copy is the project's, or
+# the plugin's (CLAUDUCTOR_FW).
+FW=${CLAUDUCTOR_FW:-$ROOT/.claude}
+set -- "$FW"/skills/*/SKILL.md "$FW"/agents/*.md
+for f in "$ROOT/AGENTS.md" "$ROOT/docs/playbook.md" "$ROOT/docs/conventions.md"; do [ -f "$f" ] && set -- "$@" "$f"; done
+check_lane_gates "$st" "$@" > "$d/lanes"
+cat "$d/lanes"; _fails=$((_fails + $(grep -c '^FAIL' "$d/lanes")))
 finish
