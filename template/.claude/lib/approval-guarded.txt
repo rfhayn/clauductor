@@ -22,6 +22,7 @@
 .claude/archive-change.sh
 .claude/review-cap.sh
 .claude/change-cost.sh
+.claude/quota-gate.sh
 .claude/project-config.sh
 .claude/roadmap-queue.sh
 .claude/owner-queue.sh
