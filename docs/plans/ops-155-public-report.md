@@ -56,7 +56,7 @@ would not do*.
 | 7 | `docs/owner-queue.md:23` | The LLC and trademark filing (moot since open source) | **Keep** (ticked, moot) | Keep |
 | 8 | `docs/owner-queue.md:26`, `:27`, `:28`, `:31`; `docs/development-journal.md:39`, `:271`, `:2369`; `.claude/local/context.d/session-start/team-queue.sh`; `.claude/local/skills/*/team-queue.md` | The retired bot team (a COO and a CLO role) and its queue | **Keep** the records. See section 4 for the live part | Keep; the live part is fixed in this PR (section 4) |
 | 9 | `.claude/modules/artifacts/README.md:24` (and its copies in `template/` and `plugin/`) | A claude.ai artifact address with a real-looking id, as the example of a registry entry | **Redact** to a placeholder: it ships with the template | **Done in this PR:** `EXAMPLEEXAMPLEEXAMPLE0` in all three copies (the plugin rebuilt), and `local:roadmap-tracker`'s exemption for the module's sample id follows it. History keeps the old id |
-| 10 | 156 of 233 PR bodies and 4 of 88 issue bodies (counted 2026-10-29; no PR body holds an artifact link), 24 commit messages (5 on `main`); 188 PR bodies also end in a "Generated with Claude Code" line | claude.ai session links (the attribution lines) | **Edit the PR and issue bodies before the flip** (revised 2026-10-29, the orchestrator's recommendation): they become public with the repository, and this repo turns attribution off. A link opens only for the owner's account, but it names a private session. PR and issue bodies can be edited; commit messages cannot, so those 24 stay | Not yet ruled: the first recommendation (keep) was revised after the rulings. #323's own body carries none |
+| 10 | 156 of 233 PR bodies and 4 of 88 issue bodies (counted 2026-10-29; no PR body holds an artifact link), 24 commit messages (5 on `main`); 188 PR bodies also end in a "Generated with Claude Code" line | claude.ai session links (the attribution lines) | Edit the PR and issue bodies before the flip (revised 2026-10-29): they become public with the repository, and this repo turns attribution off | **Keep, no scrub** (the owner, 2026-10-29): a link opens only for the owner's signed-in account; GitHub keeps a body's edit history anyway; and the 24 in commit messages cannot be edited. From now on a PR body carries neither line (#323's carries none) |
 | 11 | `docs/plans/direction-shift.md:13` | Andrew Baker's Ghostty Dock, credited with its public source | **Keep** | Keep |
 
 Searched and **not found** in the tree: an email address other than placeholders and a font
@@ -146,9 +146,6 @@ owner's, at github.com and on the Mac:
 
 1. `git config user.email` to the GitHub noreply address, on each machine that commits (item 1).
 2. Merge this PR, so the issue templates stop labelling before strangers can file.
-3. Decide item 10: strip the session links (and the "Generated with" lines) from the 156 PR and
-   4 issue bodies, or let them go public. An edit on GitHub is outward, so it runs on the owner's
-   go.
 
 **After the flip**
 
