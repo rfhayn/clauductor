@@ -340,6 +340,10 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 			continue
 		}
 		for i, w := range want {
+			if w.heredoc != got[i].heredoc {
+				t.Errorf("checks/%s: script %d is a heredoc in one copy and a printf in the other: the pairing is off", name, i+1)
+				break
+			}
 			if w.heredoc {
 				docs++
 				caller = caller || strings.Contains(w.text, "health_coauthor")
