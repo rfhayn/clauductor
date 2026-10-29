@@ -1,6 +1,6 @@
 # OPS-86 — ADR-0012, accepted: one merge path in place of a parser of shell text
 
-- **PR**: #TBD
+- **PR**: #324
 - **Session**: S16, started 2026-10-29 10:32 ET
 - **Review**: 2 rounds, peak medium, cap 3 (round 1 medium, round 2 low; all lows fixed)
 - **Gate**: CANNOT CHECK — the lane stopped before the gate on the lead's instruction (a worktree gate is broken in this sandbox)
