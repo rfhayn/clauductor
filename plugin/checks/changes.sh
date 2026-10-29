@@ -114,6 +114,14 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   rsoft() { edit docs/roadmap.md 's/Budget: \$15 |/Budget: $15, soft |/'; }
   mk softbudget; new_repo "$F"; psoft; case_bad "a soft budget on a proposal whose row's is hard" "only the owner makes a budget soft, on the row on disk"
   mk bothsoft; new_repo "$F"; psoft; rsoft; case_ok "a soft budget whose row's is soft ('Budget: \$15, soft'), in a repository with no remote"
+  # A soft budget with no row to hold it to fails; a hard one does not need one.
+  mk softnorow; new_repo "$F"; psoft; rsoft; edit $C/proposal.md '/^\*\*Roadmap row:\*\*/d'
+  case_bad "a soft proposal whose **Roadmap row:** line is dropped" "names no **Roadmap row:**"
+  mk softrenamed; new_repo "$F"; psoft; rsoft; edit $C/proposal.md 's/^\*\*Roadmap row:\*\* .*/**Roadmap row:** 9.9/'
+  case_bad "a soft proposal whose **Roadmap row:** names no row" "no row 9.9 is in"
+  mk softnobudget; new_repo "$F"; psoft; edit docs/roadmap.md 's/ · Budget: \$15 |/ |/'
+  case_bad "a soft proposal whose row has no budget" "row 1.1 has no Budget on disk"
+  mk hardnorow; edit $C/proposal.md '/^\*\*Roadmap row:\*\*/d'; case_ok "a hard proposal whose **Roadmap row:** line is dropped"
   mk rowsoft; rsoft; case_bad "a hard budget on a proposal whose row's is soft" "has 'Budget: \$15, soft' on disk, proposal.md says '\$15'"
   # The row as main has it: a branch that marks its own row soft too does not pass.
   onmain() { new_repo "$F"; git -C "$F" add -A && git -C "$F" commit -qm main && git -C "$F" update-ref "refs/remotes/origin/$MAIN_BRANCH" HEAD; }
@@ -362,9 +370,18 @@ for c in "$dir"/*/; do
     budget_row() { printf '%s\n' "$1" | awk -F'\t' -v r="$row" '$4 == r { print ($11 == "" ? "-" : $11 " " (NF >= 16 && $16 != "" ? $16 : "hard") " " NF); exit }'; }
     rb="" rsrc="on origin/$MAIN_BRANCH"
     [ -z "$row" ] || [ -z "$budget_main_tsv" ] || rb=$(budget_row "$budget_main_tsv")
-    if [ -n "$row" ] && [ -n "$budget_gap" ] && [ "${budget#* }" = soft ]; then
+    # A soft budget with no row to hold it to fails: dropping or renaming the **Roadmap row:** line
+    # (outside the design hash) must not turn the check off. A hard one is the kind that stops.
+    bsoft=""; [ "${budget#* }" = soft ] && bsoft=1
+    if [ -n "$bsoft" ] && [ -z "$row" ]; then
+      fail "$id: a soft budget needs its roadmap row's 'Budget: \$<dollars>, soft', and proposal.md names no **Roadmap row:**"
+    elif [ -n "$bsoft" ] && [ -n "$budget_gap" ]; then
       rb="" ; fail "$id: its soft budget cannot be held to roadmap row $row as origin/$MAIN_BRANCH has it: $budget_gap"
-    else [ -n "$rb" ] || [ -z "$row" ] || [ -z "$roadmap_tsv" ] || { rb=$(budget_row "$roadmap_tsv"); rsrc="on disk"; }; fi
+    else
+      [ -n "$rb" ] || [ -z "$row" ] || [ -z "$roadmap_tsv" ] || { rb=$(budget_row "$roadmap_tsv"); rsrc="on disk"; }
+      if [ -n "$bsoft" ] && [ -z "$rb" ]; then fail "$id: a soft budget needs its roadmap row's 'Budget: \$<dollars>, soft', and no row $row is in $ROADMAP (on origin/$MAIN_BRANCH or on disk)"
+      elif [ -n "$bsoft" ] && [ "$rb" = - ]; then fail "$id: a soft budget needs its roadmap row's 'Budget: \$<dollars>, soft', and row $row has no Budget $rsrc"; fi
+    fi
     if [ -n "$rb" ] && [ "$rb" != - ]; then
       rcols=${rb##* }; rb=${rb% *}
       want="\$${rb% *}"; [ "${rb#* }" = soft ] && want="$want, soft"
