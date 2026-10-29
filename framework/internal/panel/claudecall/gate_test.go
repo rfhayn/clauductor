@@ -398,11 +398,40 @@ func TestGateCloseKillsAClaudeThatKeepsForking(t *testing.T) {
 		// SIGTERM: a kill before those would leave no line naming both.
 		waitCalls(t, g, "the SIGTERM", 1, func(c call) bool { return c.stopped && c.term })
 		g.Close(20 * time.Millisecond)
-		if cs := g.calls(); len(cs) != 1 || !ended(cs[0]) {
+		cs := g.calls()
+		if len(cs) != 1 || !ended(cs[0]) {
 			t.Fatalf("shutdown %d: the call had not ended when Close returned: %+v", i, cs)
+		}
+		if err := syscall.Kill(-cs[0].pid, 0); !errors.Is(err, syscall.ESRCH) {
+			t.Fatalf("shutdown %d: the call's group outlived Close (kill -0: %v)", i, err)
 		}
 		if lines := stopLines(t, home); len(lines) != 1 || !slices.Equal(lines[0].Signals, []string{"SIGTERM", "SIGKILL"}) {
 			t.Fatalf("shutdown %d: stopped-call lines when Close returned: %+v", i, lines)
+		}
+	}
+}
+
+// A call ends only once nothing of its claude's group is left, though nothing holds
+// its output (#318): a child forked as the group's kill lands can miss it (macOS), so
+// the kill goes on until the group is gone, not only until the output ends. This
+// group forks all the time, its output elsewhere; one kill missed about one run in
+// six. Its loop ends by itself, so a run that fails leaves nothing for long.
+func TestGateCallEndsOnlyOnceItsGroupIsGone(t *testing.T) {
+	fakeProgram(t, "claude", "(i=0; while [ $i -lt 400 ]; do sleep 2 & sleep 0.005; i=$((i+1)); done) >/dev/null 2>&1 &\nsleep 0.1\nexit 0\n")
+	for i := 0; i < 30; i++ {
+		g, _ := newGate(t, signals.ExecRunner, Reader{}, clock.System)
+		ctx, cancel := context.WithTimeout(context.Background(), testwait.Scale(30*time.Second))
+		_, err := g.Run(ctx, t.TempDir(), agentsArgv)
+		cancel()
+		if err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+		cs := g.calls()
+		if len(cs) != 1 || !ended(cs[0]) {
+			t.Fatalf("run %d: the call had not ended when Run returned: %+v", i, cs)
+		}
+		if err := syscall.Kill(-cs[0].pid, 0); !errors.Is(err, syscall.ESRCH) {
+			t.Fatalf("run %d: the claude's group outlived its call (kill -0: %v)", i, err)
 		}
 	}
 }

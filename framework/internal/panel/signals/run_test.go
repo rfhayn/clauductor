@@ -71,10 +71,50 @@ exit 0`
 	if out.String() != "written\n" {
 		t.Fatalf("output %q, want what the claude wrote before it exited", out.String())
 	}
-	if took < bound || took > bound+testwait.Scale(10*time.Second) {
-		t.Fatalf("returned %v after the start, want the bound %v after the exit", took, bound)
+	if took < bound {
+		t.Fatalf("returned %v after the start, before the bound %v", took, bound)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "left")); err != nil {
 		t.Fatalf("the holder never left the group: %v", err)
+	}
+}
+
+// A command other than claude, SIGKILLed at its timeout, returns within
+// commandWaitDelay though a child it started still holds its output: Wait read the
+// pipes until every holder had closed them, so a `git fetch` whose remote helper
+// held stderr outlived its timeout without bound. The child shares the panel's group,
+// so it is left alone (ADR-0005); it ends when the test releases it.
+func TestExecRunnerBoundsAKilledCommandsHeldOutput(t *testing.T) {
+	dir := t.TempDir()
+	started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
+	script := `(i=0; while [ ! -e "$1" ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done) &
+echo started > "$0"
+while :; do sleep 0.1; done`
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() {
+		_, err := ExecRunner(ctx, dir, []string{"sh", "-c", script, started, release})
+		errc <- err
+	}()
+	deadline := time.Now().Add(testwait.Scale(10 * time.Second))
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the command never started its child")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-errc:
+		if err == nil {
+			t.Fatal("a command killed at its timeout returned no error")
+		}
+	case <-time.After(commandWaitDelay + testwait.Scale(10*time.Second)):
+		t.Fatal("ExecRunner never returned: it waited for the child that holds the output")
 	}
 }
