@@ -209,8 +209,11 @@ has "5 team-queue issue(s) from authors without write access skipped" "authors: 
 [ "$(printf '%s\n' "$out" | grep -c '^#')" = 11 ] && ok "authors: the skipped line has its room in the size budget (11 items shown)" \
   || fail "authors: $(printf '%s\n' "$out" | grep -c '^#') items shown, want 11"
 has "... and 34 more not shown (the listing stops near 2,000 characters; at most 50 are fetched)." "authors: ...and the skipped are not counted again as not shown"
+# The 1,900 cap alone keeps any listing under about 1,950 characters, with or without the room the
+# skipped line takes (12 items in 1,910 without it), so the count of 11 above is what checks the
+# room; for this fixture, at most 1,800 (11 items in 1,771) fails without it too.
 sz=$(printf '%s\n' "$out" | wc -m | tr -d ' ')
-[ "$sz" -le 2000 ] && ok "authors: the listing with a skipped line stays within 2,000 characters ($sz)" || fail "authors: the listing is $sz characters"
+[ "$sz" -le 1800 ] && ok "authors: this listing with a skipped line takes at most 1,800 characters ($sz; 1,910 without the line's room)" || fail "authors: the listing is $sz characters, want at most 1,800"
 case $out in *STRANGER-MARKER*) fail "authors: a skipped item's title was printed past the cut" ;; *) ok "authors: ...and no skipped title is printed" ;; esac
 
 # --hash prints the hash the listing compares, for whoever composes an item.
