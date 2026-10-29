@@ -349,13 +349,18 @@ health_coauthor() {
     { i = index($0, "\037"); if (!i) next
       n = split(substr($0, i + 1), L, "\n")
       for (k = 1; k <= n; k++) if (tolower(L[k]) ~ /^[[:space:]]*co-authored-by[[:space:]]*:/) { print substr($0, 1, i - 1); break } }')
+  _hc_top=$(git -C "$ROOT" rev-parse --short "$_hc_tip")
   if [ -z "$_hc_bad" ]; then
-    echo "OK no Co-authored-by on $_hc_main ($(git -C "$ROOT" rev-parse --short "$_hc_tip")) since $_hc_since ($_hc_how): $_hc_n commit(s) read"
+    echo "OK no Co-authored-by on $_hc_main ($_hc_top) since $_hc_since ($_hc_how): $_hc_n commit(s) read"
     return 0
   fi
-  _hc_newest=$(printf '%s\n' "$_hc_bad" | head -n 1); _hc_newest=${_hc_newest%% *}
+  # The two fixes that clear it. A revert is not one: it adds a commit, and the trailer's commit
+  # stays in the range. Keeping them as history names the tip, which every listed commit precedes;
+  # the newest offender would not cover one on a parallel branch merged after it.
+  # printf, never echo: a title is data, and echo reads its backslashes (\c ends the line).
   printf '%s\n' "$_hc_bad" | head -n 10 | while IFS= read -r _hc_l; do
-    echo "FAILED Co-authored-by on $_hc_main in ${_hc_l%% *} \"${_hc_l#* }\" while attribution is off (.claude/model-roles.json), since $_hc_since ($_hc_how): revert or amend it (the owner's call; an amend rewrites $MAIN_BRANCH), or keep it as history with COAUTHOR_HEALTH_SINCE=$_hc_newest in .claude/project.conf"
+    printf 'FAILED Co-authored-by on %s in %s "%s" while attribution is off (.claude/model-roles.json), since %s (%s): rewrite %s to drop it (amend and force-push: the owner'"'"'s call), or keep it as history with COAUTHOR_HEALTH_SINCE=%s in .claude/project.conf\n' \
+      "$_hc_main" "${_hc_l%% *}" "${_hc_l#* }" "$_hc_since" "$_hc_how" "$MAIN_BRANCH" "$_hc_top"
   done
   _hc_more=$(( $(printf '%s\n' "$_hc_bad" | wc -l) - 10 ))
   [ "$_hc_more" -le 0 ] || echo "FAILED Co-authored-by on $_hc_main in $_hc_more more commit(s) since $_hc_since, not listed (git log $_hc_since..$_hc_main)"
