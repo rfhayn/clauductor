@@ -108,7 +108,7 @@ change the workflow file in its own PR and run what it likes on GitHub's runner,
   nor `local:team-queue` reads the templates' front matter, so neither needed a change. **Skipping
   issues from authors without write access** is not a small change: the query, its completeness
   checks and the check's fixtures all change, with a fixture shown failing first. It is queued as
-  **OPS-160**. Until then, a triager labelling an outsider's issue is the one path left.
+  **OPS-166**. Until then, a triager labelling an outsider's issue is the one path left.
 - **Open PR titles from forks** reach the same context through `lib/context.sh`. The approval setting above limits what a fork's PR runs, not its title.
 - **The free minutes.** Standard GitHub-hosted runners (Ubuntu and macOS) are free for a public
   repository, which is what lets OPS-98 come before 2026-11-01.
