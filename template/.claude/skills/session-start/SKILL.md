@@ -59,7 +59,9 @@ run `sh .claude/skills/session-start/context.sh` yourself and read the result be
   origin/main` then `EnterWorktree` there before starting `/build-change`, and stay there until it
   returns: a workflow agent takes the session's cwd when it starts); at most one proposal ahead;
   fix and ops lanes (`BRANCH_FIX`, `BRANCH_OPS`) in their own worktrees when they share no files. Take summaries from
-  lanes rather than reading their files. When a lane frees up, offer the next queue row.
+  lanes rather than reading their files. When a lane frees up, offer the next queue row. Before
+  starting any lane, run `sh .claude/quota-gate.sh`: on a non-zero exit start none and tell the
+  owner its line (build-change's preflight runs it too); a "no reading" line goes on, said aloud.
 - **Price a request before you relay it to a running lane.** Before passing an owner request to a
   lane that is already working, tell the owner in two or three lines: which lane, its rough cost
   (tokens or time, extra review rounds), what it displaces or delays, and whether it lands in a

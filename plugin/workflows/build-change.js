@@ -1,9 +1,9 @@
 export const meta = {
   name: 'build-change',
   description: 'Build an approved change group by group: the builder implements, the quick gate runs, an independent reviewer reviews, fixes repeat until severity converges, then one commit per group, a full gate receipt and the verify step',
-  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: <rounds; default .claude/review-cap.sh\'s cap>, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>"}. Before the run, a row\'s session runs session-start; the run\'s preflight runs its row step, clauductor-model skills/session-start/marker.sh (no arguments: it finds the branch\'s row and its session), itself. The changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, write the row\'s fragment, docs/journal.d/<row id>.md (session-close, A row\'s close), check it with clauductor-model checks/run.sh journal, run the full gate on the new head, then push and run /merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
+  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: <rounds; default .claude/review-cap.sh\'s cap>, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>", overrideQuota?: true (the owner\'s call: start past a STOP from .claude/quota-gate.sh, with a warning)}. Before the run, a row\'s session runs session-start; the run\'s preflight runs its row step, clauductor-model skills/session-start/marker.sh (no arguments: it finds the branch\'s row and its session), itself. The changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, write the row\'s fragment, docs/journal.d/<row id>.md (session-close, A row\'s close), check it with clauductor-model checks/run.sh journal, run the full gate on the new head, then push and run /merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
   phases: [
-    { title: 'Preflight', detail: 'branch, clean tree, open task groups' },
+    { title: 'Preflight', detail: 'branch, clean tree, open task groups, the quota gate' },
     { title: 'Build', detail: 'the builder agent implements one group' },
     { title: 'Gate', detail: 'the quick gate on the working tree' },
     { title: 'Review', detail: 'the reviewer agent, fix until peak severity converges' },
@@ -213,6 +213,7 @@ const PREFLIGHT = {
     risk: { type: 'string', description: 'the value of proposal.md\'s **Risk:** line, verbatim; empty if there is none' },
     reviewCap: { type: 'string', description: 'the verbatim output (stdout and stderr) of clauductor-model review-cap.sh <change> --why' },
     marker: { type: 'string', description: 'the verbatim output (stdout and stderr) of clauductor-model skills/session-start/marker.sh' },
+    quotaGate: { type: 'string', description: 'the verbatim output (stdout and stderr) of clauductor-model quota-gate.sh, then a last line "exit <its exit code>"' },
     budgetUsd: { type: ['number', 'null'], description: 'budgetUsd from change-cost.sh --json, verbatim; null if it printed null or nothing' },
     budgetKind: { type: ['string', 'null'], description: 'budgetKind from change-cost.sh --json, verbatim (hard, soft, none or unreadable); null if it printed no budgetKind' },
     costUsd: { type: ['number', 'null'], description: 'costUsd from change-cost.sh --json; null if it could not check' },
@@ -230,7 +231,7 @@ const PREFLIGHT = {
       },
     },
   },
-  required: ['branch', 'clean', 'groups', 'gitDir', 'commonDir', 'toplevel', 'risk', 'budgetUsd', 'budgetKind', 'costUsd', 'economy', 'today', 'marker'],
+  required: ['branch', 'clean', 'groups', 'gitDir', 'commonDir', 'toplevel', 'risk', 'budgetUsd', 'budgetKind', 'costUsd', 'economy', 'today', 'marker', 'quotaGate'],
 }
 const BUILD = {
   type: 'object',
@@ -336,12 +337,28 @@ const pre = await agent(
 7. \`cat ${ECONOMY_FILE} 2>/dev/null\` → economy: true only if that prints JSON whose "economy" is true; false otherwise (no file included).
 8. \`date +%Y-%m-%d\` → today.
 9. \`clauductor-model review-cap.sh ${change} --why 2>&1\` → reviewCap, verbatim, whatever its exit code.
-10. \`clauductor-model skills/session-start/marker.sh 2>&1\` (no arguments) → marker, its output verbatim, whatever its exit code; but only when step 1 printed ${BRANCH}: otherwise skip it and set marker to "marker: WARNING: not run, on a branch other than ${BRANCH}". The one step here that may change something: it opens or marks the row's draft PR.
+10. \`clauductor-model quota-gate.sh 2>&1; echo "exit $?"\` → quotaGate, its output verbatim with that last exit line, whatever the exit code.
+11. \`clauductor-model skills/session-start/marker.sh 2>&1\` (no arguments) → marker, its output verbatim, whatever its exit code; but only when step 1 printed ${BRANCH}: otherwise skip it and set marker to "marker: WARNING: not run, on a branch other than ${BRANCH}".${args.overrideQuota === true ? '' : ' Skip it too when step 10 printed a line starting "quota-gate: STOP" or "quota-gate: ERROR", or exited other than 0, and set marker to "marker: WARNING: not run, the quota gate stopped the run".'} The one step here that may change something: it opens or marks the row's draft PR.
 Read the files; do not infer.`,
   { label: 'preflight', phase: 'Preflight', schema: PREFLIGHT, ...ROLES.mechanic },
 )
 if (!pre) return stop('preflight', 'preflight agent returned nothing')
 if (pre.branch !== BRANCH) return stop('preflight', `on branch ${pre.branch}, expected ${BRANCH}`)
+// OPS-167: a new build starts only below the quota threshold (.claude/quota-gate.sh, over the status
+// line's reading). Decided HERE from the script's own words and exit line, never an agent's verdict:
+// a STOP or an ERROR, or any non-zero exit, stops the run for the owner (args.overrideQuota, the
+// owner's call, turns it into a warning). "no reading" fails open, as the script does, and says so;
+// output in no known form is a warning that the quota went unchecked, never silence.
+const quotaOut = String(pre.quotaGate || '').trim()
+const quotaLine = quotaOut.split('\n').filter((l) => /^quota-gate: /.test(l)).pop() || ''
+const quotaExit = (quotaOut.match(/^exit (\d+)\s*$/m) || [])[1]
+log(`Quota gate: ${quotaLine || 'printed no quota-gate line'}${quotaExit != null ? ` (exit ${quotaExit})` : ''}`)
+if (/^quota-gate: (STOP|ERROR) /.test(quotaLine) || (quotaExit != null && quotaExit !== '0')) {
+  const why = quotaLine || `quota-gate.sh exited ${quotaExit}: ${quotaOut.slice(0, 120)}`
+  if (args.overrideQuota !== true) return stop('quota', `${why}. The owner may re-run with {overrideQuota: true}, or raise QUOTA_LANE_STOP_PCT (.claude/project.conf)`)
+  report.warnings.push(`started past the quota gate (overrideQuota): ${why}`)
+} else if (/^quota-gate: no reading /.test(quotaLine)) report.warnings.push(quotaLine)
+else if (!/^quota-gate: (below|off) /.test(quotaLine) || quotaExit == null) report.warnings.push(`quota-gate.sh did not report a verdict ("${(quotaLine || quotaOut).slice(0, 120)}"): the quota was NOT checked on this run`)
 // OPS-126: the row's draft-PR marker is run HERE, not left to the description: a build lane's first
 // prompt must start with /build-change (the panel's approval warning), so nothing else runs it.
 // The marker never fails a build; its warning reaches the owner with the outcome. marker.sh's

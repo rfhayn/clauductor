@@ -123,10 +123,17 @@ started from the panel's **New lane** (or by hand), on one branch:
   units: `windows[].{key, pct, resetsAt}` and `at` in milliseconds, with no `expired` flag). Read it
   with `.claude/lib/quota.sh`: `quota_read` lists each window, `quota_pct five_hour` prints one,
   `quota_at` says when it was saved. A window whose reset has passed, or that has no reset time,
-  has no reading (`-`, exit 1), never its old number. It is there for routines (OPS-42) and the
-  orchestrating session, in place of the panel's `quota.json`, which is written only while the
-  panel runs.
-  `checks/quota-reading.sh` holds it.
+  has no reading (`-`, exit 1), never its old number. It stands in for the panel's `quota.json`,
+  which is written only while the panel runs. Two readers use it: the `quota` health line at session
+  start (`.claude/health/quota.sh`: each window, its reset on your clock, `TIME_ZONE`, and when the
+  reading was saved; `HIGH` at the threshold below, `CANNOT CHECK` with no reading), and
+  **`.claude/quota-gate.sh`**, which a new lane starts behind: exit 1 when a seven-day window
+  (`seven_day`, `seven_day_opus`, any `seven_day_*`) is at or above `QUOTA_LANE_STOP_PCT`
+  (`project.conf`, default 90; `0` turns it off), exit 0 below it, and exit 0 with "no reading" said
+  when there is none. build-change's preflight stops on it and notifies (`overrideQuota: true` is the
+  owner's way past), and the orchestrating session runs it before it starts a lane. The panel's own
+  `quota_guard` holds the five-hour window on its **New lane**; it runs no script.
+  `checks/quota-reading.sh` holds the file and both readers.
 
 ## Several people
 

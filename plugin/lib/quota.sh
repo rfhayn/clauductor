@@ -1,5 +1,6 @@
-# quota.sh: sourced (never run) by .claude/statusline.sh, which saves the reading, and by whatever
-# needs the account's current quota (routines, OPS-42 D4/D17; the orchestrating session). ONE file
+# quota.sh: sourced (never run) by .claude/statusline.sh, which saves the reading, and by its two
+# readers (OPS-167): .claude/health/quota.sh, session start's health line (quota_health), and
+# .claude/quota-gate.sh, the guard a new lane starts behind (quota_stop_pct, quota_over). ONE file
 # per machine, written on every status-line refresh that carries `rate_limits`, with or without the
 # panel, so nothing needs the clauductor binary or the panel to read it (ADR-0006). Needs jq.
 #
@@ -17,7 +18,7 @@
 # different plan) is carried until its own reset: the panel drops its copy on an account change.
 #
 # THE RULE THE READER KEEPS: a window whose reset time has passed, or that has none, has NO reading.
-# A window's use only grows until its reset, so a reading before the reset is a floor (OPS-42 D4);
+# A window's use only grows until its reset, so a reading before the reset is a floor;
 # after it, the old number says nothing. The panel's quota.json was once read 9 days stale as
 # current: quota_read never prints a number it cannot vouch for.
 #
@@ -29,7 +30,17 @@
 # quota_pct KEY          the window's current percentage, or exit 1 when it has no reading; it can
 #                        be a decimal (12.5, or 40.0 under jq 1.7), so compare it with awk, not -ge
 # quota_at               when the reading was saved (`at`, unix ms), or exit 1
-# QUOTA_NOW              the clock the reader uses, in unix seconds (default: now), for a caller's test
+# quota_label KEY        a window's short name: 5h, 7d, 7d Opus, 7d Sonnet (any other key as it is)
+# quota_when EPOCH       a time on the owner's clock (TIME_ZONE): "17:00 ET" on the reader's day,
+#                        else "Mon 2026-11-02 17:00 ET"
+# quota_stop_pct         QUOTA_LANE_STOP_PCT, checked: a whole number from 0 (the guard is off) to
+#                        100, or exit 1 printing what is wrong with it
+# quota_over PCT         reads quota_read's lines on stdin and prints those of a seven-day window (every
+#                        key that starts seven_day, so a plan's per-model windows too) with a current
+#                        reading at or above PCT
+# quota_health           the health line: each window, its reset and when the reading was saved; HIGH
+#                        when quota_over finds one at the threshold, CANNOT CHECK with no reading
+# QUOTA_NOW             the clock the reader uses, in unix seconds (default: now), for a caller's test
 
 quota_file() {
   printf '%s' "$HOME/.clauductor/quota-reading.json"
@@ -71,9 +82,13 @@ quota_save() (
   return 0
 )
 
+_quota_now() {
+  case "${QUOTA_NOW:-}" in '' | *[!0-9]*) date +%s ;; *) printf '%s\n' "$QUOTA_NOW" ;; esac
+}
+
 quota_read() {
   [ -f "$(quota_file)" ] || return 1
-  case "${QUOTA_NOW:-}" in '' | *[!0-9]*) _now=$(date +%s) ;; *) _now=$QUOTA_NOW ;; esac
+  _now=$(_quota_now)
   jq -er --argjson now "$_now" '
     .windows | if type == "array" then . else error end | .[]
     | select(type == "object" and (.key | type) == "string")
@@ -93,4 +108,95 @@ quota_pct() {
 
 quota_at() {
   jq -er '.at | numbers' "$(quota_file)" 2>/dev/null || return 1
+}
+
+quota_label() {
+  case $1 in
+    five_hour) echo 5h ;;
+    seven_day) echo 7d ;;
+    seven_day_opus) echo "7d Opus" ;;
+    seven_day_sonnet) echo "7d Sonnet" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# _quota_date EPOCH FORMAT: EPOCH on the owner's clock, by GNU date or BSD date. LC_ALL=C keeps %a
+# in English.
+_quota_date() {
+  LC_ALL=C TZ="${TIME_ZONE:-America/New_York}" date -d "@$1" "$2" 2>/dev/null \
+    || LC_ALL=C TZ="${TIME_ZONE:-America/New_York}" date -r "$1" "$2" 2>/dev/null
+}
+
+quota_when() {
+  _qw_day=$(_quota_date "$1" +%Y-%m-%d) || { printf 'an unreadable time (%s)\n' "$1"; return 1; }
+  if [ "$_qw_day" = "$(_quota_date "$(_quota_now)" +%Y-%m-%d)" ]; then
+    printf '%s %s\n' "$(_quota_date "$1" +%H:%M)" "${TIME_ZONE_LABEL:-ET}"
+  else
+    printf '%s %s\n' "$(_quota_date "$1" '+%a %Y-%m-%d %H:%M')" "${TIME_ZONE_LABEL:-ET}"
+  fi
+}
+
+quota_stop_pct() {
+  _qs=${QUOTA_LANE_STOP_PCT-90}
+  case $_qs in
+    '' | *[!0-9]* | ????*) echo "QUOTA_LANE_STOP_PCT is '$_qs', not a whole number from 0 (off) to 100"; return 1 ;;
+  esac
+  # A leading zero reads as octal in $(( )) and [ -le ]; awk reads it as decimal.
+  _qs=$(printf '%s\n' "$_qs" | awk '{ printf "%d", $1 + 0 }')
+  [ "$_qs" -le 100 ] || { echo "QUOTA_LANE_STOP_PCT is '$QUOTA_LANE_STOP_PCT', not a whole number from 0 (off) to 100"; return 1; }
+  printf '%s\n' "$_qs"
+}
+
+quota_over() {
+  awk -F '\t' -v p="$1" '$1 ~ /^seven_day/ && $2 != "-" && $2 + 0 >= p + 0'
+}
+
+# _quota_pct_text PCT: 40.0 (jq 1.7) as 40%, 12.5 as 12.5%.
+_quota_pct_text() {
+  awk -v v="$1" 'BEGIN { printf "%.10g%%", v + 0 }'
+}
+
+# The health line (.claude/health/README.md's contract): one line, its verdict first, its subject
+# named (each window, and when the reading was saved). A window past its reset is named with NO
+# number, the rule quota_read keeps; no reading at all is CANNOT CHECK, never OK.
+quota_health() {
+  command -v jq >/dev/null 2>&1 || { echo "CANNOT CHECK — jq is not installed, so the quota reading cannot be read; the quota is UNKNOWN"; return 0; }
+  [ -f "$(quota_file)" ] || { echo "CANNOT CHECK — no quota reading at ~/.clauductor/quota-reading.json (the status line saves one on each refresh that carries rate_limits); the quota is UNKNOWN, not low"; return 0; }
+  _qh=$(quota_read) || { echo "CANNOT CHECK — ~/.clauductor/quota-reading.json cannot be read (not the shape lib/quota.sh writes); the quota is UNKNOWN"; return 0; }
+  _qh_tab=$(printf '\t') _qh_parts="" _qh_cur=""
+  while IFS="$_qh_tab" read -r _qh_k _qh_p _qh_r; do
+    [ -n "$_qh_k" ] || continue
+    _qh_l=$(quota_label "$_qh_k")
+    if [ "$_qh_p" != "-" ]; then
+      _qh_cur=1
+      _qh_w="$_qh_l $(_quota_pct_text "$_qh_p") (resets $(quota_when "$_qh_r"))"
+    elif [ "$_qh_r" = "-" ]; then
+      _qh_w="$_qh_l no reading (no reset time)"
+    else
+      _qh_w="$_qh_l no reading (it reset at $(quota_when "$_qh_r"))"
+    fi
+    _qh_parts="${_qh_parts:+$_qh_parts · }$_qh_w"
+  done <<EOF
+$_qh
+EOF
+  _qh_at=$(quota_at) && case $_qh_at in '' | *[!0-9]*) _qh_at="" ;; esac
+  if [ -n "$_qh_at" ]; then _qh_saved="saved $(quota_when "$((_qh_at / 1000))")"; else _qh_saved="saved at an unknown time"; fi
+  if [ -z "$_qh_cur" ]; then
+    echo "CANNOT CHECK — no window has a current reading: ${_qh_parts:-none saved} — $_qh_saved; the quota is UNKNOWN until a status line refreshes"
+    return 0
+  fi
+  if ! _qh_pct=$(quota_stop_pct); then
+    echo "FAILED quota: $_qh_parts — $_qh_saved; $_qh_pct, so .claude/quota-gate.sh refuses every new lane until it is one"
+    return 0
+  fi
+  _qh_over=""
+  [ "$_qh_pct" -gt 0 ] && _qh_over=$(printf '%s\n' "$_qh" | quota_over "$_qh_pct" | while IFS="$_qh_tab" read -r _qh_k _qh_p _qh_r; do
+    printf '%s, ' "$(quota_label "$_qh_k")"; done)
+  if [ -n "$_qh_over" ]; then
+    echo "HIGH quota: $_qh_parts — $_qh_saved; ${_qh_over%, } at or above ${_qh_pct}% (QUOTA_LANE_STOP_PCT): .claude/quota-gate.sh refuses a new lane until it resets"
+  elif [ "$_qh_pct" -eq 0 ]; then
+    echo "OK quota: $_qh_parts — $_qh_saved; the lane guard is off (QUOTA_LANE_STOP_PCT=0)"
+  else
+    echo "OK quota: $_qh_parts — $_qh_saved"
+  fi
 }

@@ -16,7 +16,8 @@ needs a named addressee*, `docs/principles.md`).
 ## The contract
 
 - Print one line per subject, starting with its verdict: `OK`, `FAILED`, `STALE`, `STUCK` (queued
-  or running for more than a day), `RUNNING`, `NEVER RAN`, or `CANNOT CHECK — <why>`. Anything that
+  or running for more than a day), `RUNNING`, `NEVER RAN`, `HIGH` (a level at its threshold), or
+  `CANNOT CHECK — <why>`. Anything that
   is not `OK` is repeated in the session summary.
 - **Name the subject**: the commit, the date, the run a verdict covers. A green result for a
   two-week-old run is consumed as coverage.
@@ -36,6 +37,7 @@ needs a named addressee*, `docs/principles.md`).
 | `scheduled-workflows.sh` | Each workflow whose `on:` has a `schedule:` (every spelling of `on:`): its last scheduled run's result, date, age and cron, `STALE` past 45 days (GitHub disables a schedule at 60), `STUCK` when queued for days. A failure says whether the run ever started (zero steps: a billing block, not a finding) and when the last clean run on the default branch was, drawing no conclusion from it. |
 | `push-main.sh` | Each workflow whose `on:` has `push`: its latest push run on `main`, its age and URL, and its subject: `OK` only when it ran on the current `origin/main`, `STALE` with the count of commits it does not cover otherwise. |
 | `flow.sh` | Flow and cost over the last 30 days, from `.claude/metrics.sh --line`: median cycle and lead time, merges per week, change-fail rate, approval wait, review rounds, spend per week, work in flight. A figure it cannot compute is "—", and the line says why. |
+| `quota.sh` | The account's quota, from the status line's reading (`~/.clauductor/quota-reading.json`): each window's use and reset on the owner's clock, and when it was saved. A window past its reset shows no number; no reading is `CANNOT CHECK`; `HIGH` when a seven-day window is at `QUOTA_LANE_STOP_PCT`, where `.claude/quota-gate.sh` refuses a new lane. Its logic is `.claude/lib/quota.sh`'s. |
 | `dependency-audit.sh` | The weekly dependency audit (`.github/workflows/dependency-audit.yml`): `ADVISORIES` when its last run found one of high severity, `STALE` past two weeks. |
 
 The two GitHub ones are thin callers: their logic is `.claude/lib/health.sh`, which `clauductor
