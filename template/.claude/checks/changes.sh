@@ -107,7 +107,11 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk badrisk; edit $C/proposal.md 's/^\*\*Risk:\*\* low/**Risk:** medium/'; (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null); case_bad "a Risk tier that is not low, normal or high" "is not low, normal or high"
   mk budget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15/**Budget:** $25/'; case_bad "a proposal whose budget differs from its roadmap row's" "has 'Budget: \$15'"
   mk nobudget; edit $C/proposal.md '/^\*\*Budget:\*\*/d'; case_bad "a proposal that drops its roadmap row's budget" "proposal.md says 'nothing'"
-  mk softbudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, soft/'; case_ok "a soft budget the roadmap row's size ('\$15, soft')"
+  # The kind is the row's too (OPS-91): soft only where the row says `Budget: $N, soft`.
+  mk softbudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, soft/'; case_bad "a soft budget on a proposal whose row's is hard" "only the owner makes a budget soft, on the row"
+  mk bothsoft; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, soft/'; edit docs/roadmap.md 's/Budget: \$15 |/Budget: $15, soft |/'
+  case_ok "a soft budget whose row's is soft ('Budget: \$15, soft')"
+  mk rowsoft; edit docs/roadmap.md 's/Budget: \$15 |/Budget: $15, soft |/'; case_bad "a hard budget on a proposal whose row's is soft" "has 'Budget: \$15, soft', proposal.md says '\$15'"
   mk hardbudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, hard/'; case_ok "a budget marked hard ('\$15, hard')"
   mk vaguebudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15 (soft-ish)/'; case_bad "a Budget line that is not \$N, \$N, soft or \$N, hard" "must read '\$<dollars>', '\$<dollars>, soft'"
   mk noknow; edit $C/proposal.md '/^## How we.ll know/,$d'; case_bad "a proposal with no How we'll know section" "no '## How we'll know' section"
@@ -306,11 +310,20 @@ for c in "$dir"/*/; do
     budget=$(proposal_budget "$p")
     [ "$budget" != unreadable ] || fail "$id: '**Budget:** $(proposal_field "$p" Budget)' must read '\$<dollars>', '\$<dollars>, soft' or '\$<dollars>, hard'"
     usd=""; case $budget in ''|unreadable) ;; *) usd=${budget% *} ;; esac
+    # The row is the authority for the figure AND its kind (OPS-91): the proposal repeats both, so a
+    # `, soft` added to the proposal alone, after approval, fails, as does a row's soft budget the
+    # proposal leaves hard (the build would stop where the owner said go on). A row whose parser
+    # gives no kind (no --tsv column 16) is hard.
     row=$(proposal_field "$p" "Roadmap row")
     if [ -n "$row" ] && [ -n "$roadmap_tsv" ]; then
-      rb=$(printf '%s\n' "$roadmap_tsv" | awk -F'\t' -v r="$row" '!got && $4 == r { print $11; got = 1 }')
-      if [ -n "$rb" ] && [ "$rb" != "$usd" ]; then fail "$id: roadmap row $row has 'Budget: \$$rb', proposal.md says '$(proposal_field "$p" Budget | grep . || echo nothing)' (repeat it as '**Budget:** \$$rb', with ', soft' if the owner made it soft)"
-      elif [ -n "$rb" ]; then ok "$id: budget $(proposal_field "$p" Budget), as roadmap row $row says"; fi
+      rb=$(printf '%s\n' "$roadmap_tsv" | awk -F'\t' -v r="$row" '!got && $4 == r && $11 != "" { print $11 " " (NF >= 16 && $16 != "" ? $16 : "hard") } $4 == r { got = 1 }')
+      if [ -n "$rb" ]; then
+        want="\$${rb% *}"; [ "${rb#* }" = soft ] && want="$want, soft"
+        if [ "$rb" != "$budget" ]; then
+          why=""; [ "$usd" = "${rb% *}" ] && [ "${budget#* }" = soft ] && why=": only the $OWNER_ROLE makes a budget soft, on the row ('Budget: $want, soft')"
+          fail "$id: roadmap row $row has 'Budget: $want', proposal.md says '$(proposal_field "$p" Budget | grep . || echo nothing)' (repeat it as '**Budget:** $want'$why)"
+        else ok "$id: budget $(proposal_field "$p" Budget), as roadmap row $row says"; fi
+      fi
     fi
     if grep -qE "^## How we.ll know" "$p"; then
       know=$(sed -n "/^## How we.ll know/,/^## /p" "$p")

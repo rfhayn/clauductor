@@ -403,7 +403,8 @@ log(`Risk ${RISK}: builder ${BUILDER.model}/${BUILDER.effort}, reviewer ${REVIEW
 //   `$N, soft`          soft: the overrun is reported (report.warnings, which the launching session
 //                       sends the owner with the outcome) and the build goes on;
 //   any other line      unreadable: the run stops here and says so, rather than guess either way.
-// A design's prose ("Budget $60, soft") is not read: the line is what the owner approved with it.
+// A design's prose ("Budget $60, soft") is not read. The line copies the roadmap row, the authority
+// for the figure and the kind (`Budget: $N, soft`): checks/changes.sh fails a line that differs (OPS-91).
 const BUDGET_KIND = pre.budgetKind
 if (BUDGET_KIND === 'unreadable') return stop('budget', `proposal.md's **Budget:** line cannot be read: it must be \`$N\`, \`$N, soft\` or \`$N, hard\` (lib/change.sh proposal_budget); checks/changes.sh should have refused it`)
 if (BUDGET_KIND == null) report.warnings.push(pre.budgetUsd != null
