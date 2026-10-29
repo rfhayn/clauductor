@@ -29,6 +29,14 @@ cancelled_dirs() {
     printf '%s\t%s\n' "$cid" "$rid"
   done < "$_rows"
 }
+# live_ids [FILE]: the change ids a row of the roadmap (or of FILE, for the self-test) names and has
+# not cancelled, read through roadmap_queue (the one parser): a change revived under a new row is
+# not the history's. A roadmap that cannot be read returns 1, naming why: nothing then tells revived
+# from cancelled.
+live_ids() {
+  _tsv=$(roadmap_queue --tsv ${1:+"$1"} 2>&1) || { printf '%s\n' "$_tsv" | head -1; return 1; }
+  printf '%s\n' "$_tsv" | awk -F'\t' '$7 != "cancelled" { print $5 }'
+}
 
 F="$(scratch)/proj"
 mkdir -p "$F/docs" "$F/$CHANGES_DIR/panel-9-x" "$F/$CHANGES_DIR/ops-8-y" "$F/$CHANGES_DIR/panel-7-z"
@@ -51,7 +59,14 @@ cat > "$F/docs/roadmap-history.md" <<'EOF'
 |---|---|---|---|---|
 | S4 | `ops-8-y` | x | OPS-8 | ❌ cancelled — moved |
 EOF
-echo panel-7-z > "$F/live"
+printf '## Phase 1 — x\n\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| X-1 | `panel-7-z` — revived | x | — | ⬜ queued |\n| X-2 | `panel-9-x` — cancelled | x | — | ❌ cancelled — no |\n' > "$F/docs/roadmap.md"
+if live_ids "$F/docs/roadmap.md" > "$F/live"; then
+  [ "$(cat "$F/live")" = panel-7-z ] && ok "self-test: the live list holds the roadmap's queued change id, not its cancelled one" \
+    || fail "self-test: the live list is [$(tr '\n' ' ' < "$F/live")], want [panel-7-z]"
+else fail "self-test: the fixture roadmap could not be read: $(cat "$F/live")"; fi
+printf '## Phase 1 — x\n\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| X-1 | no id here | x | — | ⬜ queued |\n' > "$F/docs/bad.md"
+if live_ids "$F/docs/bad.md" >/dev/null; then fail "self-test: an unparsable roadmap gave a live list"
+else ok "self-test: an unparsable roadmap fails, never reads as no live change"; fi
 got=$(cancelled_dirs "$F" "$F/live" | tr '\t\n' ': ')
 [ "$got" = "panel-9-x:PANEL-9 " ] && ok "self-test: a cancelled history row's directory is found; a merged one's, a revived one's and the session plan's are not" \
   || fail "self-test: found [$got], want [panel-9-x:PANEL-9 ]"
@@ -64,10 +79,8 @@ else ok "self-test: an unreadable history fails, never reads as no cancelled row
 chmod 644 "$F/docs/roadmap-history.md"
 
 [ -f "$ROOT/docs/roadmap-history.md" ] || { fail "docs/roadmap-history.md is missing: nothing to check the changes directory against"; finish; }
-# The change ids the roadmap holds live: a change revived under a new row is not the history's.
 live="$(scratch)/live"
-roadmap_queue --tsv > "$live.tsv" 2>&1 || { fail "the roadmap could not be read ($(head -1 "$live.tsv")): nothing to tell a revived change from a cancelled one"; finish; }
-awk -F'\t' '$7 != "cancelled" { print $5 }' "$live.tsv" > "$live"
+live_ids > "$live" || { fail "the roadmap could not be read ($(cat "$live")): nothing to tell a revived change from a cancelled one"; finish; }
 found=$(cancelled_dirs "$ROOT" "$live") || { fail "docs/roadmap-history.md could not be read"; finish; }
 if [ -z "$found" ]; then ok "no $CHANGES_DIR/ directory belongs to a row docs/roadmap-history.md holds cancelled"
 else
