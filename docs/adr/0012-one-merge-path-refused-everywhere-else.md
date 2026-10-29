@@ -1,6 +1,7 @@
 # ADR 0012: One merge path: `merge.sh` merges, and `gh` refuses every other merge
 
-- **Status**: Proposed
+- **Status**: Accepted (the owner, 2026-10-29): option D, with the answers under *The owner's
+  decisions*
 - **Date**: 2026-10-29
 - **Tags**: merge, controls, hooks, parsers
 - **Source**: roadmap row OPS-86 (S16); insights-log row *shell parser never converges*
@@ -111,17 +112,18 @@ construction. D splits C's wrapper in two:
 **Why not B.** B keeps the text as the authority, so it cannot tell a read from a merge without a
 grammar, and a grammar is A again.
 
-**Why not A.** Five PRs in a month, peaks of high in at least three (#146, #268, #313; #103's record says only "above medium"), and the limits that remain need a
-different design, as the owner said on #146.
+**Why not A.** Five PRs in a month, peaks of high in at least three (#146, #268, #313; #103's
+record says only "above medium"), and the limits that remain need a different design, as the
+owner said on #146.
 
 **E is not an alternative.** It cannot see the local gate, and Standing Tee's founder rejected it
 as a replacement (a `workflow_dispatch` run cannot satisfy a required check, and it gates every
 PR). As a complement, it is the only control that covers a click on the website or a Cursor agent,
-which runs no Claude Code hook. Whether to add it is a separate question for the owner (below).
+which runs no Claude Code hook. The owner added it as a complement (D7).
 
 ## Decision
 
-**Proposed: option D.** The record states each decision and the requirements its build must meet.
+**Option D, accepted by the owner on 2026-10-29.** The record states each decision and the requirements its build must meet.
 Mechanisms belong to the build PRs, where they are tested in real shells: Standing Tee's record
 found that mechanism detail in a design record is reviewed as if it were the parser (its
 PRAC-0017 amendment of 2026-10-09).
@@ -129,8 +131,10 @@ PRAC-0017 amendment of 2026-10-09).
 **D1. One merge path.** `.claude/merge.sh <pr>`, with a squash body file, is the only command that
 merges this repository's PRs. It runs every rule `pr-merge-guard.sh` and `lib/change-guard.sh` run
 today (1–4 and 7–14), reads the PR once, judges that head by SHA, and merges pinned to it
-(`--match-head-commit`). It never passes `--auto` or `--admin`. `merge-pr` step 4 calls it; a
-refusal names the rule and the fix, on the caller's stderr.
+(`--match-head-commit`). It never passes `--auto` or `--admin`. It has no `-R`: it merges only the
+repository it runs in, and a merge in another repository is made there, under that repository's
+own guard (the owner, 2026-10-29). `merge-pr` step 4 calls it; a refusal names the rule and the
+fix, on the caller's stderr.
 
 **D2. `gh` never merges by itself.** A wrapper, `.claude/bin/gh`, first on PATH through the route
 `pattern-kill-path.sh` already writes, refuses every merge route gh offers: `pr merge`, a `gh api`
@@ -140,9 +144,9 @@ reads gh's grammar by position, never a substring: `gh -R o/n pr view 5 --json m
 (Standing Tee's false refusal is an acceptance case). Every other gh command execs the real gh
 unchanged. `merge.sh` reaches the real gh past the wrapper, by a lookup that skips the wrapper's
 directory: a computed gh location. D4 reads the command, not the script it runs, so `merge.sh`
-passes; nothing else in the model may take that route. An agent that writes the same lookup into
-its own command is, subject to open question 3, either refused by D4 (a location holding a `$`) or
-left to the first known limit below (a computed path the text does not show).
+passes, exempt by its path; nothing else in the model may take that route. An agent that writes
+the same lookup into its own command is refused by D4 when the location holds a `$`, and is
+otherwise the first known limit below (a computed path the text does not show).
 
 **D3. The route is measured, and fails closed.** The build measures, through the Bash tool, that
 `gh` resolves to the wrapper in each kind of session that can merge here: a main session, a
@@ -154,8 +158,9 @@ naming the cause. If no route holds in a main session, the build stops for the o
 **D4. The hook stops looking for merges.** What is left of `pr-merge-guard.sh` is the route check
 (D3) and coarse refusals of the ways past the wrapper a command's text shows: a literal path to a
 gh that is not the wrapper, a command that changes how names resolve (a PATH assignment beside a
-gh word, `command -p`, `env -i`, `hash`), and a gh location holding a `$`. Each is an over-read with
-no grammar, the form Standing Tee's founder chose after #698's round 6. `merge-reader.awk`,
+gh word, `command -p`, `env -i`, `hash`), and a gh location holding a `$`, refused outright with a
+refusal that says to write `gh` directly (the owner, 2026-10-29). Each is an over-read with no
+grammar, the form Standing Tee's founder chose after #698's round 6. `merge-reader.awk`,
 `merge_hint`, the prose allowlist, `foreign_shape` and the raw-JSON fallback are deleted.
 
 **D5. A lane cannot loosen its own path.** An edit to the wrapper or `merge.sh` in a lane's
@@ -165,16 +170,23 @@ worktree must not change what judges its merge. No executor does this today:
 run while its own copy differs from `origin/<main>`'s, and D6 PR 2 does the same for the wrapper
 and extends the drift hook to `.claude/bin/`, each refusal seen first on an edited copy.
 
-**D6. Three PRs in sequence, each a roadmap row at Risk high.** None of the rows exists yet. The PR
-that records the owner's acceptance (the owner queue's S16 item, *OPS-86: accept or amend its
-ADR*) adds all three to the roadmap's merge-guard section, and E's row if question 4 says so:
-1. `merge.sh` with the rules moved and the pin; `merge-pr` calls it; the hook still runs.
-2. The wrapper and D3's measurement; the hook still runs.
-3. D4: the reader deleted. `checks/merge-guard.sh`'s block rows are ported as acceptance cases
+**D6. Three PRs in sequence, each a roadmap row at Risk high,** added with this acceptance to the
+roadmap's merge-guard section. PR 1 comes before OPS-77 and OPS-78, so each writes its rule into
+`merge.sh` once; PRs 2 and 3 come after them (the owner, 2026-10-29):
+1. **OPS-161**: `merge.sh` with the rules moved and the pin; `merge-pr` calls it; the hook still
+   runs.
+2. **OPS-162**: the wrapper and D3's measurement; the hook still runs.
+3. **OPS-163**: D4, the reader deleted. `checks/merge-guard.sh`'s block rows are ported as acceptance cases
    against the wrapper under bash 3.2, bash 5 and zsh, each seen merging a stub gh without the
    control first. Its allow rows, #120's commands and the three refusals above become allow cases.
 
 Each PR moves AGENTS.md's What-executes rows for the executors it moves, in the same PR.
+
+**D7. A server-side required check, as a complement (E).** **OPS-164**: a ruleset on `main` that
+requires the remote `test` check, with no bypass actor, built after CI is back (Deps OPS-98). It
+covers what no client-side control can (a click on the website, another client, a Cursor lane) and
+replaces none of D1–D6. Configuring the ruleset in GitHub is the owner's step: it goes to the owner
+queue when OPS-164 starts (the owner, 2026-10-29).
 
 **Known limits, accepted under the guard's purpose:**
 - a gh reached without PATH: a computed path the text does not show, a script or make target that
@@ -182,7 +194,7 @@ Each PR moves AGENTS.md's What-executes rows for the executors it moves, in the 
 - a session kind or dotfile D3's measurement did not cover: the route check proves configuration,
   the measurement proves resolution on the machines it ran on;
 - any client but gh, a click on the website, and an agent that runs no Claude Code hook (a Cursor
-  lane): only E covers these;
+  lane): only E covers these, once OPS-164 lands, and only for the remote check;
 - the evidence `merge.sh` reads is self-reported, as the gate receipt is today.
 
 ## Consequences
@@ -201,11 +213,13 @@ Each PR moves AGENTS.md's What-executes rows for the executors it moves, in the 
 - The guard depends on a PATH route in every session kind. An unconfigured kind refuses rather
   than passes, but with the coarse letters test until it is fixed.
 - Every gh call pays one more exec.
-- A merge in another repository from here is refused by the wrapper unless `merge.sh` accepts one
-  (an open question below); today the hook allows an allowlisted shape.
+- A merge in another repository from a session here is refused: the wrapper refuses it, and
+  `merge.sh` has no `-R`. Today the hook allows one in an allowlisted shape.
 - Three high-risk PRs, each with its review rounds. Standing Tee's PR 2 did not converge on a
   grammar of the ways past the wrapper; D4 keeps that part coarse for that reason, and pays in
-  false refusals of a computed gh location (`$GH pr list`).
+  false refusals of a computed gh location (`$GH pr list`), each told to write `gh` directly.
+- PRs 2 and 3 take two sessions after OPS-77 and OPS-78, so everything planned after S21 slips by
+  two sessions (the roadmap's Session plan).
 
 ## What this decides for other rows
 - **OPS-58** (the `gh api` merge in any command-word form, limits by class, #118's allow case):
@@ -220,10 +234,9 @@ Each PR moves AGENTS.md's What-executes rows for the executors it moves, in the 
   its dependency on OPS-86.** It changes which files `no-blind-source-rewrite.sh` protects, not how
   any reader reads shell, and that hook is not the merge guard. This record does not decide the
   rewrite hook's own parser.
-- **OPS-77 and OPS-78** (S21) read D1: merged-tree evidence and the review line are rules of
-  `merge.sh`, judged on the one PR read and its pinned SHA, and their refusals reach the merging
-  agent on stderr. If either lands before D6 PR 1, it lands in `lib/change-guard.sh`, which moves
-  under `merge.sh` whole. OPS-77's own ADR (the cost of merged-tree evidence) is unaffected.
+- **OPS-77 and OPS-78** (S21, after OPS-161) read D1: merged-tree evidence and the review line are
+  rules of `merge.sh`, judged on the one PR read and its pinned SHA, and their refusals reach the
+  merging agent on stderr. OPS-77's own ADR (the cost of merged-tree evidence) is unaffected.
 - **OPS-156** (no `Co-authored-by` in a squash, queued in S16) lands in the hook now and moves with
   the rules in D6 PR 1.
 - **OPS-92c** (lite's guard): **keep, its PR c1 rescoped.** c1 puts `--explain` on
@@ -231,26 +244,31 @@ Each PR moves AGENTS.md's What-executes rows for the executors it moves, in the 
   `--explain` is `merge.sh --explain <pr>`: the same verdict from the same rules. If c1 is built
   before D6 PR 1, it moves into `merge.sh` with the rules. c2's lite table is unaffected.
 
-## Open questions for the owner
-1. Accept D, or another option.
-2. A merge in another repository from a session here: `merge.sh -R` with rule 1 only, as today's
-   `foreign_shape`, or refused (merge there, under that repository's own guard).
-3. A gh location holding a `$` (D4): refused outright, as Standing Tee chose, or a known limit.
-4. E as a complement once Actions run (OPS-98, or public at REL-1): a row now, or not.
-5. Order against S21: build D6 before OPS-77 and OPS-78, so each writes its rule into `merge.sh`
-   once, or let them land in `change-guard.sh` first.
+## The owner's decisions (2026-10-29)
+The draft put five questions to the owner; the answers are written into D1–D7 above.
+1. **Option D, accepted.**
+2. **A merge in another repository is refused.** `merge.sh` has no `-R`; merge there, under that
+   repository's own guard (D1).
+3. **A gh location holding a `$` is refused outright** (D4), and the refusal says to write `gh`
+   directly. `merge.sh`'s own lookup is exempt by its path (D2).
+4. **Yes to E as a complement:** a roadmap row (OPS-164, D7), Deps OPS-98, built after CI is back.
+   Configuring the ruleset is the owner's step, queued for the owner when the row starts, not now.
+5. **D6 PR 1 (OPS-161) before OPS-77 and OPS-78; PRs 2 and 3 (OPS-162, OPS-163) after them.**
+   The Session plan matches: S21 is OPS-161, OPS-77, OPS-78; S22–S23 are OPS-162, OPS-163 and
+   OPS-164; every later session moves two places.
 
 ## Enforcement
-**Nothing yet: this record is Proposed, not built.** The PR that records the owner's acceptance
-adds D6's three rows; until they merge, the guard keeps the limits its header lists. Once built:
+**Nothing yet: this record is accepted, not built.** OPS-161, OPS-162, OPS-163 and OPS-164 build
+it; until they merge, the guard keeps the limits its header lists. Once built:
 `.claude/merge.sh` and `lib/change-guard.sh` for the rules; `.claude/bin/gh` for the refusal of
 every other merge; `pr-merge-guard.sh` for the route check and D4; `checks/merge-guard.sh` for the
 acceptance cases; for D5, the drift refusals of `merge.sh` and the wrapper, and the extended
-`worktree-hook-drift.sh`.
+`worktree-hook-drift.sh`; for D7, GitHub's ruleset on `main`.
 
 ## Related
 - PRAC-0010 (close the class, not the instance): this record applies it to the merge guard.
 - `docs/principles.md`, *A check that reads source is a parser*.
 - Standing Tee: PRAC-0041, row `2C.30`, #681, #698, #617.
 - ST-14 (`pattern-kill-path.sh`, `.claude/bin/pkill`): the route D2 reuses.
-- OPS-32, OPS-58, OPS-68, OPS-77, OPS-78, OPS-92c, OPS-156; #120, #146, #268.
+- OPS-161, OPS-162, OPS-163, OPS-164 (the build); OPS-32, OPS-58, OPS-68, OPS-77, OPS-78,
+  OPS-92c, OPS-98, OPS-156; #120, #146, #268.

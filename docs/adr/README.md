@@ -56,4 +56,4 @@ that merges second takes the next free number.
 | [0008](0008-provenance-and-attribution-policy.md) | Provenance and attribution trailers: on in the template, off here | Accepted |
 | [0009](0009-the-panel-carries-state-in-colour-at-rest.md) | The panel's look is the hybrid: state in colour at rest, one theme, one type system | Accepted |
 | [0011](0011-open-source-terminal-first-plugin-installs.md) | Clauductor is open source, terminal-first, and installed through the plugin | Accepted |
-| [0012](0012-one-merge-path-refused-everywhere-else.md) | One merge path: `merge.sh` merges, and `gh` refuses every other merge | Proposed |
+| [0012](0012-one-merge-path-refused-everywhere-else.md) | One merge path: `merge.sh` merges, and `gh` refuses every other merge | Accepted |
