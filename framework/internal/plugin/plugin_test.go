@@ -303,9 +303,9 @@ func TestNoProjectPathsLeft(t *testing.T) {
 // it and its model is the copy the check put there, so the builder must not point it at the
 // plugin's model (CLAUDUCTOR_FW) when the template did not. OPS-169: the builder rewrote a fixture
 // caller's ROOT and sources to CLAUDUCTOR_FW, and 34 cases read the real project. A check writes a
-// script two ways, and both are read in every spelling: a quoted heredoc's body (`cat > F`,
-// `cat >> F`, a helper such as `fixture NAME`, `<<'T'`, `<<"T"`, `<<-`), and a printf format with
-// a redirect to a file. Other rewrites stay allowed: a contract script expects the plugin's agent
+// script as a quoted heredoc's body or a printf format whose output reaches a file; writtenScripts
+// (shscan_test.go) reads both as the shell does, and reports what it cannot read rather than skip
+// it. Unquoted heredocs are not read, by design. Other rewrites stay allowed: a contract script expects the plugin's agent
 // names, as the plugin's workflow spells them, and roadmap.sh's plant3 gains CLAUDUCTOR_FW
 // harmlessly, since the bypass reader it feeds (roadmap.sh's strip) cuts both spellings.
 func TestCheckHeredocsKeepTheirProject(t *testing.T) {
@@ -361,73 +361,7 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 	}
 }
 
-// writtenScript is one script a check writes: a quoted heredoc's body, or a printf format with a
-// redirect to a file; open is the line that starts it.
-type writtenScript struct {
-	open, text string
-	heredoc    bool
-}
-
-var (
-	// The opener ends its line: a `<<'T'` inside a quoted string (a payload a check hands a hook)
-	// is followed by more of that string on the same line, or closes on `T"` below (see the reader).
-	heredocOpen = regexp.MustCompile(`<<(-?)\s*(?:'([A-Za-z_][A-Za-z0-9_]*)'|"([A-Za-z_][A-Za-z0-9_]*)")\s*$`)
-	// A format in single quotes, `'\''` included.
-	printfFmt = regexp.MustCompile(`\bprintf\s+'((?:[^']|'\\'')*)'`)
-	// A redirect to a file: not `>&2`, not /dev/null.
-	redirectTo = regexp.MustCompile(`(?:^|\s)>>?\s*([^&\s][^\s;|)]*)`)
-)
-
-// writtenScripts reads them in order, so the template's and the plugin's pair one to one, and
-// returns the openers it could not close. A comment line opens nothing. A heredoc closes on its
-// tag (past leading tabs only for `<<-`); a line that is the tag followed by `"` closes a quoted
-// string that held the marker instead, so it is no heredoc and the reading resumes there.
-func writtenScripts(s string) ([]writtenScript, []string) {
-	var out []writtenScript
-	var errs []string
-	lines := strings.Split(s, "\n")
-	for i := 0; i < len(lines); i++ {
-		l := lines[i]
-		if strings.HasPrefix(strings.TrimSpace(l), "#") {
-			continue
-		}
-		if m := heredocOpen.FindStringSubmatch(l); m != nil {
-			tag, closed := m[2]+m[3], false
-			for j := i + 1; j < len(lines); j++ {
-				body := lines[j]
-				if m[1] == "-" {
-					body = strings.TrimLeft(body, "\t")
-				}
-				if body == tag {
-					out = append(out, writtenScript{open: l, text: strings.Join(lines[i+1:j], "\n"), heredoc: true})
-					i, closed = j, true
-					break
-				}
-				if strings.HasPrefix(body, tag+`"`) {
-					i, closed = j, true
-					break
-				}
-			}
-			if !closed {
-				errs = append(errs, fmt.Sprintf("the heredoc opened at line %d (%s) never closes", i+1, strings.TrimSpace(l)))
-			}
-			continue
-		}
-		if m := printfFmt.FindStringSubmatchIndex(l); m != nil {
-			rest := l[m[1]:]
-			if k := strings.IndexAny(rest, "|;"); k >= 0 {
-				rest = rest[:k]
-			}
-			if k := strings.Index(rest, "&&"); k >= 0 {
-				rest = rest[:k]
-			}
-			if r := redirectTo.FindStringSubmatch(rest); r != nil && !strings.Contains(r[1], "/dev/null") {
-				out = append(out, writtenScript{open: l, text: l[m[2]:m[3]]})
-			}
-		}
-	}
-	return out, errs
-}
+// writtenScripts, the reader the test above uses, is in shscan_test.go.
 
 // Every script path a plugin skill or agent names exists in the plugin, and a skill's context
 // line runs from the plugin root.
