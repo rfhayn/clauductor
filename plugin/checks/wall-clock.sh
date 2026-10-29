@@ -35,7 +35,7 @@ scan_awk() { SCAN_AWK=$(cat); }
 scan_awk <<'AWK'
 function name(f) { sub(/^\.\//, "", f); return f }
 /^[ \t]*#/ { next }
-/[ \t]#[ \t]*wall-clock:[ \t]*[A-Za-z0-9(][A-Za-z0-9 ,.;:()-]*$/ { next }
+/[ \t]#[ \t]*wall-clock:[ \t]*[A-Za-z0-9,.;:()-][A-Za-z0-9 ,.;:()-]*$/ { next }
 $0 ~ ("(^|[^A-Za-z0-9_])" D "([^A-Za-z0-9_]|$)") && index($0, S) {
   l = $0; sub(/^[ \t]+/, "", l)
   if (l ~ /[ \t]#[ \t]*wall-clock:[ \t]*$/)
@@ -100,6 +100,7 @@ says 19 "a clock read with no trailing # wall-clock:"
 fixture good.sh <<'EOF'
 t0=$(@CLOCK@)  # wall-clock: a fixture timestamp, not a bound
 t1=$(@CLOCK@)  # wall-clock: the sleep of the fake is the bound
+t2=$(@CLOCK@)  # wall-clock: -5 is the floor (a reason may start with any allowed character)
 # [ $(( $(@CLOCK@) - t0 )) -le 4 ] in a comment
 day=$(date +%Y-%m-%d)
 update "+%s" here
