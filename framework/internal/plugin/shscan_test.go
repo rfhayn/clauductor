@@ -26,16 +26,16 @@ type writtenScript struct {
 //   - a heredoc whose tag is quoted (`<<'T'`, `<<"T"`, `<<\T`, with or without `-`), wherever it
 //     sits in the command (`cat <<'T' > f`, `fixture NAME <<'T'`, a comment after it). Its body runs
 //     to the tag line, past leading tabs only for `<<-`.
-//   - a printf whose output reaches a file: its own redirect, before or after the command
+//   - a printf or echo whose output reaches a file: its own redirect, before or after the command
 //     (`printf -- '…' > f`, `> f printf …`, `>>`), or the redirect of a group, loop, if or case
 //     around it (`{ printf …; cat g; } > f`), at any depth, inside $(…) too. Its text is every word
-//     from the format to the end of its command, so what %s writes is compared too.
+//     of its command, a redirect's target excepted, so what %s writes is compared too.
 //
 // Out of scope, by design: an unquoted heredoc (`<<T`: its body expands, so it is the check's own
-// text, as a double-quoted string is); a printf into a pipe, a $(…) capture or the terminal (its
-// text is the check's own output); a printf in a function whose callers redirect it (calls are not
-// followed; no check writes a script that way today); and echo, which no check uses to write a
-// script.
+// text, as a double-quoted string is); text held in a variable (`printf '%s' "$x" > f` compares
+// "$x", not what x holds, which was set elsewhere); a printf or echo into a pipe, a $(…) capture or
+// the terminal (its text is the check's own output); one in a function whose callers redirect it
+// (calls are not followed); and the body of a backtick substitution, which is skipped as a string.
 //
 // It fails closed: a quote, $(, $((, ${ or heredoc that never closes, a ) that closes nothing, a
 // printf to a file whose format is not a literal string (or is only an expansion, "$fmt"), and a
@@ -131,7 +131,7 @@ func (sc *shScanner) code(depth int) []shTok {
 			awaitIn--
 			pattern = true
 		}
-		if w == "{" || w == "}" {
+		if (w == "{" || w == "}") && cmd { // a group's brace, not a `}` argument
 			emit('o', w, wordLine)
 			cmd = true
 			return
@@ -458,6 +458,7 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 	type pending struct {
 		fmt, text string
 		line      int
+		echo      bool // echo has no format: its words are its text
 	}
 	var frames [][]pending
 	opens := map[string]bool{"do": true, "if": true, "case": true}
@@ -468,32 +469,39 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 	resolve := func(ps []pending, to string) {
 		for _, p := range ps {
 			// A format that is only an expansion ("$fmt") holds text set elsewhere, unread here.
-			if p.fmt == "" || (p.fmt[0] != '\'' && p.fmt[0] != '"') || onlyExpansion.MatchString(p.fmt) {
+			if !p.echo && (p.fmt == "" || (p.fmt[0] != '\'' && p.fmt[0] != '"') || onlyExpansion.MatchString(p.fmt)) {
 				errs = append(errs, fmt.Sprintf("line %d (%s): a printf writes to %s with a format that is not a literal string: read it, or say why not", p.line, strings.TrimSpace(lines[p.line-1]), to))
 				continue
 			}
 			out = append(out, writtenScript{open: lines[p.line-1], text: p.text})
 		}
 	}
-	// redirect reads the command from toks[k] to its end: the file its output goes to, or piped.
-	redirect := func(k int) (to string, piped bool) {
+	isOut := func(t shTok) bool { return t.kind == 'r' && t.output && (t.fd == "" || t.fd == "1") }
+	// redirect reads the command from toks[k] to its end: the file its output goes to, whether it
+	// sends its output somewhere of its own (a file, >&2, /dev/null), and whether it is piped.
+	redirect := func(k int) (to string, own, piped bool) {
 		for ; k < len(toks); k++ {
 			t := toks[k]
 			if t.kind == 'o' {
-				return to, t.text == "|"
+				return to, own, t.text == "|"
 			}
+			own = own || isOut(t)
 			if to == "" && isFile(t) {
 				to = t.text
 			}
 		}
-		return to, false
+		return to, own, false
 	}
-	cmd, pre := true, "" // at a command's first word; a file redirect written before it
+	// A redirect written before the command word: its file, and whether it sends output anywhere.
+	cmd, pre, preOwn := true, "", false
 	for k, t := range toks {
 		switch {
 		case t.kind == 'r':
-			if cmd && pre == "" && isFile(t) {
-				pre = t.text
+			if cmd && isOut(t) {
+				preOwn = true
+				if pre == "" && isFile(t) {
+					pre = t.text
+				}
 			}
 			continue
 		case (t.kind == 'o' && (t.text == "{" || t.text == "(")) || (t.kind == 'w' && cmd && opens[t.text]):
@@ -504,44 +512,47 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 			}
 			ps := frames[len(frames)-1]
 			frames = frames[:len(frames)-1]
-			if to, piped := redirect(k + 1); to != "" {
+			if to, own, piped := redirect(k + 1); to != "" {
 				resolve(ps, to)
-			} else if !piped && len(frames) > 0 {
+			} else if !own && !piped && len(frames) > 0 {
 				frames[len(frames)-1] = append(frames[len(frames)-1], ps...)
 			}
 		case t.kind == 'w' && cmd && t.text == "exec":
-			if to, _ := redirect(k + 1); to != "" {
+			if to, _, _ := redirect(k + 1); to != "" {
 				errs = append(errs, fmt.Sprintf("line %d (%s): exec sends the rest of the output to %s, which the reader does not follow: read it, or say why not", t.line, strings.TrimSpace(lines[t.line-1]), to))
 			}
-		case t.kind == 'w' && cmd && t.text == "printf":
-			p := pending{line: t.line}
-			j := k + 1
-			if j < len(toks) && toks[j].kind == 'w' && toks[j].text == "--" {
-				j++
-			}
+		case t.kind == 'w' && cmd && (t.text == "printf" || t.text == "echo"):
+			// Every word to the end of the command, a redirect between them skipped (`> f` is not
+			// text, and the words after it are); a printf's format is the first, past `--`.
+			p := pending{line: t.line, echo: t.text == "echo"}
 			var words []string
-			for ; j < len(toks) && toks[j].kind == 'w'; j++ {
-				words = append(words, toks[j].text)
+			for j := k + 1; j < len(toks) && toks[j].kind != 'o'; j++ {
+				if toks[j].kind == 'w' {
+					words = append(words, toks[j].text)
+				}
+			}
+			if !p.echo && len(words) > 0 && words[0] == "--" {
+				words = words[1:]
 			}
 			if len(words) > 0 {
 				p.fmt = words[0]
 			}
 			p.text = strings.Join(words, " ")
-			to, piped := redirect(k + 1)
+			to, own, piped := redirect(k + 1)
 			if to == "" {
-				to = pre
+				to, own = pre, own || preOwn
 			}
 			switch {
 			case to != "":
 				resolve([]pending{p}, to)
-			case !piped && len(frames) > 0:
+			case !own && !piped && len(frames) > 0:
 				frames[len(frames)-1] = append(frames[len(frames)-1], p)
 			}
 		}
 		if t.kind == 'o' {
-			cmd, pre = true, ""
+			cmd, pre, preOwn = true, "", false
 		} else if t.kind == 'w' && !(cmd && (opens[t.text] || closes[t.text] || t.text == "then" || t.text == "else" || t.text == "elif" || t.text == "!" || (strings.Contains(t.text, "=") && !strings.HasPrefix(t.text, "=")))) {
-			cmd, pre = false, ""
+			cmd, pre, preOwn = false, "", false
 		}
 	}
 	return out, errs
@@ -587,7 +598,20 @@ func TestWrittenScripts(t *testing.T) {
 		{"a redirect before the command", "> f printf 'X\\n'\n", []want{{false, `'X\n'`}}, "", ""},
 		{"fi as an argument", "printf '%s\\n' fi > f\n", []want{{false, `'%s\n' fi`}}, "", ""},
 		{"lines after a continued redirect target", "printf 'A\\n' > a\\\nb\nprintf 'B\\n' > g\n", []want{{false, `'A\n'`}, {false, `'B\n'`}}, "", "printf 'B\\n' > g"},
+		// Round 9's.
+		{"echo to a file", "echo 'X' > f\n", []want{{false, "'X'"}}, "", ""},
+		{"echo of an expansion to a file", "echo \"$x\" > f\n", []want{{false, `"$x"`}}, "", ""},
+		{"an else branch's redirect", "if x; then :; else printf 'X\\n'; fi > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"an elif branch's redirect", "if a; then :; elif b; then printf 'X\\n'; fi > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a subshell's redirect", "( printf 'X\\n'; cat g ) > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"after a test and &&", "[ $# -gt 0 ] && printf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a backslash-quoted tag", "cat > f <<\\EOF\nX\nEOF\n", []want{{true, "X"}}, "", ""},
+		{"an assignment before printf", "X=1 printf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"words after the redirect", "printf '%s\\n' a > f b\n", []want{{false, `'%s\n' a b`}}, "", ""},
+		{"a } argument", "printf '%s\\n' } > f\n", []want{{false, `'%s\n' }`}}, "", ""},
+		{"a printf's own >&2 inside a redirected group", "{ printf \"$m\" >&2; printf 'Y\\n'; } > f\n", []want{{false, `'Y\n'`}}, "", ""},
 		// What it skips, by design.
+		{"a printf to stderr by fd", "printf 'X\\n' 2> f\n", nil, "", ""},
 		{"an unquoted heredoc", "cat > f <<EOF\n$X\nEOF\n", nil, "", ""},
 		{"a printf into a pipe", "printf 'X\\n' | sed s/a/b/ > f\n", nil, "", ""},
 		{"a printf captured by $(…)", "y=$(printf 'X\\n')\n", nil, "", ""},
@@ -602,7 +626,8 @@ func TestWrittenScripts(t *testing.T) {
 		{"an unclosed $((", "y=$((1 + 2\n", nil, "a $(( opened at line 1 never closes", ""},
 		{"an unclosed heredoc", "cat > f <<'NEVER'\nx\n", nil, "the heredoc opened at line 1", ""},
 		{"a format that is only an expansion", "printf \"$fmt\" > f\n", nil, "not a literal string", ""},
-		{"a redirect before the format", "printf > f 'x'\n", nil, "not a literal string", ""},
+		{"a redirect before the format", "printf > f 'x'\n", []want{{false, "'x'"}}, "", ""},
+		{"a printf with no format", "printf > f\n", nil, "not a literal string", ""},
 		{"&>", "printf 'X\\n' &> f\n", nil, "&> (bash)", ""},
 		{"exec > f", "exec > f\nprintf 'X\\n'\n", nil, "exec sends the rest of the output", ""},
 		{"a ) that closes nothing", "echo a )\n", nil, "a ) that closes nothing", ""},

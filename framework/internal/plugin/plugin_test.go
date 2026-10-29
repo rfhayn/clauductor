@@ -315,7 +315,8 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 		t.Fatalf("no template checks found (%v)", err)
 	}
 	var docs, prints int
-	caller, fixture, own := false, false, false
+	// Named writers the reader must find, so a reader that loses a form fails here, not silently.
+	caller, fixture, own, workflows, attrs := false, false, false, false, false
 	for _, f := range files {
 		name := filepath.Base(f)
 		src, err := os.ReadFile(f)
@@ -351,6 +352,8 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 			} else {
 				prints++
 				own = own || (name == "artifacts.sh" && strings.Contains(w.open, `> "$K/own.sh"`))
+				workflows = workflows || (name == "health-lines.sh" && strings.Contains(w.open, `> "$F/.github/workflows/$1"`))
+				attrs = attrs || (name == "line-endings.sh" && strings.Contains(w.open, `> "$r/.gitattributes"`))
 				if name == "roadmap.sh" && strings.Contains(w.open, "plant3") {
 					continue
 				}
@@ -360,8 +363,8 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 			}
 		}
 	}
-	if docs == 0 || prints == 0 || !caller || !fixture || !own {
-		t.Fatalf("read %d heredoc(s) and %d printf(s); among them the coauthor caller: %v, mktemp-in-tmpdir's fixture: %v, artifacts.sh's own.sh: %v. The reader no longer finds what it guards", docs, prints, caller, fixture, own)
+	if docs == 0 || prints == 0 || !caller || !fixture || !own || !workflows || !attrs {
+		t.Fatalf("read %d heredoc(s) and %d printf/echo(s); among them the coauthor caller: %v, mktemp-in-tmpdir's fixture: %v, artifacts.sh's own.sh: %v, health-lines.sh's workflow writer: %v, line-endings.sh's .gitattributes writer: %v. The reader no longer finds what it guards", docs, prints, caller, fixture, own, workflows, attrs)
 	}
 }
 
