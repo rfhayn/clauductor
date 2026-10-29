@@ -299,66 +299,98 @@ func TestNoProjectPathsLeft(t *testing.T) {
 	})
 }
 
-// A script a check writes into its scratch project (a quoted heredoc, `cat > FILE <<'TAG'`) runs
-// there: its project is the directory above it and its model is the copy the check put there, so
-// the builder must not point it at the plugin's model (CLAUDUCTOR_FW) when the template did not.
-// OPS-169: the builder rewrote a fixture caller's ROOT and sources to CLAUDUCTOR_FW, and 34 cases
-// read the real project. Other rewrites stay allowed (a contract script expects the plugin's agent
-// names, as the plugin's workflow spells them).
+// A script a check writes into its scratch project runs there: its project is the directory above
+// it and its model is the copy the check put there, so the builder must not point it at the
+// plugin's model (CLAUDUCTOR_FW) when the template did not. OPS-169: the builder rewrote a fixture
+// caller's ROOT and sources to CLAUDUCTOR_FW, and 34 cases read the real project. A check writes a
+// script two ways, and both are read in every spelling: a quoted heredoc's body (`cat > F`,
+// `cat >> F`, a helper such as `fixture NAME`, `<<'T'`, `<<"T"`, `<<-`), and a printf format with
+// a redirect. Other rewrites stay allowed (a contract script expects the plugin's agent names, as
+// the plugin's workflow spells them); so does roadmap.sh's plant3, a planted bypass that must be
+// spelt as the plugin's own files spell it.
 func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 	out, _ := build(t)
-	start := regexp.MustCompile(`^\s*cat > \S+ <<'([A-Za-z_]+)'\s*$`)
 	files, err := filepath.Glob(filepath.Join(repoRoot(t), "template", ".claude", "checks", "*.sh"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no template checks found (%v)", err)
 	}
-	n, caller := 0, false
+	var docs, prints int
+	caller, fixture := false, false
 	for _, f := range files {
+		name := filepath.Base(f)
 		src, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
-		gen, err := os.ReadFile(filepath.Join(out, "checks", filepath.Base(f)))
+		gen, err := os.ReadFile(filepath.Join(out, "checks", name))
 		if err != nil {
-			t.Errorf("%s: no plugin copy: %v", filepath.Base(f), err)
+			t.Errorf("%s: no plugin copy: %v", name, err)
 			continue
 		}
-		want, got := quotedHeredocs(string(src), start), quotedHeredocs(string(gen), start)
+		want, got := writtenScripts(string(src)), writtenScripts(string(gen))
 		if len(want) != len(got) {
-			t.Errorf("checks/%s: %d heredoc(s) in the template, %d in the plugin's copy", filepath.Base(f), len(want), len(got))
+			t.Errorf("checks/%s: %d written script(s) in the template, %d in the plugin's copy", name, len(want), len(got))
 			continue
 		}
-		for i, doc := range want {
-			n++
-			caller = caller || strings.Contains(doc, "health_coauthor")
-			if !strings.Contains(doc, FWVar) && strings.Contains(got[i], FWVar) {
-				t.Errorf("checks/%s: the plugin's copy points a script the check writes into its scratch project at %s:\n%s", filepath.Base(f), FWVar, got[i])
+		for i, w := range want {
+			if w.heredoc {
+				docs++
+				caller = caller || strings.Contains(w.text, "health_coauthor")
+				fixture = fixture || (name == "mktemp-in-tmpdir.sh" && strings.HasPrefix(strings.TrimSpace(w.open), "fixture "))
+			} else {
+				prints++
+				if name == "roadmap.sh" && strings.Contains(w.open, "plant3") {
+					continue
+				}
+			}
+			if !strings.Contains(w.text, FWVar) && strings.Contains(got[i].text, FWVar) {
+				t.Errorf("checks/%s: the plugin's copy points a script the check writes into its scratch project at %s:\n%s\n%s", name, FWVar, got[i].open, got[i].text)
 			}
 		}
 	}
-	if n == 0 || !caller {
-		t.Fatalf("read %d heredoc(s), the coauthor caller among them: %v. The reader no longer finds what it guards", n, caller)
+	if docs == 0 || prints == 0 || !caller || !fixture {
+		t.Fatalf("read %d heredoc(s) and %d printf(s); the coauthor caller among them: %v, mktemp-in-tmpdir's fixture: %v. The reader no longer finds what it guards", docs, prints, caller, fixture)
 	}
 }
 
-// quotedHeredocs: each heredoc whose opening line start matches, from that line through its tag.
-func quotedHeredocs(s string, start *regexp.Regexp) []string {
-	var docs []string
+// writtenScript is one script a check writes: a quoted heredoc's body, or a printf format with a
+// redirect; open is the line that starts it.
+type writtenScript struct {
+	open, text string
+	heredoc    bool
+}
+
+var (
+	heredocOpen = regexp.MustCompile(`<<-?\s*(?:'([A-Za-z_][A-Za-z0-9_]*)'|"([A-Za-z_][A-Za-z0-9_]*)")`)
+	printfTo    = regexp.MustCompile(`\bprintf\s+'([^']*)'[^|;&]*>`)
+)
+
+// writtenScripts reads them in order, so the template's and the plugin's pair one to one. A comment
+// line opens nothing; a heredoc closes on its tag, past the tabs `<<-` strips.
+func writtenScripts(s string) []writtenScript {
+	var out []writtenScript
 	lines := strings.Split(s, "\n")
 	for i := 0; i < len(lines); i++ {
-		m := start.FindStringSubmatch(lines[i])
-		if m == nil {
+		l := lines[i]
+		if strings.HasPrefix(strings.TrimSpace(l), "#") {
 			continue
 		}
-		for j := i + 1; j < len(lines); j++ {
-			if lines[j] == m[1] {
-				docs = append(docs, strings.Join(lines[i:j+1], "\n"))
-				i = j
-				break
+		if m := heredocOpen.FindStringSubmatch(l); m != nil {
+			tag := m[1] + m[2]
+			for j := i + 1; j < len(lines); j++ {
+				if strings.TrimLeft(lines[j], "\t") == tag {
+					out = append(out, writtenScript{open: l, text: strings.Join(lines[i+1:j], "\n"), heredoc: true})
+					i = j
+					break
+				}
 			}
+			continue
+		}
+		if m := printfTo.FindStringSubmatch(l); m != nil {
+			out = append(out, writtenScript{open: l, text: m[1]})
 		}
 	}
-	return docs
+	return out
 }
 
 // Every script path a plugin skill or agent names exists in the plugin, and a skill's context
