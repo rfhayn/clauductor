@@ -13,6 +13,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/clauductor/clauductor/internal/panel/clock"
 )
 
 // Runner runs one command in dir and returns its stdout. Injectable for tests.
@@ -212,20 +214,23 @@ func (o *callOutput) drain(p *os.Process, bound time.Duration) error {
 		}
 	}
 	kill()
-	limit := time.NewTimer(bound)
+	// The bound is real time a real process group has to go, and ExecRunner is a plain
+	// Runner with no Options to carry a clock: the system clock, as rewriteSettings does.
+	clk := clock.System
+	limit := clk.NewTimer(bound)
 	defer limit.Stop()
-	again := time.NewTicker(groupKillAgain)
+	again := clk.NewTicker(groupKillAgain)
 	defer again.Stop()
 	output := o.done
 	for group || output != nil {
 		select {
 		case <-output:
 			output = nil
-		case <-again.C:
+		case <-again.C():
 			if group {
 				kill()
 			}
-		case <-limit.C:
+		case <-limit.C():
 			if output != nil {
 				// select picks at random among ready cases: the output may have ended too.
 				select {
@@ -241,7 +246,7 @@ func (o *callOutput) drain(p *os.Process, bound time.Duration) error {
 				return nil
 			}
 			for _, r := range o.r {
-				_ = r.SetReadDeadline(time.Now())
+				_ = r.SetReadDeadline(clk.Now())
 			}
 			<-o.done
 			return exec.ErrWaitDelay
