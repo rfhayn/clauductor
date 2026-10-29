@@ -40,6 +40,26 @@ cat > "$F/docs/roadmap.md" <<'EOF'
 | 1.23 | `ops/reflabel` — x [see][Risk: high] | s | — | ⬜ queued |
 | 1.24 | `ops/named` — Risk&ratio; high | s | — | ⬜ queued |
 | 1.25 | `ops/runs` — x. `Risk: high`` | s | — | ⬜ queued |
+| 1.26 | `ops/esclink` — [\*\*Risk\*\*](x): high | s | — | ⬜ queued |
+| 1.27 | `ops/nestlink` — [[Risk]](x): high | s | — | ⬜ queued |
+| 1.28 | `ops/parenlink` — [Risk](https://e.org/Tiers_(review)): high | s | — | ⬜ queued |
+| 1.29 | `ops/twospan` — a row may say ``Risk: high`` | s | — | ⬜ queued |
+| 1.30 | `ops/twospanin` — Risk: low. A row may say ``a` Risk: high`` instead | s | — | ⬜ queued |
+| 1.31 | `ops/anglelink` — [\*Risk](<a (b>): high | s | — | ⬜ queued |
+| 1.32 | `ops/anglenest` — [[Risk]](<a(b>): high | s | — | ⬜ queued |
+| 1.33 | `ops/titlelink` — [\*Risk](x "a (b"): high | s | — | ⬜ queued |
+| 1.34 | `ops/escopen` — [Risk](https://e.org/a\(b): high | s | — | ⬜ queued |
+| 1.35 | `ops/escclose` — [Risk](https://e.org/a\)b): high | s | — | ⬜ queued |
+| 1.36 | `ops/angleclose` — [\*Risk](<a )b>): high | s | — | ⬜ queued |
+| 1.37 | `ops/titleclose` — [\*Risk](x "a )b"): high | s | — | ⬜ queued |
+| 1.38 | `ops/balanced` — [Risk](https://e.org/a_(b)c): high | s | — | ⬜ queued |
+| 1.39 | `ops/oldread` — [Risk](see the note): high | s | — | ⬜ queued |
+| 1.40 | `ops/opencell` — x [a](b|c) Risk: high | — | ⬜ queued |
+| 1.41 | `ops/openangle` — x [a](<b|c>) Risk: high | — | ⬜ queued |
+| 1.42 | `ops/opentitle` — x [a](b "c|d") Risk: high | — | ⬜ queued |
+| 1.43 | `ops/escangle` — [\*Risk](<a\>)b>): high | s | — | ⬜ queued |
+| 1.44 | `ops/esctitle` — [\*Risk](x "a\")b"): high | s | — | ⬜ queued |
+| 1.45 | `ops/refjoin` — [Ri][x]sk: high | s | — | ⬜ queued |
 EOF
 printf '# add-low\n\n**Risk:** low\n' > "$F/changes/add-low/proposal.md"
 printf '# add-bad\n\n**Risk:** medium\n' > "$F/changes/add-bad/proposal.md"
@@ -83,8 +103,34 @@ is 4 "a Risk read as rendered (a look-alike colon)" ops/lookalike
 is 4 "a look-alike colon ends a Risk's value, as a colon does" ops/colonval
 is 4 "a Risk in a destination with a space, which is no link" ops/nolink
 is 4 "a Risk in a reference label, which renders where a definition names it" ops/reflabel
+is 4 "a Risk split by a reference label, which renders as its text alone ([Ri][x]sk)" ops/refjoin
 is 4 "a Risk read as rendered (a named entity not listed, as a colon)" ops/named
 is 4 "a Risk after a lone backtick, which no run of one length closes" ops/runs
+# A link CommonMark makes that lk does not match (an escape in its text, a bracket in it, a paren in
+# its destination) still reads as its text: every destination is also read dropped.
+is 4 "a Risk read as rendered (an escaped emphasis in a link's text)" ops/esclink
+is 4 "a Risk read as rendered (a bracket in a link's text)" ops/nestlink
+refuses "a Risk that is not" "a paren in a link's destination reads as the reader before OPS-131 read it (Risk):)" ops/parenlink
+is 3 "a Risk in a span of two backticks is a mention (normal)" ops/twospan
+is 2 "a Risk in a span of two backticks holding one is a mention (the row's low)" ops/twospanin
+# A destination is read by its grammar: a <…> one, a bare one whose parens balance, a title, an
+# escaped paren that counts for nothing. Each would hide the Risk if read to its first `)`.
+is 4 "a Risk read as rendered (an open paren in a <…> destination)" ops/anglelink
+is 4 "a Risk read as rendered (a bracket in the text, a paren in a <…> destination)" ops/anglenest
+is 4 "a Risk read as rendered (an open paren in a link's title)" ops/titlelink
+is 4 "a Risk read as rendered (an escaped open paren in a destination)" ops/escopen
+is 4 "a Risk read as rendered (an escaped close paren in a destination)" ops/escclose
+is 4 "a Risk read as rendered (a close paren in a <…> destination)" ops/angleclose
+is 4 "a Risk read as rendered (a close paren in a link's title)" ops/titleclose
+is 4 "a Risk read as rendered (balanced parens mid-destination)" ops/balanced
+is 4 "a Risk read as rendered (an escaped > in a <…> destination)" ops/escangle
+is 4 "a Risk read as rendered (an escaped quote in a link's title)" ops/esctitle
+is 4 "a destination no link closes is still dropped, as the reader before OPS-131 dropped it" ops/oldread
+# A destination open at the end of the Change cell never reaches into the Scope, whose Risk is not
+# the row's: a cell's `|` ends it in every reading.
+is 3 "a bare destination open at the Change cell's end does not take in the Scope" ops/opencell
+is 3 "a <…> destination open at the Change cell's end does not take in the Scope" ops/openangle
+is 3 "a title open at the Change cell's end does not take in the Scope" ops/opentitle
 printf 'REVIEW_CAPS="low:1 normal:4 high:5"\n' > "$F/.claude/project.conf"
 is 1 "REVIEW_CAPS sets the rounds (low:1)" add-low
 is 4 "REVIEW_CAPS sets the rounds (normal:4)" 1.5
