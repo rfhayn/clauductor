@@ -457,7 +457,14 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   // The quota gate (OPS-167): the preflight runs quota-gate.sh, and the SCRIPT decides from
   // its words and exit line: a STOP, an ERROR or a non-zero exit stops before any group is built.
   t('the preflight agent runs quota-gate.sh and reports its output with its exit code', /quota-gate\.sh 2>&1; echo "exit \$\?"`/.test(pf) && /quotaGate/.test(pf), pf)
-  t('...and is told to skip the marker when the gate stops the run', /Skip it too when step 10 printed a line starting "quota-gate: STOP"/.test(pf), pf)
+  // The one step allowed a change is the marker's: the preamble must point at THAT step, whatever
+  // its number, or an agent following it would skip the marker (round 1 of OPS-167's review).
+  const mayMatch = pf.match(/changing nothing but what (?:the marker step \(step (\d+)\)|step (\d+)) says it may/) || []
+  const mayStep = mayMatch[1] || mayMatch[2]
+  t('the preflight\'s "changing nothing but" points at the step that runs marker.sh', !!mayStep && new RegExp(`\\n${mayStep}\\. [^\\n]*marker\\.sh`).test(pf), mayStep)
+  r = await run([])
+  const npf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
+  t('...and a new run\'s is told to skip the marker when the gate stops the run', /Skip it too when step 10 printed a line starting "quota-gate: STOP"/.test(npf), npf)
   const quotaWarned = (r) => r.report.warnings.some((w) => /quota/.test(w))
   r = await run([])
   t('a quota gate that says below adds no warning, and the build runs', r.report.stoppedAt === null && built(r) && !quotaWarned(r), [r.report.stoppedAt, r.report.warnings])
@@ -474,6 +481,11 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('overrideQuota builds past a STOP and warns, quoting it', r.report.stoppedAt === null && built(r) && warned(r, 'overrideQuota', STOP), [r.report.stoppedAt, r.report.warnings])
   const opf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
   t('...and then the marker is not skipped for the gate', !/Skip it too when step 10/.test(opf), opf)
+  // A resume finishes work a run already started: no new lane, so a STOP warns and the group runs.
+  r = await run([], { args: { resume: 3 }, budget: { quotaGate: `${STOP}\nexit 1` } })
+  t('a resumed run is not stopped by the quota gate: it warns, quoting the STOP, and finishes', r.report.stoppedAt === null && built(r) && warned(r, 'resume', STOP), [r.report.stoppedAt, r.report.warnings])
+  const rpf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
+  t('...and its marker is not skipped for the gate', !/Skip it too when step 10/.test(rpf), rpf)
   const NONE = 'quota-gate: no reading — no readable ~/.clauductor/quota-reading.json; the quota is NOT checked, so the lane may start'
   r = await run([], { budget: { quotaGate: `${NONE}\nexit 0` } })
   t('no reading fails open and says so in report.warnings', r.report.stoppedAt === null && built(r) && r.report.warnings.includes(NONE), [r.report.stoppedAt, r.report.warnings])

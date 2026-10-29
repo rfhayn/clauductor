@@ -127,12 +127,14 @@ started from the panel's **New lane** (or by hand), on one branch:
   which is written only while the panel runs. Two readers use it: the `quota` health line at session
   start (`.claude/health/quota.sh`: each window, its reset on your clock, `TIME_ZONE`, and when the
   reading was saved; `HIGH` at the threshold below, `CANNOT CHECK` with no reading), and
-  **`.claude/quota-gate.sh`**, which a new lane starts behind: exit 1 when a seven-day window
-  (`seven_day`, `seven_day_opus`, any `seven_day_*`) is at or above `QUOTA_LANE_STOP_PCT`
-  (`project.conf`, default 90; `0` turns it off), exit 0 below it, and exit 0 with "no reading" said
-  when there is none. build-change's preflight stops on it and notifies (`overrideQuota: true` is the
-  owner's way past), and the orchestrating session runs it before it starts a lane. The panel's own
-  `quota_guard` holds the five-hour window on its **New lane**; it runs no script.
+  **`.claude/quota-gate.sh`**: exit 1 when a seven-day window (`seven_day`, `seven_day_opus`, any
+  `seven_day_*`) is at or above `QUOTA_LANE_STOP_PCT` (`project.conf`, default 90; `0` turns it
+  off), exit 2 when that is not a number, exit 0 below it, and exit 0 with "no reading" said when
+  there is none. build-change's preflight is the one caller that enforces it: it stops a new run and
+  notifies (`overrideQuota: true` is the owner's way past; a resume only warns). session-start's
+  orchestrator rule asks the session to run it before other lanes, which nothing checks; a panel
+  lane and `/apply-change` do not run it. The panel's own `quota_guard` holds the five-hour window on
+  its **New lane**.
   `checks/quota-reading.sh` holds the file and both readers.
 
 ## Several people

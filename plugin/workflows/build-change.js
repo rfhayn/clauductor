@@ -327,7 +327,7 @@ GATE_WAIT = CFG.gateWait
 QUICK = CFG.quickFlags
 log(`Settings: branch ${BRANCH}, changes in ${CHANGES}/, gate ${GATE_CMD} (quick: ${QUICK || 'no flags'}; wait: ${GATE_WAIT}), provenance ${CFG.provenance ? 'on' : 'off'}, attribution ${CFG.attribution ? `'${CFG.attribution}'` : 'off'}`)
 const pre = await agent(
-  `Repo root is the cwd. Report, changing nothing but what step 10 says it may, and running every step:
+  `Repo root is the cwd. Report, changing nothing but what the marker step (step 11) says it may, and running every step:
 1. \`git rev-parse --abbrev-ref HEAD\` → branch.
 2. \`git status --porcelain\` → clean (true only if empty) and the dirty paths.
 3. Parse ${CHANGES}/${change}/tasks.md: every heading of the form "## <n>. <title>" is a group; count its "- [ ]" lines as openTasks.
@@ -338,7 +338,7 @@ const pre = await agent(
 8. \`date +%Y-%m-%d\` → today.
 9. \`clauductor-model review-cap.sh ${change} --why 2>&1\` → reviewCap, verbatim, whatever its exit code.
 10. \`clauductor-model quota-gate.sh 2>&1; echo "exit $?"\` → quotaGate, its output verbatim with that last exit line, whatever the exit code.
-11. \`clauductor-model skills/session-start/marker.sh 2>&1\` (no arguments) → marker, its output verbatim, whatever its exit code; but only when step 1 printed ${BRANCH}: otherwise skip it and set marker to "marker: WARNING: not run, on a branch other than ${BRANCH}".${args.overrideQuota === true ? '' : ' Skip it too when step 10 printed a line starting "quota-gate: STOP" or "quota-gate: ERROR", or exited other than 0, and set marker to "marker: WARNING: not run, the quota gate stopped the run".'} The one step here that may change something: it opens or marks the row's draft PR.
+11. \`clauductor-model skills/session-start/marker.sh 2>&1\` (no arguments) → marker, its output verbatim, whatever its exit code; but only when step 1 printed ${BRANCH}: otherwise skip it and set marker to "marker: WARNING: not run, on a branch other than ${BRANCH}".${args.overrideQuota === true || RESUME != null ? '' : ' Skip it too when step 10 printed a line starting "quota-gate: STOP" or "quota-gate: ERROR", or exited other than 0, and set marker to "marker: WARNING: not run, the quota gate stopped the run".'} The one step here that may change something: it opens or marks the row's draft PR.
 Read the files; do not infer.`,
   { label: 'preflight', phase: 'Preflight', schema: PREFLIGHT, ...ROLES.mechanic },
 )
@@ -347,7 +347,8 @@ if (pre.branch !== BRANCH) return stop('preflight', `on branch ${pre.branch}, ex
 // OPS-167: a new build starts only below the quota threshold (.claude/quota-gate.sh, over the status
 // line's reading). Decided HERE from the script's own words and exit line, never an agent's verdict:
 // a STOP or an ERROR, or any non-zero exit, stops the run for the owner (args.overrideQuota, the
-// owner's call, turns it into a warning). "no reading" fails open, as the script does, and says so;
+// owner's call, turns it into a warning). A resume finishes work a run already started, so it starts
+// no new lane: there the STOP is a warning too. "no reading" fails open, as the script does, and says so;
 // output in no known form is a warning that the quota went unchecked, never silence.
 const quotaOut = String(pre.quotaGate || '').trim()
 const quotaLine = quotaOut.split('\n').filter((l) => /^quota-gate: /.test(l)).pop() || ''
@@ -355,8 +356,8 @@ const quotaExit = (quotaOut.match(/^exit (\d+)\s*$/m) || [])[1]
 log(`Quota gate: ${quotaLine || 'printed no quota-gate line'}${quotaExit != null ? ` (exit ${quotaExit})` : ''}`)
 if (/^quota-gate: (STOP|ERROR) /.test(quotaLine) || (quotaExit != null && quotaExit !== '0')) {
   const why = quotaLine || `quota-gate.sh exited ${quotaExit}: ${quotaOut.slice(0, 120)}`
-  if (args.overrideQuota !== true) return stop('quota', `${why}. The owner may re-run with {overrideQuota: true}, or raise QUOTA_LANE_STOP_PCT (.claude/project.conf)`)
-  report.warnings.push(`started past the quota gate (overrideQuota): ${why}`)
+  if (args.overrideQuota !== true && RESUME == null) return stop('quota', `${why}. The owner may re-run with {overrideQuota: true}, or raise QUOTA_LANE_STOP_PCT (.claude/project.conf)`)
+  report.warnings.push(`started past the quota gate (${args.overrideQuota === true ? 'overrideQuota' : `resume of group ${RESUME}: finishing a run, not a new lane`}): ${why}`)
 } else if (/^quota-gate: no reading /.test(quotaLine)) report.warnings.push(quotaLine)
 else if (!/^quota-gate: (below|off) /.test(quotaLine) || quotaExit == null) report.warnings.push(`quota-gate.sh did not report a verdict ("${(quotaLine || quotaOut).slice(0, 120)}"): the quota was NOT checked on this run`)
 // OPS-126: the row's draft-PR marker is run HERE, not left to the description: a build lane's first

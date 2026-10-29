@@ -1,6 +1,6 @@
 # quota.sh: sourced (never run) by .claude/statusline.sh, which saves the reading, and by its two
 # readers (OPS-167): .claude/health/quota.sh, session start's health line (quota_health), and
-# .claude/quota-gate.sh, the guard a new lane starts behind (quota_stop_pct, quota_over). ONE file
+# .claude/quota-gate.sh, the guard build-change's preflight stops on (quota_stop_pct, quota_over). ONE file
 # per machine, written on every status-line refresh that carries `rate_limits`, with or without the
 # panel, so nothing needs the clauductor binary or the panel to read it (ADR-0006). Needs jq.
 #
@@ -141,7 +141,7 @@ quota_stop_pct() {
   case $_qs in
     '' | *[!0-9]* | ????*) echo "QUOTA_LANE_STOP_PCT is '$_qs', not a whole number from 0 (off) to 100"; return 1 ;;
   esac
-  # A leading zero reads as octal in $(( )) and [ -le ]; awk reads it as decimal.
+  # awk drops a leading zero, so 095 is said and compared as 95, never printed "095%".
   _qs=$(printf '%s\n' "$_qs" | awk '{ printf "%d", $1 + 0 }')
   [ "$_qs" -le 100 ] || { echo "QUOTA_LANE_STOP_PCT is '$QUOTA_LANE_STOP_PCT', not a whole number from 0 (off) to 100"; return 1; }
   printf '%s\n' "$_qs"
@@ -160,6 +160,13 @@ _quota_pct_text() {
 # named (each window, and when the reading was saved). A window past its reset is named with NO
 # number, the rule quota_read keeps; no reading at all is CANNOT CHECK, never OK.
 quota_health() {
+  # A bad threshold comes first: quota-gate.sh exits 2 on it whatever the reading, so no reading
+  # (CANNOT CHECK) may hide it. The reading is still said, from a pass that skips the threshold.
+  if [ -z "${_QH_NOGUARD:-}" ] && ! _qh_pct=$(quota_stop_pct); then
+    _qh_r=$(_QH_NOGUARD=1; quota_health)
+    echo "FAILED quota: $_qh_pct, so .claude/quota-gate.sh exits 2 and build-change stops on every run until it is one; the reading: ${_qh_r#OK quota: }"
+    return 0
+  fi
   command -v jq >/dev/null 2>&1 || { echo "CANNOT CHECK — jq is not installed, so the quota reading cannot be read; the quota is UNKNOWN"; return 0; }
   [ -f "$(quota_file)" ] || { echo "CANNOT CHECK — no quota reading at ~/.clauductor/quota-reading.json (the status line saves one on each refresh that carries rate_limits); the quota is UNKNOWN, not low"; return 0; }
   _qh=$(quota_read) || { echo "CANNOT CHECK — ~/.clauductor/quota-reading.json cannot be read (not the shape lib/quota.sh writes); the quota is UNKNOWN"; return 0; }
@@ -185,15 +192,12 @@ EOF
     echo "CANNOT CHECK — no window has a current reading: ${_qh_parts:-none saved} — $_qh_saved; the quota is UNKNOWN until a status line refreshes"
     return 0
   fi
-  if ! _qh_pct=$(quota_stop_pct); then
-    echo "FAILED quota: $_qh_parts — $_qh_saved; $_qh_pct, so .claude/quota-gate.sh refuses every new lane until it is one"
-    return 0
-  fi
+  [ -z "${_QH_NOGUARD:-}" ] || { echo "OK quota: $_qh_parts — $_qh_saved"; return 0; }
   _qh_over=""
   [ "$_qh_pct" -gt 0 ] && _qh_over=$(printf '%s\n' "$_qh" | quota_over "$_qh_pct" | while IFS="$_qh_tab" read -r _qh_k _qh_p _qh_r; do
     printf '%s, ' "$(quota_label "$_qh_k")"; done)
   if [ -n "$_qh_over" ]; then
-    echo "HIGH quota: $_qh_parts — $_qh_saved; ${_qh_over%, } at or above ${_qh_pct}% (QUOTA_LANE_STOP_PCT): .claude/quota-gate.sh refuses a new lane until it resets"
+    echo "HIGH quota: $_qh_parts — $_qh_saved; ${_qh_over%, } at or above ${_qh_pct}% (QUOTA_LANE_STOP_PCT): .claude/quota-gate.sh stops a new build-change run until it resets"
   elif [ "$_qh_pct" -eq 0 ]; then
     echo "OK quota: $_qh_parts — $_qh_saved; the lane guard is off (QUOTA_LANE_STOP_PCT=0)"
   else

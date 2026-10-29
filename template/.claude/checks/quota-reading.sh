@@ -227,6 +227,12 @@ if [ -n "$has_health" ]; then
   case "$got" in "OK quota: "*"the lane guard is off (QUOTA_LANE_STOP_PCT=0)") ok "health: QUOTA_LANE_STOP_PCT=0 says the guard is off" ;; *) fail "health, guard off: $got" ;; esac
   conf abc; got=$(hl)
   case "$got" in "FAILED quota: "*"QUOTA_LANE_STOP_PCT is 'abc'"*) ok "health: a threshold that is no number is FAILED, by name" ;; *) fail "health, bad threshold: $got" ;; esac
+  # The gate refuses every build on a bad threshold whatever the reading, so the line must say so
+  # with no current reading, and with no file, too: never hidden behind CANNOT CHECK.
+  got=$(QNOW=$((W7 + 1)) hl)
+  case "$got" in "FAILED quota: QUOTA_LANE_STOP_PCT is 'abc'"*"no window has a current reading"*) ok "health: a bad threshold is FAILED with no current reading too, and still says what the reading is" ;; *) fail "health, bad threshold past every reset: $got" ;; esac
+  rm -f "$QF"; got=$(hl)
+  case "$got" in "FAILED quota: QUOTA_LANE_STOP_PCT is 'abc'"*"no quota reading"*) ok "health: ...and with no file" ;; *) fail "health, bad threshold and no file: $got" ;; esac
   # Session start runs it: the directory is the list (extensions.sh health).
   conf 90; reading 41 63 77.5
   got=$(cd "$d" && HOME="$HQ" QUOTA_NOW="$QN" sh "$P/.claude/extensions.sh" health 2>&1)

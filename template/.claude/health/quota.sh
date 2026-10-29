@@ -3,7 +3,7 @@
 # OPS-67): each window's use and its reset on the owner's clock, and when the reading was saved. A
 # window past its reset shows no number (the old one says nothing); no reading at all is CANNOT
 # CHECK. HIGH when a seven-day window is at or above QUOTA_LANE_STOP_PCT, where .claude/quota-gate.sh
-# refuses a new lane. The logic is .claude/lib/quota.sh's (quota_health), which `clauductor update`
+# stops a new build-change run; FAILED when that threshold is not a number. The logic is .claude/lib/quota.sh's (quota_health), which `clauductor update`
 # keeps current.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 # shellcheck disable=SC1091

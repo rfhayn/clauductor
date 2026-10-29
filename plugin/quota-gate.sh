@@ -13,10 +13,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #
 # The reading is the status line's (~/.clauductor/quota-reading.json, read by lib/quota.sh, which never
 # reports a window past its reset). Only the seven-day windows are judged: the five-hour one resets
-# within hours and the panel's own quota_guard holds it. Who calls it: build-change's preflight (a STOP
-# or an ERROR stops the run, with notify, unless args.overrideQuota), and the orchestrating session
-# before it starts a lane (session-start, "Run as an orchestrator of lanes"). checks/quota-reading.sh
-# holds it.
+# within hours and the panel's own quota_guard holds it. Who calls it: build-change's preflight, the
+# one caller that enforces it (a STOP or an ERROR stops a new run, with notify, unless
+# args.overrideQuota; a resume only warns). session-start's "Run as an orchestrator of lanes" tells the
+# session to run it before a lane, which nothing checks; a panel lane or /apply-change does not run it.
+# checks/quota-reading.sh holds it.
 ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
 . "$CLAUDUCTOR_FW/lib/conf.sh"
