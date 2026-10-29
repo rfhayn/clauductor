@@ -135,7 +135,8 @@ func (sc *shScanner) code(depth int) []shTok {
 		switch {
 		case w == "esac": // a case's end, where a pattern could start
 			pattern = false
-		case pattern:
+		case pattern: // a pattern is no command, nor any word of one
+			return
 		case cmd && w == "case":
 			afterCase = 2
 		case afterCase > 0:
@@ -460,7 +461,9 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 		echo      bool // echo has no format: its words are its text
 	}
 	var frames [][]pending
-	opens := map[string]bool{"do": true, "if": true, "case": true}
+	// A loop's frame opens at its keyword, so its condition is inside it too (`while printf …; do
+	// :; done > f`); `do` only keeps command position.
+	opens := map[string]bool{"for": true, "while": true, "until": true, "if": true, "case": true}
 	closes := map[string]bool{"done": true, "fi": true, "esac": true}
 	// Only a redirect token is an output, so neither test needs its kind.
 	isOut := func(t shTok) bool { return t.output && (t.fd == "" || t.fd == "1") }
@@ -505,7 +508,7 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 			}
 			continue
 		// An operator's text is never a keyword, so a keyword test needs no kind. The kind test on
-		// `{`/`(` is equivalent on valid shell: an argument `{` is never closed by a group's `}`.
+		// `{`/`(` is not: an argument `{` opens no frame (row "an argument { inside a group").
 		case (t.kind == 'o' && (t.text == "{" || t.text == "(")) || (cmd && opens[t.text]):
 			frames = append(frames, nil)
 		case (t.kind == 'o' && (t.text == "}" || t.text == ")")) || (cmd && closes[t.text]):
@@ -663,6 +666,16 @@ func TestWrittenScripts(t *testing.T) {
 		{"a redirect glued to the format", "printf 'X\\n'>f\n", []want{{false, `'X\n'`}}, "", ""},
 		{"a pipe inside a redirected group", "{ printf 'X\\n' | cat; } > f\n", nil, "", ""},
 		{"a piped group inside a redirected group", "{ { printf 'X\\n'; } | cat; } > f\n", nil, "", ""},
+		// Round 12's.
+		{"an argument { inside a group", "{ printf '%s\\n' {; printf 'Y\\n'; } > f\n", []want{{false, `'%s\n' {`}, {false, `'Y\n'`}}, "", ""},
+		{"a while condition in a redirected loop", "while printf 'X\\n'; do :; done > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"an until condition in a redirected loop", "until printf 'X\\n'; do :; done > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a for loop's body", "for x in a; do printf 'X\\n'; done > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a pattern named printf", "case $x in a) :;; printf) :;; esac > f\n", nil, "", ""},
+		{"a pattern named printf, on its own line", "case $x in\na) :;;\nprintf) :;;\nesac > f\n", nil, "", ""},
+		{"a pattern named echo", "case $x in a) :;; echo) :;; esac > f\n", nil, "", ""},
+		{"a first pattern named printf, after a newline", "case $x in\nprintf) :;; esac > f\n", nil, "", ""},
+		{"a tab-indented tag in a <<'EOF' body is body", "cat > f <<'EOF'\n\tEOF\nX\nEOF\n", []want{{true, "\tEOF\nX"}}, "", ""},
 		{"a ' inside ${…}", "x=${a:-'}'}\nprintf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
 		{"a $(…) inside ${…}", "x=${a:-$(echo })}\nprintf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
 		{"a backtick inside ${…}", "x=${a:-`echo }`}\nprintf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
