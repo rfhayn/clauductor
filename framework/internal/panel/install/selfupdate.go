@@ -198,7 +198,7 @@ func (r *Rebuild) Decide(ctx context.Context) Plan {
 			exe = "clauductor"
 		}
 		p.Skip = "it was started by hand, not as the login agent, so it does not replace itself"
-		p.How = fmt.Sprintf("To update it, run `go build -o %s ./cmd/clauductor` in framework/, then stop this panel and start it again.", exe)
+		p.How = fmt.Sprintf("To update it, run `go build -o %s ./cmd/clauductor` in framework/, then stop this panel and start it again.", ShellWord(exe))
 		return p
 	case rev == "":
 		p.Skip = "its binary carries no VCS build information, so its commit is not known"
@@ -507,12 +507,13 @@ func TakeRestartMarker(home string) (*RestartMarker, error) {
 	return &m, nil
 }
 
-// Tilde is p with the home directory written as ~, as a notice's command names it.
+// Tilde is p as one shell word with the home directory written as ~, as a notice's
+// command names it. The ~/ stays outside the quotes: a shell expands only a bare one.
 func Tilde(home, p string) string {
 	if home != "" && strings.HasPrefix(p, home+string(filepath.Separator)) {
-		return "~" + p[len(home):]
+		return "~/" + ShellWord(p[len(home)+1:])
 	}
-	return p
+	return ShellWord(p)
 }
 
 // short is a commit's first 12 hex digits.

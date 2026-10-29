@@ -265,7 +265,7 @@ current directory's git toplevel.`,
 			fmt.Fprintf(out, "\nRegistered %s as %q (%s), on tmux socket %s, reading this file.\n", e.Root, e.ID, res.Add.Cfg.Name, e.Socket(res.Add.Cfg))
 		}
 		fmt.Fprintf(out, "Nothing was written into %s. The file is yours to edit.\n", e.Root)
-		fmt.Fprintf(out, "Its cards, queue commands and templates stay off until you review it and run `clauductor panel trust --project %s`.\n", e.Root)
+		fmt.Fprintf(out, "Its cards, queue commands and templates stay off until you review it and run `clauductor panel trust --project %s`.\n", install.ShellWord(e.Root))
 		followRunningPanel(out, home, e.Root, true)
 		return nil
 	},
@@ -310,7 +310,7 @@ within a second, with no restart (the page's project menu does the same).`,
 		_, raw, err := config.LoadConfigRaw(res.Entry.ConfigPath())
 		if err == nil && !install.TrustedNow(home, res.Entry.Root, res.Entry.ConfigPath(), install.ConfigHash(raw)) {
 			fmt.Fprintf(out, "Its config %s is not trusted: its cards, queue commands and templates stay off until you review it and run `clauductor panel trust --project %s`.\n",
-				res.Entry.ConfigPath(), res.Entry.Root)
+				res.Entry.ConfigPath(), install.ShellWord(res.Entry.Root))
 		}
 		followRunningPanel(out, home, res.Entry.Root, true)
 		return nil

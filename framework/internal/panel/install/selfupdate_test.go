@@ -191,6 +191,10 @@ func TestDecideAsksEachConditionInTurn(t *testing.T) {
 	if p := rebuild(func(rb *Rebuild) { rb.Launchd = false }); !strings.Contains(p.How, "go build -o /x/clauductor ./cmd/clauductor") {
 		t.Errorf("a panel started by hand is told %q, want its own binary rebuilt", p.How)
 	}
+	// The line runs as printed: a binary's path with a space is one shell word (PANEL-47).
+	if p := rebuild(func(rb *Rebuild) { rb.Launchd, rb.Exe = false, "/x y/clauductor" }); !strings.Contains(p.How, "go build -o '/x y/clauductor' ./cmd/clauductor") {
+		t.Errorf("a binary's path with a space is told %q", p.How)
+	}
 	// R not an ancestor of B: the range is the fast-forward's, still said.
 	if p := rebuild(func(rb *Rebuild) { rb.Self.Revision = side }); p.Base != r {
 		t.Errorf("base %s, want the fast-forward's start %s", p.Base, r)
@@ -445,5 +449,13 @@ func TestTildeWritesHomeAsTilde(t *testing.T) {
 	}
 	if got := Tilde("/Users/a", "/Users/ab/x"); got != "/Users/ab/x" {
 		t.Fatalf("Tilde of another home: %q", got)
+	}
+	// One shell word, so the rollback runs as printed; the ~ stays outside the quotes,
+	// where a shell expands it (PANEL-47).
+	if got := Tilde("/Users/a", "/Users/a/o'k bin/clauductor"); got != `~/'o'\''k bin/clauductor'` {
+		t.Fatalf("Tilde with a space and a quote: %q", got)
+	}
+	if got := Tilde("/Users/a", "/Volumes/x y/clauductor"); got != `'/Volumes/x y/clauductor'` {
+		t.Fatalf("Tilde outside the home, with a space: %q", got)
 	}
 }

@@ -143,11 +143,6 @@ func TestRemoveProject(t *testing.T) {
 	}
 }
 
-// ATTACH-4's requirement, `panel list`'s config line (design.md D7): every project's
-// config path; one outside its repository is marked so, with a line when the
-// repository's own .clauductor/panel.json is there and not read. A config reached
-// through a symlink into the repository is inside it. (The scenario's test, which also
-// loads the project as the panel does, is TestAttachedProjectReadsItsSidecar.)
 // ATTACH-4's requirement, the outside mark (design.md D7): a root that does not exist
 // (yet, or any more) under a symlinked ancestor, as /var is to /private/var on macOS,
 // is resolved as its config is, so a config inside it is not marked outside. Both
@@ -179,6 +174,11 @@ func TestConfigOutsideResolvesAMissingRootAsItsConfig(t *testing.T) {
 	}
 }
 
+// ATTACH-4's requirement, `panel list`'s config line (design.md D7): every project's
+// config path; one outside its repository is marked so, with a line when the
+// repository's own .clauductor/panel.json is there and not read. A config reached
+// through a symlink into the repository is inside it. (The scenario's test, which also
+// loads the project as the panel does, is TestAttachedProjectReadsItsSidecar.)
 func TestListProjectsNamesEachConfig(t *testing.T) {
 	t.Parallel()
 	home := signals.ResolvePath(t.TempDir())

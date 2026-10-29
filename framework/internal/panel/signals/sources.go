@@ -192,42 +192,37 @@ func ParseCardOutput(out []byte) CardOutput {
 			return CardOutput{Kind: "json", JSON: compact.Bytes()}
 		}
 	}
-	lines := []string{}
-	for _, l := range strings.Split(string(trimmed), "\n") {
-		l = strings.TrimRight(l, " \t\r")
-		if l == "" {
-			continue
-		}
-		lines = append(lines, l)
-		if len(lines) == maxCardLines {
-			lines = append(lines, "… (truncated)")
-			break
-		}
-	}
-	return CardOutput{Kind: "text", Lines: lines}
+	return CardOutput{Kind: "text", Lines: appendCardLines([]string{}, trimmed)}
 }
 
 // WithStderr adds a command's stderr lines to a text card, after its stdout's, under
 // the same line limit. A JSON card is returned as it is: its stdout was parsed alone
 // first, and stderr would not be JSON (PANEL-42, design.md D5, Output).
 func (co CardOutput) WithStderr(stderr []byte) CardOutput {
-	if co.Kind != "text" || len(co.Lines) >= maxCardLines {
+	if co.Kind != "text" || len(co.Lines) > maxCardLines { // over it: stdout was cut already
 		return co
 	}
-	lines := append([]string{}, co.Lines...)
-	for _, l := range strings.Split(string(bytes.TrimSpace(stderr)), "\n") {
+	co.Lines = appendCardLines(append([]string{}, co.Lines...), bytes.TrimSpace(stderr))
+	return co
+}
+
+const truncatedLine = "… (truncated)"
+
+// appendCardLines adds text's non-blank lines to lines up to maxCardLines. The
+// truncated line marks only a line that was cut: output of exactly the limit is
+// whole, and says nothing (PANEL-47).
+func appendCardLines(lines []string, text []byte) []string {
+	for _, l := range strings.Split(string(text), "\n") {
 		l = strings.TrimRight(l, " \t\r")
 		if l == "" {
 			continue
 		}
-		lines = append(lines, l)
 		if len(lines) == maxCardLines {
-			lines = append(lines, "… (truncated)")
-			break
+			return append(lines, truncatedLine)
 		}
+		lines = append(lines, l)
 	}
-	co.Lines = lines
-	return co
+	return lines
 }
 
 // AgentsFilterDir is the directory to pass as `claude agents --cwd`: the deepest

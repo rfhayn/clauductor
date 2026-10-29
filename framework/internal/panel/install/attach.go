@@ -60,8 +60,9 @@ func Attach(ctx context.Context, o AttachOptions) (AttachResult, error) {
 		// state); a working one keeps the config it reads.
 		_, ownErr := os.Lstat(config.OwnConfigPath(root))
 		if e.Config != "" || !errors.Is(ownErr, os.ErrNotExist) {
+			// The command lines are shell-quoted, so they run as printed (PANEL-47).
 			return AttachResult{}, fmt.Errorf("%s is registered already as %q, reading %s; `clauductor panel remove %s` first, or `clauductor panel add --project %s --config <file>` to switch its config on purpose",
-				root, e.ID, e.ConfigPath(), e.ID, root)
+				root, e.ID, e.ConfigPath(), ShellWord(e.ID), ShellWord(root))
 		}
 		if id != "" && id != e.ID {
 			return AttachResult{}, fmt.Errorf("%s is registered already as %q, and attaching it in place keeps that id; drop --id", root, e.ID)
@@ -97,7 +98,7 @@ func Attach(ctx context.Context, o AttachOptions) (AttachResult, error) {
 		}
 	}
 	exists := func() error {
-		serve := fmt.Sprintf("`clauductor panel add --project %s --config %s` serves it as it is", root, path)
+		serve := fmt.Sprintf("`clauductor panel add --project %s --config %s` serves it as it is", ShellWord(root), ShellWord(path))
 		if inPlace { // D4 keeps the id, so another one is no way out
 			return fmt.Errorf("%s exists already, and attach never overwrites it: %s", path, serve)
 		}

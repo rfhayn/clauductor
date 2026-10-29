@@ -30,10 +30,16 @@ func gitFreeRunner(ctx context.Context, dir string, argv []string) ([]byte, erro
 // ignored file and the operating model's queue scripts (so init's notes name cards).
 func attachRepo(t *testing.T) string {
 	t.Helper()
+	return attachRepoNamed(t, "acme-web")
+}
+
+// attachRepoNamed is attachRepo in a folder of that name.
+func attachRepoNamed(t *testing.T, name string) string {
+	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
 	}
-	root := filepath.Join(t.TempDir(), "acme-web")
+	root := filepath.Join(t.TempDir(), name)
 	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -115,6 +121,51 @@ func TestPanelAttachCommand(t *testing.T) {
 	}
 	if !strings.Contains(r.stdout, "Owner queue, pinned") || !strings.Contains(r.stdout, "Change queue, pinned") {
 		t.Errorf("the notes do not name the cards:\n%s", r.stdout)
+	}
+}
+
+// PANEL-47: the trust line attach and `panel add` print runs as printed. The root holds
+// a space and a quote, so a shell splits the line into the words meant only if it is
+// shell-quoted; running those words trusts the config.
+func TestPanelTrustLinesAreShellQuoted(t *testing.T) {
+	t.Parallel()
+	home := signals.ResolvePath(t.TempDir())
+	root := attachRepoNamed(t, "o'k web")
+	trustLine := func(stdout string) []string {
+		t.Helper()
+		_, line, found := strings.Cut(stdout, "run `clauductor ")
+		if !found {
+			t.Fatalf("no trust line:\n%s", stdout)
+		}
+		line, _, _ = strings.Cut(line, "`")
+		words := shellWords(t, line)
+		if want := []string{"panel", "trust", "--project", root}; strings.Join(words, "\x00") != strings.Join(want, "\x00") {
+			t.Fatalf("a shell reads the printed line %q as %q, want %q", line, words, want)
+		}
+		return words
+	}
+	r := cli(t, home, "panel", "attach", root, "--id", "web")
+	if r.code != 0 {
+		t.Fatalf("attach: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	trustLine(r.stdout)
+	if r := cli(t, home, "panel", "remove", "web"); r.code != 0 {
+		t.Fatalf("remove: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	path := config.SidecarPath(home, "web")
+	r = cli(t, home, "panel", "add", "--project", root, "--config", path, "--id", "web")
+	if r.code != 0 {
+		t.Fatalf("add: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	if r := cli(t, home, trustLine(r.stdout)...); r.code != 0 {
+		t.Fatalf("the printed trust line: exit %d: %s %s", r.code, r.stdout, r.stderr)
+	}
+	_, raw, err := config.LoadConfigRaw(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !install.TrustedNow(home, root, path, install.ConfigHash(raw)) {
+		t.Fatal("the printed trust line did not trust the config")
 	}
 }
 
