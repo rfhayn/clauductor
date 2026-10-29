@@ -1,4 +1,4 @@
-# health.sh: sourced (never run) by the GitHub Actions health lines in .claude/health/. The logic
+# health.sh: sourced (never run) by the model's health lines in .claude/health/. The logic
 # lives here, in a framework file that `clauductor update` refreshes, and each health line is a
 # thin caller: .claude/health/ is project-owned (created once, never overwritten), so logic kept
 # there would never receive a fix. POSIX sh, git, jq and awk only.
@@ -9,8 +9,10 @@
 #   health_crons FILE              the workflow's cron expressions, `; `-joined, as written
 #   health_push_main               the push-main health line (one line per push workflow)
 #   health_scheduled [--list]      the scheduled-workflows health line (one line per workflow)
+#   health_coauthor LINE           the coauthor-trailers health line: a Co-authored-by trailer on
+#                                  origin/<main> while attribution is off (local git, no gh)
 #
-# Both health lines report FACTS and name their SUBJECT (the run's commit, date and URL); neither
+# The two GitHub health lines report FACTS and name their SUBJECT (the run's commit, date and URL); neither
 # draws a conclusion the facts do not carry, and neither ever degrades to silence: a lookup that
 # fails says CANNOT CHECK, by name. Every line starts with its verdict (.claude/health/README.md).
 # Upstreamed from a project that ran both for months (P2.2); its review history is why each branch
@@ -289,4 +291,72 @@ health_scheduled() {
     echo "FAILED $_hs_n: TRIGGER — last scheduled run ${_hs_concl:-unknown} ($_hs_when${_hs_age:+, ${_hs_age}d ago}${_hs_crons:+, cron $_hs_crons}) — NOBODY IS NOTIFIED OF THIS. $_hs_url$_hs_clean$_hs_why"
   done
   rm -rf "$_hs_tmp"
+}
+
+# health_coauthor LINE: no commit on origin/<main> after a baseline carries a Co-authored-by
+# trailer while model-roles.json's attribution.enabled is not true (OPS-169). pr-merge-guard's rule
+# 15 refuses such a merge from Claude Code; this reads what reached main by any road: a merge from
+# Cursor or the website, where no hook runs, or a co-author line GitHub appended to a body it was
+# given. LINE is the caller's path from the root: the commit that added it is the default baseline,
+# so history from before the line (#289-#291 here, kept by the owner) is not a finding, and
+# COAUTHOR_HEALTH_SINCE (a commit, exclusive) moves it either way. A trailer is judged as rule 15
+# judges one: a line of the message whose first word, past blanks, is the key, in any case, then
+# its colon; a mention inside a line is not one. The switch is read as rule 15 reads it (on only
+# when it is true; no file, rule 15 off, nothing checked), but a file that does not parse is CANNOT
+# CHECK here rather than "off": the line cannot say which. Only a commit's short sha and title are
+# printed, never the trailer, so no co-author's address reaches the session's context. Local refs
+# only (no fetch, no network): the subject names origin/<main>'s commit, so a stale fetch shows.
+health_coauthor() {
+  _hc_main="origin/$MAIN_BRANCH"
+  _hc_unk="Co-authored-by on $_hc_main is UNKNOWN, not healthy"
+  [ -f "$ROOT/.claude/model-roles.json" ] || { echo "OK no .claude/model-roles.json, so no attribution setting: Co-authored-by on $_hc_main not checked"; return 0; }
+  command -v jq >/dev/null 2>&1 || { echo "CANNOT CHECK — jq is not installed, so whether attribution is off cannot be read; $_hc_unk"; return 0; }
+  _hc_on=$(jq -r '.attribution.enabled == true' "$ROOT/.claude/model-roles.json" 2>/dev/null) || _hc_on=""
+  case "$_hc_on" in
+    true) echo "OK attribution on (.claude/model-roles.json): Co-authored-by on $_hc_main not checked"; return 0 ;;
+    false) ;;
+    *) echo "CANNOT CHECK — .claude/model-roles.json does not parse (or its attribution is not an object), so whether attribution is off cannot be read; $_hc_unk"; return 0 ;;
+  esac
+  _hc_tip=$(git -C "$ROOT" rev-parse -q --verify "$_hc_main^{commit}" 2>/dev/null) || {
+    echo "CANNOT CHECK — cannot read $_hc_main (not fetched, or not a git repository); $_hc_unk"; return 0; }
+  if [ -n "${COAUTHOR_HEALTH_SINCE:-}" ]; then
+    _hc_base=$(git -C "$ROOT" rev-parse -q --verify "$COAUTHOR_HEALTH_SINCE^{commit}" 2>/dev/null) || {
+      echo "CANNOT CHECK — COAUTHOR_HEALTH_SINCE ($COAUTHOR_HEALTH_SINCE) names no commit here (.claude/project.conf); $_hc_unk"; return 0; }
+    git -C "$ROOT" merge-base --is-ancestor "$_hc_base" "$_hc_tip" 2>/dev/null || {
+      echo "CANNOT CHECK — COAUTHOR_HEALTH_SINCE ($COAUTHOR_HEALTH_SINCE) is not on $_hc_main, so it bounds nothing there (.claude/project.conf); $_hc_unk"; return 0; }
+    _hc_how="COAUTHOR_HEALTH_SINCE"
+  else
+    _hc_base=$(git -C "$ROOT" log --diff-filter=A --format=%H "$_hc_tip" -- "$1" 2>/dev/null | tail -n 1)
+    if [ -z "$_hc_base" ]; then
+      # A line on main whose adding commit git cannot name is a failed read, never "not there yet".
+      git -C "$ROOT" cat-file -e "$_hc_tip:$1" 2>/dev/null && { echo "CANNOT CHECK — $1 is on $_hc_main but git log names no commit that added it; set COAUTHOR_HEALTH_SINCE in .claude/project.conf; $_hc_unk"; return 0; }
+      echo "OK $1 is not on $_hc_main yet, so no commit follows its baseline (the commit that adds it; COAUTHOR_HEALTH_SINCE sets another)"; return 0
+    fi
+    # A shallow clone shows its boundary commit as adding every file: that is its depth, not the
+    # line's arrival, and reading from it would quietly narrow the check.
+    if [ "$(git -C "$ROOT" rev-parse --is-shallow-repository 2>/dev/null)" = true ] \
+       && [ "$(git -C "$ROOT" rev-list --parents -n 1 "$_hc_base" | wc -w | tr -d ' ')" = 1 ]; then
+      echo "CANNOT CHECK — this clone is shallow, and the commit that added $1 is past its depth (git fetch --unshallow, or set COAUTHOR_HEALTH_SINCE); $_hc_unk"; return 0
+    fi
+    _hc_how="the commit that added $1"
+  fi
+  _hc_since=$(git -C "$ROOT" rev-parse --short "$_hc_base")
+  _hc_n=$(git -C "$ROOT" rev-list --count "$_hc_base..$_hc_tip" 2>/dev/null) \
+    && _hc_log=$(git -C "$ROOT" log --format='%x1e%h %s%x1f%B' "$_hc_base..$_hc_tip" 2>/dev/null) || {
+      echo "CANNOT CHECK — git could not read $_hc_main since $_hc_since; $_hc_unk"; return 0; }
+  # One record per commit (RS \036), "sha title" before \037 and the whole message after it.
+  _hc_bad=$(printf '%s' "$_hc_log" | LC_ALL=C awk 'BEGIN { RS = "\036" }
+    { i = index($0, "\037"); if (!i) next
+      n = split(substr($0, i + 1), L, "\n")
+      for (k = 1; k <= n; k++) if (tolower(L[k]) ~ /^[[:space:]]*co-authored-by[[:space:]]*:/) { print substr($0, 1, i - 1); break } }')
+  if [ -z "$_hc_bad" ]; then
+    echo "OK no Co-authored-by on $_hc_main ($(git -C "$ROOT" rev-parse --short "$_hc_tip")) since $_hc_since ($_hc_how): $_hc_n commit(s) read"
+    return 0
+  fi
+  _hc_newest=$(printf '%s\n' "$_hc_bad" | head -n 1); _hc_newest=${_hc_newest%% *}
+  printf '%s\n' "$_hc_bad" | head -n 10 | while IFS= read -r _hc_l; do
+    echo "FAILED Co-authored-by on $_hc_main in ${_hc_l%% *} \"${_hc_l#* }\" while attribution is off (.claude/model-roles.json), since $_hc_since ($_hc_how): revert or amend it (the owner's call; an amend rewrites $MAIN_BRANCH), or keep it as history with COAUTHOR_HEALTH_SINCE=$_hc_newest in .claude/project.conf"
+  done
+  _hc_more=$(( $(printf '%s\n' "$_hc_bad" | wc -l) - 10 ))
+  [ "$_hc_more" -le 0 ] || echo "FAILED Co-authored-by on $_hc_main in $_hc_more more commit(s) since $_hc_since, not listed (git log $_hc_since..$_hc_main)"
 }

@@ -6,6 +6,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # changed. Ported from the meta-tests of the project these lines were upstreamed from (P2.2); each
 # case says which property it holds. Both directions where a property can pass for the wrong
 # reason: a sentence that must be ABSENT is asserted next to a case where it must be present.
+# The co-author line (.claude/health/coauthor-trailers.sh, OPS-169) is here too: it is the third
+# line over .claude/lib/health.sh, read through local git in a fixture repo of its own.
 . "$(dirname "$0")/lib.sh"
 need git jq awk
 
@@ -211,6 +213,99 @@ n=$(printf '%s\n' "$out" | grep -c 'push:main ')
 hasnt "push-main: an input named push under workflow_call is not a push trigger" "$out" "review.yml"
 rm -f "$R/.github/workflows/blist.yml" "$R/.github/workflows/lint.yml" "$R/.github/workflows/pages.yml" "$R/.github/workflows/review.yml" "$R/.github/workflows/ci.yml"
 has "push-main: no push workflow says there is no post-merge net" "$(PM)" "OK no workflow in .github/workflows/ has a push: trigger"
+
+# ── coauthor-trailers: no Co-authored-by line on origin/main while attribution is off (OPS-169) ──
+# Its own fixture, built in order: a trailer BEFORE the line arrives (history the owner kept), the
+# commit that adds the line (the default baseline), then the cases. Every trailer names an address
+# under secret.invalid, which no output may show: the line names a commit by its sha and title only.
+C="$d/co"; new_repo "$C"
+mkdir -p "$C/.claude/lib" "$C/.claude/health"
+cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/health.sh" "$C/.claude/lib/"
+roles() { printf '{"attribution":{"enabled":%s,"trailer":"Co-Authored-By: A <a@secret.invalid>"}}\n' "$1" > "$C/.claude/model-roles.json"; }
+roles false
+git -C "$C" add -A && git -C "$C" commit -qm "X-0: Start"
+START=$(git -C "$C" rev-parse --short HEAD)
+git -C "$C" commit -q --allow-empty -m "X-1: Before the line" -m "Co-authored-by: Early <early@secret.invalid>"
+EARLY=$(git -C "$C" rev-parse --short HEAD)
+git init -q --bare "$d/co.git"; git -C "$C" remote add origin "$d/co.git"
+cpush() { git -C "$C" push -q origin HEAD:main 2>/dev/null && git -C "$C" fetch -q origin; }
+cpush
+cp "$ROOT/.claude/health/coauthor-trailers.sh" "$C/.claude/health/"
+CO() { (cd "$C" && env "$@" sh .claude/health/coauthor-trailers.sh 2>&1); }
+cos=""  # every output, for the contract below
+out=$(CO); cos="$cos$out
+"
+has "coauthor: a line not yet on origin/main reads OK, saying no commit follows it" "$out" "OK .claude/health/coauthor-trailers.sh is not on origin/main yet"
+hasnt "coauthor: ...and reads no history before it" "$out" "$EARLY"
+git -C "$C" add -A && git -C "$C" commit -qm "X-2: Add the health line"
+BASE=$(git -C "$C" rev-parse --short HEAD)
+git -C "$C" commit -q --allow-empty -m "X-3: A clean change" -m "It names the Co-authored-by: key in prose, which is a mention, not a trailer."
+cpush
+out=$(CO); cos="$cos$out
+"
+has "coauthor: a clean history since the line arrived is OK, naming its subject and baseline" "$out" "OK no Co-authored-by on origin/main ($(git -C "$C" rev-parse --short origin/main)) since $BASE (the commit that added .claude/health/coauthor-trailers.sh): 1 commit(s) read"
+hasnt "coauthor: ...a trailer before the baseline is history, not a finding" "$out" "$EARLY"
+git -C "$C" commit -q --allow-empty -m "X-4: Merge from elsewhere" -m "A body." -m "  co-AUTHORED-by : Someone <someone@secret.invalid>"
+BAD=$(git -C "$C" rev-parse --short HEAD)
+git -C "$C" commit -q --allow-empty -m "X-5: Later and clean"
+cpush
+out=$(CO); cos="$cos$out
+"
+has "coauthor: a trailer after the baseline (indented, any case, a blank before the colon) is FAILED, by sha and title" "$out" "FAILED Co-authored-by on origin/main in $BAD \"X-4: Merge from elsewhere\" while attribution is off"
+has "coauthor: ...and names the fix as the owner's call" "$out" "revert or amend it (the owner's call"
+hasnt "coauthor: ...never prints a co-author's address" "$out" "secret.invalid"
+hasnt "coauthor: ...nor the trailer's name" "$out" "Someone"
+hasnt "coauthor: ...nor calls a mention in prose a trailer" "$out" "X-3"
+printf 'COAUTHOR_HEALTH_SINCE="%s"\n' "$BAD" > "$C/.claude/project.conf"
+out=$(CO); cos="$cos$out
+"
+has "coauthor: COAUTHOR_HEALTH_SINCE moved to a commit keeps it as history" "$out" "OK no Co-authored-by on origin/main ($(git -C "$C" rev-parse --short origin/main)) since $BAD (COAUTHOR_HEALTH_SINCE): 1 commit(s) read"
+printf 'COAUTHOR_HEALTH_SINCE="%s"\n' "$START" > "$C/.claude/project.conf"
+out=$(CO); cos="$cos$out
+"
+has "coauthor: an earlier COAUTHOR_HEALTH_SINCE reads the history before the line too" "$out" "FAILED Co-authored-by on origin/main in $EARLY \"X-1: Before the line\""
+has "coauthor: ...and still the later one" "$out" "in $BAD \"X-4"
+has "coauthor: ...and the fix to keep them names the newest" "$out" "COAUTHOR_HEALTH_SINCE=$BAD"
+printf 'COAUTHOR_HEALTH_SINCE="no-such-commit"\n' > "$C/.claude/project.conf"
+out=$(CO); cos="$cos$out
+"
+has "coauthor: a COAUTHOR_HEALTH_SINCE that names no commit is CANNOT CHECK" "$out" "CANNOT CHECK — COAUTHOR_HEALTH_SINCE (no-such-commit) names no commit here"
+ORPHAN=$(git -C "$C" commit-tree "HEAD^{tree}" -m orphan)
+printf 'COAUTHOR_HEALTH_SINCE="%s"\n' "$ORPHAN" > "$C/.claude/project.conf"
+out=$(CO); cos="$cos$out
+"
+has "coauthor: a COAUTHOR_HEALTH_SINCE off origin/main is CANNOT CHECK" "$out" "is not on origin/main"
+rm -f "$C/.claude/project.conf"
+roles true
+out=$(CO); cos="$cos$out
+"
+has "coauthor: with attribution on, OK and says it did not check" "$out" "OK attribution on (.claude/model-roles.json): Co-authored-by on origin/main not checked"
+hasnt "coauthor: ...and reports no trailer" "$out" "FAILED"
+printf '{"attribution": ' > "$C/.claude/model-roles.json"
+out=$(CO); cos="$cos$out
+"
+has "coauthor: a model-roles.json that does not parse is CANNOT CHECK" "$out" "CANNOT CHECK — .claude/model-roles.json does not parse"
+printf '{"attribution": "Co-Authored-By: A"}\n' > "$C/.claude/model-roles.json"
+has "coauthor: an attribution that is not an object is CANNOT CHECK, never read as off" "$(CO)" "CANNOT CHECK — .claude/model-roles.json does not parse"
+rm -f "$C/.claude/model-roles.json"
+out=$(CO); cos="$cos$out
+"
+has "coauthor: no model-roles.json is OK and says it did not check (rule 15 is off there too)" "$out" "OK no .claude/model-roles.json, so no attribution setting: Co-authored-by on origin/main not checked"
+roles false
+git -C "$C" update-ref -d refs/remotes/origin/main
+out=$(CO); cos="$cos$out
+"
+has "coauthor: no origin/main is CANNOT CHECK" "$out" "CANNOT CHECK — cannot read origin/main"
+git -C "$C" fetch -q origin
+# A shallow clone: the commit that added the line may be past its depth, where git shows the
+# boundary commit as adding every file. That is no baseline: CANNOT CHECK, never a quiet narrowing.
+git clone -q --depth 1 "file://$d/co.git" "$d/co-shallow" 2>/dev/null
+cp "$C/.claude/model-roles.json" "$d/co-shallow/.claude/"
+out=$(cd "$d/co-shallow" && sh .claude/health/coauthor-trailers.sh 2>&1); cos="$cos$out
+"
+has "coauthor: a shallow clone past the line's commit is CANNOT CHECK" "$out" "CANNOT CHECK — this clone is shallow"
+bad=$(printf '%s' "$cos" | grep -vE '^(OK|FAILED|CANNOT CHECK —) ')
+[ -z "$bad" ] && ok "coauthor: every line starts with its verdict" || fail "coauthor: lines without a verdict: $bad"
 
 # ── The contract: every line starts with a verdict, and the runner shows stderr ───────────────
 printf 'name: CI\non:\n  push:\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/ci.yml"
