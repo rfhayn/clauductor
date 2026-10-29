@@ -269,7 +269,14 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 			t.Fatalf("template under an untrusted config: %d %v", code, body)
 		}
 		// A template's suggest command is a command like a card's: it does not run either.
-		if sg := p.state(t).Suggestions["fix"]; !strings.Contains(sg.Source.Error, "not run") || len(sg.Items) != 0 {
+		// Its source is not the card's, so the card's refusal says nothing about whether
+		// it has polled yet: wait for its own (OPS-99).
+		var sg state.SuggestView
+		waitFor(t, "the untrusted suggestions", func() bool {
+			sg = p.state(t).Suggestions["fix"]
+			return strings.Contains(sg.Source.Error, "not run")
+		})
+		if len(sg.Items) != 0 {
 			t.Fatalf("untrusted suggestions: %+v", sg)
 		}
 	}
@@ -280,9 +287,9 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 			t.Fatal(err)
 		}
 		waitUntil(t, "the card after trust", 10*time.Second, func() bool { ok, _ := cardOK(p); return ok })
-		if !p.state(t).Trust.Trusted {
-			t.Fatal("still untrusted")
-		}
+		// markTrusted kicks the card before the trust source applies its own update, so
+		// a card that ran first is no sign the model says trusted yet (OPS-99).
+		waitUntil(t, "the config trusted", 10*time.Second, func() bool { return p.state(t).Trust.Trusted })
 		waitUntil(t, "the suggestions after trust", 10*time.Second, func() bool {
 			sg := p.state(t).Suggestions["fix"]
 			return sg.Source.OK && len(sg.Items) == 1 && sg.Items[0].Name == "fix-one" && sg.Items[0].Title == "the first fix"
