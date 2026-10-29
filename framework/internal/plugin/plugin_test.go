@@ -305,9 +305,9 @@ func TestNoProjectPathsLeft(t *testing.T) {
 // caller's ROOT and sources to CLAUDUCTOR_FW, and 34 cases read the real project. A check writes a
 // script two ways, and both are read in every spelling: a quoted heredoc's body (`cat > F`,
 // `cat >> F`, a helper such as `fixture NAME`, `<<'T'`, `<<"T"`, `<<-`), and a printf format with
-// a redirect. Other rewrites stay allowed (a contract script expects the plugin's agent names, as
-// the plugin's workflow spells them); so does roadmap.sh's plant3, a planted bypass that must be
-// spelt as the plugin's own files spell it.
+// a redirect to a file. Other rewrites stay allowed: a contract script expects the plugin's agent
+// names, as the plugin's workflow spells them, and roadmap.sh's plant3 gains CLAUDUCTOR_FW
+// harmlessly, since the bypass reader it feeds (roadmap.sh's strip) cuts both spellings.
 func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 	out, _ := build(t)
 	files, err := filepath.Glob(filepath.Join(repoRoot(t), "template", ".claude", "checks", "*.sh"))
@@ -315,7 +315,7 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 		t.Fatalf("no template checks found (%v)", err)
 	}
 	var docs, prints int
-	caller, fixture := false, false
+	caller, fixture, own := false, false, false
 	for _, f := range files {
 		name := filepath.Base(f)
 		src, err := os.ReadFile(f)
@@ -327,7 +327,14 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 			t.Errorf("%s: no plugin copy: %v", name, err)
 			continue
 		}
-		want, got := writtenScripts(string(src)), writtenScripts(string(gen))
+		want, werrs := writtenScripts(string(src))
+		got, gerrs := writtenScripts(string(gen))
+		for _, e := range werrs {
+			t.Errorf("checks/%s: %s", name, e)
+		}
+		for _, e := range gerrs {
+			t.Errorf("plugin checks/%s: %s", name, e)
+		}
 		if len(want) != len(got) {
 			t.Errorf("checks/%s: %d written script(s) in the template, %d in the plugin's copy", name, len(want), len(got))
 			continue
@@ -339,6 +346,7 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 				fixture = fixture || (name == "mktemp-in-tmpdir.sh" && strings.HasPrefix(strings.TrimSpace(w.open), "fixture "))
 			} else {
 				prints++
+				own = own || (name == "artifacts.sh" && strings.Contains(w.open, `> "$K/own.sh"`))
 				if name == "roadmap.sh" && strings.Contains(w.open, "plant3") {
 					continue
 				}
@@ -348,27 +356,35 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 			}
 		}
 	}
-	if docs == 0 || prints == 0 || !caller || !fixture {
-		t.Fatalf("read %d heredoc(s) and %d printf(s); the coauthor caller among them: %v, mktemp-in-tmpdir's fixture: %v. The reader no longer finds what it guards", docs, prints, caller, fixture)
+	if docs == 0 || prints == 0 || !caller || !fixture || !own {
+		t.Fatalf("read %d heredoc(s) and %d printf(s); among them the coauthor caller: %v, mktemp-in-tmpdir's fixture: %v, artifacts.sh's own.sh: %v. The reader no longer finds what it guards", docs, prints, caller, fixture, own)
 	}
 }
 
 // writtenScript is one script a check writes: a quoted heredoc's body, or a printf format with a
-// redirect; open is the line that starts it.
+// redirect to a file; open is the line that starts it.
 type writtenScript struct {
 	open, text string
 	heredoc    bool
 }
 
 var (
-	heredocOpen = regexp.MustCompile(`<<-?\s*(?:'([A-Za-z_][A-Za-z0-9_]*)'|"([A-Za-z_][A-Za-z0-9_]*)")`)
-	printfTo    = regexp.MustCompile(`\bprintf\s+'([^']*)'[^|;&]*>`)
+	// The opener ends its line: a `<<'T'` inside a quoted string (a payload a check hands a hook)
+	// is followed by more of that string on the same line, or closes on `T"` below (see the reader).
+	heredocOpen = regexp.MustCompile(`<<(-?)\s*(?:'([A-Za-z_][A-Za-z0-9_]*)'|"([A-Za-z_][A-Za-z0-9_]*)")\s*$`)
+	// A format in single quotes, `'\''` included.
+	printfFmt = regexp.MustCompile(`\bprintf\s+'((?:[^']|'\\'')*)'`)
+	// A redirect to a file: not `>&2`, not /dev/null.
+	redirectTo = regexp.MustCompile(`(?:^|\s)>>?\s*([^&\s][^\s;|)]*)`)
 )
 
-// writtenScripts reads them in order, so the template's and the plugin's pair one to one. A comment
-// line opens nothing; a heredoc closes on its tag, past the tabs `<<-` strips.
-func writtenScripts(s string) []writtenScript {
+// writtenScripts reads them in order, so the template's and the plugin's pair one to one, and
+// returns the openers it could not close. A comment line opens nothing. A heredoc closes on its
+// tag (past leading tabs only for `<<-`); a line that is the tag followed by `"` closes a quoted
+// string that held the marker instead, so it is no heredoc and the reading resumes there.
+func writtenScripts(s string) ([]writtenScript, []string) {
 	var out []writtenScript
+	var errs []string
 	lines := strings.Split(s, "\n")
 	for i := 0; i < len(lines); i++ {
 		l := lines[i]
@@ -376,21 +392,41 @@ func writtenScripts(s string) []writtenScript {
 			continue
 		}
 		if m := heredocOpen.FindStringSubmatch(l); m != nil {
-			tag := m[1] + m[2]
+			tag, closed := m[2]+m[3], false
 			for j := i + 1; j < len(lines); j++ {
-				if strings.TrimLeft(lines[j], "\t") == tag {
+				body := lines[j]
+				if m[1] == "-" {
+					body = strings.TrimLeft(body, "\t")
+				}
+				if body == tag {
 					out = append(out, writtenScript{open: l, text: strings.Join(lines[i+1:j], "\n"), heredoc: true})
-					i = j
+					i, closed = j, true
+					break
+				}
+				if strings.HasPrefix(body, tag+`"`) {
+					i, closed = j, true
 					break
 				}
 			}
+			if !closed {
+				errs = append(errs, fmt.Sprintf("the heredoc opened at line %d (%s) never closes", i+1, strings.TrimSpace(l)))
+			}
 			continue
 		}
-		if m := printfTo.FindStringSubmatch(l); m != nil {
-			out = append(out, writtenScript{open: l, text: m[1]})
+		if m := printfFmt.FindStringSubmatchIndex(l); m != nil {
+			rest := l[m[1]:]
+			if k := strings.IndexAny(rest, "|;"); k >= 0 {
+				rest = rest[:k]
+			}
+			if k := strings.Index(rest, "&&"); k >= 0 {
+				rest = rest[:k]
+			}
+			if r := redirectTo.FindStringSubmatch(rest); r != nil && !strings.Contains(r[1], "/dev/null") {
+				out = append(out, writtenScript{open: l, text: l[m[2]:m[3]]})
+			}
 		}
 	}
-	return out
+	return out, errs
 }
 
 // Every script path a plugin skill or agent names exists in the plugin, and a skill's context
