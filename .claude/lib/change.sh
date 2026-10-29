@@ -406,7 +406,7 @@ proposal_field() {
 # nothing, and any other line prints "unreadable": a budget nobody can read is said, never taken
 # as hard or soft (OPS-85). The line is a copy: the roadmap row is the authority for its figure and
 # its kind (`Budget: $N, soft`, --tsv column 16), and checks/changes.sh fails a line that differs
-# from it, so a `, soft` added to the proposal alone after approval is refused (OPS-91).
+# from the row as origin/<main> has it, so a `, soft` a branch adds is refused (OPS-91).
 proposal_budget() {
   _pb=$(proposal_field "$1" Budget)
   [ -n "$_pb" ] || return 0

@@ -111,7 +111,20 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   mk softbudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, soft/'; case_bad "a soft budget on a proposal whose row's is hard" "only the owner makes a budget soft, on the row"
   mk bothsoft; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, soft/'; edit docs/roadmap.md 's/Budget: \$15 |/Budget: $15, soft |/'
   case_ok "a soft budget whose row's is soft ('Budget: \$15, soft')"
-  mk rowsoft; edit docs/roadmap.md 's/Budget: \$15 |/Budget: $15, soft |/'; case_bad "a hard budget on a proposal whose row's is soft" "has 'Budget: \$15, soft', proposal.md says '\$15'"
+  mk rowsoft; edit docs/roadmap.md 's/Budget: \$15 |/Budget: $15, soft |/'; case_bad "a hard budget on a proposal whose row's is soft" "has 'Budget: \$15, soft' on disk, proposal.md says '\$15'"
+  # The row as main has it: a branch that marks its own row soft too does not pass.
+  onmain() { new_repo "$F"; git -C "$F" add -A && git -C "$F" commit -qm main && git -C "$F" update-ref "refs/remotes/origin/$MAIN_BRANCH" HEAD; }
+  mk mainhard; onmain; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, soft/'; edit docs/roadmap.md 's/Budget: \$15 |/Budget: $15, soft |/'
+  case_bad "a branch that marks both its proposal and its row soft, where main's row is hard" "has 'Budget: \$15' on origin/$MAIN_BRANCH, proposal.md says '\$15, soft'"
+  mk mainsoft; edit docs/roadmap.md 's/Budget: \$15 |/Budget: $15, soft |/'; onmain; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, soft/'
+  case_ok "a soft proposal whose row is soft on origin/$MAIN_BRANCH"
+  mk mainnorow; edit docs/roadmap.md 's/^| 1\.1 |/| 1.9 |/'; onmain; edit docs/roadmap.md 's/^| 1\.9 |/| 1.1 |/; s/Budget: \$15 |/Budget: $15, soft |/'
+  case_bad "a hard proposal whose row, soft, is new on the branch (main lacks it, so the disk is read)" "has 'Budget: \$15, soft' on disk"
+  # A parser with no column 16 has only hard budgets, and the refusal says so.
+  mk parser15; mkdir -p "$F/infra"; echo 'ROADMAP_PARSER="sh infra/p15.sh"' > "$F/.claude/project.conf"
+  printf '#!/bin/sh\n[ "$1" = --tsv ] || { echo ok; exit 0; }\nprintf "4\\t1\\t\\t1.1\\tadd-greeting-name\\tchange\\tqueued\\t\\tAna\\tx\\t15\\t\\t\\t\\t\\n"\n' > "$F/infra/p15.sh"
+  edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, soft/'
+  case_bad "a soft proposal under a parser that gives no budget kind" "gives no budget kind (--tsv column 16)"
   mk hardbudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15, hard/'; case_ok "a budget marked hard ('\$15, hard')"
   mk vaguebudget; edit $C/proposal.md 's/^\*\*Budget:\*\* \$15$/**Budget:** $15 (soft-ish)/'; case_bad "a Budget line that is not \$N, \$N, soft or \$N, hard" "must read '\$<dollars>', '\$<dollars>, soft'"
   mk noknow; edit $C/proposal.md '/^## How we.ll know/,$d'; case_bad "a proposal with no How we'll know section" "no '## How we'll know' section"
@@ -312,18 +325,37 @@ for c in "$dir"/*/; do
     usd=""; case $budget in ''|unreadable) ;; *) usd=${budget% *} ;; esac
     # The row is the authority for the figure AND its kind (OPS-91): the proposal repeats both, so a
     # `, soft` added to the proposal alone, after approval, fails, as does a row's soft budget the
-    # proposal leaves hard (the build would stop where the owner said go on). A row whose parser
-    # gives no kind (no --tsv column 16) is hard.
-    row=$(proposal_field "$p" "Roadmap row")
-    if [ -n "$row" ] && [ -n "$roadmap_tsv" ]; then
-      rb=$(printf '%s\n' "$roadmap_tsv" | awk -F'\t' -v r="$row" '!got && $4 == r && $11 != "" { print $11 " " (NF >= 16 && $16 != "" ? $16 : "hard") } $4 == r { got = 1 }')
-      if [ -n "$rb" ]; then
-        want="\$${rb% *}"; [ "${rb#* }" = soft ] && want="$want, soft"
-        if [ "$rb" != "$budget" ]; then
-          why=""; [ "$usd" = "${rb% *}" ] && [ "${budget#* }" = soft ] && why=": only the $OWNER_ROLE makes a budget soft, on the row ('Budget: $want, soft')"
-          fail "$id: roadmap row $row has 'Budget: $want', proposal.md says '$(proposal_field "$p" Budget | grep . || echo nothing)' (repeat it as '**Budget:** $want'$why)"
-        else ok "$id: budget $(proposal_field "$p" Budget), as roadmap row $row says"; fi
+    # proposal leaves hard (the build would stop where the owner said go on). The row is read as
+    # origin/<main> has it, as change-approval.sh reads a row's Risk, so a branch that marks its own
+    # row soft as well does not pass: the owner's mark lands on main first. The disk is read only
+    # with no origin/<main> (a repository with no remote, a clean-room copy) or when main lacks the
+    # row (one added in the same PR), and the result says which. A parser that gives no kind (no
+    # --tsv column 16) has only hard budgets.
+    if [ -z "${budget_main_read:-}" ]; then
+      budget_main_read=1 budget_main_tsv=""
+      if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$ROOT" && pwd -P)" ] \
+        && git -C "$ROOT" show "origin/$MAIN_BRANCH:$ROADMAP" > "$w/budget-roadmap.md" 2>/dev/null; then
+        budget_main_tsv=$(roadmap_queue --tsv "$w/budget-roadmap.md" 2>/dev/null) || budget_main_tsv=""
       fi
+    fi
+    row=$(proposal_field "$p" "Roadmap row")
+    # budget_row TSV: the row's "<dollars> <kind> <columns>", "-" for a row with no budget, nothing
+    # for no such row.
+    budget_row() { printf '%s\n' "$1" | awk -F'\t' -v r="$row" '$4 == r { print ($11 == "" ? "-" : $11 " " (NF >= 16 && $16 != "" ? $16 : "hard") " " NF); exit }'; }
+    rb="" rsrc="on origin/$MAIN_BRANCH"
+    [ -z "$row" ] || [ -z "$budget_main_tsv" ] || rb=$(budget_row "$budget_main_tsv")
+    [ -n "$rb" ] || [ -z "$row" ] || [ -z "$roadmap_tsv" ] || { rb=$(budget_row "$roadmap_tsv"); rsrc="on disk"; }
+    if [ -n "$rb" ] && [ "$rb" != - ]; then
+      rcols=${rb##* }; rb=${rb% *}
+      want="\$${rb% *}"; [ "${rb#* }" = soft ] && want="$want, soft"
+      if [ "$rb" != "$budget" ]; then
+        why=""
+        if [ "$usd" = "${rb% *}" ] && [ "${budget#* }" = soft ]; then
+          if [ "$rcols" -lt 16 ]; then why=": the roadmap parser gives no budget kind (--tsv column 16), so every row's budget is hard; it must emit column 16 for a soft one (docs/roadmap.md)"
+          else why=": only the $OWNER_ROLE makes a budget soft, on the row as $MAIN_BRANCH has it ('Budget: $want, soft')"; fi
+        fi
+        fail "$id: roadmap row $row has 'Budget: $want' $rsrc, proposal.md says '$(proposal_field "$p" Budget | grep . || echo nothing)' (repeat it as '**Budget:** $want'$why)"
+      else ok "$id: budget $(proposal_field "$p" Budget), as roadmap row $row says $rsrc"; fi
     fi
     if grep -qE "^## How we.ll know" "$p"; then
       know=$(sed -n "/^## How we.ll know/,/^## /p" "$p")

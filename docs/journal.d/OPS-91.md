@@ -13,6 +13,7 @@ Since OPS-85 a `, soft` on a proposal's `**Budget:**` line turned build-change's
 
 ## Decisions
 
+- The row is read as `origin/<main>` has it (review round 1, medium), as `change-approval.sh` reads a row's Risk: read from disk, a branch that marked both its proposal and its row soft passed, which is the gap this row closes. The disk is read only with no `origin/<main>` or when main lacks the row (one added in the same PR), and the result names which. The figure gains the same protection.
 - A row soft and a proposal hard FAILS, as the figure fails either way. The proposal is a copy of the row; a hard copy of a soft row stops a build the owner said should go on, which is a stalled lane nobody asked for.
 - A row's mark reads soft only as `, soft` straight after the figure; anything else (`, hard`, prose, a misspelling such as `, softly`) is hard. A misread therefore errs toward the kind that stops a build, and a soft proposal against it fails loudly.
 - build-change still reads the proposal's line (through `change-cost.sh`), not the row: the gate holds the line equal to the row, as it holds the figure. An edit to the proposal alone on a change branch would carry the build past its budget until the gate refuses it at merge; that window was there for the figure before this row and is the same for the kind.

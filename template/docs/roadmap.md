@@ -55,7 +55,8 @@ A phase is several changes. Decompose as you go, phase by phase.
 - **A budget**: `Budget: $N` anywhere in a row (the Scope cell, say) is the change's cost
   appetite, and `Budget: $N, soft` a soft one. The row is the authority for both the figure and
   the kind: its `proposal.md` repeats them (`**Budget:** $N` or `**Budget:** $N, soft`), and
-  `checks/changes.sh` fails a proposal that differs either way. `build-change` stops past a hard
+  `checks/changes.sh` fails a proposal that differs either way from the row as `origin/<main>` has
+  it, so the owner's `, soft` lands on main before a proposal may carry it. `build-change` stops past a hard
   budget and reports a soft one's overrun and goes on; archive records the actual.
 - **A date**: `(due YYYY-MM-DD)` in the Change cell. `archive-change` queues each change's outcome
   check that way in `## Outcome checks` below, and the queue lists it as DUE from that date.
