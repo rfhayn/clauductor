@@ -7,7 +7,10 @@ import (
 	"testing"
 )
 
-var onlyExpansion = regexp.MustCompile(`^"\$(?:\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*|[0-9@*])"$`)
+var (
+	onlyExpansion = regexp.MustCompile(`^"\$(?:\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*|[0-9@*])"$`)
+	shAssignment  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+)
 
 // writtenScript is one script a check writes: a quoted heredoc's body, or a printf's words (format
 // and arguments) whose output goes to a file; open is the line that starts it.
@@ -92,22 +95,34 @@ func (sc *shScanner) peek(k int) byte {
 	return 0
 }
 
+// at reports whether the text at sc.i starts with p.
+func (sc *shScanner) at(p string) bool { return strings.HasPrefix(sc.s[sc.i:], p) }
+
+// isExp: a substitution starts at sc.i (`…`, $(…), $((…), ${…}): what a double quote still expands.
+func (sc *shScanner) isExp() bool { return sc.at("`") || sc.at("$(") || sc.at("${") }
+
+// isSub: a quote or a substitution starts at sc.i, to be consumed whole.
+func (sc *shScanner) isSub() bool { return sc.at("'") || sc.at(`"`) || sc.isExp() }
+
+// shKeepsCmd: the keywords after which the next word is still a command.
+var shKeepsCmd = map[string]bool{"then": true, "do": true, "else": true, "elif": true, "!": true, "if": true, "while": true, "until": true}
+
 // code reads shell code until EOF, or (depth > 0) the `)` that closes the $( it was called for, and
 // returns its tokens. A $(…) inside it is read by its own call, whose tokens are their own list.
 func (sc *shScanner) code(depth int) []shTok {
 	var toks []shTok
 	var word strings.Builder
 	wordLine, paren := 0, 0
-	cmd := true            // at a command's first word
-	cases, awaitIn := 0, 0 // open cases; cases whose `in` is still to come
-	pattern := false       // reading a case pattern, up to its `)`
+	cmd := true      // at a command's first word
+	afterCase := 0   // words left before a case's first pattern: its subject, then `in`
+	pattern := false // reading a case pattern, up to its `)`
 	emit := func(kind byte, text string, line int) {
 		toks = append(toks, shTok{kind: kind, text: text, line: line})
 	}
 	op := func(text string, line int) {
 		emit('o', text, line)
 		cmd = true
-		if text == ";;" && cases > 0 {
+		if text == ";;" { // only a case item ends in ;;, and a pattern or esac follows
 			pattern = true
 		}
 	}
@@ -118,33 +133,23 @@ func (sc *shScanner) code(depth int) []shTok {
 		w := word.String()
 		word.Reset()
 		switch {
-		case pattern && w == "esac":
-			cases--
+		case w == "esac": // a case's end, where a pattern could start
 			pattern = false
 		case pattern:
 		case cmd && w == "case":
-			cases++
-			awaitIn++
-		case cmd && w == "esac":
-			cases--
-		case awaitIn > 0 && w == "in":
-			awaitIn--
-			pattern = true
+			afterCase = 2
+		case afterCase > 0:
+			afterCase--
+			pattern = afterCase == 0
 		}
-		if (w == "{" || w == "}") && cmd { // a group's brace, not a `}` argument
+		if cmd && (w == "{" || w == "}") { // a group's brace, not a `}` argument
 			emit('o', w, wordLine)
-			cmd = true
 			return
 		}
 		emit('w', w, wordLine)
-		switch {
-		case cmd && (w == "then" || w == "do" || w == "else" || w == "elif" || w == "!"):
-			cmd = true // a keyword; as an argument, it is a word like any other
-		case cmd && strings.Contains(w, "=") && !strings.HasPrefix(w, "="):
-			// an assignment before the command word
-		default:
-			cmd = false
-		}
+		// A keyword keeps the next word at command position; any other word ends it. (The `{` and
+		// `}` that can follow an assignment are not groups, so an assignment ends it too.)
+		cmd = cmd && shKeepsCmd[w]
 	}
 	start := func() {
 		if word.Len() == 0 {
@@ -178,29 +183,25 @@ func (sc *shScanner) code(depth int) []shTok {
 			start()
 			word.WriteString(sc.s[sc.i:min(sc.i+2, len(sc.s))])
 			sc.i += 2
-		case c == '\'' || c == '"' || c == '`' || (c == '$' && (sc.peek(1) == '(' || sc.peek(1) == '{')):
+		case sc.isSub():
 			start()
 			from := sc.i
 			sc.quoted(depth)
 			word.WriteString(sc.s[from:min(sc.i, len(sc.s))])
-		case c == '<' && sc.peek(1) == '<' && sc.peek(2) == '<': // a here-string: its word follows
+		case sc.at("<<<"): // a here-string: its word follows
 			flush()
 			sc.i += 3
-		case c == '<' && sc.peek(1) == '<':
+		case sc.at("<<"):
 			flush()
 			sc.i += 2
 			sc.heredocOpener()
-		case c == '&' && sc.peek(1) == '>':
+		case sc.at("&>"): // refused, then read on as the > it also is
 			flush()
 			sc.errf("line %d: &> (bash) sends output where the reader does not follow it: spell it > f 2>&1", sc.line)
-			sc.i += 2
-			for sc.peek(0) == '>' || sc.peek(0) == ' ' || sc.peek(0) == '\t' {
-				sc.i++
-			}
-			sc.word(depth) // its target: refused above, so read as no redirect
+			sc.i++
 		case c == '<' || c == '>':
 			fd := ""
-			if w := word.String(); w != "" && strings.Trim(w, "0123456789") == "" {
+			if w := word.String(); strings.Trim(w, "0123456789") == "" { // "" is no descriptor, as ever
 				fd = w
 				word.Reset()
 			} else {
@@ -229,13 +230,14 @@ func (sc *shScanner) code(depth int) []shTok {
 			}
 			sc.i++
 			op(o, sc.line)
-		case c == '(' && sc.peek(1) == ')': // a function's `()`
+		case sc.at("()"): // a function's `()`
 			flush()
 			sc.i += 2
 			cmd = true
 		case c == '(' && pattern: // a pattern's leading `(`
 			flush()
 			sc.i++
+		// Not mid-word: `a(b` is a syntax error in sh, so the word test is equivalent on valid shell.
 		case c == '(' && word.Len() == 0:
 			paren++
 			sc.i++
@@ -272,9 +274,6 @@ func (sc *shScanner) code(depth int) []shTok {
 // quoted consumes one quoted or substituted span at sc.i: '…', "…", `…`, $(…), $((…)) or ${…}.
 func (sc *shScanner) quoted(depth int) {
 	open := sc.line
-	isSub := func() bool {
-		return sc.s[sc.i] == '\'' || sc.s[sc.i] == '"' || sc.s[sc.i] == '`' || (sc.s[sc.i] == '$' && (sc.peek(1) == '(' || sc.peek(1) == '{'))
-	}
 	switch c := sc.s[sc.i]; {
 	case c == '\'':
 		sc.i++
@@ -295,7 +294,7 @@ func (sc *shScanner) quoted(depth int) {
 				sc.i++
 				sc.newline()
 				sc.i++
-			case sc.s[sc.i] != '\'' && isSub():
+			case sc.isExp():
 				sc.quoted(depth)
 			default:
 				sc.newline()
@@ -321,7 +320,7 @@ func (sc *shScanner) quoted(depth int) {
 			return
 		}
 		sc.i++
-	case sc.peek(1) == '(' && sc.peek(2) == '(': // $((…)): arithmetic, where << is a shift
+	case sc.at("$(("): // arithmetic, where << is a shift
 		sc.i += 3
 		n := 2
 		for sc.i < len(sc.s) && n > 0 {
@@ -337,14 +336,14 @@ func (sc *shScanner) quoted(depth int) {
 		if n > 0 {
 			sc.errf("a $(( opened at line %d never closes", open)
 		}
-	case sc.peek(1) == '(':
+	case sc.at("$("):
 		sc.i += 2
 		sc.lists = append(sc.lists, sc.code(depth+1))
 	default: // ${…}: a quote or substitution inside it is consumed whole
 		sc.i += 2
 		n := 1
 		for sc.i < len(sc.s) && n > 0 {
-			if isSub() {
+			if sc.isSub() {
 				sc.quoted(depth)
 				continue
 			}
@@ -382,7 +381,7 @@ func (sc *shScanner) word(depth int) string {
 			break
 		}
 		switch {
-		case c == '\'' || c == '"' || c == '`' || (c == '$' && (sc.peek(1) == '(' || sc.peek(1) == '{')):
+		case sc.isSub():
 			sc.quoted(depth)
 		case c == '\\':
 			sc.i++
@@ -463,9 +462,9 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 	var frames [][]pending
 	opens := map[string]bool{"do": true, "if": true, "case": true}
 	closes := map[string]bool{"done": true, "fi": true, "esac": true}
-	isFile := func(t shTok) bool {
-		return t.kind == 'r' && t.output && !t.dup && (t.fd == "" || t.fd == "1") && !strings.Contains(t.text, "/dev/null")
-	}
+	// Only a redirect token is an output, so neither test needs its kind.
+	isOut := func(t shTok) bool { return t.output && (t.fd == "" || t.fd == "1") }
+	isFile := func(t shTok) bool { return isOut(t) && !t.dup && !strings.Contains(t.text, "/dev/null") }
 	resolve := func(ps []pending, to string) {
 		for _, p := range ps {
 			// A format that is only an expansion ("$fmt") holds text set elsewhere, unread here.
@@ -476,7 +475,6 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 			out = append(out, writtenScript{open: lines[p.line-1], text: p.text})
 		}
 	}
-	isOut := func(t shTok) bool { return t.kind == 'r' && t.output && (t.fd == "" || t.fd == "1") }
 	// redirect reads the command from toks[k] to its end: the file its output goes to, whether it
 	// sends its output somewhere of its own (a file, >&2, /dev/null), and whether it is piped.
 	redirect := func(k int) (to string, own, piped bool) {
@@ -493,20 +491,24 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 		return to, own, false
 	}
 	// A redirect written before the command word: its file, and whether it sends output anywhere.
+	// One written after the command's words sets them too, but nothing reads them before the next
+	// word or operator clears them.
 	cmd, pre, preOwn := true, "", false
 	for k, t := range toks {
 		switch {
 		case t.kind == 'r':
-			if cmd && isOut(t) {
+			if isOut(t) {
 				preOwn = true
 				if pre == "" && isFile(t) {
 					pre = t.text
 				}
 			}
 			continue
-		case (t.kind == 'o' && (t.text == "{" || t.text == "(")) || (t.kind == 'w' && cmd && opens[t.text]):
+		// An operator's text is never a keyword, so a keyword test needs no kind. The kind test on
+		// `{`/`(` is equivalent on valid shell: an argument `{` is never closed by a group's `}`.
+		case (t.kind == 'o' && (t.text == "{" || t.text == "(")) || (cmd && opens[t.text]):
 			frames = append(frames, nil)
-		case (t.kind == 'o' && (t.text == "}" || t.text == ")")) || (t.kind == 'w' && cmd && closes[t.text]):
+		case (t.kind == 'o' && (t.text == "}" || t.text == ")")) || (cmd && closes[t.text]):
 			if len(frames) == 0 {
 				break
 			}
@@ -517,11 +519,11 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 			} else if !own && !piped && len(frames) > 0 {
 				frames[len(frames)-1] = append(frames[len(frames)-1], ps...)
 			}
-		case t.kind == 'w' && cmd && t.text == "exec":
+		case cmd && t.text == "exec":
 			if to, _, _ := redirect(k + 1); to != "" {
 				errs = append(errs, fmt.Sprintf("line %d (%s): exec sends the rest of the output to %s, which the reader does not follow: read it, or say why not", t.line, strings.TrimSpace(lines[t.line-1]), to))
 			}
-		case t.kind == 'w' && cmd && (t.text == "printf" || t.text == "echo"):
+		case cmd && (t.text == "printf" || t.text == "echo"):
 			// Every word to the end of the command, a redirect between them skipped (`> f` is not
 			// text, and the words after it are); a printf's format is the first, past `--`.
 			p := pending{line: t.line, echo: t.text == "echo"}
@@ -549,9 +551,11 @@ func printfScripts(toks []shTok, lines []string) ([]writtenScript, []string) {
 				frames[len(frames)-1] = append(frames[len(frames)-1], p)
 			}
 		}
+		// An operator starts a command. A keyword or an assignment leaves the position as it was
+		// (a command still to come, or none); any other word ends it.
 		if t.kind == 'o' {
 			cmd, pre, preOwn = true, "", false
-		} else if t.kind == 'w' && !(cmd && (opens[t.text] || closes[t.text] || t.text == "then" || t.text == "else" || t.text == "elif" || t.text == "!" || (strings.Contains(t.text, "=") && !strings.HasPrefix(t.text, "=")))) {
+		} else if !shKeepsCmd[t.text] && !shAssignment.MatchString(t.text) {
 			cmd, pre, preOwn = false, "", false
 		}
 	}
@@ -616,6 +620,76 @@ func TestWrittenScripts(t *testing.T) {
 		{"a nested group's own >&2", "{ { printf 'X\\n'; } >&2; printf 'Y\\n'; } > f\n", []want{{false, `'Y\n'`}}, "", ""},
 		{"then as an argument", "printf '%s\\n' then } > f\n", []want{{false, `'%s\n' then }`}}, "", ""},
 		{"echo keeps --", "echo -- 'X' > f\n", []want{{false, `-- 'X'`}}, "", ""},
+		// Round 11's.
+		{"an inner group hands its printfs to the outer", "{ { printf 'X\\n'; }; printf 'Y\\n'; } > f\n", []want{{false, `'X\n'`}, {false, `'Y\n'`}}, "", ""},
+		{"an if inside a loop hands its printf to the loop", "for x in a; do if true; then printf 'X\\n'; fi; done > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"do and fi as arguments open and close nothing", "{ printf '%s\\n' do fi; printf 'Y\\n'; } > f\n", []want{{false, `'%s\n' do fi`}, {false, `'Y\n'`}}, "", ""},
+		{">>", "printf 'X\\n' >> f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"1> f", "printf 'X\\n' 1> f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"! printf", "! printf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a while condition", "while printf 'X\\n' > f; do :; done\n", []want{{false, `'X\n'`}}, "", ""},
+		{"an until condition", "until printf 'X\\n' > f; do :; done\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a group as an if condition", "if { printf 'X\\n'; } > f; then :; fi\n", []want{{false, `'X\n'`}}, "", ""},
+		// The mutant sweep's: one row per branch term no row held. A keyword keeps command position.
+		{"a group after then", "if true; then { printf 'X\\n'; } > f; fi\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a group after do", "for x in a; do { printf 'X\\n'; } > f; done\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a group after else", "if false; then :; else { printf 'X\\n'; } > f; fi\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a group after elif", "if false; then :; elif { printf 'X\\n'; } > f; then :; fi\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a group after !", "! { printf 'X\\n'; } > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a group after while", "while { printf 'X\\n'; } > f; do :; done\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a group after until", "until { printf 'X\\n'; } > f; do :; done\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a printf as an elif condition", "if false; then :; elif printf 'X\\n' > f; then :; fi\n", []want{{false, `'X\n'`}}, "", ""},
+		{"exec as an argument", "echo exec > f\n", []want{{false, "exec"}}, "", ""},
+		{"printf as an argument", "echo printf > f\n", []want{{false, "printf"}}, "", ""},
+		{"printf as a case's subject", "case printf in *) :;; esac > f\n", nil, "", ""},
+		// Case patterns.
+		{"a pattern named case, then a subshell in a loop", "case $x in case) :;; esac\nfor y in a; do ( printf 'X\\n' ) > f; done\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a second pattern named case, then a subshell in a loop", "case $x in a) :;; case) :;; esac\nfor y in a; do ( printf 'X\\n' ) > f; done\n", []want{{false, `'X\n'`}}, "", ""},
+		{"case as an argument, then a subshell", "echo case\n( printf 'X\\n' ) > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a subshell after ; in a case item", "case x in a) :; ( printf 'X\\n' ) > f;; esac\n", []want{{false, `'X\n'`}}, "", ""},
+		{"after esac, ( is a subshell again", "case x in a) :;; esac\n( printf 'X\\n' ) > f\n", []want{{false, `'X\n'`}}, "", ""},
+		// Lexing.
+		{"a comment holding a quote", "# don't\nprintf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a comment at the end, no newline", "printf 'X\\n' > f # end", []want{{false, `'X\n'`}}, "", ""},
+		{"an escaped quote", "echo \\' x > f\nprintf 'X\\n' > g\n", []want{{false, `\' x`}, {false, `'X\n'`}}, "", ""},
+		{"a continued line keeps the count", "printf 'A\\n' \\\n  > f\nprintf 'B\\n' > g\n", []want{{false, `'A\n'`}, {false, `'B\n'`}}, "", "printf 'B\\n' > g"},
+		{"a here-string", "cat <<< 'x' > f\nprintf 'X\\n' > g\n", []want{{false, `'X\n'`}}, "", ""},
+		{"tabs", "printf\t'X\\n'\t>\tf\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a CRLF line", "printf 'X\\n' > f\r\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a word ending in {", "printf '%s\\n' a{ > f\n", []want{{false, `'%s\n' a{`}}, "", ""},
+		{"an input redirect", "printf 'X\\n' < in > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"an input redirect alone", "printf 'X\\n' < in\n", nil, "", ""},
+		{"a word glued to <<", "cat x<<'EOF'\nX\nEOF\n", []want{{true, "X"}}, "", ""},
+		{"a redirect glued to the format", "printf 'X\\n'>f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a pipe inside a redirected group", "{ printf 'X\\n' | cat; } > f\n", nil, "", ""},
+		{"a piped group inside a redirected group", "{ { printf 'X\\n'; } | cat; } > f\n", nil, "", ""},
+		{"a ' inside ${…}", "x=${a:-'}'}\nprintf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a $(…) inside ${…}", "x=${a:-$(echo })}\nprintf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a backtick inside ${…}", "x=${a:-`echo }`}\nprintf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a ( inside a double quote", "printf \"a(b\\n\" > f\n", []want{{false, `"a(b\n"`}}, "", ""},
+		{"a $(…) holding a quote, inside a double quote", "printf \"$(echo \")\")X\\n\" > f\n", []want{{false, `"$(echo ")")X\n"`}}, "", ""},
+		{"a ${…} holding a quote, inside a double quote", "printf \"${x:-\"}\"}X\\n\" > f\n", []want{{false, `"${x:-"}"}X\n"`}}, "", ""},
+		{"an escaped \" inside a double quote", "printf \"a\\\"b\\n\" > f\n", []want{{false, `"a\"b\n"`}}, "", ""},
+		{"a ' inside a double quote", "printf \"it's\\n\" > f\n", []want{{false, `"it's\n"`}}, "", ""},
+		{"a backtick substitution", "x=`pwd`\nprintf 'X\\n' > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"an unclosed \" ending in a backslash", "echo \"x\\", nil, "a \" opened at line 1 never closes", ""},
+		// Redirect targets.
+		{"a single-quoted target", "printf 'X\\n' > 'a b'\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a double-quoted target", "printf 'X\\n' > \"a b\"\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a backtick target", "printf 'X\\n' > `echo a b`\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a $(…) target", "printf 'X\\n' > $(echo a b)\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a ${…} target", "printf 'X\\n' > ${x:-a b}\n", []want{{false, `'X\n'`}}, "", ""},
+		{"an escaped space in a target", "printf 'X\\n' > a\\ b\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a space before a heredoc's tag", "cat > f << 'EOF'\nX\nEOF\n", []want{{true, "X"}}, "", ""},
+		{"a tab before a heredoc's tag", "cat > f <<\t'EOF'\nX\nEOF\n", []want{{true, "X"}}, "", ""},
+		// Own redirects and the target named.
+		{"1>&2 inside a redirected group", "{ printf 'X\\n' 1>&2; printf 'Y\\n'; } > f\n", []want{{false, `'Y\n'`}}, "", ""},
+		{"an own >&2, then a word", "{ printf \"$m\" >&2 x; printf 'Y\\n'; } > f\n", []want{{false, `'Y\n'`}}, "", ""},
+		{"an input redirect before printf, in a redirected group", "{ < in printf 'X\\n'; } > f\n", []want{{false, `'X\n'`}}, "", ""},
+		{"a } argument inside a group", "{ printf '%s\\n' } > g; printf 'Y\\n'; } > f\n", []want{{false, `'%s\n' }`}, {false, `'Y\n'`}}, "", ""},
+		{"an unquoted format", "printf X > f\n", nil, "not a literal string", ""},
+		{"the first of two targets", "printf \"$m\" > f > g\n", nil, "writes to f with", ""},
+		{"the first of two targets before the command", "> f > g printf \"$m\"\n", nil, "writes to f with", ""},
 		// What it skips, by design.
 		{"a printf to stderr by fd", "printf 'X\\n' 2> f\n", nil, "", ""},
 		{"an unquoted heredoc", "cat > f <<EOF\n$X\nEOF\n", nil, "", ""},
@@ -634,7 +708,7 @@ func TestWrittenScripts(t *testing.T) {
 		{"a format that is only an expansion", "printf \"$fmt\" > f\n", nil, "not a literal string", ""},
 		{"a redirect before the format", "printf > f 'x'\n", []want{{false, "'x'"}}, "", ""},
 		{"a printf with no format", "printf > f\n", nil, "not a literal string", ""},
-		{"&>", "printf 'X\\n' &> f\n", nil, "&> (bash)", ""},
+		{"&> is refused, and read as the > it also is", "printf 'X\\n' &> f\n", []want{{false, `'X\n'`}}, "&> (bash)", ""},
 		{"exec > f", "exec > f\nprintf 'X\\n'\n", nil, "exec sends the rest of the output", ""},
 		{"a ) that closes nothing", "echo a )\n", nil, "a ) that closes nothing", ""},
 	}
@@ -661,5 +735,10 @@ func TestWrittenScripts(t *testing.T) {
 				return got[1].open
 			}(), c.open2)
 		}
+	}
+	// A script's opening line is the line its command word starts on, even when the word goes on
+	// past a continued line.
+	if got, _ := writtenScripts("p\\\nrintf 'X\\n' > f\n"); len(got) != 1 || got[0].open != `p\` {
+		t.Errorf("a command word split by a continued line: read %+v, want one script opening at line 1", got)
 	}
 }
