@@ -111,7 +111,7 @@ construction. D splits C's wrapper in two:
 **Why not B.** B keeps the text as the authority, so it cannot tell a read from a merge without a
 grammar, and a grammar is A again.
 
-**Why not A.** Five PRs in a month, peaks of high in three, and the limits that remain need a
+**Why not A.** Five PRs in a month, peaks of high in at least three (#146, #268, #313; #103's record says only "above medium"), and the limits that remain need a
 different design, as the owner said on #146.
 
 **E is not an alternative.** It cannot see the local gate, and Standing Tee's founder rejected it
@@ -139,10 +139,10 @@ could merge (an alias or extension, a computed endpoint, an `--input` body it ca
 reads gh's grammar by position, never a substring: `gh -R o/n pr view 5 --json mergeCommit` passes
 (Standing Tee's false refusal is an acceptance case). Every other gh command execs the real gh
 unchanged. `merge.sh` reaches the real gh past the wrapper, by a lookup that skips the wrapper's
-directory: a computed gh location, the form D4 refuses in a command's text. D4 reads the command,
-not the script it runs, so `merge.sh` passes; nothing else in the model may take that route. An
-agent that writes the same lookup into its own command is refused when the location holds a `$`
-(open question 3), and otherwise is the first known limit below.
+directory: a computed gh location. D4 reads the command, not the script it runs, so `merge.sh`
+passes; nothing else in the model may take that route. An agent that writes the same lookup into
+its own command is, subject to open question 3, either refused by D4 (a location holding a `$`) or
+left to the first known limit below (a computed path the text does not show).
 
 **D3. The route is measured, and fails closed.** The build measures, through the Bash tool, that
 `gh` resolves to the wrapper in each kind of session that can merge here: a main session, a

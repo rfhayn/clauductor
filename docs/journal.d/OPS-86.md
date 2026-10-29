@@ -2,7 +2,7 @@
 
 - **PR**: #TBD
 - **Session**: S16, started 2026-10-29 10:32 ET
-- **Review**: 0 rounds, peak none, cap 3
+- **Review**: 2 rounds, peak medium, cap 3 (round 1 medium, round 2 low; all lows fixed)
 - **Gate**: CANNOT CHECK — the lane stopped before the gate on the lead's instruction (a worktree gate is broken in this sandbox)
 - **Cost**: CANNOT CHECK — a subagent lane shares the orchestrator's session id, so no row-only cost can be read
 - **Session start**: CANNOT CHECK — no marker ran: the lane was told not to push, and the marker opens a draft PR
@@ -20,7 +20,10 @@ ADR-0012 is drafted Proposed for the owner: `docs/adr/0012-one-merge-path-refuse
 ## Surprises
 
 - Standing Tee's own move to the wrapper is half done: PR 1 (#681) merged, but PR 2 (#698), which deletes the reader, is parked after 8 rounds peaking high, on a grammar of the ways past the wrapper. So Standing Tee runs both the reader and the wrapper, and the wrapper has a false refusal of its own (`--json mergeCommit` after `-R`).
-- The live guard refused three commands that merge nothing while this record was drafted: `gh pr merge --help` piped into a `grep` for the banned flag, and `gh help pr merge` (each refused twice, the second time to reproduce it for review round 1), and a heredoc holding the ADR's own edits.
+- The live guard refused three commands that merge nothing while this record was drafted, each re-runnable in a session with the hook registered:
+  - `gh pr merge --help 2>&1 | grep -n -- '--auto'`, refused with "'--auto' merges before checks settle …" (`template/.claude/hooks/pr-merge-guard.sh:355`), twice;
+  - `gh help pr merge 2>&1 | head -3`, refused with "the merge reads as [help pr merge], and what comes before pr is not a plain gh" (`template/.claude/hooks/lib/merge-reader.awk:616`), twice;
+  - a `python3` heredoc of the ADR's edits whose text quoted the first command, refused with the `--auto` message (`pr-merge-guard.sh:355`).
 - Round 1 (reviewer-docs, peak medium) found two mediums: OPS-92c's `--explain` is tied to option B in its row, not to D, and `worktree-hook-drift.sh` cannot hold D5, since it compares only `.claude/hooks/` and `settings.json` at agent spawn. Both were fixed in the ADR, along with six lows.
 
 ## Insights
