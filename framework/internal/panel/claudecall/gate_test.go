@@ -166,11 +166,7 @@ func TestGateStopsATimedOutClaudeWithSIGTERM(t *testing.T) {
 	_, r := fakeConfig(t)
 	makeLock(t, r.CurrentPath(), time.Now().Add(-5*time.Minute)) // stale: stops nothing, but it exists
 	marks := filepath.Join(t.TempDir(), "marks")
-	fakeProgram(t, "claude", fmt.Sprintf(`trap 'kill $P 2>/dev/null; echo TERM >> %[1]s; sleep 5; exit 0' TERM
-sleep 60 & P=$!
-echo ready >> %[1]s
-wait $P
-`, shq(marks)))
+	fakeProgram(t, "claude", trapsTERM(marks, "echo TERM >> "+shq(marks)+"; sleep 5; exit 0")+"\n")
 	g, home := newGate(t, signals.ExecRunner, r, clock.System)
 
 	err, took := giveUpWhenReady(t, g, agentsArgv, marks)
@@ -505,11 +501,23 @@ func newExpiring(t *testing.T) (context.Context, context.CancelFunc) {
 	return expiring{ctx}, expire
 }
 
+// trapsTERM is the body of a fake claude that runs onTERM at SIGTERM: it sets the
+// trap, writes "ready" to marks, then loops on short foreground sleeps until the
+// signal comes. It never waits on a background child with `wait`: under macOS's sh
+// (bash 3.2), a SIGTERM that lands after "ready" but before `wait` blocks leaves the
+// trap pending until the child exits, and a `kill $P` from the trap that reaches the
+// child before it has exec'd its program is lost, so the child holds the call's
+// output open. Either way the call did not end before the grace (OPS-158). In the
+// loop, a pending trap runs as soon as the current sleep ends.
+func trapsTERM(marks, onTERM string) string {
+	return fmt.Sprintf("trap %s TERM; echo ready >> %s; while :; do sleep 0.1; done", shq(onTERM), shq(marks))
+}
+
 // giveUpWhenReady runs argv and lets its timeout expire once the fake has written
-// "ready" to marks, after its trap and once the trap has what it acts on: a fixed
-// timeout raced the shell's start under load, and a SIGTERM before the trap killed
-// the fake outright (OPS-122). It returns the call's error and how long the caller
-// waited after its timeout.
+// "ready" to marks, after its trap (trapsTERM): a fixed timeout raced the shell's
+// start under load, and a SIGTERM before the trap killed the fake outright
+// (OPS-122). It returns the call's error and how long the caller waited after its
+// timeout.
 func giveUpWhenReady(t *testing.T, g *Gate, argv []string, marks string) (error, time.Duration) {
 	t.Helper()
 	ctx, cancel := newExpiring(t)
@@ -666,10 +674,10 @@ func TestGateLaneActionWaitsForTheSlot(t *testing.T) {
 func TestGateStoppedCallHoldsTheSlotUntilItExits(t *testing.T) {
 	marks := filepath.Join(t.TempDir(), "marks")
 	fakeProgram(t, "claude", fmt.Sprintf(`case "$1" in
-agents) trap 'kill $P 2>/dev/null; sleep 5; exit 0' TERM; sleep 60 & P=$!; echo ready >> %s; wait $P;;
+agents) %s;;
 *) echo '[]';;
 esac
-`, shq(marks)))
+`, trapsTERM(marks, "sleep 5; exit 0")))
 	g, _ := newGate(t, signals.ExecRunner, Reader{}, clock.System)
 	if err, _ := giveUpWhenReady(t, g, agentsArgv, marks); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err %v, want the timeout", err)
