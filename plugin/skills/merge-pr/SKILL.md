@@ -162,15 +162,17 @@ Session: <this session's id: $CLAUDE_CODE_SESSION_ID>
 ```
 
 and, if `attribution.enabled` is true, `attribution.trailer` as its last line. While it is false,
-no line of the body starts with `Co-authored-by:` (any case): rule 15 refuses one, and refuses a
-squash with no body, because GitHub's default body copies the branch commits' trailers. Then:
+no line of the body is a `Co-authored-by:` trailer, a line whose first word is the key (any case):
+rule 15 refuses one, refuses a squash with no body, because GitHub's default body copies the branch
+commits' trailers, and refuses any merge but a squash. Then:
 ```bash
 gh pr merge <n> --squash --delete-branch --body-file <file>
 ```
 Run it on its own, from a checkout of this repository: with no repo named, anything before it in
 the command (a change of directory, an environment assignment) is refused. From elsewhere, name
 the repo with a hosted -R HOST/OWNER/NAME or the PR's URL; a bare -R OWNER/NAME allows only a
-change of directory before it. After any command, write the `--body-file` path out in full.
+change of directory before it. After a change of directory, write the `--body-file` path out in
+full; after any other command the guard refuses a `--body-file`, since it may have written the file.
 The guard reads the file; a `--body "$(…)"` it cannot read is refused. If it names a different
 `Session:` value, use the one it names: it is the session the hook sees.
 

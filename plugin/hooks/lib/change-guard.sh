@@ -92,12 +92,16 @@ cg_archives() {  # cg_archives BASE HEAD
   done
 }
 
-# cg_field COMMAND CWD body|subject: what a merge command sets for the squash commit's body or
-# subject, read the way gh reads its flags. Prints it; returns 1 when the command sets none, 2 when
-# it cannot be read (a substitution in the text, a file that cannot be read or is stdin, an API
-# merge whose fields come from --input, a command with no merge or more than one, a substitution
-# left open), 3 when it names a relative file after another word. Only the merge's own simple
-# command is read: a flag in a comment or in another command is not the merge's (OPS-132).
+# cg_field COMMAND CWD body|subject|method: what a merge command sets for the squash commit's body
+# or subject, or (gh api only) its merge_method, read the way gh reads its flags. Prints it; returns
+# 1 when the command sets none, 2 when it cannot be read (a substitution in the text, a file that
+# cannot be read or is not a regular file, stdin or any /dev or /proc path, an API merge whose
+# fields come from --input, a command with no merge or more than one, a substitution left open), 3
+# when it names a relative file after `cd`, 4 when it names a file after anything but `cd <path>`
+# or beside a redirect of the merge's own: what runs first can write the file after this read
+# (`cp other.md body.md && gh pr merge … --body-file body.md`), so the file read is not the one gh
+# sends (OPS-156). Only the merge's own simple command is read: a flag in a comment or in another
+# command is not the merge's (OPS-132).
 # Forms read:
 #   gh pr merge   body:    --body T, --body=T, --body-file F, --body-file=F, and the short flags
 #                          -b/-F with the value next, glued (-bT, -FF) or after = (-b=T), also
@@ -126,7 +130,7 @@ cg_field() {
       }
       return 0
     }
-    function cut() { if (have) { t[++nt] = tok; oddt[nt] = odd; sg[nt] = seg; tok = ""; have = 0; odd = 0 } }
+    function cut() { if (have) { t[++nt] = tok; oddt[nt] = odd; rdt[nt] = rd; sg[nt] = seg; tok = ""; have = 0; odd = 0; rd = 0 } }
     { buf = buf $0 "\n" }
     END {
       # The words, each with the simple command it is in (seg): ; & | ( ) and a newline end one,
@@ -155,6 +159,7 @@ cg_field() {
         # & and | inside a redirection (2>&1, &>f, >|f) end nothing.
         if ((c == "&" && !(tok ~ /[<>]$/ || substr(s, j + 1, 1) == ">")) || (c == "|" && tok !~ />$/) || c ~ /[;()\n]/) { cut(); seg++; continue }
         if (c == "$") odd = 1
+        if (c == "<" || c == ">") rd = 1   # unquoted: a redirect, which a quoted > is not
         tok = tok c; have = 1
       }
       cut()
@@ -173,8 +178,9 @@ cg_field() {
         if (x <= nt && sg[x] == sg[k] && t[x] == "merge") { ng++; g = k; mode = "pr" }
       }
       if (ng != 1) exit 2
+      if (want == "method" && mode != "api") exit 1   # gh pr merge names its method in words: merge_argv
       long = (want == "body") ? "--body" : "--subject"
-      key = (want == "body") ? "commit_message" : "commit_title"
+      key = (want == "body") ? "commit_message" : (want == "method") ? "merge_method" : "commit_title"
       for (k = g + 2; k <= nt && sg[k] == sg[g]; k++) {
         x = t[k]
         if (mode == "api") {
@@ -222,9 +228,26 @@ cg_field() {
       if (bad) exit 2
       if (!found) exit 1
       if (vo) exit 2
-      # pre: a word comes before the merge, which may change directory (cd sub, or anything before
-      # a URL), whatever it is: gh --version; cd sub && gh pr merge … is still after a cd.
-      printf "%s\n%d\n%s", kind, (g != 1), v
+      # pre: 0 when nothing comes before the merge; 1 when only `cd <path>` commands do, which may
+      # change directory but write nothing; 2 when anything else does, which may write the file
+      # (gh --version; cd sub && gh pr merge … is 2), or when the merge itself redirects other than
+      # to /dev/null or another descriptor: the shell opens > body.md, emptying it, before gh runs.
+      pre = 0
+      if (g > 1) {
+        pre = 1
+        if (sg[g] == sg[g - 1]) pre = 2
+        for (k = 1; k < g && pre == 1; k++) {
+          if (k > 1 && sg[k] == sg[k - 1]) { pre = 2; break }
+          if (t[k] != "cd" || k + 1 >= g || sg[k + 1] != sg[k] || oddt[k + 1] || rdt[k + 1] || t[k + 1] !~ /^[A-Za-z0-9_.\/~@:+-]+$/) { pre = 2; break }
+          k++
+        }
+      }
+      for (k = g; k <= nt && sg[k] == sg[g]; k++) {
+        if (!rdt[k] || t[k] ~ /^[0-9]*>(&[0-9]|>?\/dev\/null)$/) continue
+        if (t[k] ~ /^[0-9]*>>?$/ && k < nt && sg[k + 1] == sg[g] && t[k + 1] == "/dev/null") { k++; continue }
+        pre = 2
+      }
+      printf "%s\n%d\n%s", kind, pre, v
     }')
   _rc=$?
   [ "$_rc" -eq 0 ] || return "$_rc"
@@ -232,10 +255,15 @@ cg_field() {
   case "$_kind" in
     file)
       [ "$_val" != - ] || return 2   # stdin: not readable from here
-      # After another command, a relative file is the one in the directory it left gh in, which
-      # CWD need not be: `cd sub && gh pr merge … --body-file body.md` reads sub/body.md (OPS-132).
+      # What ran before may have written the file since (OPS-156).
+      [ "$_pre" != 2 ] || return 4
+      # After a cd, a relative file is the one in the directory it left gh in, which CWD need not
+      # be: `cd sub && gh pr merge … --body-file body.md` reads sub/body.md (OPS-132).
       case "$_val" in /*) _f=$_val ;; *) [ "$_pre" = 0 ] || return 3; _f="${2:-.}/$_val" ;; esac
-      [ -r "$_f" ] || return 2
+      # Only a regular file reads here as it reads for gh: /dev/stdin is this hook's own stdin,
+      # drained by its payload read, while gh's is whatever the merge redirects into it (OPS-156).
+      case "$_f" in /dev/* | /proc/*) return 2 ;; esac
+      { [ -f "$_f" ] && [ -r "$_f" ]; } || return 2
       cat "$_f" ;;
     *) printf '%s\n' "$_val" ;;
   esac
@@ -252,6 +280,7 @@ Session: ${3:-<the id of this session>}"
     1) printf 'this squash merge sets no --body, so its commit would carry no provenance trailers. Write the body to a file ending in:\n%s\nthen merge with: gh pr merge <n> --squash --delete-branch --body-file <file>\n' "$_want"; return ;;
     2) printf 'cannot read this merge'"'"'s body (a substitution in --body, or an unreadable --body-file), so its provenance trailers cannot be checked. Write the body to a file and pass --body-file <file>. It must end in:\n%s\n' "$_want"; return ;;
     3) printf 'this merge names a relative --body-file after another command, which may have changed directory, so the file gh reads cannot be checked. Write its path out in full (--body-file /abs/path/body.md), or run the merge on its own. It must end in:\n%s\n' "$_want"; return ;;
+    4) printf 'this merge names a --body-file after a command other than cd <path>, or beside a redirect, which may write the file after this check reads it. Run the merge on its own (or after only cd <path> &&), with --body-file <file>. It must end in:\n%s\n' "$_want"; return ;;
   esac
   _miss=""
   for _k in Change Agent-Role Model Session; do
