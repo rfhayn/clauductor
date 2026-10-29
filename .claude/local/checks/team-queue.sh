@@ -8,7 +8,9 @@
 # an injection-style title. OPS-100 adds a fixture of its own after them: `new-row` items
 # (PROPOSES ROW, conflict, a lane that is malformed or no prefix, a claiming row), `--row`
 # (approval checked again in its own run) and `--next-id` (each source of ids, no gap filled,
-# suffixes skipped, every failure CANNOT CHECK with exit 1).
+# suffixes skipped, every failure CANNOT CHECK with exit 1). OPS-166 adds authors: an issue whose
+# author cannot write is skipped and counted by the listing, refused by `--row`, and read for no
+# id by `--next-id`.
 . "${CHECKS_LIB:?}"
 need jq git
 # shellcheck disable=SC1091
@@ -87,11 +89,13 @@ LATE=2026-10-11T10:00:00Z   # after it
 # body TEXT: TEXT with a Content-SHA256 line, the hash taken here by printf and sha256_hex.
 body() { printf '%s\nContent-SHA256: %s\n' "$1" "$(printf '%s' "$1" | sha256_hex)"; }
 text() { printf '**What:** item %s BODY-MARKER\nRow: %s\n%s' "$1" "$2" "$3"; }
-# item NUM TITLE BODY LABELS AT EDITED RENAMED [BUGAT]: one issue as GraphQL returns it; BUGAT
-# adds a `bug` label event at that time.
+# item NUM TITLE BODY LABELS AT EDITED RENAMED [BUGAT [AUTHOR]]: one issue as GraphQL returns it;
+# BUGAT adds a `bug` label event at that time; AUTHOR is its authorAssociation (OWNER by default,
+# `-` for none at all).
 item() {
-  jq -n --arg n "$1" --arg ti "$2" --arg b "$3" --arg l "$4" --arg at "$5" --arg e "$6" --arg r "$7" --arg bug "${8:-}" '
+  jq -n --arg n "$1" --arg ti "$2" --arg b "$3" --arg l "$4" --arg at "$5" --arg e "$6" --arg r "$7" --arg bug "${8:-}" --arg au "${9:-OWNER}" '
     { number: ($n | tonumber), title: $ti, body: $b,
+      authorAssociation: (if $au == "-" then null else $au end),
       lastEditedAt: (if $e == "" then null else $e end),
       labels: { nodes: ($l | split(",") | map({ name: . })) },
       timelineItems: { nodes: (
@@ -172,6 +176,28 @@ has "#15 X-1 UNAPPROVED $U (no approved label) \"approved label removed\"" "an a
 has "#16 X-1 UNAPPROVED $U (needs one Content-SHA256 line) \"two hash lines\"" "a body with two Content-SHA256 lines is UNAPPROVED"
 has "#17 ? NEEDS ROW $U ($OK) \"hostile row\"" "a Row value outside the id charset is shown as ? and NEEDS ROW"
 
+# OPS-166: an issue whose author cannot write is skipped, counted in one line, its title never
+# printed, though it carries both labels and a valid hash. #61 (COLLABORATOR) and #62 (MEMBER)
+# still list; #60 (NONE), #63 (CONTRIBUTOR) and #64 (no association at all) do not.
+{
+  item 60 "STRANGER-MARKER none" "$(body "$(text 60 X-1 "$good")")" "$TQ" "$LA" "" "" "" NONE
+  item 61 "a collaborator's item" "$(body "$(text 61 X-1 "$good")")" "$TQ" "$LA" "" "" "" COLLABORATOR
+  item 62 "a member's item" "$(body "$(text 62 X-1 "")")" "$TQ" "$LA" "" "" "" MEMBER
+  item 63 "STRANGER-MARKER contributor" "$(body "$(text 63 X-1 "")")" "$TQ" "$LA" "" "" "" CONTRIBUTOR
+  item 64 "STRANGER-MARKER no association" "$(body "$(text 64 X-1 "")")" "$TQ" "$LA" "" "" "" -
+} | answer > "$S/s.json"
+out=$(run "$S/s.json"); rc=$?
+expect_rc 0 "$rc" "authors: the listing exits 0"
+has "#61 X-1 APPLIES $U ($OK) \"a collaborator's item\"" "authors: a COLLABORATOR's approved item still lists"
+has "#62 X-1 APPLIES $U ($OK) \"a member's item\"" "authors: ...and a MEMBER's"
+printf '%s\n' "$out" | grep -qE '^#(60|63|64) ' && fail "authors: an item from an author without write access is listed: $(printf '%s\n' "$out" | tr '\n' '|')" \
+  || ok "authors: items from NONE, CONTRIBUTOR and no association are not listed"
+case $out in *STRANGER-MARKER*) fail "authors: a skipped item's title was printed" ;; *) ok "authors: ...and no skipped item's title is printed" ;; esac
+has "3 team-queue issue(s) from authors without write access skipped" "authors: the skipped items are counted in one line"
+printf '%s\n' "$out" | grep -q 'more not shown' && fail "authors: skipped items were counted as not shown" || ok "authors: ...and not again as 'more not shown'"
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 4 ] && ok "authors: the header, two items and the skipped line, nothing else" || fail "authors: $(printf '%s\n' "$out" | tr '\n' '|')"
+case $(cat "$S/gh.log.args") in *authorAssociation*) ok "authors: the listing's query asks for authorAssociation" ;; *) fail "authors: the query does not ask for authorAssociation" ;; esac
+
 # --hash prints the hash the listing compares, for whoever composes an item.
 body "$(text 1 X-1 "$good")" > "$S/body.md"
 [ "$(sh "$F/.claude/local/context.d/session-start/team-queue.sh" --hash "$S/body.md")" = "$(text 1 X-1 "$good" | sha256_hex)" ] \
@@ -201,7 +227,7 @@ cannot offline "case 9: ...offline (CONTEXT_OFFLINE=1), without calling gh" "$S/
 t0=$(date +%s)
 cannot "gh did not answer within 1 s" "case 9: ...gh that does not answer in time" "$S/a.json" TEAM_QUEUE_TIMEOUT=1 FAKE_SLEEP=8
 [ $(($(date +%s) - t0)) -lt 7 ] && ok "case 9: ...and the deadline stops it" || fail "the deadline did not stop gh"
-jq '.data.repository.issues.nodes += [{ number: "x1", title: "t", body: "", labels: { nodes: [] }, timelineItems: { nodes: [] } }]' "$S/b.json" > "$S/partway.json"
+jq '.data.repository.issues.nodes += [{ number: "x1", title: "t", body: "", authorAssociation: "OWNER", labels: { nodes: [] }, timelineItems: { nodes: [] } }]' "$S/b.json" > "$S/partway.json"
 cannot "an issue has no number" "case 9: ...a failure part-way prints the one line, no facts beside it" "$S/partway.json"
 mv "$F/docs/roadmap.md" "$S/roadmap.md"
 cannot "the change queue is UNKNOWN" "case 9: ...a change queue that cannot be read" "$S/a.json"
@@ -264,6 +290,7 @@ case $out in *PROPOSED-MARKER* | *"ops/xy-?"* | *Proposed-*) fail "new-row: the 
   item 53 "two changes" "$(body "$(proposal 53 XY 'Proposed-Change: `ops/xy-?-other` — a second')")" "$NR" "$LA" "" ""
   item 54 "no slot" "$(body "$(proposal 54 XY | grep -v '^Proposed-Slot:')")" "$NR" "$LA" "" ""
   item 55 "claims another" "$(body "$(proposal 55 XY | sed 's/PROPOSED-MARKER text$/PROPOSED-MARKER text (team-queue #42)/')")" "$NR" "$LA" "" ""
+  item 56 "a stranger proposes" "$(body "$(proposal 56 XY)")" "$NR" "$LA" "" "" "" NONE
 } | answer > "$S/e.json"
 rowrun() { # rowrun N [ENV=VALUE...]: --row N's output in $_g, its exit code in $nrc
   _n=$1; shift
@@ -286,6 +313,7 @@ rowcannot 42 "#42 reads APPLIES ($OK), not PROPOSES ROW" "--row: an item whose r
 rowcannot 53 "#53 needs one Proposed-Change line" "--row: two Proposed-Change lines print nothing"
 rowcannot 54 "#54 needs one Proposed-Slot line" "--row: a missing Proposed-Slot line prints nothing"
 rowcannot 55 "#55's Proposed-Change already names a team-queue item" "--row: a Proposed-Change that names another item's tag prints nothing"
+rowcannot 56 "#56's author has no write access" "--row: an approved proposal from an author without write access prints nothing (OPS-166)"
 rowcannot 99 "#99 is not among the open team-queue issues read" "--row: an issue not in the queue prints nothing"
 
 # --next-id: the working tree has rows X-1..3 (origin/main too); the answers add issue Row lines
@@ -308,7 +336,7 @@ nid() { # nid JSON [ENV=VALUE...]: --next-id X's output in $_g, its exit code in
 }
 ans() { # ans 'ROW...' 'TITLE...': issue bodies with those Row lines, PRs 1.. with those titles
   jq -n --arg r "$1" --arg p "$2" --arg h "$MAIN_SHA" '{ data: { repository: {
-    issues: { totalCount: ($r | split(" ") | map(select(. != "")) | length), nodes: ($r | split(" ") | map(select(. != "")) | map({ body: ("**What:** x\nRow: " + . + "\n") })) },
+    issues: { totalCount: ($r | split(" ") | map(select(. != "")) | length), nodes: ($r | split(" ") | map(select(. != "")) | map({ body: ("**What:** x\nRow: " + . + "\n"), authorAssociation: "OWNER" })) },
     pullRequests: { totalCount: ($p | split("|") | map(select(. != "")) | length), nodes: ($p | split("|") | map(select(. != "")) | to_entries | map({ number: (.key + 1), title: .value, headRefOid: $h })) } } } }'
 }
 pr() { # pr NUMBER HEAD: one open PR and no issues
@@ -329,6 +357,12 @@ ans "" "X-5: a PR" > "$S/n3.json"
 nexpect X-6 "--next-id: an open PR's leading X-N: counts" "$S/n3.json"
 ans "" "" > "$S/n0.json"
 nexpect X-4 "--next-id: with nothing open, the roadmap's max + 1" "$S/n0.json"
+case $(cat "$S/gh.log.args") in *authorAssociation*) ok "--next-id: its query asks for authorAssociation" ;; *) fail "--next-id: its query does not ask for authorAssociation" ;; esac
+# OPS-166: a Row line in an issue whose author cannot write takes no id; a COLLABORATOR's does.
+jq '.data.repository.issues.nodes += [{ body: "Row: X-50\n", authorAssociation: "NONE" }, { body: "Row: X-60\n" }] | .data.repository.issues.totalCount = 2' "$S/n0.json" > "$S/nstr.json"
+nexpect X-4 "--next-id: Row lines from a NONE author and from no association take no id (OPS-166)" "$S/nstr.json"
+jq '.data.repository.issues.nodes += [{ body: "Row: X-50\n", authorAssociation: "COLLABORATOR" }] | .data.repository.issues.totalCount = 1' "$S/n0.json" > "$S/ncol.json"
+nexpect X-51 "--next-id: ...a COLLABORATOR's Row line still does" "$S/ncol.json"
 pr 9 "$PR9_SHA" > "$S/n9.json"
 nexpect X-12 "--next-id: a row an open PR's roadmap adds counts, though its title names another id" "$S/n9.json"
 ans "X-1234567890 X-99999999999999999999" "" > "$S/nbig.json"
