@@ -59,9 +59,13 @@ payload() {
 # is the least the broken behaviour must cost (a stopped 30 s command that took 30 s was not
 # stopped), so load cannot reach it and the case still fails when the behaviour breaks.
 # checks/wall-clock.sh holds every clock read in a check to a reason.
+# The factor must be a whole decimal number ("2x" is not 2, as ParseFloat refuses it), and the
+# rounding up ignores a float's noise, so 1.1 times 50 is 55, not 56.
 slow() {
-  awk -v f="${CLAUDUCTOR_TEST_SLOW:-1}" -v s="$1" 'BEGIN { f += 0; if (!(f >= 1) || f == f + 1) f = 1
-    v = s * f; printf "%d", (v == int(v)) ? v : int(v) + 1 }'
+  awk -v f="${CLAUDUCTOR_TEST_SLOW:-1}" -v s="$1" 'BEGIN {
+    if (f !~ /^[+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$/) f = 1; else f += 0
+    if (!(f >= 1) || f == f + 1) f = 1
+    v = s * f; c = int(v); if (v - c > 1e-9) c++; printf "%d", c }'
 }
 # One look every tenth of a second, and one more once the deadline has passed, so a condition that
 # came true just as it passed still counts. Ticks, not the clock: under load they only run long.

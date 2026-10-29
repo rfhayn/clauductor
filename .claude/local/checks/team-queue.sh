@@ -51,12 +51,13 @@ git -C "$F" fetch -q origin
 printf 'one\nlocal\nthree\n' > "$F/a.txt"
 
 # The fake gh: logs its arguments, then answers from $FAKE_JSON, or fails with $FAKE_RC, or
-# sleeps $FAKE_SLEEP first.
+# sleeps $FAKE_SLEEP first, in tenth-second ticks, so a TERM that stops it leaves no long sleep
+# behind (OPS-168).
 cat > "$S/bin/gh" <<'EOF'
 #!/bin/sh
 echo call >> "$FAKE_LOG"
 printf '%s\n' "$*" >> "$FAKE_LOG.args"
-[ -z "${FAKE_SLEEP:-}" ] || sleep "$FAKE_SLEEP"
+i=0; while [ "$i" -lt "$(( ${FAKE_SLEEP:-0} * 10 ))" ]; do sleep 0.1; i=$((i + 1)); done
 [ "${FAKE_RC:-0}" = 0 ] || exit "$FAKE_RC"
 cat "$FAKE_JSON"
 EOF

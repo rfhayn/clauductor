@@ -261,7 +261,15 @@ grep -q '^lease_verify() {' "$ROOT/$RUN_DIR/lease.sh" && ok "lease.sh defines le
 LS="$R/$RUN_DIR/lease.sh"; K="$d/lk"; mkdir -p "$K"; KL="$K/gate.lock"
 # lease CMD...: lease_run on $KL with a 3 s ttl (renewed each second), from bash as run-local does.
 lease() { CLAUDUCTOR_LEASE_TTL=3 bash -c '. "$0"; lease_run "$1" check "${@:2}"' "$LS" "$KL" "$@"; }
-lease sh -c 'cat "$CLAUDUCTOR_LOCK_HELD/owner.json" > "$0/o1"; sleep 3; cat "$CLAUDUCTOR_LOCK_HELD/owner.json" > "$0/o2"' "$d" 2>/dev/null
+# The command copies owner.json, then copies it again once its "renewed" has moved, or at a 30 s
+# deadline (times CLAUDUCTOR_TEST_SLOW): a guessed `sleep 3` was a bound load could outrun (OPS-168).
+cat > "$d/renew-wait.sh" <<'EOF'
+rn() { sed -n 's/.*"renewed":\([0-9]*\).*/\1/p' "$1"; }
+cp "$CLAUDUCTOR_LOCK_HELD/owner.json" "$1/o1"; r1=$(rn "$1/o1"); i=0
+while [ "$i" -lt "$2" ]; do r=$(rn "$CLAUDUCTOR_LOCK_HELD/owner.json"); [ -n "$r" ] && [ "$r" != "$r1" ] && break; sleep 0.1; i=$((i + 1)); done
+cp "$CLAUDUCTOR_LOCK_HELD/owner.json" "$1/o2"
+EOF
+lease sh "$d/renew-wait.sh" "$d" "$(( $(slow 30) * 10 ))" 2>/dev/null
 grep -q '"ttl":3[,}]' "$d/o1" 2>/dev/null && ok "the holder writes a real ttl (CLAUDUCTOR_LEASE_TTL), not ttl 0" || fail "owner.json ttl: $(cat "$d/o1" 2>/dev/null)"
 r1=$(sed -n 's/.*"renewed":\([0-9]*\).*/\1/p' "$d/o1" 2>/dev/null); r2=$(sed -n 's/.*"renewed":\([0-9]*\).*/\1/p' "$d/o2" 2>/dev/null)
 [ -n "$r1" ] && [ -n "$r2" ] && [ "$r2" -gt "$r1" ] && ok "the holder renews 'renewed' while the command runs ($r1 -> $r2)" || fail "renewed did not move: '$r1' -> '$r2'"
@@ -295,11 +303,12 @@ holder() {  # holder RENEWED TTL: a holder record on this host, for a pid that c
   rm -rf "$UL" "$UL.waiters"; mkdir -p "$UL"
   printf '{"v":1,"nonce":"0123456789abcdef","pid":999999,"pstart":"","host":"%s","lane":"ghost","cmd":"gate","started":%s,"renewed":%s,"ttl":%s}\n' "$(hostname)" "$1" "$1" "$2" > "$UL/owner.json"
 }
-blind() {  # blind MAXWAIT: lease_run with ps erroring and kill -0 denied; killed after 25 s
+bp_done() { ! kill -0 "$bp" 2>/dev/null; }
+blind() {  # blind MAXWAIT: lease_run with ps erroring and kill -0 denied; killed after 25 s (times CLAUDUCTOR_TEST_SLOW)
   ( PATH="$U/bin:$PATH" CLAUDUCTOR_LEASE_MAX_WAIT=$1 bash -c 'kill() { case "$1" in -0) echo "kill: Operation not permitted" >&2; return 1 ;; esac; builtin kill "$@"; }
     . "$0"; lease_run "$1" blind sh -c "echo RAN"' "$LS" "$UL" > "$U/out" 2>&1; echo "$?" > "$U/rc" ) &
-  bp=$!; n=0
-  while kill -0 "$bp" 2>/dev/null && [ "$n" -lt 25 ]; do sleep 1; n=$((n + 1)); done
+  bp=$!
+  wait_for 25 bp_done
   if kill -0 "$bp" 2>/dev/null; then kill "$bp" 2>/dev/null; echo hung > "$U/rc"; fi
   wait "$bp" 2>/dev/null
 }
@@ -489,7 +498,7 @@ rm -f "$R/new-file"
 mkdir -p "$R/local"; touch "$R/local/HOLD"
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
 bg=$!
-n=0; while ! grep -q '^==> hold' "$d/bg" 2>/dev/null && [ "$n" -lt 30 ]; do sleep 1; n=$((n + 1)); done
+holding() { grep -q '^==> hold' "$d/bg" 2>/dev/null; }; wait_for 30 holding
 # The bound is what a gate-wait that ignored its own costs: its 540 s default, or the hold, which
 # lasts until it returns. 10 s was a guess at a loaded machine's pace (OPS-168).
 s=$(date +%s); gw 1; rc=$?; took=$(( $(date +%s) - s ))  # wall-clock: asserted below a minute, far under the 540 s a broken bound costs
@@ -525,7 +534,7 @@ else fail "cannot check that a reused pid is not read as a running gate: ps does
 mkdir -p "$LOCK" "$R/local"; touch "$R/local/HOLD"
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LOCK_HELD="$LOCK" exec bash "$RUN_REL") > "$d/bg" 2>&1 &
 bg=$!
-n=0; while ! grep -q '^==> hold' "$d/bg" 2>/dev/null && [ "$n" -lt 30 ]; do sleep 1; n=$((n + 1)); done
+holding() { grep -q '^==> hold' "$d/bg" 2>/dev/null; }; wait_for 30 holding
 kill -TERM "$bg" 2>/dev/null; wait "$bg" 2>/dev/null
 rm -f "$R/local/HOLD"; rm -rf "$LOCK"
 grep -q '^exit pid=[0-9]* code=signal ' "$STATE" && tail -n 1 "$RUNS" | awk -F'\t' '$6 == "fail" && $7 == "signal" { ok = 1 } END { exit !ok }' \
@@ -572,7 +581,7 @@ git -C "$R" add -A && git -C "$R" commit -qm "a ci-status stub"
 rm -f "$R/local/gate.pid"; touch "$R/local/PUBHOLD"
 (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
 bg=$!
-n=0; while [ ! -s "$R/local/gate.pid" ] && [ "$n" -lt 60 ]; do sleep 1; n=$((n + 1)); done
+publishing() { [ -s "$R/local/gate.pid" ]; }; wait_for 60 publishing
 [ -s "$R/local/gate.pid" ] && kill -TERM "$(cat "$R/local/gate.pid")" 2>/dev/null
 rm -f "$R/local/PUBHOLD"; wait "$bg" 2>/dev/null
 grep -q '^exit pid=[0-9]* code=0 ' "$STATE" && tail -n 1 "$RUNS" | awk -F'\t' '$6 == "pass" && $7 == "0" { ok = 1 } END { exit !ok }' \

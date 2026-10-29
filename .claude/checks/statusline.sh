@@ -101,16 +101,19 @@ done
 # deadline, well before the release. With the case's errors left on the check's stderr, it came
 # back only at the release. The bound is the release, less the two seconds it may have started
 # before t0 and whole seconds round off: what the broken read costs, which load cannot reach the
-# way it reached six seconds (OPS-168). A passing read never waits for the release.
+# way it reached six seconds (OPS-168). A passing read never waits for the release, and the case
+# releases the hold itself once it is read, so the releaser, in tenth-second ticks, ends with it.
 rel=$(slow 20)
 : > "$d/hold"
-( sleep "$rel"; rm -f "$d/hold" ) > /dev/null 2>&1 &
+( i=0; while [ -f "$d/hold" ] && [ "$i" -lt $((rel * 10)) ]; do sleep 0.1; i=$((i + 1)); done; rm -f "$d/hold" ) > /dev/null 2>&1 &
+relp=$!
 t0=$(date +%s)  # wall-clock: the held case starts; its bound is the release
 out=$(ticks=10; run "$live" 2>&1)
 took=$(( $(date +%s) - t0 ))  # wall-clock: asserted below the release, which a broken read waits for
 case "$out" in still-running-after-1s*) ok "a case still running at its deadline fails" ;; *) fail "a case held past its deadline reported: $out" ;; esac
 [ "$took" -lt $((rel - 2)) ] && ok "the deadline frees the check's reader (${took}s, release at ${rel}s)" \
   || fail "the check's reader waited ${took}s for a case with a one-second deadline (release at ${rel}s)"
+rm -f "$d/hold"; wait "$relp" 2>/dev/null
 mkdir -p "$d/home.-"
 
 line=$(printf '%s' "$input" | HOME="$d/home.-" PATH="$d/bin:$PATH" sh "$sl")
