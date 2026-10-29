@@ -2,11 +2,12 @@
 name: Team queue item
 about: Work the bot team hands to Claude Code. An input to a roadmap row, never a row itself.
 title: ""
-labels: team-queue
 ---
 
 <!--
-I apply the `approved` label myself, by hand, on github.com. Bots never apply it.
+I apply the `approved` label myself, by hand, on github.com. Bots never apply it. This template
+applies no label either: someone with triage rights adds `team-queue` by hand, so an issue a
+stranger files never reaches session start's listing on its own (OPS-155, the repository public).
 
 How Claude Code reads this issue (.claude/local/context.d/session-start/team-queue.sh, OPS-95):
 - It is approved only with both labels, `team-queue` and `approved`, a `Content-SHA256:` line that

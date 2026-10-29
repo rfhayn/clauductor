@@ -30,7 +30,7 @@ idea() {  # idea TEXT CREATED [JQ-OBJECT-TO-MERGE]
   jq -cn --arg t "$1" --arg c "$2" --argjson x "${3:-null}" '{text: $t, authorId: "u_rich00000000000000000000", createdAt: $c, updatedAt: $c, status: "not-touched"} + ($x // {})'
 }
 A1=$(idea 'Skins carryover visible on the card?' 2026-09-27T10:00:00.000Z)
-B2=$(idea 'Dark-mode scorecard' 2026-09-24T09:00:00.000Z '{"authorId":"u_damian000000000000000000","status":"discussed","updatedAt":"2026-09-26T09:00:00.000Z","note":"for night rounds\nunder lights"}')
+B2=$(idea 'Dark-mode scorecard' 2026-09-24T09:00:00.000Z '{"authorId":"u_member000000000000000000","status":"discussed","updatedAt":"2026-09-26T09:00:00.000Z","note":"for night rounds\nunder lights"}')
 C3=$(idea 'Tee-sheet export' 2026-09-20T09:00:00.000Z '{"status":"roadmap","roadmapRow":"2C.19"}')
 D4=$(idea 'Older not-touched idea' 2026-09-21T09:00:00.000Z '{"authorId":null}')
 E5=$(idea 'Parked thing' 2026-09-22T09:00:00.000Z '{"status":"parked"}')

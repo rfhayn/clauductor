@@ -138,7 +138,7 @@ leaks() {
   # Per address, not per line: -o prints each match whole (the id runs to its last [A-Za-z0-9], so
   # the id compares whole), and only an exempt id is dropped, never its line's neighbours.
   else git -C "$1" grep -noE 'claude\.ai/artifact/[A-Za-z0-9]{8,}' \
-    | awk -F'artifact/' '{ id = $NF; r = id; gsub(substr(id, 1, 1), "", r); if (r != "" && id != "XvoZvCgkJJVbiXrWabnVS7") print }'
+    | awk -F'artifact/' '{ id = $NF; r = id; gsub(substr(id, 1, 1), "", r); if (r != "" && id != "EXAMPLEEXAMPLEEXAMPLE0") print }'
   fi
 }
 printf 'see https://example.invalid/tracker\n' > "$F/notes.md"
@@ -149,12 +149,12 @@ rm -f "$c/tracker-url"
 # The planted id is built at run time, so no committed line of this check is itself a leak. It
 # shares a line with an exempt sample id, which must not hide it.
 id="Zq81$(printf mVbT0pLx)"
-printf 'see https://claude.ai/artifact/%s and https://claude.ai/artifact/%s\n' XvoZvCgkJJVbiXrWabnVS7 "$id" > "$F/notes.md"
+printf 'see https://claude.ai/artifact/%s and https://claude.ai/artifact/%s\n' EXAMPLEEXAMPLEEXAMPLE0 "$id" > "$F/notes.md"
 git -C "$F" commit -qam 'plant: an artifact address'
 [ "$(leaks "$F")" = "notes.md:1:claude.ai/artifact/$id" ] && ok "with no tracker-url, an artifact address is found, even on a line with a sample id" || fail "the planted artifact address was missed: $(leaks "$F")"
-printf 'see https://claude.ai/artifact/%s, https://claude.ai/artifact/%s and https://claude.ai/artifact/%s7\n' XvoZvCgkJJVbiXrWabnVS7 "$(printf 'A%.0s' 1 2 3 4 5 6 7 8 9 10)" XvoZvCgkJJVbiXrWabnVS7 > "$F/notes.md"
+printf 'see https://claude.ai/artifact/%s, https://claude.ai/artifact/%s and https://claude.ai/artifact/%s7\n' EXAMPLEEXAMPLEEXAMPLE0 "$(printf 'A%.0s' 1 2 3 4 5 6 7 8 9 10)" EXAMPLEEXAMPLEEXAMPLE0 > "$F/notes.md"
 git -C "$F" commit -qam 'plant: sample ids, and one that only starts like one'
-sample=XvoZvCgkJJVbiXrWabnVS7
+sample=EXAMPLEEXAMPLEEXAMPLE0
 [ "$(leaks "$F")" = "notes.md:1:claude.ai/artifact/${sample}7" ] && ok "...the sample ids are exempt whole, never a longer id that starts like one" || fail "the sample-id exemption: [$(leaks "$F")]"
 git -C "$F" rm -q notes.md && git -C "$F" commit -qm 'plant: removed'
 if [ -s "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/clauductor/tracker-url" ]; then how="its tracker-url's exact value"; else how="an artifact address (no tracker-url here)"; fi

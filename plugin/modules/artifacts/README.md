@@ -21,7 +21,7 @@ comments. Every entry with a `url` is an artifact:
 {
   "pages": {
     "docs/erd.html": {
-      "url": "https://claude.ai/artifact/XvoZvCgkJJVbiXrWabnVS7",
+      "url": "https://claude.ai/artifact/EXAMPLEEXAMPLEEXAMPLE0",
       "published": "<40-hex: the blob hash of the copy last published (claude.ai only)>",
       "authorities": ["db/migrations/*.sql"],
       "reviewedAt": "<40-hex: the authorities' content hash at the last review>",
