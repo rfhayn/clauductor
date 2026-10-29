@@ -23,7 +23,7 @@ ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/quota.sh"
 
-pct=$(quota_stop_pct) || { echo "quota-gate: ERROR — $pct; no lane starts behind this guard until it is one"; exit 2; }
+pct=$(quota_stop_pct) || { echo "quota-gate: ERROR — $pct; this stops every new build-change run until it is one"; exit 2; }
 [ "$pct" -gt 0 ] || { echo "quota-gate: off — QUOTA_LANE_STOP_PCT is 0, so the quota holds back no lane"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "quota-gate: no reading — jq is not installed; the quota is NOT checked, so the lane may start"; exit 0; }
 q=$(quota_read) || { echo "quota-gate: no reading — no readable ~/.clauductor/quota-reading.json; the quota is NOT checked, so the lane may start"; exit 0; }

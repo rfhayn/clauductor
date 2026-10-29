@@ -164,7 +164,7 @@ quota_health() {
   # (CANNOT CHECK) may hide it. The reading is still said, from a pass that skips the threshold.
   if [ -z "${_QH_NOGUARD:-}" ] && ! _qh_pct=$(quota_stop_pct); then
     _qh_r=$(_QH_NOGUARD=1; quota_health)
-    echo "FAILED quota: $_qh_pct, so .claude/quota-gate.sh exits 2 and build-change stops on every run until it is one; the reading: ${_qh_r#OK quota: }"
+    echo "FAILED quota: $_qh_pct, so .claude/quota-gate.sh exits 2 and stops every new build-change run until it is one; the reading: ${_qh_r#OK quota: }"
     return 0
   fi
   command -v jq >/dev/null 2>&1 || { echo "CANNOT CHECK — jq is not installed, so the quota reading cannot be read; the quota is UNKNOWN"; return 0; }
