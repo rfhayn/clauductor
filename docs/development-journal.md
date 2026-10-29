@@ -14,6 +14,362 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 15 — 2026-10-28 — Rich — S15: the owner's rulings, the sandbox map and the lows
+
+**Totals.** Gate 107 min (a row's gate was CANNOT CHECK, so this is a floor); cost $1008.23.
+
+**Rows folded.** OPS-140 (#309); OPS-141 (#313); OPS-142 (#301); OPS-143 (#312); OPS-149 (#300); OPS-150 (#310); OPS-151 (#306).
+
+**The close.**
+
+**The cost line above overstates.** Every lane was a subagent of one terminal session, and each fragment records that whole session's spend, so the $1008 counts the same money several times. The session's real total is **~$321.73** (`usage-report.sh`, list price, this machine).
+
+| role | ~$ |
+|---|---|
+| lane-ops (Opus 5.5) | 260 |
+| session | 31 |
+| reviewer | 26 |
+| other | 2 |
+
+Flow, 30 days to 2026-10-29: cycle 1.4h median, lead 2.4h, 46.2 merges/wk, change-fail 4.7%, approval wait 3.4h, review rounds 2, spend $1117.64/wk.
+
+**What happened.** S15 ran from the terminal, with no panel. The owner had uninstalled it, and lanes ran as named subagents of one session in `.claude/worktrees/`.
+
+- **Audit and rulings.** An audit found S14, run from Cursor, sound. The only blemish was `Co-authored-by` in #289–#291, which the owner chose to leave and to guard instead (OPS-156). The owner then ruled on the whole owner queue (OPS-149).
+- **The bot team is retired.** OPS-123, the COO relays and OPS-95's test issue went with it.
+- **OPS-42 is cancelled.** Claude Code schedules work itself.
+- **The new name has cleared.**
+- **Distribution:** GitHub releases plus the plugin marketplace, with the official directory after launch (OPS-153).
+- **The sandbox stays closed.**
+- **Cleanup.** 185 local and 2 remote branches were bundled in `.git/clauductor/branch-archive-2026-10-28*.bundle` and deleted. The old worktree dirs and the March `orchestration/` databases were removed.
+
+**The sandbox, mapped (OPS-150, OPS-151).**
+- **This morning's UNKNOWN queue** was a bare `mktemp` on macOS writing outside `$TMPDIR`. OPS-150 fixed it, and its check holds every `mktemp` to a `$TMPDIR` template.
+- **An in-session lane writes its worktree's hooks and skills inside the sandbox**; only agents and the main checkout's own files are denied. The lane-sync script (#304) was closed unmerged on a high finding: an approved unsandboxed run executes lane-editable files.
+- **What still runs outside the sandbox** (the gate, approved bypasses) is the owner's to weigh in #307.
+
+**Review cost the most.**
+- Every row went past or to its cap, and each stop past it was the owner's call:
+  - OPS-150: 5 rounds;
+  - OPS-140: 5;
+  - OPS-142: 3;
+  - OPS-141, OPS-143 and OPS-151: 3 each.
+- **The pattern each time:** a reader or guard that lists spellings of shell or markdown loses to the next spelling.
+- **The fixes that converged closed the class instead:**
+  - OPS-150 dropped its pipe scanner for a one-line rule.
+  - OPS-140 strips `GIT_*` in `testgit`'s init, which every test package must import.
+  - OPS-143 unions three readings, one of them the reader from before OPS-131.
+  - OPS-141's catch-up-guard half could not converge. Round 3 found regressions in its own fixes. The owner split it to #282 alone and chose to delete the guard with the panel (OPS-157).
+- **Reviewers spawned by a lane never reached it** (probe 4, #305). From midday the main session ran every review round and forwarded the report.
+
+**Decisions.**
+- **Owner calls taken today:**
+  - extra rounds on OPS-150, OPS-140 and OPS-142;
+  - check scope (c) for `mktemp-in-tmpdir`;
+  - the split of OPS-141 and the deletion of catch-up-guard (OPS-157);
+  - the four rows moved to S16;
+  - #310, merged on GitHub by the owner, since it changed an eval case (merge-guard rule 13).
+- **The process stays as it is.** Claude proposed lighter rules for low-risk rows, and the owner kept the full process. The owner also allowed one standing exception: a medium that is only a missing test for a working control is fixed and merged without asking.
+
+**Surprises.**
+- `settings.json`'s `excludedCommands` (`git *`, `gh *` …) did not take git out of the sandbox here. Every unsandboxed run went through a per-command bypass, approved mostly by auto mode's classifier.
+- **The lanes are an agent team**, and none of them was held at idle by `no-silent-wait.sh`. That is OPS-90 probe (1), wrongly dropped this morning and now back on #305.
+- **A load flake failed OPS-143's gate once** (`TestGateStopsATimedOutClaudeWithSIGTERM`, #314). It passed 5 of 5 alone and on a re-run. OPS-158 now owns it.
+
+**Compound (step 3b).**
+- **Promoted:**
+  - `hook-env-reaches-every-child` → testgit;
+  - `git-default-excludes-file` → Outer;
+  - `precise-reader-regression` → OPS-143's union;
+  - `sandbox/bare-mktemp` → `checks/mktemp-in-tmpdir.sh`.
+- **Instances of PRAC-0010:**
+  - `shell-reader-in-awk`;
+  - `check/parse-shell-by-regex`;
+  - the text-guard row;
+  - `hooks/unfollowable-aim`.
+- **Not promoted, each with its reason:**
+  - `filepath-join-trailing-slash`;
+  - `awk/early-exit-pipe` (#303);
+  - `report-to-main` and `agents/no-hand-back` (#308, ST-16);
+  - `framework-env-shadows`;
+  - `lane-file-trust` (#307);
+  - `sandbox/lane-sync` (narrowed to own-session lanes);
+  - `gh/delete-branch-worktree`;
+  - `git/rebase-protected-paths` (superseded).
+- **Six young rows stay Raw.**
+- **Team queue:** no item was worked. #172 was closed by the owner, and the bot team is retired, so #314 is filed without the `team-queue` label.
+
+**What's next.**
+- **S16 opens with S15's four deferred rows:**
+  - OPS-99 with OPS-158 (the two load flakes);
+  - OPS-154;
+  - OPS-156;
+  - OPS-155, which ends in the owner's call to make the repository public.
+- **Then** OPS-86's ADR, OPS-91, OPS-129, PANEL-47 and OPS-98 (once Actions return on 2026-11-01).
+- **Open for the owner:** R50/R52 (lite, before S22).
+
+### OPS-140 — close the Go lows S12 left, and keep every test's git in its fixture
+
+- **PR**: #309
+- **Session**: S15, started 2026-10-28 09:02 ET
+- **Review**: 5 rounds, peak medium, cap 3
+- **Gate**: 60 min (full, clean, on 5cbb4b0b, the reviewed head; lease wait behind OPS-151's gate included); the final gate's receipt covers the head after merging OPS-151
+- **Cost**: $254.35; session-wide: a subagent lane shares the orchestrator's session id, so this is not the row's own cost
+- **Session start**: 23505561 tokens, 68 min
+
+#### What happened
+
+The row closed five issues, each with a test shown failing before its fix.
+
+- **#269, three parts.**
+  - The `--help` pointer now follows only the root's unknown command (`ExecuteC`), not a subcommand's `cobra.NoArgs`.
+  - `panel install --project` checks the disabled launchd label and `--remote-control` before it registers and trusts the project. A stopped install now changes nothing, as `docs/panel.md` already said.
+  - The PersistentPreRun test judges the outcome. It also holds its model of cobra's hooks to cobra's own `Execute`.
+- **#281, #302 and #311, one class.**
+  - Importing `testgit` now unsets every `GIT_` variable in the test binary, in `testgit`'s `init`. Go runs that before the importing package's variables, `init` and `TestMain`, but only for the package that imports it.
+  - 12 packages that used nothing of `testgit` import it blank. `treesnap`'s tests are all external now (`treesnap_test`), because its internal form cannot import `testgit`.
+  - `TestEveryTestPackageImportsTestgit` walks every test directory of the module and requires the import in each test form, `x` and `x_test`.
+  - A probe starts a test binary under a stand-in hook's repository. `testgit.Outer` compares that repository's work tree and `.git` whole, with its own config pinned. With the strip, the binary's fixture git stays out, including git run from a package-level variable; without it, the git reaches the repository.
+  - `testgit.Command` is the one fixture-git helper, used at 25 sites.
+- **#274.** `commandWords` counts a `case` after reserved words (the silent miss) and takes its words from its own frames. It also reads leading-paren and multi-line case arms. Every form is judged both passed and unpassed.
+
+#### Decisions
+
+- #269.2 moved the check rather than rewording the docs. "Stop before anything changes" is the behaviour the docs promised, and `install.CheckEnabled` is the one place both callers use.
+- The owner approved rounds 4 and 5 (2026-10-28), past the review cap of 3.
+  - **Round 4's redesign.** Round 3 still found git that the per-spelling source scan missed: the scan grew a rule for each spelling review named, and review kept finding another. Stripping in the test binary closes the class at its authority, since every process a test starts inherits from it. The spelling scanner, `signals.EnvRunner` and `testgit.Shim` were deleted, and the 58 runner sites went back to `signals.ExecRunner`.
+  - **Round 5.** It moved the strip from `TestMain` to `testgit`'s `init`, because a test file's package-level variable runs before any `TestMain`. That also made the rule "import `testgit`", not "a `TestMain` that strips first". It also pinned `Outer`'s config and dropped the `treesnap` exemption.
+  - **Round 5's medium.** The owner had it fixed in this PR, with the lead reviewing the delta rather than a sixth round. An import in one test form leaves the other unordered, so the guard now checks each form, and `treesnap`'s tests moved to `treesnap_test`.
+- The 10 `main_test.go` files added in round 4 shrank to a blank import of `testgit`, and the round-4 `TestMain` edits were reverted. With the strip in `init`, a `TestMain` adds nothing.
+- `testgit.Command` and `testgit.Env` stay. Command gives the 25 fixture sites one helper, with a commit identity and the git found before any test stubs PATH. Env keeps dropping `GIT_` variables, for a test that sets its own as a hook's stand-in (template's `TestTheFixturesGitStaysInTheFixture`).
+- `Outer` excludes one thing from its whole-tree comparison: the `.git` directory's own mtime. `git status` takes `.git/index.lock` to refresh the index and then removes it, which moves only that. It pins `core.untrackedCache` and `core.fsmonitor` off, and builds the repository with no global or system config. Otherwise a machine's global settings make `git status` write the index or start a daemon. `feature.manyFiles` needs no pin of its own: its row passes on the untracked-cache pin alone.
+- #274 left `rewrite.go` unchanged. The rewrite passes no case-arm form, and the detector now reports the new shape, so a template line using it fails the build instead of shipping an empty `CLAUDUCTOR_FW`.
+
+#### Surprises
+
+- The first demonstration of the PersistentPreRun test passed when it should have failed: `doctor` sets `SilenceUsage` itself, so a hook on it changes nothing. `init` showed the failure.
+- Each review round found the class larger.
+  - Round 0's scan: 25 direct git calls in test files, against the three #302 named.
+  - Round 1: the panel's own git through `signals.ExecRunner`, at 58 sites.
+  - Round 2: the template checks' scratch repositories.
+  - Round 3: config writes, which a HEAD/refs/worktrees/index comparison does not see, and six more spellings.
+- A guard that simulates the hook with `t.Setenv` cannot test the strip, which has already run. The probe has to start a test binary with the hook's variables in its environment.
+- Even with the strip in `testgit`'s `init`, an external test file that did not import `testgit` ran its package-level git before the strip. Go orders packages' initialisation only along imports, so the import itself is what makes the strip come first, and it is what the guard requires. Round 5 found the same gap one level down: a directory's internal and external tests are two packages, so an import in one form leaves the other unordered. The guard now checks each form.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-141 — resolve a renamed repository's name before the merge guard calls it foreign
+
+- **PR**: #313
+- **Session**: S15, started 2026-10-28 15:10 ET
+- **Review**: 3 rounds, peak high, cap 3
+- **Gate**: CANNOT CHECK — no full gate yet: it runs once, on the split's head
+- **Cost**: $272.38; session-wide: a subagent lane shares the orchestrator's session id, so this is not the row's own cost
+- **Session start**: 281363163 tokens, 437 min
+
+#### What happened
+
+pr-merge-guard no longer treats a renamed or transferred repository's old name as a foreign repo (#282). When a merge names a repo that differs from origin's, the guard asks GitHub (`gh api repos/<name> --jq .full_name`) about both names, and counts it as another repository only when they resolve to different ones. That covers both directions: an old name in the merge, and an origin remote left on the old name. When gh cannot answer, the merge is refused. A merge by the old name is policed as this repo's, and read by the name it gives, which GitHub redirects. Each name is asked about once per run. With a GitHub Enterprise origin, this repo is looked up on its own host. Each rule has a row in `checks/merge-guard.sh` that failed first.
+
+The PR also rewrote catch-up-guard and its reader for #280. Three review rounds kept finding ways past it, and round 3 found four highs. The owner split the PR: catch-up-guard and `gate-reader.awk` are back to main's, and #280 moves to OPS-157.
+
+#### Decisions
+
+- The owner split the PR (2026-10-28). It keeps #282's fix only, and the catch-up-guard half is reverted file by file to main's, its `cug` rows included.
+- The owner chose to delete catch-up-guard together with the panel's catch-up (OPS-157), rather than harden it again or rewrite it as an allowlist. #280 stays open as OPS-157's input, with round 3's pre-existing findings F3–F8.
+- A renamed repo is policed, not just refused, because the old name reaches this repo's PR.
+
+#### Surprises
+
+- Round 3 found regressions in the reader's own fail-closed fixes. A `case` word the shell does not reserve (`'case'`, `\case`, `command case`) made the reader skip the words after it. A quoted `}` closed a function body early. Both were allowed where main refuses them. Each closing rule opened a new spelling.
+- Rounds 1–3 also found long-standing under-reads on main. These include a `$'…'` escaped quote inside `$( … )`, `<( … )` read as this shell, only the first command after `then` read as conditional, and a heredoc delimiter holding `$( … )`.
+- zsh, the Bash tool's shell here, ends a `$( … )` past a case pattern's `)`, a comment's `)` and a `${x:-)}`. macOS bash 3.2 and sh reject all three as syntax errors.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-142 — place the template's directories by what git holds, not the disk
+
+- **PR**: #301
+- **Session**: S15, started 2026-10-28 09:02 ET
+- **Review**: 3 rounds, peak medium, cap 2
+- **Gate**: 13 min; failed at `test (short)` on cba27a34 (`TestNoTestWritesAnExecutableAnotherWay`), fixed in this commit
+- **Cost**: $73.85; session-wide: a subagent lane shares the orchestrator's session id, so this is not the row's own cost
+- **Session start**: 23505561 tokens, 68 min
+
+#### What happened
+
+`TestEveryTemplateClaudeDirIsPlaced` walked `template/.claude/` on disk, so the empty, git-ignored `.cc-writes/` the harness leaves in a worktree failed the gate (#285). The test now lists `git ls-files --cached --others --exclude-standard` there. An ignored or empty directory is no longer the template's, and an unplaced directory still fails it, staged or untracked. A root with no `.git` (the gate's archive clean room) is read from the disk, which there holds tracked files only. Shown before the fix: the real test failed with an empty `.cc-writes/` in the worktree, and so did the fixture's ignored case. After the fix, an unplaced directory still failed it, untracked and staged. Review added a hermetic fixture: its git runs with no `GIT_` variable and no global, system or default-ignore config, and skips only when git is missing. Each of those guards has a test that fails without it.
+
+#### Decisions
+
+- `--others --exclude-standard` as well as `--cached`, so a new directory fails the quick loop before its first commit, not only once committed.
+- The archive clean room falls back to the disk rather than skipping, so the control still runs where there is no git.
+- The owner's bar allowed a 3rd round: round 2, at the cap, still found a medium (the `empty` subtest never made its directory).
+- The same hook-`GIT_DIR` class in `internal/panel`'s integration tests is out of this row: #302, which needs a roadmap owner (the sibling in `internal/cmd` is #281, OPS-140).
+
+#### Surprises
+
+- `filepath.Join` cleans a trailing slash, so `MkdirAll(filepath.Dir(Join(dir, "a/b/")))` makes `a/`, not `a/b/`. The `empty` subtest passed under the old disk walk too, until round 2 caught it.
+- `GIT_CONFIG_GLOBAL=/dev/null` does not stop git reading `~/.config/git/ignore`: that is `core.excludesFile`'s default, not global config. The owner's global ignore (`**/.claude/.cc-writes/`) kept the fixture's ignored case passing with the fixture's own `.gitignore` line removed.
+- A bare `go test ./internal/template` hit Go's 10-minute default: `TestTemplateChecks` ran more than 9 minutes while a Standing Tee docker gate loaded the machine. The gate's 25-minute timeout covers it. The commit after it went through anyway, because `| tail -2` hid the failure.
+- The first full gate failed on round 3's fix. That fix wrote its refusing pre-commit hook with `os.WriteFile(…, 0o755)`, and `testbin`'s guard requires `testbin.Write` for any executable a test writes. Only the tier tests had run after that edit, not the short suite.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-143 — review OPS-131's unreviewed delta, and close the link-reading regression it held
+
+- **PR**: #312
+- **Session**: S15, started 2026-10-28 14:41 ET
+- **Review**: 3 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — no full gate ran before this fragment's commit; the one full gate ran on this head
+- **Cost**: $295.18; session-wide: a subagent lane shares the orchestrator's session id, so this is not the row's own cost
+- **Session start**: 235947192 tokens, 407 min
+
+#### What happened
+
+The post-merge review of what OPS-131 (#270) merged after round 12 (`66499ae3..d9498765`) found a regression in 913d7b09. `marker_plain` dropped a link's destination only where its pattern (`lk`) matched, so a link `lk` missed kept its destination between the key and the colon, and the marker was missed. Examples: an escape or a bracket in the text (`[\*\*Risk\*\*](x): high`, `[[Risk]](x)`), or a paren, `<…>` or title in the destination. Rows like that read as normal, and a proposal's `Approval: owner` let a delegated approval through, where the reader before 913d7b09 caught them. The merges' resolutions and 3a8e944c held. The fix closes the class rather than the shapes: a destination is now read three ways and the readings are united. The first reading drops `lk`'s links, so text that is no link keeps its words. The second drops every `](` CommonMark's grammar closes (`dest`). The third drops every `](` to its first `)`, as the old reader did. So no reading is weaker than the one before OPS-131. A `|` ends a destination or a reference label only in a table line. Each rule the readings use had a test seen failing, first on the old code or under a mutation of that rule. Round 3's fuzzing against the old reader found no misses.
+
+#### Decisions
+
+- Unite readings rather than make one reader exact: a reading only ever adds a marker, so a reading that errs toward refusal is the safe side. The lead advised this in round 1.
+- `[Risk](https://e.org/a_(b)): high` now reads `Risk):` through the old reading and is refused as an unreadable Risk rather than read as high: safe, and what the reader before OPS-131 did.
+- `dest` drops a destination CommonMark leaves open (an unbalanced paren): dropping more in that reading is safe, since the `lk` reading keeps the text.
+- In prose, a `|` stop in any one reading is not load-bearing: the other two still drop the destination. Only all three together fail a test; that is the design, not a gap.
+
+#### Surprises
+
+- The round-1 fix (`loose`) was itself too narrow: it counted parens inside `<…>` and inside titles, and applied the table rule for `|` to prose. Round 1 found that closing shapes one by one would not converge, so the old reading went back in as a backstop.
+- A comment with an apostrophe inside `marker_plain`'s single-quoted awk program ended the shell quote; every check failed with a syntax error until it was reworded.
+- `clauductor update` prompts per modified file and cancels with no input; piping `y` answers is needed in a lane.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-149 — record the owner's rulings of 2026-10-28
+
+- **PR**: #300
+- **Session**: S15, started 2026-10-28 09:30 ET
+- **Review**: 3 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — records only: the docs gate runs after this commit, and no full gate ran before it
+- **Cost**: $6.14
+- **Session start**: CANNOT CHECK — no marker ran: the row was opened from the main session after the owner's queue walk, not from a row's session-start
+
+#### What happened
+
+S15 opened in the terminal, not the panel or Cursor. The owner went through the owner queue before any build. The session also audited S14, which had run from Cursor. Every S14 commit merged through its PR (#289–#299), and each merged head had one full gate pass in `gate-runs.log`. The squash bodies of #289–#291 carry a `Co-authored-by` line, left on main. This PR records the rulings: 15 owner-queue items are ticked. OPS-42, OPS-123, o.5 and o.6 are cancelled, and OPS-104 can run. OPS-150 to OPS-154 are new, and S15 is re-ordered. `change/ops-42-build` (a9de580b) is bundled in `.git/clauductor/branch-archive-2026-10-28.bundle`.
+
+#### Decisions
+
+- The new name has cleared, so S17's rename runs (the owner).
+- The bot team is retired. The COO relays and OPS-95's test issue are moot. OPS-123 is cancelled, with its low (4) moved to OPS-150. The team queue stays as ST-21's channel (the owner).
+- The LLC and trademark (Q10) are moot, since the project is open source (the owner).
+- OPS-42 is cancelled. Claude Code's `/schedule` covers routines, and the panel tables it fed are going (the owner, on Claude's recommendation).
+- Q34 is moot, Q17's flake-watch rule is dropped, and Q28 goes after launch as OPS-152 (the owner).
+- Distribution (R13): the binary from GitHub releases and the plugin from this repository's marketplace. There is no Homebrew tap, and the official plugin directory comes after launch as OPS-153 (the owner).
+- The sandbox stays closed (the owner). The `mktemp` failures are a bug of ours (OPS-150). A lane's hooks and skills sync goes through one approved script (OPS-151), which also takes OPS-90's remaining probes.
+
+#### Surprises
+
+- The change queue read UNKNOWN at session start. A bare `mktemp` on this Mac ignores `$TMPDIR` and writes under `/var/folders`, which the sandbox refuses, while `mktemp "$TMPDIR/x.XXXXXX"` works.
+- A `|` written inside a roadmap cell split the row into six cells, and the parser refused it. A `&&` after `run.sh … | tail -1` went on to commit anyway, because `tail` exits 0.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-150 — temporary files under $TMPDIR, and awk that reads all its input
+
+- **PR**: #310
+- **Session**: S15, started 2026-10-28 09:30 ET
+- **Review**: 5 rounds, peak medium, cap 2
+- **Gate**: CANNOT CHECK — no full gate ran before this fragment's commit; the gate runs on the commit that adds it
+- **Cost**: $20.51; session-wide: a subagent lane shares the orchestrator's session id, so this is not the row's own cost
+- **Session start**: CANNOT CHECK — no marker ran: the lane was spawned by the S15 orchestrator, not from a row's session-start
+
+#### What happened
+
+Three bare `mktemp` calls now take a `"${TMPDIR:-/tmp}/<name>.XXXXXX"` template. They were in `.claude/local/roadmap.d/history.sh`, the eval case `sh-clean-coverage-fails-closed` and the panel's browser-test `run.sh`. On macOS a bare call writes under `/var/folders`, which Claude Code's sandbox refuses. `checks/mktemp-in-tmpdir.sh` holds the rule with one test per line over every tracked shell script. A `mktemp` line passes only if it holds `${TMPDIR:-`, or if it ends in a `# mktemp-in-tmpdir: <why>` marker; eleven lines carry one. The check scans the whole repository unless `MKTEMP_CHECK_PATHS` in `project.conf` narrows it. About twenty `printf … | awk '{ …; exit }'` pipes now let awk read all their input, so `printf` no longer prints `write error: Broken pipe`. The lease conformance suite moved its `$TMPDIR` default onto the call's line, with its sha bumped twice. The PR also records the owner's roadmap decisions of 2026-10-28: OPS-155, OPS-156 and S15's new order.
+
+#### Decisions
+
+- The owner allowed review rounds 3, 4 and 5 past the cap of 2, and approved round 5's behaviour fix (a narrowed scan that reads no script fails) with the lead's review of the delta `1f91f375..64ccb412` in place of a sixth round.
+- A second rule was deleted (the owner): it scanned for printf piped into an early-exit awk. Each of three rounds found a new gap in its shell parsing (PRAC-0010; ST-12's lesson). The pipes it found stay fixed by hand, and #303 owns the class, printf into `grep -q` and `head` included.
+- The rule is one test per line, never a parse of the shell: it over-matches, and every exemption is a marker a reviewer can read (the lead).
+- Scope (c) (the owner): the whole repository by default, since a project's own scripts run in the same sandbox, and `MKTEMP_CHECK_PATHS` narrows it.
+
+#### Surprises
+
+- `git worktree add -b` could not write `.git/config` in the sandbox. The branch was made first, then the worktree for it.
+- `clauductor update` read the main checkout's template through `CLAUDUCTOR_FRAMEWORK` until that was pointed at the worktree. It also leaves `.claude/evals` alone, since that directory is the project's, so the eval case's copy was edited by hand.
+- The first check's own `head -20` and `while read … echo` showed the same two traps it hunted: a reader that exits early, and an `echo` that rewrites backslashes.
+- `digests.sh`'s `while (blank) getline` looped forever when only blank lines followed its heading.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-151 — say who syncs a lane's .claude files
+
+- **PR**: #306
+- **Session**: S15, started 2026-10-28 11:21 ET
+- **Review**: 3 rounds, peak high, cap 3
+- **Gate**: 34 min
+- **Cost**: $85.82; session-wide: a subagent lane shares the orchestrator's session id, so this is not the row's own cost
+- **Session start**: CANNOT CHECK — the marker read 91835033 tokens, 208 min, the orchestrator's session-wide total: the lane is its background agent, not a session of its own
+
+#### What happened
+
+The row first shipped as #304: `lane-sync.sh`, one script a lane would run outside the sandbox for update, rebase, merge and reset, approved per run. It was gated green, but review round 1 found HIGH, and the owner closed it unmerged. This PR is the reshaped row.
+
+What the sandbox allows, seen on 2026-10-28:
+- **A lane that is an agent of the main session** can write its worktree's `.claude/hooks` and `.claude/skills`, but not `.claude/agents` or `template/.claude/agents`.
+- **A lane of its own session** cannot write its hooks or skills (`sandbox/lane-sync`).
+- **The main checkout** can write none of them.
+- **`.git/config` and `.git/hooks`** are denied everywhere.
+
+Both playbooks' *Lanes* sections now carry that, split by how the lane was started, and say who syncs what:
+- an in-session lane syncs its own hooks and skills inside the sandbox;
+- the main session creates every worktree and applies a reviewed agents diff;
+- a lane of its own session is synced by its opener (ST-15), and until that exists by the owner by hand.
+
+No sync or agents step runs a lane's files outside the sandbox. What does run outside it is named by its authority: a command matching `sandbox.excludedCommands`, or one run with an approved bypass. The gate is among them. The route and its controls (review before the gate, and the approval itself) are #307's. This lane's own `.claude/hooks` copy was synced inside the sandbox.
+
+#### Decisions
+
+- **No unsandboxed lane-sync script** (the owner, 2026-10-28). #304 is closed, its remote branch deleted, and its commits kept on the local branch `ops/ops-151-lane-sync-closed-304`. Its round 1 found HIGH: an approved run would execute lane-editable files (`conf.sh` and `project.conf`, the lane's `framework/` build, git under the lane-writable repo config and hooks), and the approver's diff check could be bypassed with `update-ref`.
+- **#306's round 1 (HIGH) shrank this PR** (PRAC-0010):
+  - the rule is narrowed to sync and agents steps, with the gate's exception owned by #307;
+  - the table is split by how the lane was started;
+  - the merge-pr note is reverted;
+  - the skills that tell a background lane to wait for its agents (merge-pr step 3, apply-change) are #308, owned by ST-16;
+  - CLAUDE.md says `CLAUDUCTOR_FRAMEWORK` wins the template search.
+- **OPS-90's probes (1), (2) and (4) are all on #305, none of them answered.**
+  - (4): seen once. A reviewer's hand-back went to the MAIN session after its launcher's turn had ended ("the agent that spawned you is no longer running"; it had no SendMessage). Whether a held launcher receives it is unprobed.
+  - (1): wrongly dropped this morning. These lanes are named teammates, an agent team, and each went idle while its reviewer ran, with nothing holding it.
+  - (2): needs an interactive session's own AskUserQuestion, which a subagent lane cannot fire.
+  - AGENTS.md is unchanged.
+- **#306's round 2 (MEDIUM)**: the playbooks named the gate as the only unsandboxed exception, but `excludedCommands` also lists `git *`, `gh *`, `tmux *`, `clauductor *` and `docker *`. They now name the authority instead, and #307's body covers the whole route. The lead probed that a `git config` matching `git *` was still refused `.git/config`, so the entries' automatic effect is unverified. Three lows: the plugin note now covers skills; an own-session lane is synced by hand until ST-15, panel or not; and the owner queue's 2026-10-26 item is marked superseded.
+- **#306's round 3, the cap (MEDIUM), stopped for the owner.** This repo's playbook said a plain update runs no lane file, but its own `framework/clauductor update` is built from the lane's Go. It now separates the two: plain `git rebase`/`git merge` and the INSTALLED `clauductor update` run no lane file, while a binary built in the lane runs only inside the sandbox, and the owner syncs by hand with the installed one. Three lows: the sync is said to have been seen working in the sandbox despite matching `git *` and `clauductor *`; the template says "Clauductor's #307"; CLAUDE.md is rewrapped. #307 also gained a comment: whether a lane can write `.git/worktrees/<lane>/commondir` or `gitdir` is unprobed.
+- **The owner approved the round-3 fixes** (2026-10-28), with the lead's review of them in place of a 4th round. The lead added one tweak: the owner's by-hand sync is `CLAUDUCTOR_FRAMEWORK=$PWD clauductor update` with the installed binary, which reads the lane's template only as data.
+- **The insight `sandbox/lane-sync` now holds only for lanes of their own session.** An in-session lane can write its hooks and skills. The log is the close's to edit, not this row's.
+
+#### Surprises
+
+- The owner's `~/.zshrc` sets `CLAUDUCTOR_FRAMEWORK` to the main checkout, and it outranks the binary's own checkout in the template search. So a lane's `framework/clauductor update` reads the MAIN checkout's template, and reports nothing to do, unless the lane points the variable at itself.
+- `git worktree add` from the sandbox created the branch but not the worktree, because `.git/config` is denied.
+- Four reviewer runs from this lane ended without a hand-back reaching it, one of them spawned in the foreground. The lead relayed the reports by hand (#308).
+
+#### Insights
+
+3 row(s), moved to the insights log.
+
 ## Session 14 — 2026-10-28 — Rich — S14 landed: the gate lease, the Standing Tee ports, the review cap and the load flakes
 
 **Totals.** Gate 33 min (a row's gate was CANNOT CHECK, so this is a floor); cost $0 (a row's cost was CANNOT CHECK, so this is a floor).
