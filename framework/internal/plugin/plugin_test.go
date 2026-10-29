@@ -316,6 +316,9 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 	}
 	var docs, prints int
 	// Named writers the reader must find, so a reader that loses a form fails here, not silently.
+	// The two floor writers (health-lines.sh's workflows, line-endings.sh's .gitattributes) write
+	// "$2": they are named for their form, which the reader must still find; what $2 holds is out of
+	// its reach (shscan_test.go, text held in a variable).
 	caller, fixture, own, workflows, attrs := false, false, false, false, false
 	for _, f := range files {
 		name := filepath.Base(f)

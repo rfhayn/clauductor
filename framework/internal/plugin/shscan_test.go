@@ -138,8 +138,8 @@ func (sc *shScanner) code(depth int) []shTok {
 		}
 		emit('w', w, wordLine)
 		switch {
-		case w == "then" || w == "do" || w == "else" || w == "elif" || w == "!":
-			cmd = true
+		case cmd && (w == "then" || w == "do" || w == "else" || w == "elif" || w == "!"):
+			cmd = true // a keyword; as an argument, it is a word like any other
 		case cmd && strings.Contains(w, "=") && !strings.HasPrefix(w, "="):
 			// an assignment before the command word
 		default:
@@ -610,6 +610,12 @@ func TestWrittenScripts(t *testing.T) {
 		{"words after the redirect", "printf '%s\\n' a > f b\n", []want{{false, `'%s\n' a b`}}, "", ""},
 		{"a } argument", "printf '%s\\n' } > f\n", []want{{false, `'%s\n' }`}}, "", ""},
 		{"a printf's own >&2 inside a redirected group", "{ printf \"$m\" >&2; printf 'Y\\n'; } > f\n", []want{{false, `'Y\n'`}}, "", ""},
+		// Round 10's.
+		{"2>&1 inside a redirected group keeps stdout", "{ printf 'X\\n' 2>&1; printf 'Y\\n'; } > f\n", []want{{false, `'X\n'`}, {false, `'Y\n'`}}, "", ""},
+		{"a redirect before the command, to stderr, inside a redirected group", "{ >&2 printf \"$m\"; printf 'Y\\n'; } > f\n", []want{{false, `'Y\n'`}}, "", ""},
+		{"a nested group's own >&2", "{ { printf 'X\\n'; } >&2; printf 'Y\\n'; } > f\n", []want{{false, `'Y\n'`}}, "", ""},
+		{"then as an argument", "printf '%s\\n' then } > f\n", []want{{false, `'%s\n' then }`}}, "", ""},
+		{"echo keeps --", "echo -- 'X' > f\n", []want{{false, `-- 'X'`}}, "", ""},
 		// What it skips, by design.
 		{"a printf to stderr by fd", "printf 'X\\n' 2> f\n", nil, "", ""},
 		{"an unquoted heredoc", "cat > f <<EOF\n$X\nEOF\n", nil, "", ""},
