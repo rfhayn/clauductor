@@ -6,7 +6,7 @@ public is the owner's decision, outward and not undoable (AGENTS.md, Who decides
 
 **Verdict.** No secret in any commit GitHub holds. Nothing in the records *must* go before the
 flip; a handful of items were worth a decision, listed below with a recommendation each. The
-owner ruled on 2026-10-29: every recommendation accepted, the email kept, no history rewrite.
+owner ruled on 2026-10-29: every recommendation but item 10's accepted, the email kept, no history rewrite.
 This PR applies the rulings (the *Ruling* column); what is left is the owner's settings, section 6.
 
 ## 1. Secrets, over the whole history
@@ -49,15 +49,15 @@ would not do*.
 |---|---|---|---|---|
 | 1 | Commit metadata, 1123 of 1373 commits on GitHub's refs (56 on `main`, 2026-03-18 to now) | The owner's personal Gmail address, as author or committer | Owner's call. The tree holds it nowhere. Removing it needs a new repository or GitHub Support (below) | **Accepted by the owner, 2026-10-29; future commits use the GitHub noreply address (the owner's step: `git config user.email`).** No rewrite |
 | 2 | `docs/development-journal.md` (140 lines with `$`, e.g. :19, :34, :117), `docs/journal.d/` cost fields, the "actual cost" line of 10 archived changes' `tasks.md`, `docs/insights-log.md` (10), and 136 PR bodies | Spend: per-row and per-session costs, the 30-day flow line's dollars per week | **Keep.** It is what building with this model costs. Redacting it is large and history keeps it. The template writes these fields for every project by design | Keep |
-| 3 | `docs/owner-queue.md:15`, `:17`, `:32` | The API credit running out, a promotional credit's expiry, OPS-93's budget overrun | **Keep** (ticked, operational) | Keep |
-| 4 | Every tracked file (the places the report first named, and the rest a whole-tree search found, any case): `docs/plans/standing-tee-swap.md` (the people table, ST-3.6, ST-6.1, decisions 2, 9 and 10, the convergence decisions 5 and 9, #49's row, readiness 6, two risks, Appendix A), `docs/prds/active/PRD-attach.md:74`, `docs/roadmap-history.md:278`, `:292`, `:301`; two check fixtures (`ideas.sh`, `living-visuals.sh`) in `template/`, `.claude/` and `plugin/`; 3 PR bodies | A named Standing Tee collaborator, their platform (WSL2) and their onboarding | **Redact** to a role. Low: no contact details | **Redacted in this PR** to "the designer" (a Standing Tee contributor), keeping each sentence's sense; the fixtures use neutral names. A whole-tree search now finds the name in no tracked file. **History keeps the old text** (every earlier commit, and the 3 PR bodies): no rewrite was chosen |
-| 5 | `docs/plans/standing-tee-swap.md` (whole file), `docs/plans/direction-shift.md:35` | The private `rfhayn/standingtee` repository's internals: its paths, commit and session numbers, its gate | **Keep** or **move**: a finished plan for another, private project | Keep |
-| 6 | `docs/roadmap-history.md:264`, `:269`, `:271`; `docs/adr/0011-open-source-terminal-first-plugin-installs.md:11`; `docs/plans/direction-shift.md:89`, `:96`; `docs/roadmap.md:215` | The abandoned business plan: licences sold through Polar, an Ed25519 signer, pricing and checkout | **Keep.** It is cancelled and it is why ADR-0011 reads as it does | Keep |
-| 7 | `docs/owner-queue.md:23` | The LLC and trademark filing (moot since open source) | **Keep** (ticked, moot) | Keep |
-| 8 | `docs/owner-queue.md:26`, `:27`, `:28`, `:31`; `docs/development-journal.md:39`, `:271`, `:2369`; `.claude/local/context.d/session-start/team-queue.sh`; `.claude/local/skills/*/team-queue.md` | The retired bot team (a COO and a CLO role) and its queue | **Keep** the records. See section 4 for the live part | Keep; the live part is fixed in this PR (section 4) |
+| 3 | `docs/owner-queue.md:15`, `:17`, `:33` | The API credit running out, a promotional credit's expiry, OPS-93's budget overrun | **Keep** (ticked, operational) | Keep |
+| 4 | Every tracked file (the places the report first named, and the rest a whole-tree search found, any case): `docs/plans/standing-tee-swap.md` (the people table, ST-3.6, ST-6.1, decisions 2, 9 and 10, the convergence decisions 5 and 9, #49's row, readiness 6, two risks, Appendix A), `docs/prds/active/PRD-attach.md:74`, `docs/roadmap-history.md:278`, `:292`, `:301`; two check fixtures (`ideas.sh`, `living-visuals.sh`) in `template/`, `.claude/` and `plugin/`; 3 PR bodies, and 1 commit message on `main` (#142's squash) | A named Standing Tee collaborator, their platform (WSL2) and their onboarding | **Redact** to a role. Low: no contact details | **Redacted in this PR** to "the designer" (a Standing Tee contributor), keeping each sentence's sense; the fixtures use neutral names. A whole-tree search now finds the name in no tracked file. **History keeps the old text** (every earlier commit, and the 3 PR bodies): no rewrite was chosen |
+| 5 | `docs/plans/standing-tee-swap.md` (whole file), `docs/plans/direction-shift.md:33-34` | The private `rfhayn/standingtee` repository's internals: its paths, commit and session numbers, its gate | **Keep** or **move**: a finished plan for another, private project | Keep |
+| 6 | `docs/roadmap-history.md:264`, `:269`, `:271`; `docs/adr/0011-open-source-terminal-first-plugin-installs.md:11`; `docs/plans/direction-shift.md:89`, `:96`; `docs/roadmap.md:220` | The abandoned business plan: licences sold through Polar, an Ed25519 signer, pricing and checkout | **Keep.** It is cancelled and it is why ADR-0011 reads as it does | Keep |
+| 7 | `docs/owner-queue.md:24` | The LLC and trademark filing (moot since open source) | **Keep** (ticked, moot) | Keep |
+| 8 | `docs/owner-queue.md:27`, `:28`, `:29`, `:32`; `docs/development-journal.md:39`, `:271`, `:2369`; `.claude/local/context.d/session-start/team-queue.sh`; `.claude/local/skills/*/team-queue.md` | The retired bot team (a COO and a CLO role) and its queue | **Keep** the records. See section 4 for the live part | Keep; the live part is fixed in this PR (section 4) |
 | 9 | `.claude/modules/artifacts/README.md:24` (and its copies in `template/` and `plugin/`) | A claude.ai artifact address with a real-looking id, as the example of a registry entry | **Redact** to a placeholder: it ships with the template | **Done in this PR:** `EXAMPLEEXAMPLEEXAMPLE0` in all three copies (the plugin rebuilt), and `local:roadmap-tracker`'s exemption for the module's sample id follows it. History keeps the old id |
 | 10 | 156 of 233 PR bodies and 4 of 88 issue bodies (counted 2026-10-29; no PR body holds an artifact link), 24 commit messages (5 on `main`); 188 PR bodies also end in a "Generated with Claude Code" line | claude.ai session links (the attribution lines) | Edit the PR and issue bodies before the flip (revised 2026-10-29): they become public with the repository, and this repo turns attribution off | **Keep, no scrub** (the owner, 2026-10-29): a link opens only for the owner's signed-in account; GitHub keeps a body's edit history anyway; and the 24 in commit messages cannot be edited. From now on a PR body carries neither line (#323's carries none) |
-| 11 | `docs/plans/direction-shift.md:13` | Andrew Baker's Ghostty Dock, credited with its public source | **Keep** | Keep |
+| 11 | `docs/plans/direction-shift.md:12` | Andrew Baker's Ghostty Dock, credited with its public source | **Keep** | Keep |
 
 Searched and **not found** in the tree: an email address other than placeholders and a font
 licence's, a committed tracker address (`local:roadmap-tracker` guards it), a routine's id or
@@ -96,8 +96,8 @@ writer can publish. A fork PR therefore runs with a read-only token and no secre
 change the workflow file in its own PR and run what it likes on GitHub's runner, so:
 
 - **Require approval for every outside contributor's workflow run** (Settings, Actions, General,
-  *Fork pull request workflows*, the strictest option) before the flip. The weaker options hold
-  only first-time contributors.
+  *Fork pull request workflows*, the strictest option) right after the flip, before OPS-98 turns
+  `test.yml` on. The weaker options hold only first-time contributors.
 - **The `team-queue` issue templates** (`.github/ISSUE_TEMPLATE/team-queue.md`,
   `team-queue-new-row.md`) applied the `team-queue` label (and `new-row`) for anyone who filed
   through them, so on a public repository a stranger could put an issue's title and body into
@@ -121,8 +121,8 @@ the repository writes the new name, so the flip does not reveal it early. What p
 means:
 
 - **The old name becomes public and permanent.** It is in every file, the plugin id, the
-  marketplace (`/plugin marketplace add rfhayn/clauductor`, `README.md:39`), 23 files' links to
-  `github.com/rfhayn/clauductor`, the history and every PR. OPS-104 keeps class-C names and does
+  marketplace (`/plugin marketplace add rfhayn/clauductor`, `README.md:39`), 23 other files that
+  name `rfhayn/clauductor` (13 of them as a `github.com` link), the history and every PR. OPS-104 keeps class-C names and does
   not rename the plugin id, and its `name-residue.sh` allow-list keeps the journal and
   `changes/archive/` as they are, so the old name stays visible after the sweep too.
 - **The repository's own rename** comes with or after OPS-104. GitHub redirects the old URL for
@@ -150,7 +150,8 @@ owner's, at github.com and on the Mac:
 **After the flip**
 
 1. **Actions:** Settings, Actions, General, *Fork pull request workflows*: require approval for
-   all outside contributors (the strictest option).
+   all outside contributors (the strictest option), right after the flip, before OPS-98 turns
+   `test.yml` on.
 2. **OPS-98:** check Billing (Settings, Billing: Actions usage and any spending limit), then turn
    `test.yml` and `release-build.yml` back on (Actions, each workflow, Enable workflow). The owner
    queue holds this item; OPS-98's row comes right after.
