@@ -39,7 +39,8 @@ do one group alone. The loop is the same, and so are its stops.
   you spawn the agent. In economy mode (`~/.clauductor/panel/economy.json` says `"economy": true`)
   the roles in `.economy.roles` drop a tier; the reviewer never does.
 - **The budget**: if `proposal.md` has `**Budget:** $N`, check `clauductor-model change-cost.sh <id>`
-  before each group; OVER BUDGET is a stop for the owner (raise it or cut scope). Over a soft
+  before each group; OVER BUDGET is a stop for the owner (raise it, on the
+  roadmap row on main first and then in the proposal, or cut scope). Over a soft
   budget (`$N, soft`; the line says so), tell the owner the spend and go on; UNREADABLE is a stop.
 
 ## For each task group with open tasks, in order

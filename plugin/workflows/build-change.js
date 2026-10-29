@@ -418,7 +418,7 @@ const softOver = (where, cost) => {
   log(w)
 }
 if (overBudget(pre.costUsd)) {
-  if (!SOFT) return stop('budget', `already $${pre.costUsd} against a budget of $${pre.budgetUsd}; the owner raises the budget (roadmap row and proposal.md) or cuts scope`)
+  if (!SOFT) return stop('budget', `already $${pre.costUsd} against a budget of $${pre.budgetUsd}; the owner raises the budget (the roadmap row on main first, then proposal.md) or cuts scope`)
   softOver('at preflight', pre.costUsd)
 }
 if (pre.budgetUsd != null && pre.costUsd == null) report.warnings.push('budget set, but change-cost.sh could not read the cost: the budget is NOT being enforced on this run')
@@ -588,7 +588,7 @@ for (const g of todo) {
   lastCost = c.costUsd
   if (c.costUsd != null) report.costUsd = c.costUsd
   if (overBudget(c.costUsd)) {
-    if (!SOFT) return stop(`group ${g.n} budget`, `$${c.costUsd} spent against a budget of $${pre.budgetUsd} with group ${g.n} committed; the owner raises the budget or cuts scope, then re-run`)
+    if (!SOFT) return stop(`group ${g.n} budget`, `$${c.costUsd} spent against a budget of $${pre.budgetUsd} with group ${g.n} committed; the owner raises the budget (the roadmap row on main first, then proposal.md) or cuts scope, then re-run`)
     softOver(`with group ${g.n} committed`, c.costUsd)
   }
 }

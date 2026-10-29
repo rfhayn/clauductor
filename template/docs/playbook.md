@@ -303,7 +303,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 | stuck (notify says STUCK) | the stuck-loop breaker: a fixed finding came back unchanged, the peak and the count both stopped falling, or a round reviewed a diff already reviewed | read the finding it names; usually a design question or a group too big: decide, or split |
 | agent returned nothing | new agent types register at session start | restart Claude Code, re-run with `resume` |
 | receipt | the full gate failed on HEAD | fix, re-run the full gate |
-| budget | the change's spend passed its budget | raise the budget (row and proposal) or cut scope, then re-run |
+| budget | the change's spend passed its budget | raise the budget (the roadmap row on main first, then the proposal) or cut scope, then re-run |
 | verify | a task open, a scenario uncited, the approval void, or a task's paths untouched | fix what it names; `/verify-change <id>` |
 
 ## Three layers of agents
