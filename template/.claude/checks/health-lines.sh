@@ -241,11 +241,15 @@ must git init -q --bare "$d/co.git"
 must git -C "$C" remote add origin "$d/co.git"
 cpush() { must git -C "$C" push -q origin HEAD:main; must git -C "$C" fetch -q origin; }
 cpush
+# Spelt through `here`, never the ROOT forms the plugin builder rewrites to the plugin's model: this
+# caller runs in the scratch project, on the copy of lib/ the check put there (plugin_test.go,
+# TestCheckHeredocsKeepTheirProject).
 cat > "$d/coauthor-caller.sh" <<'EOF'
 #!/bin/sh
-ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-. "$ROOT/.claude/lib/conf.sh"
-. "$ROOT/.claude/lib/health.sh"
+here=$(cd "$(dirname "$0")/../.." && pwd)
+ROOT=$here
+. "$here/.claude/lib/conf.sh"
+. "$here/.claude/lib/health.sh"
 health_coauthor ".claude/health/$(basename "$0")"
 EOF
 must cp "$d/coauthor-caller.sh" "$C/.claude/health/coauthor-trailers.sh"
@@ -385,7 +389,7 @@ if [ -f "$ROOT/.claude/health/coauthor-trailers.sh" ]; then
   got=$(CO)
   must cp "$d/coauthor-caller.sh" "$C/.claude/health/coauthor-trailers.sh"
   [ -n "$want" ] && [ "$got" = "$want" ] && ok "coauthor: this project's .claude/health/coauthor-trailers.sh says what the fixture's caller says" \
-    || fail "coauthor: this project's coauthor-trailers.sh differs from the caller over lib/health.sh: $got"
+    || fail "coauthor: this project's coauthor-trailers.sh differs from the caller over lib/health.sh. Want: $want  Got: $got"
 else
   ok "coauthor: this project keeps no .claude/health/coauthor-trailers.sh (its call); the line's logic is tested through the fixture's caller"
 fi

@@ -299,6 +299,68 @@ func TestNoProjectPathsLeft(t *testing.T) {
 	})
 }
 
+// A script a check writes into its scratch project (a quoted heredoc, `cat > FILE <<'TAG'`) runs
+// there: its project is the directory above it and its model is the copy the check put there, so
+// the builder must not point it at the plugin's model (CLAUDUCTOR_FW) when the template did not.
+// OPS-169: the builder rewrote a fixture caller's ROOT and sources to CLAUDUCTOR_FW, and 34 cases
+// read the real project. Other rewrites stay allowed (a contract script expects the plugin's agent
+// names, as the plugin's workflow spells them).
+func TestCheckHeredocsKeepTheirProject(t *testing.T) {
+	out, _ := build(t)
+	start := regexp.MustCompile(`^\s*cat > \S+ <<'([A-Za-z_]+)'\s*$`)
+	files, err := filepath.Glob(filepath.Join(repoRoot(t), "template", ".claude", "checks", "*.sh"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no template checks found (%v)", err)
+	}
+	n, caller := 0, false
+	for _, f := range files {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gen, err := os.ReadFile(filepath.Join(out, "checks", filepath.Base(f)))
+		if err != nil {
+			t.Errorf("%s: no plugin copy: %v", filepath.Base(f), err)
+			continue
+		}
+		want, got := quotedHeredocs(string(src), start), quotedHeredocs(string(gen), start)
+		if len(want) != len(got) {
+			t.Errorf("checks/%s: %d heredoc(s) in the template, %d in the plugin's copy", filepath.Base(f), len(want), len(got))
+			continue
+		}
+		for i, doc := range want {
+			n++
+			caller = caller || strings.Contains(doc, "health_coauthor")
+			if !strings.Contains(doc, FWVar) && strings.Contains(got[i], FWVar) {
+				t.Errorf("checks/%s: the plugin's copy points a script the check writes into its scratch project at %s:\n%s", filepath.Base(f), FWVar, got[i])
+			}
+		}
+	}
+	if n == 0 || !caller {
+		t.Fatalf("read %d heredoc(s), the coauthor caller among them: %v. The reader no longer finds what it guards", n, caller)
+	}
+}
+
+// quotedHeredocs: each heredoc whose opening line start matches, from that line through its tag.
+func quotedHeredocs(s string, start *regexp.Regexp) []string {
+	var docs []string
+	lines := strings.Split(s, "\n")
+	for i := 0; i < len(lines); i++ {
+		m := start.FindStringSubmatch(lines[i])
+		if m == nil {
+			continue
+		}
+		for j := i + 1; j < len(lines); j++ {
+			if lines[j] == m[1] {
+				docs = append(docs, strings.Join(lines[i:j+1], "\n"))
+				i = j
+				break
+			}
+		}
+	}
+	return docs
+}
+
 // Every script path a plugin skill or agent names exists in the plugin, and a skill's context
 // line runs from the plugin root.
 func TestComponentPathsExist(t *testing.T) {
