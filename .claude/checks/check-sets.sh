@@ -16,7 +16,8 @@
 #     the caller's CHECKS_SKIP.
 #  3. What decides "matches", on fixtures: the diff report's verdict fails closed (no report, no
 #     file list, a file that differs, an extra file outside .claude/checks/), project.conf values
-#     are compared but for CONF_NOT_READ, and no CHECKS_ONCE check names a CONF_NOT_READ key.
+#     are compared but for CONF_NOT_READ, and no CHECKS_ONCE check, nor a file it sources or runs
+#     from ROOT in place, names a CONF_NOT_READ key or copies ROOT's project.conf.
 #  4. run.sh's CHECKS_SKIP on a fixture: it leaves out what it names and says so, a named run
 #     ignores it, and no check inherits it.
 . "$(dirname "$0")/lib.sh"
@@ -161,19 +162,55 @@ cp "$ROOT/template/.claude/lib/conf.sh" "$C/a/.claude/lib/"; cp "$ROOT/template/
 printf 'PROJECT_NAME="A"\nOWNER_NAME="a"\n' > "$C/a/.claude/project.conf"
 printf 'PROJECT_NAME="B"\nOWNER_NAME="b"\n' > "$C/b/.claude/project.conf"
 [ -z "$(conf_differs "$C/a" "$C/b")" ] && ok "project.conf: values in CONF_NOT_READ may differ" || fail "project.conf: CONF_NOT_READ keys counted as a difference: $(conf_differs "$C/a" "$C/b")"
+# This repo's own keys (OPS-170): while they counted, no gate ran a check once.
+printf 'APPROVAL_DELEGATED="1"\nGATE_DOCS="1"\n' >> "$C/a/.claude/project.conf"
+[ -z "$(conf_differs "$C/a" "$C/b")" ] && ok "...and so may this repo's own APPROVAL_DELEGATED and GATE_DOCS" || fail "project.conf: this repo's own keys counted as a difference: $(conf_differs "$C/a" "$C/b")"
 printf 'GATE_RUN="infra/gate.sh"\n' >> "$C/b/.claude/project.conf"
 [ "$(conf_differs "$C/a" "$C/b")" = GATE_RUN ] && ok "...and any other key that differs is named (GATE_RUN)" || fail "project.conf: a GATE_RUN difference read as '$(conf_differs "$C/a" "$C/b")'"
 case $(conf_differs "$C/a" "$C/none") in *unreadable*) ok "...and a project.conf that cannot be read is a difference" ;; *) fail "an unreadable project.conf compared as equal" ;; esac
-# No CHECKS_ONCE check reads a key the comparison ignores.
-key_reads() {  # key_reads CHECKS KEYS: each `check:key` where a check names $KEY or ${KEY
+# No CHECKS_ONCE check reads a key the comparison ignores. A key reaches a check from ROOT's
+# project.conf only through the files that run with it (OPS-170): the check, lib.sh and conf.sh
+# (every check sources them), each file it sources or runs from $ROOT in place (review-lane runs
+# review-lane.sh there), and ROOT's project.conf itself, named. A model file a check copies into a
+# fixture reads the fixture's project.conf over conf.sh's defaults, never ROOT's.
+in_place() {  # in_place CHECK [CHECKS_DIR]: the model files CHECK runs with ROOT's project.conf
+  _ipd=${2:-$TMPL_DIR} _ipf="${2:-$TMPL_DIR}/$1.sh"
+  _ipr=$(cd "$_ipd/../.." && pwd)
+  echo "$_ipd/lib.sh"; echo "$_ipr/.claude/lib/conf.sh"
+  # Sourced or run by path: `. "$ROOT/x"`, `sh "$ROOT/x"`.
+  grep -oE '(^|[^A-Za-z0-9_./-])(\.|sh|bash)[[:space:]]+"?\$\{?ROOT\}?/[^"[:space:])]+' "$_ipf" 2>/dev/null \
+    | sed -E 's|.*\$\{?ROOT\}?/|'"$_ipr"'/|'
+  # Through a variable that holds a $ROOT path: `L="$ROOT/x"` then `sh "$L"`, or `. "$M/lib/y.sh"`.
+  sed -nE 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)="\$\{?ROOT\}?\/([^"$]+)".*/\1 \2/p' "$_ipf" 2>/dev/null \
+    | while read -r _ipv _ipp; do
+        grep -oE "(^|[^A-Za-z0-9_./-])(\\.|sh|bash)[[:space:]]+\"?\\\$\\{?$_ipv\\}?([^A-Za-z0-9_\"[:space:])][^\"[:space:])]*)?" "$_ipf" \
+          | sed -E "s|.*\\\$\\{?$_ipv\\}?|$_ipr/$_ipp|"
+      done
+}
+key_reads() {  # key_reads CHECKS KEYS [CHECKS_DIR]: each `check:key` where a file in_place names $KEY or ${KEY
   for _n in $1; do
+    grep -qE '\$\{?ROOT\}?/\.claude/project\.conf' "${3:-$TMPL_DIR}/$_n.sh" 2>/dev/null && printf ' %s:project.conf' "$_n"
+    _files=$(in_place "$_n" "${3:-}" | sort -u)
     for _k in $2; do
-      grep -nE "\\\$\\{?$_k([^A-Za-z0-9_]|\$)" "$TMPL_DIR/$_n.sh" >/dev/null 2>&1 && printf ' %s:%s' "$_n" "$_k"
+      for _f in "${3:-$TMPL_DIR}/$_n.sh" $_files; do
+        grep -qE "\\\$\\{?$_k([^A-Za-z0-9_]|\$)" "$_f" 2>/dev/null && { printf ' %s:%s' "$_n" "$_k"; break; }
+      done
     done
   done
 }
 [ "$(key_reads modules MODULES)" = " modules:MODULES" ] && ok "falsified: the key-read scan finds a key a check reads (modules:MODULES)" \
   || fail "the key-read scan misses modules reading MODULES: '$(key_reads modules MODULES)'"
+case " $(in_place review-lane | tr '\n' ' ') " in *"/.claude/skills/merge-pr/review-lane.sh "*) ok "...and reaches the script a check runs in place (review-lane.sh)" ;;
+  *) fail "the key-read scan does not reach review-lane.sh, which review-lane runs with ROOT's project.conf: $(in_place review-lane | tr '\n' ' ')" ;; esac
+K="$S/keys"; mkdir -p "$K/.claude/checks"
+mkdir -p "$K/.claude/mod/lib"
+printf '. "$ROOT/.claude/sourced.sh"\nL="$ROOT/.claude/run.sh"\nprintf x | sh "$L"\nM="$ROOT/.claude/mod"\n. "$M/lib/y.sh"\ncp "$ROOT/.claude/copied.sh" "$F/"\n' > "$K/.claude/checks/x.sh"
+printf 'echo "$KEY_SOURCED"\n' > "$K/.claude/sourced.sh"; printf 'echo "${KEY_RUN}"\n' > "$K/.claude/run.sh"
+printf 'echo "$KEY_DIR"\n' > "$K/.claude/mod/lib/y.sh"; printf 'echo "$KEY_COPIED"\n' > "$K/.claude/copied.sh"
+printf 'cp "$ROOT/.claude/project.conf" "$F/.claude/"\n' > "$K/.claude/checks/y.sh"
+o=$(key_reads "x y" "KEY_SOURCED KEY_RUN KEY_DIR KEY_COPIED" "$K/.claude/checks")
+[ "$o" = " x:KEY_SOURCED x:KEY_RUN x:KEY_DIR y:project.conf" ] && ok "falsified: the scan finds a key read by a file a check sources or runs in place, or ROOT's project.conf copied, and not one a fixture's copy reads" \
+  || fail "the key-read scan on a fixture: '$o', want ' x:KEY_SOURCED x:KEY_RUN x:KEY_DIR y:project.conf'"
 reads=$(key_reads "$CHECKS_ONCE" "$CONF_NOT_READ")
 [ -z "$reads" ] && ok "no CHECKS_ONCE check reads a CONF_NOT_READ key ($CONF_NOT_READ)" \
   || fail "CHECKS_ONCE checks read keys the comparison ignores:$reads"
