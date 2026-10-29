@@ -156,6 +156,10 @@ sed 's/`a-one`/`ops\/a-one`/' "$S/keep.md" > "$F/docs/roadmap.md"
 out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
 [ $rc -eq 0 ] && printf '%s\n' "$out" | tail -1 | grep -q '^marker: WARNING — the Session plan did not parse (.*no proposal' && [ "$(jq length "$S/prs.json")" = 0 ] \
   && ok "marker: a Session plan that does not parse is a WARNING naming why, and no PR" || fail "marker: plan error: exit $rc: $out"
+# ...quoting the error whole: only the file's path is cut, never text after a slash in the message.
+sed -e 's/`a-one`/`ops\/a-one`/' -e 's/| A-1 (proposal) |/| ops\/x |/' "$S/keep.md" > "$F/docs/roadmap.md"
+out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1)
+case $out in *'(roadmap.md:'*'"ops/x" is not a row id)'*) ok "marker: the plan error is quoted whole, the file named without its path" ;; *) fail "marker: plan error with a slash: $out" ;; esac
 cp "$S/keep.md" "$F/docs/roadmap.md"; git -C "$F" checkout -q change/a-one
 out=$(cd "$F" && env PATH="$S/bin:$PATH" GH_STATE="$S/prs.json" CLAUDE_CODE_SESSION_ID= sh .claude/skills/session-start/marker.sh 2>&1); rc=$?
 [ $rc -eq 0 ] && body | sed -n 1p | grep -q '^session-start: S10 .* row A-1$' \

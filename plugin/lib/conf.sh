@@ -352,10 +352,13 @@ fetch_main() {
 # close_session_number: the session Up next offers the daily close as (`panel-suggest.sh close`,
 # the one place it is computed: `session-4-5-close` is 4.5). fold.sh's N and the entry dev-journal
 # writes, so the close writes the Session the suggestion waits for, even with no fragment to fold
-# (OPS-129). Empty when no close is offered or the suggestion cannot be read.
+# (OPS-129). Empty when no close is offered (or the project has no panel-suggest.sh); a suggestion
+# that fails prints `CANNOT CHECK — <its first line>` and returns 1, never an empty answer.
 close_session_number() {
   [ -f "$CLAUDUCTOR_FW/panel-suggest.sh" ] || return 0
-  sh "$CLAUDUCTOR_FW/panel-suggest.sh" close 2>/dev/null | sed -n 's/.*"name":"session-\([0-9][0-9-]*\)-close".*/\1/p' | head -1 | tr - .
+  _cs_o=$(sh "$CLAUDUCTOR_FW/panel-suggest.sh" close 2>&1) \
+    || { echo "CANNOT CHECK — panel-suggest.sh close failed: $(printf '%s\n' "$_cs_o" | head -1)"; return 1; }
+  printf '%s\n' "$_cs_o" | sed -n 's/.*"name":"session-\([0-9][0-9-]*\)-close".*/\1/p' | head -1 | tr - .
 }
 
 # count_rows ERE FILE: how many lines match, or CANNOT CHECK when the file is missing. (`grep -c`

@@ -320,6 +320,12 @@ sed 's/^| S5 | |/| S5 | (done) |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$
 cnone && ok "...nor once S5 is marked done, with no fragment waiting" || fail "close with S5 done printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
 sed 's/^| S6 | |/| S6 | (done) |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
 cnone && ok "...nor with every session done, a landed proposal and no fragment: nothing to fold" || fail "close with every session done printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+# The open session spans days (S5–S7) and the landed proposal's own session was closed (the journal
+# holds Session 4): with no fragment waiting, a spanning entry is offered nothing.
+cp "$C/docs/roadmap.md" "$C/keep.md"
+sed -e 's/^| S5 | (done) | propose |/| S4 | | propose |/' -e 's/^| S6 | (done) |/| S5–S7 | |/' "$C/keep.md" > "$C/docs/roadmap.md"
+cnone && ok "...nor while a spanning session is open, a landed proposal's session closed and no fragment waiting" || fail "close with S5–S7 open and no fragment printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
+mv "$C/keep.md" "$C/docs/roadmap.md"
 # The close's number is computed once, here: the dev-journal and session-close contexts print the
 # session Up next offers the close as, so a no-fragment close (fold.sh folds nothing, dev-journal
 # writes the heading) writes the Session the suggestion waits for, even when its label is not one
@@ -333,8 +339,21 @@ case $(cd "$C" && CONTEXT_OFFLINE=1 sh .claude/skills/dev-journal/context.sh 2>&
   *"This close's session"*": 5"*) ok "...and dev-journal's context names Session 5 for its entry, not the count's 4" ;;
   *) fail "dev-journal's context does not name the close's session 5: $(cd "$C" && CONTEXT_OFFLINE=1 sh .claude/skills/dev-journal/context.sh 2>&1 | grep -i session)" ;;
 esac
-grep -q 'close_session_number' "$ROOT/.claude/skills/session-close/context.sh" \
-  && ok "...and session-close's context prints the same number (close_session_number)" || fail "session-close's context does not print the close's number (close_session_number)"
+# Both contexts read the number where they read main: a copy of the fixture with an origin/main,
+# so session-close's context reaches its fetched branch, and each must print the number itself.
+C2="$d/close2"; cp -R "$C" "$C2"; cp "$ROOT/.claude/skills/session-close/context.sh" "$C2/.claude/skills/session-close/"
+(cd "$C2" && git init -q && git add -A && git -c user.name=Ann -c user.email=a@example.com commit -qm base && git update-ref refs/remotes/origin/main HEAD) >/dev/null 2>&1 || fail "the second close fixture could not commit"
+ctx() { (cd "$C2" && env PATH="$d/nogh:$PATH" CONTEXT_OFFLINE=1 sh ".claude/skills/$1/context.sh" 2>&1) | grep "This close's session"; }
+mkdir -p "$d/nogh"; printf '#!/bin/sh\nexit 1\n' > "$d/nogh/gh"; chmod +x "$d/nogh/gh"
+for s in dev-journal session-close; do
+  case $(ctx $s) in *"This close's session"*": 5"*) ok "...and $s's context, reading origin/main, names Session 5" ;; *) fail "$s's context with origin/main: [$(ctx $s)]" ;; esac
+done
+# A suggestion that fails is CANNOT CHECK, never read as no close offered: the count would number it.
+sed 's/| 1\.5 (proposal), 1\.6 (proposal) |/| 1.5 (proposal), 1.6 (proposal), 1.5 (proposal) |/' "$C2/docs/roadmap.md" > "$C2/r" && mv "$C2/r" "$C2/docs/roadmap.md"
+(cd "$C2" && git -c user.name=Ann -c user.email=a@example.com commit -qam bad && git update-ref refs/remotes/origin/main HEAD) >/dev/null 2>&1
+for s in dev-journal session-close; do
+  case $(ctx $s) in *"This close's session"*"CANNOT CHECK"*) ok "...and a suggestion that fails is CANNOT CHECK in $s's context" ;; *) fail "$s's context with a failing suggestion: [$(ctx $s)]" ;; esac
+done
 printf '# Journal\n\n## Session 5 — 2026-01-02 — Ann — x\n\n## Session 3 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 cnone && ok "...and once that entry is written, the close is not offered again" || fail "close after Session 5 printed: $(cd "$C" && sh .claude/panel-suggest.sh close 2>&1)"
 printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"

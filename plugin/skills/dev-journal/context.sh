@@ -33,8 +33,11 @@ if fetch_main; then
 else
   echo "- Next session number: CANNOT CHECK (no fetch of $base); do not take it from this branch"
 fi
-cn=$(close_session_number)
-[ -z "$cn" ] || echo "- This close's session (the one Up next offers it as, panel-suggest.sh close): $cn: a daily close's entry is Session $cn, as fold.sh's N, whatever the count above says"
+if cn=$(close_session_number); then
+  [ -z "$cn" ] || echo "- This close's session (the one Up next offers it as, panel-suggest.sh close): $cn: a daily close's entry is Session $cn, as fold.sh's N, whatever the count above says"
+else
+  echo "- This close's session (panel-suggest.sh close): $cn; on a daily close, take N from the session plan by hand, never from the count above"
+fi
 here=$(sed -n 's/^## Session \([0-9][0-9]*\).*/\1/p' "$JOURNAL" 2>/dev/null | sort -n | tail -1)
 echo "- Latest session on this branch: ${here:-none}"
 echo "- Recent commits:"
