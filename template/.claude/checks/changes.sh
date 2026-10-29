@@ -120,6 +120,8 @@ if [ -z "${CHANGES_SELFTEST:-}" ]; then
   case_bad "a soft proposal whose **Roadmap row:** names no row" "no row 9.9 is in"
   mk softnobudget; new_repo "$F"; psoft; edit docs/roadmap.md 's/ · Budget: \$15 |/ |/'
   case_bad "a soft proposal whose row has no budget" "row 1.1 has no Budget on disk"
+  mk softdiskbroken; new_repo "$F"; psoft; rsoft; printf '| 1.2 | no id here | s | — | ⬜ queued |\n' >> "$F/docs/roadmap.md"
+  case_bad "a soft proposal in a repository with no remote whose roadmap does not parse" "docs/roadmap.md on disk did not parse"
   mk hardnorow; edit $C/proposal.md '/^\*\*Roadmap row:\*\*/d'; case_ok "a hard proposal whose **Roadmap row:** line is dropped"
   mk rowsoft; rsoft; case_bad "a hard budget on a proposal whose row's is soft" "has 'Budget: \$15, soft' on disk, proposal.md says '\$15'"
   # The row as main has it: a branch that marks its own row soft too does not pass.
@@ -352,7 +354,10 @@ for c in "$dir"/*/; do
     # disk, since a hard budget is the kind that stops. A parser that gives no kind (no --tsv column
     # 16) has only hard budgets.
     if [ -z "${budget_main_read:-}" ]; then
-      budget_main_read=1 budget_main_tsv="" budget_gap=""
+      budget_main_read=1 budget_main_tsv="" budget_gap="" budget_disk_gap=""
+      # roadmap_tsv is empty for an empty roadmap and for one that does not parse; only the second
+      # is a gap, said rather than read as a missing row.
+      [ -n "$roadmap_tsv" ] || roadmap_queue --tsv >/dev/null 2>&1 || budget_disk_gap="$ROADMAP on disk did not parse"
       if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" != "$(cd "$ROOT" && pwd -P)" ]; then
         budget_gap="$ROOT is not a git repository's root (a GATE_CLEAN_ROOM=\"archive\" copy?), so origin/$MAIN_BRANCH cannot be read"
       elif git -C "$ROOT" rev-parse -q --verify "refs/remotes/origin/$MAIN_BRANCH" >/dev/null 2>&1; then
@@ -378,7 +383,8 @@ for c in "$dir"/*/; do
       rb="" ; fail "$id: its soft budget cannot be held to roadmap row $row as origin/$MAIN_BRANCH has it: $budget_gap"
     else
       [ -n "$rb" ] || [ -z "$row" ] || [ -z "$roadmap_tsv" ] || { rb=$(budget_row "$roadmap_tsv"); rsrc="on disk"; }
-      if [ -n "$bsoft" ] && [ -z "$rb" ]; then fail "$id: a soft budget needs its roadmap row's 'Budget: \$<dollars>, soft', and no row $row is in $ROADMAP (on origin/$MAIN_BRANCH or on disk)"
+      if [ -n "$bsoft" ] && [ -z "$rb" ] && [ -n "$budget_disk_gap" ]; then fail "$id: its soft budget cannot be held to roadmap row $row${budget_main_tsv:+, which origin/$MAIN_BRANCH lacks}: $budget_disk_gap"
+      elif [ -n "$bsoft" ] && [ -z "$rb" ]; then fail "$id: a soft budget needs its roadmap row's 'Budget: \$<dollars>, soft', and no row $row is in $ROADMAP ($([ -n "$budget_main_tsv" ] && echo "on origin/$MAIN_BRANCH or on disk" || echo "on disk"))"
       elif [ -n "$bsoft" ] && [ "$rb" = - ]; then fail "$id: a soft budget needs its roadmap row's 'Budget: \$<dollars>, soft', and row $row has no Budget $rsrc"; fi
     fi
     if [ -n "$rb" ] && [ "$rb" != - ]; then
