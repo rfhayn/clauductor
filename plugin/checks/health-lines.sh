@@ -218,42 +218,50 @@ has "push-main: no push workflow says there is no post-merge net" "$(PM)" "OK no
 # Its own fixture, built in order: a trailer BEFORE the line arrives (history the owner kept), the
 # commit that adds the line (the default baseline), then the cases. Every trailer names an address
 # under secret.invalid, which no output may show: the line names a commit by its sha and title only.
+# Every step that builds the fixture runs through `must`: a step that fails stops the check by name,
+# so no case asserts on a history it never built. The fixture has no project.conf, so its line reads
+# origin/main whatever this project's MAIN_BRANCH is; its local branch is whatever new_repo made (FB).
+must() { "$@" >/dev/null || { fail "coauthor: a fixture step failed, so the cases after it would read a history never built: $*"; finish; }; }
 C="$d/co"; new_repo "$C"
+FB=$(git -C "$C" symbolic-ref --short HEAD)
 mkdir -p "$C/.claude/lib" "$C/.claude/health"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/health.sh" "$C/.claude/lib/"
+must cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/health.sh" "$C/.claude/lib/"
 roles() { printf '{"attribution":{"enabled":%s,"trailer":"Co-Authored-By: A <a@secret.invalid>"}}\n' "$1" > "$C/.claude/model-roles.json"; }
 roles false
-git -C "$C" add -A && git -C "$C" commit -qm "X-0: Start"
+must git -C "$C" add -A
+must git -C "$C" commit -qm "X-0: Start"
 START=$(git -C "$C" rev-parse --short HEAD)
-git -C "$C" commit -q --allow-empty -m "X-1: Before the line" -m "Co-authored-by: Early <early@secret.invalid>"
+must git -C "$C" commit -q --allow-empty -m "X-1: Before the line" -m "Co-authored-by: Early <early@secret.invalid>"
 EARLY=$(git -C "$C" rev-parse --short HEAD)
-git init -q --bare "$d/co.git"; git -C "$C" remote add origin "$d/co.git"
-cpush() { git -C "$C" push -q origin HEAD:main 2>/dev/null && git -C "$C" fetch -q origin; }
+must git init -q --bare "$d/co.git"
+must git -C "$C" remote add origin "$d/co.git"
+cpush() { must git -C "$C" push -q origin HEAD:main; must git -C "$C" fetch -q origin; }
 cpush
-cp "$ROOT/.claude/health/coauthor-trailers.sh" "$C/.claude/health/"
+must cp "$ROOT/.claude/health/coauthor-trailers.sh" "$C/.claude/health/"
 CO() { (cd "$C" && env "$@" sh .claude/health/coauthor-trailers.sh 2>&1); }
 cos=""  # every output, for the contract below
 out=$(CO); cos="$cos$out
 "
 has "coauthor: a line not yet on origin/main reads OK, saying no commit follows it" "$out" "OK .claude/health/coauthor-trailers.sh is not on origin/main yet"
 hasnt "coauthor: ...and reads no history before it" "$out" "$EARLY"
-git -C "$C" add -A && git -C "$C" commit -qm "X-2: Add the health line"
+must git -C "$C" add -A
+must git -C "$C" commit -qm "X-2: Add the health line"
 BASE=$(git -C "$C" rev-parse --short HEAD)
-git -C "$C" commit -q --allow-empty -m "X-3: A clean change" -m "It names the Co-authored-by: key in prose, which is a mention, not a trailer."
+must git -C "$C" commit -q --allow-empty -m "X-3: A clean change" -m "It names the Co-authored-by: key in prose, which is a mention, not a trailer."
 cpush
 out=$(CO); cos="$cos$out
 "
 has "coauthor: a clean history since the line arrived is OK, naming its subject and baseline" "$out" "OK no Co-authored-by on origin/main ($(git -C "$C" rev-parse --short origin/main)) since $BASE (the commit that added .claude/health/coauthor-trailers.sh): 1 commit(s) read"
 hasnt "coauthor: ...a trailer before the baseline is history, not a finding" "$out" "$EARLY"
-echo x4 > "$C/x4"; git -C "$C" add x4  # a change, so a revert of it (below) is a real one
-git -C "$C" commit -q -m "X-4: Merge from elsewhere" -m "A body." -m "  co-AUTHORED-by : Someone <someone@secret.invalid>"
+echo x4 > "$C/x4"; must git -C "$C" add x4  # a change, so a revert of it (below) is a real one
+must git -C "$C" commit -q -m "X-4: Merge from elsewhere" -m "A body." -m "  co-AUTHORED-by : Someone <someone@secret.invalid>"
 BAD=$(git -C "$C" rev-parse --short HEAD)
-git -C "$C" commit -q --allow-empty -m "X-5: Later and clean"
+must git -C "$C" commit -q --allow-empty -m "X-5: Later and clean"
 cpush
 out=$(CO); cos="$cos$out
 "
 has "coauthor: a trailer after the baseline (indented, any case, a blank before the colon) is FAILED, by sha and title" "$out" "FAILED Co-authored-by on origin/main in $BAD \"X-4: Merge from elsewhere\" while attribution is off"
-has "coauthor: ...and names the fix as the owner's call" "$out" "rewrite $MAIN_BRANCH to drop it (amend and force-push: the owner's call)"
+has "coauthor: ...and names the fix as the owner's call" "$out" "rewrite main to remove the trailer from it (reword it in a rebase, then force-push: the owner's call)"
 hasnt "coauthor: ...never prints a co-author's address" "$out" "secret.invalid"
 hasnt "coauthor: ...nor the trailer's name" "$out" "Someone"
 hasnt "coauthor: ...nor calls a mention in prose a trailer" "$out" "X-3"
@@ -293,49 +301,71 @@ out=$(CO); cos="$cos$out
 "
 has "coauthor: no model-roles.json is OK and says it did not check (rule 15 is off there too)" "$out" "OK no .claude/model-roles.json, so no attribution setting: Co-authored-by on origin/main not checked"
 roles false
-git -C "$C" update-ref -d refs/remotes/origin/main
+must git -C "$C" update-ref -d refs/remotes/origin/main
 out=$(CO); cos="$cos$out
 "
 has "coauthor: no origin/main is CANNOT CHECK" "$out" "CANNOT CHECK — cannot read origin/main"
-git -C "$C" fetch -q origin
+must git -C "$C" fetch -q origin
 # A shallow clone: the commit that added the line may be past its depth, where git shows the
 # boundary commit as adding every file. That is no baseline: CANNOT CHECK, never a quiet narrowing.
-git clone -q --depth 1 "file://$d/co.git" "$d/co-shallow" 2>/dev/null
-cp "$C/.claude/model-roles.json" "$d/co-shallow/.claude/"
+must git clone -q --depth 1 "file://$d/co.git" "$d/co-shallow"
+must cp "$C/.claude/model-roles.json" "$d/co-shallow/.claude/"
 out=$(cd "$d/co-shallow" && sh .claude/health/coauthor-trailers.sh 2>&1); cos="$cos$out
 "
 has "coauthor: a shallow clone past the line's commit is CANNOT CHECK" "$out" "CANNOT CHECK — this clone is shallow"
 # A revert lands a new commit; the trailer's commit stays on main, so it cannot clear the line, and
 # the line never offers one.
-git -C "$C" revert -q --no-edit "$BAD" >/dev/null && cpush
+must git -C "$C" revert --no-edit "$BAD"
+cpush
+[ "$(git -C "$C" log -1 --format=%s origin/main)" = 'Revert "X-4: Merge from elsewhere"' ] && ok "coauthor: the fixture's origin/main ends in the revert" || fail "coauthor: the revert is not origin/main's tip: $(git -C "$C" log -1 --format=%s origin/main)"
 out=$(CO); cos="$cos$out
 "
 has "coauthor: a revert leaves the commit on main, still FAILED" "$out" "in $BAD \"X-4"
 hasnt "coauthor: ...so the line never offers a revert as the fix" "$out" "revert"
 # A trailer reached only through a merge's second parent is on main too (no --first-parent).
-git -C "$C" checkout -q -b side
-git -C "$C" commit -q --allow-empty -m "X-7: On a side branch" -m "Co-authored-by: Side <side@secret.invalid>"
+must git -C "$C" checkout -q -b side
+must git -C "$C" commit -q --allow-empty -m "X-7: On a side branch" -m "Co-authored-by: Side <side@secret.invalid>"
 SIDE=$(git -C "$C" rev-parse --short HEAD)
-git -C "$C" checkout -q main
-git -C "$C" commit -q --allow-empty -m "X-8: On main meanwhile"
-git -C "$C" merge -q --no-ff --no-edit -m "X-9: Merge the side branch" side && cpush
+must git -C "$C" checkout -q "$FB"
+must git -C "$C" commit -q --allow-empty -m "X-8: On main meanwhile"
+must git -C "$C" merge -q --no-ff --no-edit -m "X-9: Merge the side branch" side
+cpush
 out=$(CO); cos="$cos$out
 "
 has "coauthor: a trailer on a --no-ff merge's side branch is FAILED" "$out" "in $SIDE \"X-7: On a side branch\""
 # A title is data: a backslash in it is printed as written, never read as an escape (echo's \c
 # would end the line there, and the next line would join it).
-git -C "$C" commit -q --allow-empty -m 'X-10: back\cslash and \n here' -m "Co-authored-by: B <b@secret.invalid>" && cpush
+must git -C "$C" commit -q --allow-empty -m 'X-10: back\cslash and \n here' -m "Co-authored-by: B <b@secret.invalid>"
+cpush
 line=$(CO | grep 'X-10')
 case "$line" in 'FAILED '*'"X-10: back\cslash and \n here"'*' in .claude/project.conf') ok "coauthor: a title with backslashes is printed as written, the line whole" ;; *) fail "coauthor: title with backslashes: $line" ;; esac
 # Past ten offenders the rest are counted, not dropped.
 printf 'COAUTHOR_HEALTH_SINCE="%s"\n' "$(git -C "$C" rev-parse HEAD)" > "$C/.claude/project.conf"
-i=1; while [ "$i" -le 11 ]; do git -C "$C" commit -q --allow-empty -m "X-$((i + 10)): Many" -m "Co-authored-by: M <m@secret.invalid>"; i=$((i + 1)); done
+i=1; while [ "$i" -le 11 ]; do must git -C "$C" commit -q --allow-empty -m "X-$((i + 10)): Many" -m "Co-authored-by: M <m@secret.invalid>"; i=$((i + 1)); done
 cpush
 out=$(CO); cos="$cos$out
 "
 [ "$(printf '%s\n' "$out" | grep -c '^FAILED .* in [0-9a-f]* "X-')" = 10 ] && ok "coauthor: lists ten offenders by name" || fail "coauthor: not ten listed: $out"
 has "coauthor: ...and counts the rest" "$out" "FAILED Co-authored-by on origin/main in 1 more commit(s) since"
 rm -f "$C/.claude/project.conf"
+# A project whose MAIN_BRANCH is not main: the line reads origin/<that branch> and names it in the fix.
+Mf="$d/co-master"; new_repo "$Mf"
+mkdir -p "$Mf/.claude/lib" "$Mf/.claude/health"
+must cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/health.sh" "$Mf/.claude/lib/"
+must cp "$ROOT/.claude/health/coauthor-trailers.sh" "$Mf/.claude/health/"
+must cp "$C/.claude/model-roles.json" "$Mf/.claude/"
+printf 'MAIN_BRANCH="master"\n' > "$Mf/.claude/project.conf"
+must git -C "$Mf" add -A
+must git -C "$Mf" commit -qm "Y-0: Add the health line"
+must git -C "$Mf" commit -q --allow-empty -m "Y-1: From elsewhere" -m "Co-authored-by: Y <y@secret.invalid>"
+must git init -q --bare "$d/co-master.git"
+must git -C "$Mf" remote add origin "$d/co-master.git"
+must git -C "$Mf" push -q origin HEAD:master
+must git -C "$Mf" fetch -q origin
+out=$(cd "$Mf" && sh .claude/health/coauthor-trailers.sh 2>&1); cos="$cos$out
+"
+has "coauthor: MAIN_BRANCH=master reads origin/master" "$out" "FAILED Co-authored-by on origin/master in $(git -C "$Mf" rev-parse --short HEAD) \"Y-1: From elsewhere\""
+has "coauthor: ...and names that branch in the fix" "$out" "rewrite master to remove the trailer from it"
 bad=$(printf '%s' "$cos" | grep -vE '^(OK|FAILED|CANNOT CHECK —) ')
 [ -z "$bad" ] && ok "coauthor: every line starts with its verdict" || fail "coauthor: lines without a verdict: $bad"
 

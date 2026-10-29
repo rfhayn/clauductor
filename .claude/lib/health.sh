@@ -359,7 +359,7 @@ health_coauthor() {
   # the newest offender would not cover one on a parallel branch merged after it.
   # printf, never echo: a title is data, and echo reads its backslashes (\c ends the line).
   printf '%s\n' "$_hc_bad" | head -n 10 | while IFS= read -r _hc_l; do
-    printf 'FAILED Co-authored-by on %s in %s "%s" while attribution is off (.claude/model-roles.json), since %s (%s): rewrite %s to drop it (amend and force-push: the owner'"'"'s call), or keep it as history with COAUTHOR_HEALTH_SINCE=%s in .claude/project.conf\n' \
+    printf 'FAILED Co-authored-by on %s in %s "%s" while attribution is off (.claude/model-roles.json), since %s (%s): rewrite %s to remove the trailer from it (reword it in a rebase, then force-push: the owner'"'"'s call), or keep it as history with COAUTHOR_HEALTH_SINCE=%s in .claude/project.conf\n' \
       "$_hc_main" "${_hc_l%% *}" "${_hc_l#* }" "$_hc_since" "$_hc_how" "$MAIN_BRANCH" "$_hc_top"
   done
   _hc_more=$(( $(printf '%s\n' "$_hc_bad" | wc -l) - 10 ))
