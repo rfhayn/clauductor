@@ -17,7 +17,7 @@ d=$(scratch)
 new_repo "$d/repo"
 git -C "$d/repo" commit -q --allow-empty -m init
 sl="$ROOT/.claude/statusline.sh"
-now=$(date +%s)  # wall-clock: the origin of the reset times, a fixture, and the floor of `at` below
+now=$(date +%s)  # wall-clock: the origin of the reset times, a fixture, and the floor of the reading time below
 future=$((now + 3600)); past=$((now - 60)); later=$((now + 7200))
 
 # status HOME JSON: run the status line; prints "<exit> <stderr bytes>" then the line.

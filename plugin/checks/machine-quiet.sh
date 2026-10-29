@@ -43,8 +43,14 @@ done
 hookpath="$WT/lane/.claude/hooks/x.sh"
 bash -c '(exec -a tmux sh -c "sleep 60; :" "-L" "sock" "new-session" "-c" "'"$hookpath"'" & echo $! > "'"$d"'/tmux.pid") &' 2>/dev/null
 bash -c '(exec -a hook-loop sh -c "sleep 60; :" "'"$hookpath"'" & echo $! > "'"$d"'/hook.pid") &' 2>/dev/null
-# Both written and both orphaned, waited for: a guessed second is one load outruns (OPS-168).
-orphaned() { for _o in tmux hook; do _p=$(cat "$d/$_o.pid" 2>/dev/null); [ -n "$_p" ] && ps -o ppid= -p "$_p" 2>/dev/null | grep -qx ' *1' || return 1; done; }
+# Both written, both orphaned, and each exec'd into its argv[0] (tmux, hook-loop), waited for: a
+# guessed second is one load outruns (OPS-168).
+orphaned() {
+  for _o in tmux:tmux hook:hook-loop; do
+    _p=$(cat "$d/${_o%%:*}.pid" 2>/dev/null)
+    [ -n "$_p" ] && ps -o ppid= -p "$_p" 2>/dev/null | grep -qx ' *1' && ps -o command= -p "$_p" 2>/dev/null | grep -q "^${_o#*:} " || return 1
+  done
+}
 wait_for 10 orphaned
 TP=$(cat "$d/tmux.pid" 2>/dev/null); HP=$(cat "$d/hook.pid" 2>/dev/null)
 cleanup_procs() { pkill -P "$TP" 2>/dev/null; pkill -P "$HP" 2>/dev/null; kill "$TP" "$HP" 2>/dev/null; }

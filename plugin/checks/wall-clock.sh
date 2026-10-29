@@ -11,9 +11,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # One test per line, as checks/mktemp-in-tmpdir.sh does: a line that is not a whole-line comment
 # and holds the word `date` and `+%s` passes only when it ends in the trailing comment
 # `# wall-clock: <why>`, where a reviewer reads the reason: a fixture timestamp, or the broken floor
-# its bound sits under. So that a marker inside a quoted string does not count, the reason holds no
-# quote at all, an apostrophe included ("the sleep of the fake", not "the fake's sleep"), and the
-# scan says so when that is why it refused a line.
+# its bound sits under. So that a marker inside a string or a substitution (quotes, backticks,
+# `$(`) never counts, the reason is an allowlist: letters, digits, spaces and , . ; : ( ) -, from
+# the marker to the end of the line, so no apostrophe ("the sleep of the fake", not "the fake's
+# sleep"). The scan says which rule refused a line: no reason, a character outside the list, or no
+# marker at all.
 #
 # The set is every check run.sh runs, found the way run.sh finds them (a new file runs the moment it
 # exists): the *.sh beside this file, and lib/modules.sh's extension checks (each enabled module's
@@ -33,11 +35,13 @@ scan_awk() { SCAN_AWK=$(cat); }
 scan_awk <<'AWK'
 function name(f) { sub(/^\.\//, "", f); return f }
 /^[ \t]*#/ { next }
-/[ \t]#[ \t]*wall-clock:[ \t]*[^ \t'"][^'"]*$/ { next }
+/[ \t]#[ \t]*wall-clock:[ \t]*[A-Za-z0-9(][A-Za-z0-9 ,.;:()-]*$/ { next }
 $0 ~ ("(^|[^A-Za-z0-9_])" D "([^A-Za-z0-9_]|$)") && index($0, S) {
   l = $0; sub(/^[ \t]+/, "", l)
-  if (l ~ /[ \t]#[ \t]*wall-clock:/)
-    why = "a # wall-clock: reason may not hold a quote, as a marker in a string would pass (write fakes, not fake's)"
+  if (l ~ /[ \t]#[ \t]*wall-clock:[ \t]*$/)
+    why = "a # wall-clock: marker with no reason"
+  else if (l ~ /[ \t]#[ \t]*wall-clock:/)
+    why = "a # wall-clock: reason holds only letters, digits, spaces and , . ; : ( ) - to the end of its line, so no marker inside a string or a substitution passes (write fakes, not fake's)"
   else
     why = "a clock read with no trailing # wall-clock: <why load cannot outrun it>"
   print name(FILENAME) ":" FNR ": " why ": " l
@@ -47,8 +51,9 @@ AWK
 scan() { LC_ALL=C awk -v D="da""te" -v S="+""%s" "$SCAN_AWK" "$@"; }
 
 d=$(scratch)
-# fixture NAME: the lines on stdin, with @CLOCK@ spelled out, as $d/NAME.
-fixture() { sed -e 's/@CLOCK@/da''te +''%s/g' > "$d/$1"; }
+# fixture NAME: the lines on stdin, with @CLOCK@ spelled out and @BLANK@ as a space and a tab (an
+# editor would strip them at a line's end), as $d/NAME.
+fixture() { sed -e 's/@CLOCK@/da''te +''%s/g' -e 's/@BLANK@/ 	/g' > "$d/$1"; }
 
 # ── Falsified first: every line of bad.sh ending `# case` must be named, and no other ────────────
 fixture bad.sh <<'EOF'
@@ -58,30 +63,38 @@ s=$(@CLOCK@); run; took=$(( $(@CLOCK@) - s ))  # case
 now=`@CLOCK@`  # case
 echo "# wall-clock: x"; t=$(@CLOCK@)  # case
 echo '# wall-clock: x'; t=$(@CLOCK@)  # case
-t=$(@CLOCK@); echo ' # wall-clock: x'; foo  # case
-t=$(@CLOCK@); echo ' # wall-clock: x' >&2  # case
-t=$(@CLOCK@); printf ' # wall-clock: %s\n' x  # case
-t=$(@CLOCK@)  # wall-clock: a "double" quote  # case
+t=$(@CLOCK@); echo ' # wall-clock: x'; foo
+t=$(@CLOCK@); echo ' # wall-clock: x' >&2
+t=$(@CLOCK@); printf ' # wall-clock: %s\n' x
+t=$(@CLOCK@)  # wall-clock: a "double" quote
 t=$(@CLOCK@)  # wall-clock: 'quoted'
 t=$(@CLOCK@)  # wall-clock: 'x
 t=$(@CLOCK@); echo ' # wall-clock: x'
+s=`@CLOCK@  # wall-clock: x`; sleep 1; took=$(( $(@CLOCK@) - s ))
+t=$(@CLOCK@)  # wall-clock: x $(@CLOCK@)
+t=$(@CLOCK@)  # wall-clock: see ${x}
 t=$(@CLOCK@)  # wall-clock:
+t=$(@CLOCK@)  # wall-clock:@BLANK@
 t=$(@CLOCK@)
 EOF
 out=$(cd "$d" && scan ./bad.sh)
-# 11-15: quoted reasons, a marker closing a single-quoted string, none, no marker; none can also end
-# in `# case`. Lines 7-13 are refused for their quote alone, and the message says so.
-want=" $(grep -n '# case' "$d/bad.sh" | cut -d: -f1 | tr '\n' ' ') 11 12 13 14 15 "
+# 7-19 cannot also end in `# case`: its `#` would itself be outside the reason's characters. 7-16
+# hold a marker whose reason holds a character outside them (a quote, a backtick, a `$`), 17-18 a
+# marker with no reason, 19 none; each is told which.
+want=" $(grep -n '# case' "$d/bad.sh" | cut -d: -f1 | tr '\n' ' ') 7 8 9 10 11 12 13 14 15 16 17 18 19 "
 for n in $want; do
   case $out in *"bad.sh:$n: "*) ok "falsified: bad.sh line $n is named" ;;
     *) fail "missed bad.sh line $n: $(sed -n "${n}p" "$d/bad.sh") (scan: $out)" ;; esac
 done
 extra=$(printf '%s\n' "$out" | grep . | while IFS= read -r l; do n=${l#bad.sh:}; n=${n%%:*}; case $want in (*" $n "*) ;; (*) printf '%s\n' "$l" ;; esac; done)
 [ -z "$extra" ] && ok "...and bad.sh names no other line" || fail "bad.sh: the scan names lines that are not cases: $extra"
-for n in 7 8 9 10 11 12 13; do
-  case $out in *"bad.sh:$n: a # wall-clock: reason may not hold a quote"*) ok "bad.sh line $n: ...and the scan says its quote is why" ;;
-    *) fail "bad.sh line $n: the scan does not say the quote is why: $(printf '%s\n' "$out" | grep "^bad.sh:$n: ")" ;; esac
-done
+says() {  # says LINE TEXT: the scan's line for bad.sh LINE says TEXT
+  case $out in *"bad.sh:$1: $2"*) ok "bad.sh line $1: ...and the scan says why: $2" ;;
+    *) fail "bad.sh line $1: the scan does not say '$2': $(printf '%s\n' "$out" | grep "^bad.sh:$1: ")" ;; esac
+}
+for n in 7 8 9 10 11 12 13 14 15 16; do says "$n" "a # wall-clock: reason holds only"; done
+for n in 17 18; do says "$n" "a # wall-clock: marker with no reason"; done
+says 19 "a clock read with no trailing # wall-clock:"
 
 # ...and what is not a clock read, or says why, stays quiet.
 fixture good.sh <<'EOF'
