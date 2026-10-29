@@ -171,24 +171,39 @@ case $(conf_differs "$C/a" "$C/none") in *unreadable*) ok "...and a project.conf
 
 # A compared key that differs turns run-once off on every gate, and the gate's line says so where
 # nobody reads it (OPS-170), so it fails here unless CONF_DOUBLE_RUN_OK accepts the double run.
-# double_run DIR TMPL: `ok KEY` for each differing key CONF_DOUBLE_RUN_OK names, `fail KEY` for the rest.
+# double_run DIR TMPL: `ok KEY` for each differing key CONF_DOUBLE_RUN_OK names, `fail KEY` for the
+# rest, or one `unreadable <why>` line when either project.conf cannot be read.
 double_run() {
   _dr=$(conf_differs "$1" "$2")
-  case $_dr in *unreadable*) echo "fail $_dr"; return ;; esac
+  case $_dr in *unreadable*) echo "unreadable $_dr"; return ;; esac
   for _k in $_dr; do
     case " $CONF_DOUBLE_RUN_OK " in *" $_k "*) echo "ok $_k" ;; *) echo "fail $_k" ;; esac
   done
+}
+# double_run_verdict DIR TMPL: double_run's lines as this check's ok and fail.
+double_run_verdict() {
+  _dv=$(double_run "$1" "$2")
+  case $_dv in unreadable*) fail "cannot compare $1's project.conf with $2's: ${_dv#unreadable }"; return ;; esac
+  [ -n "$_dv" ] || ok "$1's project.conf is $2's but for CONF_NOT_READ: the gate runs CHECKS_ONCE once"
+  for _k in $(printf '%s\n' "$_dv" | awk '$1 == "ok" { print $2 }'); do ok "both sets run every check: $_k (CONF_DOUBLE_RUN_OK)"; done
+  _dvf=$(printf '%s\n' "$_dv" | sed -n 's/^fail //p' | tr '\n' ' ' | sed 's/ $//')
+  [ -z "$_dvf" ] || fail "$1's project.conf differs from $2's in $_dvf, so every gate runs CHECKS_ONCE twice. In scripts/ci/steps.sh, add it to CONF_NOT_READ if no CHECKS_ONCE check reads it, or to CONF_DOUBLE_RUN_OK to accept the double run; or make it the template's"
 }
 dr=$(CONF_DOUBLE_RUN_OK="" double_run "$C/a" "$C/b")
 [ "$dr" = "fail GATE_RUN" ] && ok "falsified: a compared key that differs (GATE_RUN) fails the check" || fail "a differing GATE_RUN read as '$dr', not a failure"
 dr=$(CONF_DOUBLE_RUN_OK="GATE_RUN" double_run "$C/a" "$C/b")
 [ "$dr" = "ok GATE_RUN" ] && ok "...and passes once CONF_DOUBLE_RUN_OK accepts the double run" || fail "GATE_RUN in CONF_DOUBLE_RUN_OK read as '$dr'"
-case $(double_run "$C/a" "$C/none") in "fail "*unreadable*) ok "...and a project.conf that cannot be read fails it" ;; *) fail "an unreadable project.conf passed the double-run verdict" ;; esac
-dr=$(double_run "$ROOT" "$ROOT/template")
-[ -n "$dr" ] || ok "this repo's project.conf is the template's but for CONF_NOT_READ: the gate runs CHECKS_ONCE once"
-for _k in $(printf '%s\n' "$dr" | awk '$1 == "ok" { print $2 }'); do ok "both sets run every check: $_k (CONF_DOUBLE_RUN_OK)"; done
-drf=$(printf '%s\n' "$dr" | sed -n 's/^fail //p' | tr '\n' ' ' | sed 's/ $//')
-[ -z "$drf" ] || fail "this repo's project.conf differs from the template's in $drf, so every gate runs CHECKS_ONCE twice. In scripts/ci/steps.sh, add it to CONF_NOT_READ if no CHECKS_ONCE check reads it, or to CONF_DOUBLE_RUN_OK to accept the double run; or make it the template's"
+dr=$(double_run "$C/a" "$C/none")
+[ "$dr" = "unreadable (unreadable in $C/none)" ] && ok "...and a project.conf that cannot be read is its own verdict" || fail "an unreadable project.conf read as '$dr'"
+# The verdict reaches this check's fail count: each case in a subshell with its own count.
+verdict_fails() { (CONF_DOUBLE_RUN_OK=$1; _fails=0; double_run_verdict "$2" "$3" >"$S/verdict"; echo "$_fails"); }
+[ "$(verdict_fails "" "$C/a" "$C/b")" = 1 ] && grep -q "^FAIL .*in GATE_RUN, so every gate" "$S/verdict" \
+  && ok "falsified: the verdict counts a differing key as a failure, naming it and the remedies" || fail "the verdict on a differing GATE_RUN: $(cat "$S/verdict")"
+[ "$(verdict_fails GATE_RUN "$C/a" "$C/b")" = 0 ] && grep -q "^ok   both sets run every check: GATE_RUN" "$S/verdict" \
+  && ok "...passes one CONF_DOUBLE_RUN_OK names, saying both sets run every check" || fail "the verdict with GATE_RUN accepted: $(cat "$S/verdict")"
+[ "$(verdict_fails "" "$C/a" "$C/none")" = 1 ] && grep -q "^FAIL cannot compare" "$S/verdict" && ! grep -q "CONF_DOUBLE_RUN_OK" "$S/verdict" \
+  && ok "...and fails an unreadable project.conf with its own message, not the remedies" || fail "the verdict on an unreadable project.conf: $(cat "$S/verdict")"
+double_run_verdict "$ROOT" "$ROOT/template"
 # No CHECKS_ONCE check reads a key the comparison ignores.
 key_reads() {  # key_reads CHECKS KEYS: each `check:key` where a check names $KEY or ${KEY
   for _n in $1; do
