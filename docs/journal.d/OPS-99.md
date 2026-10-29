@@ -2,8 +2,8 @@
 
 - **PR**: #316
 - **Session**: S16, started 2026-10-29 08:50 ET
-- **Review**: 0 rounds, peak none, cap 3 (pending: merge-pr has not run)
-- **Gate**: CANNOT CHECK — pending: the gate binds 127.0.0.1, which this lane's sandbox refuses; the owner decides
+- **Review**: 1 round, peak low, cap 3
+- **Gate**: 52 min
 - **Cost**: CANNOT CHECK — usage-report.sh sums the whole S16 session (~$3.21 so far), this lane with the main session and OPS-158's lane
 - **Session start**: 3758466 tokens, 4 min
 
@@ -21,7 +21,7 @@ The test waits, and `markTrusted` keeps its order. A card's output can show for 
 
 The lane's sandbox refused a loopback bind, and once that was allowed it still could not resolve `clauductor.localhost`, so neither the panel tests nor the gate could run from the lane. The owner ran the evidence scripts by hand. Under that load the natural flake did not show in 50 runs.
 
-The measured runs of the fixed binary were SIGKILLed, and the cause was not the fix. Both evidence scripts ran the load suite and the measured run from one prebuilt binary. After its tests, leakcheck lists every process on the machine and SIGKILLs any running its own binary's path, whoever started it (`internal/leakcheck/leakcheck.go:172-177`). That killed each fixed run, and the earlier load copies killed one another. A run from a different path survived its load suite. `go test` gives each run a binary path of its own, so a gate does not hit this. But leakcheck kills, by pattern, processes it never started, the class ADR-0005 forbids. The lead is opening a row for it.
+The measured runs of the fixed binary were SIGKILLed, and the cause was not the fix. Both evidence scripts ran the load suite and the measured run from one prebuilt binary. After its tests, leakcheck lists every process on the machine and SIGKILLs any running its own binary's path, whoever started it (`internal/leakcheck/leakcheck.go:172-177`). That killed each fixed run, and the earlier load copies killed one another. A run from a different path survived its load suite. `go test` gives each run a binary path of its own, so a gate does not hit this. But leakcheck kills, by pattern, processes it never started, the class ADR-0005 forbids. Issue #319 (row OPS-160) owns it.
 
 ## Insights
 
