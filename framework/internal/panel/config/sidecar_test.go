@@ -100,6 +100,8 @@ func TestSidecarCodeFlags(t *testing.T) {
 		{"fish", "--command"}, {"fish", "--command=make"},
 		// fish's -C runs code before the script, as -c does (the owner, 2026-10-17; PANEL-47).
 		{"fish", "-C"}, {"fish", "-lC"}, {"fish", "--init-command"}, {"fish", "--init-command=make"},
+		// fish's getopt takes any unambiguous prefix of a long flag (PANEL-47's review).
+		{"fish", "--init=make"}, {"fish", "--ini"}, {"fish", "--comm=make"}, {"fish", "--c"},
 		{"python", "-c"}, {"python3", "-c"}, {"python3", "-m"}, {"python3.12", "-c"}, {"python3", "-Bc"}, {"python3", "-mhttp.server"},
 		{"node", "-e"}, {"node", "-p"}, {"node", "--eval"}, {"node", "--print=1"}, {"node", "--import"}, {"node", "-r"},
 		{"node", "--require"}, {"node", "--loader"}, {"node", "--experimental-loader"},
@@ -115,6 +117,8 @@ func TestSidecarCodeFlags(t *testing.T) {
 	rows = append(rows,
 		// After the script too: an accepted false refusal (design.md D5, the cost).
 		sidecarRow{argv: []string{"python3", ".claude/x.sh", "-c", "cfg.yml"}, word: "-c", why: codeWhy, only: true},
+		// fish's other long flags, and `--` ending its options, are not code flags.
+		sidecarRow{argv: []string{"fish", "--private", "--", ".claude/x.sh"}},
 		// An exact name only.
 		sidecarRow{argv: []string{"pythonic", "-c", "x"}},
 		sidecarRow{argv: []string{"shx", "-c", "x"}},

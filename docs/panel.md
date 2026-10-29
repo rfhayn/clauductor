@@ -3227,7 +3227,8 @@ as a script.
     `python3.<n>`, `node`, `deno`, `bun`, `perl`, `ruby`, `php` and `osascript`. They are matched
     whole (`pythonic` is not Python), with case folded, since macOS runs `BASH` as bash.
   - The flags: a shell's `-c`, also in a single-dash cluster (`-lc`); fish's `--command`, and its
-    `-C` (also in a cluster) and `--init-command`, which run code before any script;
+    `-C` (also in a cluster) and `--init-command`, which run code before any script. fish takes
+    any prefix of a long flag (`--comm`, `--init=…`), so each prefix is refused too;
     Python's `-c` and `-m`; `-e`, `-p`, `--eval` and `--print` for node, deno and bun; node's
     `--import`, `-r`, `--require`, `--loader` and `--experimental-loader`; perl's `-e` and `-E`,
     ruby's `-e`, php's `-r` and osascript's `-e`.
@@ -3306,9 +3307,9 @@ the rule only holds a sidecar to the repository's own scripts. These are outside
   - an scp-style remote (`git@host:o/r.git`, `host:path`) passes as words to `git clone`, `rsync`
     or `scp`;
   - a package install runs the scripts it fetches (`npm install`'s lifecycle scripts);
-  - two cards can cooperate, one fetching a file into the repository and the other running it;
   - `go test -exec <bare word>` runs a program of that name;
   - `flock -c <word>` runs its word through a shell;
+- two cards that cooperate, one fetching a file into the repository and the other running it;
 - the program-position rules behind a launcher not on their list (`sudo`, `caffeinate`): `sudo
   npx tool` passes. Code flags are still judged there, and so is an `env`'s own words, wherever
   it stands (`caffeinate env FOO=1 make` is refused);
