@@ -204,7 +204,7 @@ base; page '<p>Other <b data-claim = "other">9</b></p>'
 red "claims: an annotation with spaces round its = is not skipped" "data-claim attributes, but 3 were read"
 # A value is read to its closing tag, not to the first `<`: text followed by markup would be read
 # as the text alone and pass. Falsified by reading the value up to any `<`: green, as "Ann".
-base; page '<p>Also <b data-claim="owner-1">Ann <i>and Damian</i></b></p>'
+base; page '<p>Also <b data-claim="owner-1">Ann <i>and Bo</i></b></p>'
 red "claims: an annotation whose value is text and then markup is not read as the text alone" "data-claim attributes, but 3 were read"
 # Only the page's text carries annotations: a selector in a style or a script, and an annotation
 # commented out, are not ones. Falsified by counting and reading over the whole page: each is red.
