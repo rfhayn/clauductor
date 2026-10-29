@@ -102,10 +102,11 @@ func ownSockets() []string {
 
 // Main runs the package's tests and fails the run (exit 1) if, once they are done,
 // a tmux socket of this process is still there, or a helper process this run
-// started (the test binary run again, or any process whose command line names this
-// run's temp directory) is still alive. It reports and removes both, so a failing
-// run does not leak either. It fails the run too if a test launched `claude` from
-// PATH (guardClaude: #93).
+// started (a child, the test binary run again below it, or any process whose command
+// line names this run's temp directory) is still alive. It reports and removes both,
+// so a failing run does not leak either, and touches no process it cannot prove this
+// run started (processes: #319). It fails the run too if a test launched `claude`
+// from PATH (guardClaude: #93).
 //
 // TMPDIR is pointed at a directory of this run's own, so t.TempDir and every command
 // line that names a path in it carry the run's mark. A timeout or an interrupt still
@@ -244,49 +245,124 @@ func settle(list func() []string) []string {
 	}
 }
 
-// processes lists, as "pid command", the processes other than this one and its
-// ancestors that are its children (started and never reaped), that run this test
-// binary (a helper), or whose command line names a path in this run's temp
-// directory (mark), however far they were reparented.
+// processes lists, as "pid command", the processes this run provably started and
+// left: its descendants that are its children (started and never reaped) or run this
+// test binary (a helper), and any process whose command line names a path in this
+// run's temp directory (mark), however far it was reparented.
+//
+// A process running this binary that is no descendant is someone else's: another
+// run of the same binary path (two lanes, two scripts) is never listed, so Main never
+// kills it (#319, ADR-0005). The cost, a known limit: a helper whose parent exited
+// before it (`sh -c "bin ... &"`), and whose command line names no path in mark, is no
+// longer found. Its environment still carries TMPDIR=mark, but reading another
+// process's environment differs by OS (ps -E, /proc/<pid>/environ) and is not done.
 func processes(self int, bin, mark string) []string {
-	out, err := exec.Command("ps", "-A", "-ww", "-o", "pid=", "-o", "ppid=", "-o", "command=").Output()
+	out, err := exec.Command("ps", "-A", "-ww", "-o", "pid=", "-o", "ppid=", "-o", "etime=", "-o", "command=").Output()
 	if err != nil {
 		return nil
 	}
+	return leftovers(string(out), self, bin, mark)
+}
+
+// leftovers is processes over ps's listing, one "pid ppid etime command" a line.
+func leftovers(out string, self int, bin, mark string) []string {
 	type proc struct {
 		ppid int
+		age  time.Duration
 		cmd  string
 	}
 	all := map[int]proc{}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
-		if len(f) < 3 {
+		if len(f) < 4 {
 			continue
 		}
 		pid, err1 := strconv.Atoi(f[0])
 		ppid, err2 := strconv.Atoi(f[1])
-		if err1 == nil && err2 == nil {
-			all[pid] = proc{ppid, strings.Join(f[2:], " ")}
+		age, ok := elapsed(f[2])
+		if err1 == nil && err2 == nil && ok {
+			all[pid] = proc{ppid, age, strings.Join(f[3:], " ")}
 		}
 	}
-	// Whatever started this run (go test, a shell that named the binary) is not a
-	// leak, whatever its command line says.
-	skip := map[int]bool{}
-	for p := self; p > 1 && !skip[p]; p = all[p].ppid {
-		skip[p] = true
+	// descends walks pid's parents up to self. A parent younger than its child is a
+	// reused pid (the real parent exited while ps read the table), not an ancestor:
+	// etime has whole seconds, so a second of slack.
+	descends := func(pid int) bool {
+		for seen := map[int]bool{}; pid > 1 && !seen[pid]; {
+			seen[pid] = true
+			p, ok := all[pid]
+			if !ok {
+				return false
+			}
+			parent, ok := all[p.ppid]
+			if !ok || parent.age+time.Second < p.age {
+				return false
+			}
+			if p.ppid == self {
+				return true
+			}
+			pid = p.ppid
+		}
+		return false
 	}
 	var found []string
 	for pid, p := range all {
-		if skip[pid] || strings.HasPrefix(p.cmd, "ps -A -ww") {
+		if pid == self || strings.HasPrefix(p.cmd, "ps -A -ww") {
 			continue
 		}
 		argv0 := strings.Fields(p.cmd)[0]
-		if p.ppid == self || argv0 == bin || (mark != "" && strings.Contains(p.cmd, mark)) {
+		ours := (p.ppid == self || argv0 == bin) && descends(pid)
+		if ours || namesMark(p.cmd, mark) {
 			found = append(found, strconv.Itoa(pid)+" "+p.cmd)
 		}
 	}
 	sort.Strings(found)
 	return found
+}
+
+// namesMark reports whether cmd names mark or a path in it. MkdirTemp ends mark with a
+// decimal of varying length, so "leakcheck-100-7" must not match an earlier run's
+// "leakcheck-100-71234" (the same pid, reused): a digit after mark is another mark.
+func namesMark(cmd, mark string) bool {
+	if mark == "" {
+		return false
+	}
+	for rest := cmd; ; {
+		i := strings.Index(rest, mark)
+		if i < 0 {
+			return false
+		}
+		rest = rest[i+len(mark):]
+		if rest == "" || rest[0] < '0' || rest[0] > '9' {
+			return true
+		}
+	}
+}
+
+// elapsed reads ps's etime, [[dd-]hh:]mm:ss, the same on macOS and Linux and in any
+// locale.
+func elapsed(s string) (time.Duration, bool) {
+	var days int
+	if d, rest, ok := strings.Cut(s, "-"); ok {
+		n, err := strconv.Atoi(d)
+		if err != nil {
+			return 0, false
+		}
+		days, s = n, rest
+	}
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return 0, false
+	}
+	secs := 0
+	for _, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return 0, false
+		}
+		secs = secs*60 + n
+	}
+	return time.Duration(days)*24*time.Hour + time.Duration(secs)*time.Second, true
 }
 
 // warnStale names sockets that runs of this suite killed before their cleanup (a
