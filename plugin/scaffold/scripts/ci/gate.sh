@@ -15,6 +15,17 @@
 #   scripts/ci/gate.sh --quick     the inner loop (build-change's gate)
 #   scripts/ci/gate.sh             the full gate; writes the receipt as usual
 #   scripts/ci/gate.sh --docs      the docs gate, for a prose-only PR (merge-pr step 2)
+#   scripts/ci/gate.sh -C DIR …    any of these, for the checkout DIR is in (first argument only)
+#
+# -C DIR (OPS-161). settings.json's sandbox.excludedCommands lifts the sandbox for this script only
+# when the command IS the script (`scripts/ci/gate.sh *`), and a lane run as a subagent starts every
+# Bash call in the main checkout: its `cd <worktree> && scripts/ci/gate.sh` ran sandboxed, where `ps`,
+# git's caches and the loopback name fail whatever the code does. So a lane names its worktree
+# instead, and this runs THAT checkout's own gate.sh from its top level, as if started there: the
+# tree under test runs its own wrapper, runner, steps and config, never the caller's. Only a checkout
+# of THIS repository (one git common dir) is accepted: the exclusion is the main checkout's, and -C
+# must not stretch it to run any other tree outside the sandbox (another project, or a repository
+# an agent made in $TMPDIR).
 #
 # GATE_FAIL_PATTERN (project.conf) is the extended regex of failure lines for YOUR tools; it is
 # matched against a colour-stripped copy, and never anchored at line start, because many runners
@@ -23,6 +34,23 @@
 # '^\{"'); empty skips nothing, and the full log keeps them either way. GATE_RUNNER overrides the
 # command (the checks use it).
 set -uo pipefail
+
+if [ "${1:-}" = -C ]; then
+  [ -n "${2:-}" ] || { echo "gate: -C needs a directory" >&2; exit 2; }
+  top=$(cd "$2" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || { echo "gate: -C $2 is not inside a git checkout" >&2; exit 2; }
+  # This script's path in its own checkout is its path in DIR's (git prints physical paths, as pwd -P).
+  here=$(cd "$(dirname "$0")" && pwd -P); self=$(cd "$here" && git rev-parse --show-toplevel 2>/dev/null)
+  case $here in
+    "$self") rel=$(basename "$0") ;;
+    "$self"/*) rel=${here#"$self"/}/$(basename "$0") ;;
+    *) echo "gate: $0 is not inside a git checkout, so its path in $top is unknown" >&2; exit 2 ;;
+  esac
+  common() { (cd "$1" && cd "$(git rev-parse --git-common-dir)" && pwd -P) 2>/dev/null; }
+  own=$(common "$self"); [ -n "$own" ] && [ "$(common "$top")" = "$own" ] || { echo "gate: -C $2 is not a checkout of this repository ($self): -C runs only this repository's worktrees" >&2; exit 2; }
+  [ -f "$top/$rel" ] || { echo "gate: $top has no $rel to run" >&2; exit 2; }
+  shift 2
+  cd "$top" && exec bash "$rel" "$@"
+fi
 
 ROOT=$(git rev-parse --show-toplevel)
 # shellcheck disable=SC1091
