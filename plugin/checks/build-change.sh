@@ -474,20 +474,16 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   // The quota gate (OPS-167): the preflight runs quota-gate.sh, and the SCRIPT decides from
   // its words and exit line: a STOP, an ERROR or a non-zero exit stops before any group is built.
   t('the preflight agent runs quota-gate.sh and reports its output with its exit code', /quota-gate\.sh 2>&1; echo "exit \$\?"`/.test(pf) && /quotaGate/.test(pf), pf)
-  // The one step allowed a change is the marker's: the preamble must point at THAT step, whatever
-  // its number, or an agent following it would skip the marker (round 1 of OPS-167's review).
-  const mayMatch = pf.match(/changing nothing but what (?:the marker step \(step (\d+)\)|step (\d+)) says it may/) || []
-  const mayStep = mayMatch[1] || mayMatch[2]
-  t('the preflight\'s "changing nothing but" points at the step that runs marker.sh', !!mayStep && new RegExp(`\\n${mayStep}\\. [^\\n]*marker\\.sh`).test(pf), mayStep)
-  r = await run([])
-  const npf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
-  t('...and a new run\'s is told to skip the marker when the gate stops the run', /Skip it too when step 10 printed a line starting "quota-gate: STOP"/.test(npf), npf)
+  // The marker runs in its own agent past every preflight stop (OPS-129), so the preflight changes
+  // nothing and runs no marker, and a quota stop leaves no draft PR behind.
+  t('the preflight changes nothing and runs no marker.sh', /changing nothing, and running every step/.test(pf) && !/marker\.sh/.test(pf), pf)
   const quotaWarned = (r) => r.report.warnings.some((w) => /quota/.test(w))
   r = await run([])
   t('a quota gate that says below adds no warning, and the build runs', r.report.stoppedAt === null && built(r) && !quotaWarned(r), [r.report.stoppedAt, r.report.warnings])
   const STOP = 'quota-gate: STOP — 7d 92% (resets Mon 2026-10-05 12:00 ET) at or above 90% (QUOTA_LANE_STOP_PCT); start no new lane until it resets'
   r = await run([], { budget: { quotaGate: `${STOP}\nexit 1` } })
   t('a quota gate STOP stops at preflight with its line in the notify, before any group is built', r.report.stoppedAt === 'quota' && r.report.reason.includes(STOP) && /^build-change demo STOPPED at quota: quota-gate: STOP/.test(r.report.notify || '') && !built(r), [r.report.stoppedAt, r.report.notify])
+  t('...and runs no marker, so it leaves no draft PR behind', r.report.stoppedAt === 'quota' && !ranMarker(r), r.calls.map((c) => c.opts.label))
   r = await run([], { budget: { quotaGate: `${STOP}\nexit 0` } })
   t('...a STOP line stops even when the exit line says 0 (the words win, never an agent\'s exit)', r.report.stoppedAt === 'quota' && !built(r), [r.report.stoppedAt, r.report.reason])
   r = await run([], { budget: { quotaGate: "quota-gate: ERROR — QUOTA_LANE_STOP_PCT is 'x', not a whole number from 0 (off) to 100\nexit 2" } })
