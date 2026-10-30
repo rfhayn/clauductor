@@ -1,7 +1,8 @@
 # PRD: the terminal UI, the panel's only local face
 
 **Status:** awaiting the owner's approval (PANEL-60, S18). Not approved. It supersedes `PRD-ui.md`, which already
-marks itself superseded by the direction shift of 2026-10-27. The rows it sets are PANEL-61 to PANEL-64 in
+marks itself superseded by the direction shift of 2026-10-27 and names PRD-tui as its replacement, so this PRD leaves
+PRD-ui's text as it is. The rows it sets are PANEL-61 to PANEL-64 in
 `docs/roadmap.md` (Phase 4, *The terminal UI*), with PANEL-50, PANEL-56 and PANEL-25 feeding them. Each row is still proposed just in
 time and approved on its own `design.md`. This PRD gives direction; it does not approve a design.
 
@@ -19,7 +20,7 @@ What the engine already has, and the terminal UI only needs to draw (`framework/
 - the "needs you" items (`NeedView`), alerts, stalled lanes, the gate lease and merge readiness;
 - running and finished subagents per session, each with its type, start, end, parent and description
   (`SubagentView`, `state/model.go`; at most 20 finished per session, `maxFinished`, `state/model.go:99-100`);
-- cost per hour over the last hour (`docs/panel.md`, *The page*, est. $) and a burn rate over 30 minutes
+- cost per hour over the last hour (`docs/panel.md`, *The page*, est. $) and a quota burn rate over 30 minutes
   (`state/trends.go`).
 
 What the engine does **not** have yet, and which row builds it:
@@ -30,6 +31,11 @@ What the engine does **not** have yet, and which row builds it:
 | context by part (messages, tool results, tools, memory files) against the compaction point | PANEL-50 (it reads the same transcript for contributors), else PANEL-61 |
 | $/hr over the last ten minutes (the engine's is over the last hour) and "× your average" session | PANEL-61's design defines both windows |
 | finished unread: a session that stopped since the owner last selected it | PANEL-61's design defines the read marker |
+| a session's colour carried into its terminal (the panel keeps tmux's status bar off today, `docs/panel.md`, *The page*) | PANEL-62, which opens lanes, once the owner answers open question 3 |
+
+PANEL-61's roadmap row names only part of this (state, time, context, cost, the filter, $/hr, the raise, the docs
+link). The jump key, subagent detail, context by part and the read marker are added to it when the owner approves this
+PRD, or at its proposal.
 
 **The states.** The screens and ADR-0009 each name states; this table is the one mapping, from the engine up:
 
@@ -58,8 +64,8 @@ takes these, and only these:
 4. **Spending now:** dollars per hour over the last ten minutes, and "× your average" session.
 5. **Context by part:** messages, tool results, tools and memory files, against the point where compaction starts.
 6. **Subagents made visible:** what each was asked, its model, tokens, cost and last words.
-7. **A session's colour follows it into its terminal:** attached, the lane's tmux status line carries its state mark
-   and colour.
+7. **A session's colour follows it into its terminal.** How depends on open question 3 (how a lane's terminal is
+   reached); the gap table names its owner.
 
 It does not take the forked terminal, Burst's billing routing, gateway-level compaction or first-editor file
 ownership (the direction shift lists why).
