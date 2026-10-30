@@ -10,22 +10,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testgit"
-	"github.com/clauductor/clauductor/internal/treesnap"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testgit"
+	"github.com/rfhayn/stridal/internal/treesnap"
 )
 
 // selfMod is the throwaway module standing in for the panel's own source.
 const selfMod = "example.com/selfpanel"
 
-// selfModule is that module's framework/: a go.mod, the ./cmd/clauductor the rebuild
+// selfModule is that module's framework/: a go.mod, the ./cmd/stridal the rebuild
 // builds (answering the preflight's version, panel list and panel config-check), and
 // the files D4 names.
 var selfModule = map[string]string{
 	"framework/go.mod": "module " + selfMod + "\n\ngo 1.22\n",
-	"framework/cmd/clauductor/main.go": `package main
+	"framework/cmd/stridal/main.go": `package main
 
 import (
 	"fmt"
@@ -97,13 +97,13 @@ func commitFile(t *testing.T, root, rel, body string) string {
 	return commitAll(t, root, rel)
 }
 
-// buildAt builds root's ./cmd/clauductor, as it is checked out, into out.
+// buildAt builds root's ./cmd/stridal, as it is checked out, into out.
 func buildAt(t *testing.T, root, out string) BuildStamp {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "build", "-o", out, "./cmd/clauductor")
+	cmd := exec.Command("go", "build", "-o", out, "./cmd/stridal")
 	cmd.Dir = filepath.Join(root, "framework")
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v %s", err, b)
@@ -156,7 +156,7 @@ func TestDecideAsksEachConditionInTurn(t *testing.T) {
 	b := commitFile(t, root, "framework/internal/panel/server.go", "package panel\n\nconst Version = \"two\"\n")
 	docs := commitFile(t, root, "docs.txt", "docs\n")
 	rebuild := func(edit func(*Rebuild)) Plan {
-		rb := &Rebuild{Home: t.TempDir(), Root: root, From: r, To: b, Launchd: true, Exe: "/x/clauductor",
+		rb := &Rebuild{Home: t.TempDir(), Root: root, From: r, To: b, Launchd: true, Exe: "/x/stridal",
 			Self: BuildStamp{Module: selfMod, Revision: r}, Run: signals.ExecRunner}
 		if edit != nil {
 			edit(rb)
@@ -188,11 +188,11 @@ func TestDecideAsksEachConditionInTurn(t *testing.T) {
 			t.Errorf("%s: how to update is %q", tc.name, p.How)
 		}
 	}
-	if p := rebuild(func(rb *Rebuild) { rb.Launchd = false }); !strings.Contains(p.How, "go build -o /x/clauductor ./cmd/clauductor") {
+	if p := rebuild(func(rb *Rebuild) { rb.Launchd = false }); !strings.Contains(p.How, "go build -o /x/stridal ./cmd/stridal") {
 		t.Errorf("a panel started by hand is told %q, want its own binary rebuilt", p.How)
 	}
 	// The line runs as printed: a binary's path with a space is one shell word (PANEL-47).
-	if p := rebuild(func(rb *Rebuild) { rb.Launchd, rb.Exe = false, "/x y/clauductor" }); !strings.Contains(p.How, "go build -o '/x y/clauductor' ./cmd/clauductor") {
+	if p := rebuild(func(rb *Rebuild) { rb.Launchd, rb.Exe = false, "/x y/stridal" }); !strings.Contains(p.How, "go build -o '/x y/stridal' ./cmd/stridal") {
 		t.Errorf("a binary's path with a space is told %q", p.How)
 	}
 	// R not an ancestor of B: the range is the fast-forward's, still said.
@@ -281,7 +281,7 @@ func TestBuildTimeoutStopsIt(t *testing.T) {
 func TestBuildWithoutGoSaysSo(t *testing.T) {
 	t.Parallel()
 	rb := &Rebuild{Home: t.TempDir(), Root: t.TempDir(), Go: filepath.Join(t.TempDir(), "go"), Run: signals.ExecRunner}
-	if err := rb.Build(context.Background()); err == nil || !strings.Contains(err.Error(), "clauductor panel install") {
+	if err := rb.Build(context.Background()); err == nil || !strings.Contains(err.Error(), "stridal panel install") {
 		t.Fatalf("Build: %v", err)
 	}
 	gone(t, rb.NewBinary())
@@ -343,8 +343,8 @@ func TestPreflightRefusesABinaryWithNoBuildInformation(t *testing.T) {
 	gone(t, rb.NewBinary())
 }
 
-// The swap keeps the binary it replaces as clauductor.prev, never opens the token or the
-// plist, and replaces the PATH's clauductor the same way only when its build names this
+// The swap keeps the binary it replaces as stridal.prev, never opens the token or the
+// plist, and replaces the PATH's stridal the same way only when its build names this
 // module and a commit of the repository, leaving its directory's permissions as they were.
 // A stop as the swap runs (a logout, `launchctl bootout`) still replaces the PATH's: review
 // 2026-10-23 found its check read the stop's ended context as "not a commit", leaving it
@@ -353,7 +353,7 @@ func TestSwapKeepsThePreviousBinaries(t *testing.T) {
 	realGo(t)
 	t.Parallel()
 	root, r := selfRepo(t)
-	built := filepath.Join(t.TempDir(), "clauductor")
+	built := filepath.Join(t.TempDir(), "stridal")
 	buildAt(t, root, built)
 	atR := readBytes(t, built)
 	for _, tc := range []struct {
@@ -373,7 +373,7 @@ func TestSwapKeepsThePreviousBinaries(t *testing.T) {
 			if err := os.MkdirAll(pathDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			rb.PathBinary = filepath.Join(pathDir, "clauductor")
+			rb.PathBinary = filepath.Join(pathDir, "stridal")
 			if err := copyExecutable(built, rb.PathBinary); err != nil {
 				t.Fatal(err)
 			}
@@ -395,11 +395,11 @@ func TestSwapKeepsThePreviousBinaries(t *testing.T) {
 			}
 			if tc.replaced {
 				if replaced != rb.PathBinary || readBytes(t, rb.PathBinary) != "the binary built at B" || readBytes(t, rb.PathBinary+".prev") != atR {
-					t.Fatalf("the PATH's clauductor was not replaced, keeping its .prev (replaced %q)", replaced)
+					t.Fatalf("the PATH's stridal was not replaced, keeping its .prev (replaced %q)", replaced)
 				}
 			} else {
 				if replaced != "" || readBytes(t, rb.PathBinary) != atR {
-					t.Fatalf("another module's clauductor on PATH was replaced (%q)", replaced)
+					t.Fatalf("another module's stridal on PATH was replaced (%q)", replaced)
 				}
 				gone(t, rb.PathBinary+".prev")
 			}
@@ -444,7 +444,7 @@ func TestRestartMarkerIsTakenOnce(t *testing.T) {
 
 func TestTildeWritesHomeAsTilde(t *testing.T) {
 	t.Parallel()
-	if got := Tilde("/Users/a", "/Users/a/.clauductor/panel/bin/clauductor"); got != "~/.clauductor/panel/bin/clauductor" {
+	if got := Tilde("/Users/a", "/Users/a/.stridal/panel/bin/stridal"); got != "~/.stridal/panel/bin/stridal" {
 		t.Fatalf("Tilde: %q", got)
 	}
 	if got := Tilde("/Users/a", "/Users/ab/x"); got != "/Users/ab/x" {
@@ -452,10 +452,10 @@ func TestTildeWritesHomeAsTilde(t *testing.T) {
 	}
 	// One shell word, so the rollback runs as printed; the ~ stays outside the quotes,
 	// where a shell expands it (PANEL-47).
-	if got := Tilde("/Users/a", "/Users/a/o'k bin/clauductor"); got != `~/'o'\''k bin/clauductor'` {
+	if got := Tilde("/Users/a", "/Users/a/o'k bin/stridal"); got != `~/'o'\''k bin/stridal'` {
 		t.Fatalf("Tilde with a space and a quote: %q", got)
 	}
-	if got := Tilde("/Users/a", "/Volumes/x y/clauductor"); got != `'/Volumes/x y/clauductor'` {
+	if got := Tilde("/Users/a", "/Volumes/x y/stridal"); got != `'/Volumes/x y/stridal'` {
 		t.Fatalf("Tilde outside the home, with a space: %q", got)
 	}
 }

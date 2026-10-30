@@ -1,4 +1,4 @@
-module github.com/clauductor/clauductor
+module github.com/rfhayn/stridal
 
 go 1.24.0
 

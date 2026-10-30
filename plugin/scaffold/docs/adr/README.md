@@ -11,7 +11,7 @@ dependencies, interfaces, construction techniques).
 
 **Lessons about how we work** (rules about testing, review, evidence and process, each with
 something that executes it, and the tooling decisions behind them) are **practice records**, in
-[`../practices/`](../practices/README.md), `PRAC-NNNN`. `/clauductor:new-adr` asks which kind first. A lesson
+[`../practices/`](../practices/README.md), `PRAC-NNNN`. `/stridal:new-adr` asks which kind first. A lesson
 already written here as an ADR stays one. `AGENTS.md` does not take new lessons (it changes only
 to add a mechanism or delete something); the insights log is intake, not a home.
 
@@ -32,7 +32,7 @@ promote your own versions of them here as your project confirms or amends them.
 
 ## Process
 1. Capture raw observations in the insights log during the work.
-2. When one is a real decision about the system, promote it with `/clauductor:new-adr`: copy
+2. When one is a real decision about the system, promote it with `/stridal:new-adr`: copy
    [`TEMPLATE.md`](TEMPLATE.md) to `NNNN-<kebab-title>.md`, or amend the ADR that owns the
    principle. Then retag **every** insights row it cites.
 3. Reference the ADR where it is enforced (a hook, a check, `AGENTS.md`'s table) so the decision

@@ -59,10 +59,10 @@ async function openPage(browser, R, opts = {}) {
 // The appearance, set the way the page itself keeps it (theme.js reads these keys).
 function appearanceStorage({ theme, mode, type, scale }) {
   const kv = {};
-  if (theme) kv["clauductor-panel-theme"] = theme;
-  if (mode) kv["clauductor-panel-mode"] = mode;
-  if (type) kv["clauductor-panel-type"] = type;
-  if (scale) kv["clauductor-panel-scale"] = String(scale);
+  if (theme) kv["stridal-panel-theme"] = theme;
+  if (mode) kv["stridal-panel-mode"] = mode;
+  if (type) kv["stridal-panel-type"] = type;
+  if (scale) kv["stridal-panel-scale"] = String(scale);
   return kv;
 }
 

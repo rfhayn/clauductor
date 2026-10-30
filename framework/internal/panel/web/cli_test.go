@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // cliRig is a project served through CLIHandler: testLaneManager's lanes, with a runner
@@ -318,7 +318,7 @@ func TestCLICloseRefusesUnmergedUnlessExited(t *testing.T) {
 	if r.ranLike("git update-ref") || !strings.Contains(strings.Join(res.Result.Kept, "\n"), "the local branch change/x: it is not merged") {
 		t.Errorf("the unmerged branch was not kept, saying why: kept %q, calls %q", res.Result.Kept, r.calls())
 	}
-	if line := r.out.String(); !strings.HasPrefix(line, "lane x (a) closed by clauductor lane close: removed ") || !strings.Contains(line, "; kept the local branch change/x") {
+	if line := r.out.String(); !strings.HasPrefix(line, "lane x (a) closed by stridal lane close: removed ") || !strings.Contains(line, "; kept the local branch change/x") {
 		t.Errorf("the panel's output %q, want the close's line", line)
 	}
 }
@@ -504,7 +504,7 @@ func TestCLICloseFinishesWhenTheRequestGoes(t *testing.T) {
 	if len(live) != 1 {
 		t.Errorf("the branch's deletion under a live context: %q; calls %q", live, r.calls())
 	}
-	if line := r.out.String(); !strings.Contains(line, "lane x (a) closed by clauductor lane close: removed ") || !strings.Contains(line, "the local branch change/x") {
+	if line := r.out.String(); !strings.Contains(line, "lane x (a) closed by stridal lane close: removed ") || !strings.Contains(line, "the local branch change/x") {
 		t.Errorf("the panel's output %q, want the close's line", line)
 	}
 }

@@ -42,7 +42,7 @@ The full survey, with sources, is in the session record (market research, 2026-0
 
 ## Decisions
 
-- **D1 Format.** OpenSpec-compatible Markdown, written by clauductor's own skills, with no install.
+- **D1 Format.** OpenSpec-compatible Markdown, written by stridal's own skills, with no install.
   The folders are tool-neutral: `changes/<id>/` and `specs/<capability>/`. They stay configurable
   as `CHANGES_DIR` and `SPECS_DIR` in `.claude/project.conf`.
 - **D2 The OpenSpec CLI is an optional module.** Turning it on creates `openspec/specs →
@@ -75,27 +75,27 @@ The full survey, with sources, is in the session record (market research, 2026-0
   approves again. The wording is borrowed from Superpowers.
 - **D9 Kept as they are:** ADRs in `docs/adr/` for decisions that outlive a change, the root
   `AGENTS.md`, and the owner-queue and change-queue cards.
-- **D10 A repository works without clauductor installed** (an invariant, decided 2026-09-30).
+- **D10 A repository works without stridal installed** (an invariant, decided 2026-09-30).
   - Everything a contributor needs lives in the repo and runs in Claude Code alone: the skills,
     hooks, checks, the gate and its queue lock, the merge guard, and the records.
-  - The panel, the `clauductor` binary and the plugin are conveniences on top, never dependencies.
+  - The panel, the `stridal` binary and the plugin are conveniences on top, never dependencies.
   - Anything that talks to the panel treats a missing panel as a normal state, not an error:
     - the status line's post to the panel;
     - session-start's panel line;
     - the economy file;
     - project cards.
-  - **Enforced by `checks/no-clauductor.sh`** (OPS-12), which runs:
+  - **Enforced by `checks/no-stridal.sh`** (OPS-12), which runs:
     - the template's gate;
     - the process checks;
     - a representative skill context script, and
     - the status line,
 
-    all with `clauductor` absent from `PATH` and no panel running. It fails if anything errors,
-    or asks for the binary or the panel. It is falsified by adding a hard `clauductor` call to a
+    all with `stridal` absent from `PATH` and no panel running. It fails if anything errors,
+    or asks for the binary or the panel. It is falsified by adding a hard `stridal` call to a
     gate step.
   - The playbook and `AGENTS.md`'s "what executes" table name it.
   - At convergence, Standing Tee gets the same check, beside its existing gate-lock conformance
-    test. This matters there because its designer works without clauductor, and possibly on Windows.
+    test. This matters there because its designer works without stridal, and possibly on Windows.
 - **Not adopted:**
   - executable Gherkin as a default; it stays an opt-in module, and its tags reuse the D3 IDs;
   - Spec Kit's layout;
@@ -129,8 +129,8 @@ Every item gets a check that fails when it is broken, per AGENTS.md rule 4.
 8. **Docs:** the playbook, principles and QUICKSTART are updated. The README change waits for
    REL-1.
 9. **Guard what the OpenSpec CLI does not.** This was tested on 1.2.0 and 1.13.2.
-   - **Refuse to archive in clauductor's own archive step and merge guard** a change that has:
-     - no spec deltas, unless it declares `skip_specs: true` in `.openspec.yaml`, which clauductor
+   - **Refuse to archive in stridal's own archive step and merge guard** a change that has:
+     - no spec deltas, unless it declares `skip_specs: true` in `.openspec.yaml`, which stridal
        also writes;
      - an unchecked task.
 
@@ -170,7 +170,7 @@ measurement, security hygiene and outcomes. The owner chose the following.
 14. **AI provenance trailers.**
     - Squash commits carry `Change:`, `Agent-Role:`, `Model:` and `Session:` trailers.
     - `pr-merge-guard` requires them when `model-roles.json` turns provenance on.
-    - The template default is on. Clauductor's own repo turns it off, keeping its "no
+    - The template default is on. Stridal's own repo turns it off, keeping its "no
       Co-Authored-By" rule.
 
 Separate milestones, also adopted:
@@ -345,9 +345,9 @@ found seven things worth taking. Where each is built:
     of an existing rule, or record `Not promoted — <why>`. `archive-change` may do it early. A row
     still `Raw` after `COMPOUND_MAX_SESSIONS` sessions (default 3) fails `checks/compound.sh`.
 
-## OPS-8: clauductor runs its own operating model
+## OPS-8: stridal runs its own operating model
 
-This comes after OPS-7 and before Standing Tee converges, as the rehearsal. Clauductor's own repo
+This comes after OPS-7 and before Standing Tee converges, as the rehearsal. Stridal's own repo
 still runs the old lock-based skills, has no ADRs, and does not use the model it ships.
 
 - **Install the model into this repo**, and replace the old skills (claim, spawn, supervisor and the
@@ -371,7 +371,7 @@ still runs the old lock-based skills, has no ADRs, and does not use the model it
   - The journal and the insights log keep their history.
   - ADRs start at 0001 with this cycle's decisions: the change format, scenario traceability, the
     multi-repo panel, the install guard, and never killing a tmux server from a script.
-- **The panel:** clauductor becomes the second project in the owner's panel, the first real
+- **The panel:** stridal becomes the second project in the owner's panel, the first real
   multi-repo use.
 - **Everything OPS-8 surfaces** (friction in install, update, the guard or the skills) is fixed in
   the template before Standing Tee's Phase 0.
@@ -387,7 +387,7 @@ Standing Tee keeps working as it is throughout. Every step below is an ordinary 
 `ops/` PR through `/merge-pr`.
 
 - **Phase 0: the convergence map.** This is read-only.
-  - Diff each file that exists in both Standing Tee and the template. `clauductor install --dry-run`
+  - Diff each file that exists in both Standing Tee and the template. `stridal install --dry-run`
     listed 25 of them on 2026-09-30.
   - Classify each file one of three ways:
     - take the template's version;
@@ -403,7 +403,7 @@ Standing Tee keeps working as it is throughout. Every step below is an ordinary 
     journal, insights, owner queue and registries stay exactly where they are.
   - **List the designer onboarding sections each change touches.** The files are
     `docs/onboarding-designer.md` and `docs/designer-welcome.html`. Both are written for a second
-    contributor, and neither mentions the panel or clauductor today.
+    contributor, and neither mentions the panel or stridal today.
     - The sections expected to change are:
       - §5.6, Claude Code setup: the deny list and sandbox, a plugin install if adopted, and
         gitleaks;
@@ -411,7 +411,7 @@ Standing Tee keeps working as it is throughout. Every step below is an ordinary 
         skill names;
       - §10, branch, PR, merge: the merge evidence and the provenance trailers.
     - The designer's lane, the tokens, the app setup, the tools and the first task are unaffected.
-- **Phase 1: extension points in clauductor.**
+- **Phase 1: extension points in stridal.**
   - Install and update merge `settings.json` instead of overwriting it.
   - Optional modules for Standing Tee's extras:
     - claude.ai artifacts and their currency (guard rule 8);
@@ -421,7 +421,7 @@ Standing Tee keeps working as it is throughout. Every step below is an ordinary 
     - the living visual pages.
   - A project-local layer for health lines, guard rules and context sections that installs never
     overwrite.
-  - A new `clauductor diff` command.
+  - A new `stridal diff` command.
 - **Phase 2: upstream.** Whatever the map marks as generic and better in Standing Tee moves into the
   template.
 - **Phase 3: converge, file by file.**
@@ -429,7 +429,7 @@ Standing Tee keeps working as it is throughout. Every step below is an ordinary 
   - Existing scenarios need no IDs. D4 applies only to scenarios that a change adds or modifies,
     and a backfill can come later.
   - Standing Tee's vitest meta-tests stay alongside the template's shell checks.
-  - Add the D10 check (`no-clauductor`) to Standing Tee's gate.
+  - Add the D10 check (`no-stridal`) to Standing Tee's gate.
   - **Each PR that changes something the designer meets updates the matching onboarding section in
     the same PR,** using the Phase 0 list. The whole revision reaches the designer as one change,
     not a series.
@@ -446,8 +446,8 @@ Standing Tee keeps working as it is throughout. Every step below is an ordinary 
       walkthroughs do, so session-start can report the designer's progress. Today it uses
       localStorage only.
 - **Phase 4: hand-over.**
-  - Write `.claude/clauductor-template`.
-  - From then on, `clauductor update` keeps Standing Tee current, and Standing Tee-specific parts
+  - Write `.claude/stridal-template`.
+  - From then on, `stridal update` keeps Standing Tee current, and Standing Tee-specific parts
     live in config, modules and the local layer.
 
 ## Open

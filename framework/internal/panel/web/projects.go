@@ -7,10 +7,10 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/metrics"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/metrics"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // One panel, many projects (PANEL-16). Each project has its own hub, lanes and

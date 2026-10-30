@@ -15,7 +15,7 @@ func TestVersionGatesKeys(t *testing.T) {
 	const lanes = `"lanes":{"feature/":"build","main":"orchestrator"}`
 	refused := []struct{ body, key string }{
 		{`{"name":"T","version":1,` + lanes + `,"templates":[{"id":"a","lane_type":"build","first_prompt":"x"}]}`, `"templates"`},
-		{`{"name":"T","version":1,"queues":[{"id":"g","lock":"clauductor/gate.lock"}]}`, `"queues"`},
+		{`{"name":"T","version":1,"queues":[{"id":"g","lock":"stridal/gate.lock"}]}`, `"queues"`},
 		{`{"name":"T","version":1,"alerts":{"idle_minutes":5}}`, `"alerts"`},
 		{`{"name":"T","version":1,"quota_guard":{"five_hour_pct":90}}`, `"quota_guard"`},
 		{`{"name":"T","version":1,"host_names":["app.localhost"]}`, `"host_names"`},

@@ -126,7 +126,7 @@ func TestRemoteControlAllMergesOneKey(t *testing.T) {
 		strings.Index(s, `"statusLine"`) < strings.Index(s, `"remoteControlAtStartup"`)) {
 		t.Fatalf("order changed:\n%s", s)
 	}
-	if bak, err := os.ReadFile(p + ".clauductor-panel.bak"); err != nil || string(bak) != settingsFixture {
+	if bak, err := os.ReadFile(p + ".stridal-panel.bak"); err != nil || string(bak) != settingsFixture {
 		t.Fatalf("no backup of the file as it was: %v", err)
 	}
 	if mode, out := choose(t, home, "all", "", false); mode != RemoteAll || !strings.Contains(out, "already has") {

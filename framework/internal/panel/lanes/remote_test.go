@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/clock"
 )
 
 // PANEL-19: a lane starts with --remote-control only in lanes mode, before -n, and a

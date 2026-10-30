@@ -16,20 +16,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/claudecall"
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/lease"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/panel/web"
+	"github.com/rfhayn/stridal/internal/panel/claudecall"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/lease"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/web"
 )
 
 // errUntrusted is what a card shows while the config is untrusted.
-var errUntrusted = errors.New("not run: panel.json changed since you trusted it; run `clauductor panel trust`")
+var errUntrusted = errors.New("not run: panel.json changed since you trusted it; run `stridal panel trust`")
 
 // Default cadences (Ticks overrides each) and the windows the agents cadence reads.
 const (
@@ -805,7 +805,7 @@ func (r *Runtime) pollNotify() func(context.Context, time.Time) (update, time.Du
 		r.mu.Lock()
 		// The project name comes from panel.json, so it is config like any other: an
 		// untrusted config does not get to title OS notifications.
-		r.notifier.Project = "clauductor panel"
+		r.notifier.Project = "stridal panel"
 		if r.trusted() {
 			r.notifier.Project = r.cfg.Name
 		}
@@ -855,7 +855,7 @@ func (r *Runtime) pollNotify() func(context.Context, time.Time) (update, time.Du
 	}
 }
 
-// pollTrust lifts the untrusted mode once `clauductor panel trust` records the
+// pollTrust lifts the untrusted mode once `stridal panel trust` records the
 // loaded config's hash, then stops.
 func (r *Runtime) pollTrust(context.Context, time.Time) (update, time.Duration) {
 	if r.trusted() { // trusted from the page meanwhile (markTrusted)
@@ -864,7 +864,7 @@ func (r *Runtime) pollTrust(context.Context, time.Time) (update, time.Duration) 
 	if !install.TrustedNow(r.o.Home, r.root, r.cfgPath, r.trustView.Hash) {
 		return nil, 0
 	}
-	return r.markTrusted("trusted by `clauductor panel trust`"), -1
+	return r.markTrusted("trusted by `stridal panel trust`"), -1
 }
 
 // markTrusted turns the loaded config's commands on: its trust was just recorded (by

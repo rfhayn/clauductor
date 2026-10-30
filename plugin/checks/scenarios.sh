@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Scenario-to-test traceability (.claude/scenario-trace.sh), falsified both ways in throwaway repos:
 # a complete change whose scenarios are cited passes; one uncited scenario fails; a (manual: …)
 # line escapes it and an escape with no reason does not; AUTH-1-S10 does not cite AUTH-1-S1; a
@@ -11,15 +11,15 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 need git
 
 d=$(scratch)
-EX="$CLAUDUCTOR_FW/examples"
-TRACE="$CLAUDUCTOR_FW/scenario-trace.sh"
+EX="$STRIDAL_FW/examples"
+TRACE="$STRIDAL_FW/scenario-trace.sh"
 
 # mkrepo NAME: a repo holding the example change (every task ticked: a finished build) and the
 # living spec it modifies, with the scripts the trace needs. Returns it in $R.
 mkrepo() {
   R="$d/$1"; new_repo "$R"
   mkdir -p "$R/.claude/lib" "$R/changes" "$R/specs"
-  cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$R/.claude/lib/"
+  cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$R/.claude/lib/"
   cp "$TRACE" "$R/.claude/"
   cp -R "$EX/changes/add-greeting-name" "$R/changes/"
   cp -R "$EX/specs/greeting" "$R/specs/"

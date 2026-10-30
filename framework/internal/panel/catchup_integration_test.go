@@ -13,14 +13,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testwait"
-	"github.com/clauductor/clauductor/internal/treesnap"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testwait"
+	"github.com/rfhayn/stridal/internal/treesnap"
 )
 
 // cuPanelJSON is the panel.json a full panel's project has: base is the default,
@@ -263,7 +263,7 @@ func catchUpNotices(l *noticeLog) []state.Notice {
 	return out
 }
 
-// oneNotice is the one catch-up notice sent, which must be titled "clauductor panel"
+// oneNotice is the one catch-up notice sent, which must be titled "stridal panel"
 // and name the checkout and each of want.
 func (w *cuWorld) oneNotice(t *testing.T, l *noticeLog, want ...string) state.Notice {
 	t.Helper()
@@ -272,8 +272,8 @@ func (w *cuWorld) oneNotice(t *testing.T, l *noticeLog, want ...string) state.No
 		t.Fatalf("catch-up sent %d notices, want 1: %+v", len(ns), ns)
 	}
 	n := ns[0]
-	if n.Title != "clauductor panel" {
-		t.Fatalf("notice title %q, want clauductor panel", n.Title)
+	if n.Title != "stridal panel" {
+		t.Fatalf("notice title %q, want stridal panel", n.Title)
 	}
 	for _, s := range append([]string{w.root}, want...) {
 		if !strings.Contains(n.Body, s) {
@@ -682,7 +682,7 @@ func TestCatchUpTurnedOffOnARunningPanel(t *testing.T) {
 	p.polls.until(t, "catch-up", 1)
 	p.polls.until(t, "prs", 1)
 	w.merged(t, 7, "owner", "b.txt", "two\n")
-	w.catchUpOn(t, false) // what `clauductor panel catch-up --project <it> off` writes
+	w.catchUpOn(t, false) // what `stridal panel catch-up --project <it> off` writes
 	before := w.state(t)
 	fetches, merges := w.ran("fetch"), w.ran("merge")
 	n := p.polls.count("catch-up")
@@ -731,7 +731,7 @@ func TestCatchUpSkipsAConfigMovedOutside(t *testing.T) {
 
 // [CATCHUP-2-S11] With alerts.notify false, a refused fast-forward (a tracked change)
 // still sends one notice naming the checkout's path and the tracked change, as a
-// notification and through push.json's stand-in, titled "clauductor panel".
+// notification and through push.json's stand-in, titled "stridal panel".
 func TestCatchUpRefusalIgnoresAlertsNotify(t *testing.T) {
 	t.Parallel()
 	_, sock := throwawaySocket(t)
@@ -754,7 +754,7 @@ func TestCatchUpRefusalIgnoresAlertsNotify(t *testing.T) {
 	w.same(t, before)
 	nt := w.oneNotice(t, &notices, "a.txt")
 	got := pushRuns(t, runs)
-	if len(got) != 1 || len(got[0]) != 2 || got[0][0] != "clauductor panel" || got[0][1] != nt.Body {
-		t.Fatalf("pushes %q, want one titled clauductor panel with the notice's body %q", got, nt.Body)
+	if len(got) != 1 || len(got[0]) != 2 || got[0][0] != "stridal panel" || got[0][1] != nt.Body {
+		t.Fatalf("pushes %q, want one titled stridal panel with the notice's body %q", got, nt.Body)
 	}
 }

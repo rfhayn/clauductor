@@ -26,7 +26,7 @@ ROOT=$(cd "$(dirname "$0")/../../../.." 2>/dev/null && pwd)
 TOP=$ROOT
 # How a person runs the tool: the template's path, or the plugin's command.
 self=".claude/modules/artifacts/bin/currency.sh"
-case ${CLAUDUCTOR_FW:-} in '' | */.claude) run="sh $self" ;; *) run="clauductor-model modules/artifacts/bin/currency.sh" ;; esac
+case ${STRIDAL_FW:-} in '' | */.claude) run="sh $self" ;; *) run="stridal-model modules/artifacts/bin/currency.sh" ;; esac
 
 case ${GUARD_BRANCH:-} in
   "${BRANCH_OPS:-ops/}"session-[0-9]*-close*) ;;

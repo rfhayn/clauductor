@@ -86,7 +86,7 @@ func TestUpdateNamesChangedGuidanceDocs(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	for _, want := range []string{"Docs —", "~ docs/playbook.md", "clauductor diff"} {
+	for _, want := range []string{"Docs —", "~ docs/playbook.md", "stridal diff"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("update's notice lacks %q:\n%s", want, out)
 		}

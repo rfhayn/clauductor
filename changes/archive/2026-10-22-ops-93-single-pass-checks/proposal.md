@@ -6,8 +6,8 @@
 ## Why
 
 Every process check runs twice today. `checks/run.sh` runs the set, and one check in it,
-`no-clauductor.sh`, runs the whole set again inside the no-clauductor environment
-(`template/.claude/checks/no-clauductor.sh:110-111`). That is ADR-0006's enforcement. This repo's
+`no-stridal.sh`, runs the whole set again inside the no-stridal environment
+(`template/.claude/checks/no-stridal.sh:110-111`). That is ADR-0006's enforcement. This repo's
 gate runs two sets, this repo's and the template's (`scripts/ci/steps.sh:100,107`), so each of them
 pays for the second pass. ADR-0006 put the second pass at "about 45 s in the template". On
 2026-10-18 a probe outside this repo measured 201.9 s of a 400.25 s template set on an 8-core Linux
@@ -17,7 +17,7 @@ machine. That probe is not in the repo, and its numbers have not been reproduced
 runs per machine at a time, so the second pass sets the pace of a session (OPS-89).
 
 On 2026-10-18 the owner approved amending ADR-0006. Every check now runs once, inside the
-no-clauductor environment. A weekly double pass on `main` covers the one case the single pass
+no-stridal environment. A weekly double pass on `main` covers the one case the single pass
 gives up, and the release notes tell adopters about the new risk. The decision arrived as a
 handoff written outside this repo, with the amendment text attached. design.md records both, so
 the amendment's `Source` line ("the owner's decision R23") points at a record this repo keeps.
@@ -29,17 +29,17 @@ stays queued behind the session plan's order (see *Placement*).
 
 ## What changes
 
-- **One pass.** A whole-set `sh .claude/checks/run.sh` builds the no-clauductor environment once
+- **One pass.** A whole-set `sh .claude/checks/run.sh` builds the no-stridal environment once
   and runs every check inside it: this directory's checks, the enabled modules' and
-  `.claude/local/checks`. That environment is today's: `clauductor` off `PATH`, a fresh `HOME`
-  with no panel, and `CI` and `CLAUDUCTOR_LOCK_HELD` emptied. `no-clauductor.sh` keeps its own
+  `.claude/local/checks`. That environment is today's: `stridal` off `PATH`, a fresh `HOME`
+  with no panel, and `CI` and `STRIDAL_LOCK_HELD` emptied. `no-stridal.sh` keeps its own
   parts (the output scan, the gate in a throwaway repo, the `GATE_STEPS` scan, the context script,
   the status line). It asserts that it runs inside that environment instead of running the set a
   second time.
 - **The old behaviour on demand.** `CHECKS_DOUBLE_PASS=1` restores the double pass in any run,
-  for rollback without a revert. `no-clauductor.sh` run on its own still runs the set again, as
+  for rollback without a revert. `no-stridal.sh` run on its own still runs the set again, as
   it does today.
-- **A weekly double pass on this repo's `main`.** It runs with a freshly built `clauductor` on
+- **A weekly double pass on this repo's `main`.** It runs with a freshly built `stridal` on
   `PATH`, the runner's `HOME` and `CI=true`, so a check that fails only when those are present is
   still found: days after merge instead of before it. A failed run reaches session-start through
   `.claude/health/scheduled-workflows.sh`, which already reads every scheduled workflow.
@@ -52,7 +52,7 @@ stays queued behind the session plan's order (see *Placement*).
   `CHANGELOG.md` comes with REL-1 (#25, open).
 
 **Why this PR does not insert the amendment into ADR-0006.** The amendment's Enforcement
-paragraph describes a `run.sh` that builds the environment, and a `no-clauductor.sh` that fails
+paragraph describes a `run.sh` that builds the environment, and a `no-stridal.sh` that fails
 outside it. Neither exists until the build. Merged now, the ADR would state a control that nothing
 executes (AGENTS.md rule 4), and nothing would show it. The build PR inserts the text together
 with the code that makes it true (design D9).
@@ -79,7 +79,7 @@ executable. Launch is REL-1 (Phase 4), so any Phase 2 row comes before it.
 
 - **Running the checks the template and this repo share only once**: OPS-89, the pairing above.
 - **Per-step timings in the gate log**: OPS-89.
-- **Renaming `no-clauductor`**: the rename, which has no row yet (O2).
+- **Renaming the old name's `no-` check** (now `no-stridal`): the rename, which has no row yet (O2).
 - **A double pass for adopters' own CI.** The weekly job is this repo's alone. An adopter can set
   `CHECKS_DOUBLE_PASS=1` (O5).
 

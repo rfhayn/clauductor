@@ -32,7 +32,7 @@ cg_build_tasks() {  # cg_build_tasks BASE HEAD "IDS (change dirs)"
   for _d in $3; do
     _t=$(cg_show "$2" "$_d/tasks.md"); [ -n "$_t" ] || continue
     _n=$(open_tasks "$_t"); rm -f "$_t"
-    [ "$_n" -eq 0 ] || printf '%s has %s open task(s), and this PR builds it (it changes %s and more). A build merges only finished: tick each task done, or name the change that owns it (AGENTS.md rule 1). Check with: sh "$CLAUDUCTOR_FW"/verify-change.sh %s\n' "$_d/tasks.md" "$_n" "$_other" "${_d##*/}"
+    [ "$_n" -eq 0 ] || printf '%s has %s open task(s), and this PR builds it (it changes %s and more). A build merges only finished: tick each task done, or name the change that owns it (AGENTS.md rule 1). Check with: sh "$STRIDAL_FW"/verify-change.sh %s\n' "$_d/tasks.md" "$_n" "$_other" "${_d##*/}"
     # The project's own required sections (CHANGE_RECORD_EXTRA), read at the head; not asked of a
     # grandfathered change (CHANGES_LEGACY), which keeps the format it was approved in.
     if [ -n "${CHANGE_RECORD_EXTRA:-}" ] && ! cg_legacy "${_d##*/}"; then
@@ -47,7 +47,7 @@ cg_build_tasks() {  # cg_build_tasks BASE HEAD "IDS (change dirs)"
 # Rule 10: every enforced scenario is cited by a test at the head (D4). The trace script is the one
 # the gate runs; here it reads the head commit's tree.
 cg_trace() {  # cg_trace HEAD
-  _tr="$CLAUDUCTOR_FW/scenario-trace.sh"
+  _tr="$STRIDAL_FW/scenario-trace.sh"
   [ -f "$_tr" ] || { echo "cannot find $_tr, so scenario traceability (rule 10) cannot be checked. Restore it."; return; }
   _out=$(sh "$_tr" --check --rev "$1" 2>&1) && return 0
   printf 'scenario traceability fails at %s:\n%s\nName each MISSING ID in a test that asserts its THEN, or add a (manual: <reason>) line naming it to tasks.md, then re-run the gate.\n' \
@@ -71,7 +71,7 @@ cg_archives() {  # cg_archives BASE HEAD
     # the records this format added since it was proposed: cost, delta or skip_specs, outcome row.
     if cg_legacy "$_id"; then rm -f "$_t"; continue; fi
     grep -Eiq '(^|[^a-z])actual cost:? (\$[0-9]|unknown \(.+\))' "$_t" \
-      || echo "$_d/tasks.md does not record the change's actual cost: add under ## Progress '- <date> archived: actual cost \$X of budget \$N' (sh "$CLAUDUCTOR_FW"/change-cost.sh $_id), or 'actual cost unknown (<why>)'"
+      || echo "$_d/tasks.md does not record the change's actual cost: add under ## Progress '- <date> archived: actual cost \$X of budget \$N' (sh "$STRIDAL_FW"/change-cost.sh $_id), or 'actual cost unknown (<why>)'"
     rm -f "$_t"
     if ! git ls-tree -r --name-only "$2" -- "$_d/specs/" 2>/dev/null | grep -q '/spec\.md$'; then
       _y=$(cg_show "$2" "$_d/.openspec.yaml")

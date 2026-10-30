@@ -3,7 +3,7 @@ living page's sources does not refresh the page, and nothing else after the merg
 list comes from the tool, never from memory: after `git fetch origin`,
 
 ```bash
-clauductor-model modules/living-visuals/bin/living.sh --list --ref origin/main
+stridal-model modules/living-visuals/bin/living.sh --list --ref origin/main
 ```
 
 Each line that is not `OK` names the page, the source that moved, and how it is refreshed

@@ -10,15 +10,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/claudecall"
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/panel/web"
+	"github.com/rfhayn/stridal/internal/panel/claudecall"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/web"
 )
 
 // Machine is what a panel holds once for the whole machine (PANEL-16), however many
@@ -96,7 +96,7 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 			m.each(func(md *state.Model, now time.Time) { md.RestoreAutoVerified(vf.Version) })
 		}
 	}
-	m.notifier = state.Notifier{MinInterval: def.cfg.AlertThresholds().MinInterval, Project: "clauductor panel"}
+	m.notifier = state.Notifier{MinInterval: def.cfg.AlertThresholds().MinInterval, Project: "stridal panel"}
 	m.notifyPath = filepath.Join(dir, "notifier.json")
 	if b, err := os.ReadFile(m.notifyPath); err == nil {
 		var st state.NotifierState
@@ -128,7 +128,7 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 	}
 	m.economy = newEconomy(o.Home, def.cfg)
 	if o.Launchd {
-		// `clauductor panel rotate-token` (or a reinstall) replaces the token file;
+		// `stridal panel rotate-token` (or a reinstall) replaces the token file;
 		// follow it so the old token dies in the running panel too.
 		m.sources = append(m.sources, &source{name: "token", every: t.Token, fixedRate: true, waitFirst: true, poll: m.pollToken})
 	}

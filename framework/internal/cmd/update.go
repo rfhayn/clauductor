@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/template"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +27,7 @@ func init() {
 
 var updateCmd = &cobra.Command{
 	Use:   "update",
-	Short: "Update project's Clauductor skills, hooks, and templates",
+	Short: "Update project's Stridal skills, hooks, and templates",
 	Long: `Compares every framework file the template ships (skills, hooks, checks,
 workflows, modules, the model's scripts) and the agents against the project's
 copies, at the paths its .claude/project.conf gives them. Shows changes and
@@ -52,7 +52,7 @@ template added to them:
                                                     no existing value changes
   AGENTS.md                                      → the template's new table rows
                                                     listed as a suggestion, not applied
-  .clauductor/panel.json                         → checked against the BRANCH_* keys
+  .stridal/panel.json                         → checked against the BRANCH_* keys
 
 The old model's files that the current one replaced are listed and offered for
 removal (--prune removes them without asking). --dry-run shows everything first.
@@ -60,7 +60,7 @@ removal (--prune removes them without asking). --dry-run shows everything first.
 Docs the project owns are never written. Of them, the template's guidance docs
 (the playbook, conventions, principles, the READMEs of changes/, specs/ and
 scripts/ci/, ...) are named when they differ from the template's copy or are
-missing, so new guidance is found; ` + "`clauductor diff`" + ` notes them too.`,
+missing, so new guidance is found; ` + "`stridal diff`" + ` notes them too.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 		targetDir, err := os.Getwd()
@@ -225,7 +225,7 @@ type updatePlan struct {
 
 // planUpdate is every check update makes before its --dry-run line and every reading it plans
 // from, in update's order, writing nothing. update runs it, and so does doctor, which prints
-// `clauductor update` as a fix only when this returns no error (D8): one source for what update
+// `stridal update` as a fix only when this returns no error (D8): one source for what update
 // refuses, so a refusal added here reaches doctor with it. What it announces goes to out.
 func planUpdate(out io.Writer, targetDir string, force bool) (*updatePlan, error) {
 	if !force {
@@ -234,9 +234,9 @@ func planUpdate(out io.Writer, targetDir string, force bool) (*updatePlan, error
 		}
 	}
 
-	// Verify this looks like a Clauductor project
+	// Verify this looks like a Stridal project
 	if _, err := os.Stat(filepath.Join(targetDir, ".claude", "skills")); os.IsNotExist(err) {
-		return nil, fmt.Errorf("no .claude/skills/ found — is this a Clauductor project? Run 'clauductor install' first")
+		return nil, fmt.Errorf("no .claude/skills/ found — is this a Stridal project? Run 'stridal install' first")
 	}
 
 	fmt.Fprintf(out, "Checking for updates in %s\n", targetDir)
@@ -252,7 +252,7 @@ func planUpdate(out io.Writer, targetDir string, force bool) (*updatePlan, error
 
 	// A repository running its own operating model is left alone (ownguard.go).
 	announceOldModel(out, targetDir)
-	if !force && !ownedByClauductor(targetDir) {
+	if !force && !ownedByStridal(targetDir) {
 		overwrite, add, err := foreignModel(targetDir, tmplPath, files)
 		if err != nil {
 			return nil, err
@@ -336,7 +336,7 @@ func printGuidanceDrift(out io.Writer, targetDir string) {
 		return
 	}
 	fmt.Fprintln(out, "Docs — the template's guidance differs from this project's copies. update never overwrites")
-	fmt.Fprintln(out, "them (the project edits them); compare with `clauductor diff`, and take what you want:")
+	fmt.Fprintln(out, "them (the project edits them); compare with `stridal diff`, and take what you want:")
 	for _, p := range differs {
 		fmt.Fprintf(out, "  ~ %s\n", p)
 	}

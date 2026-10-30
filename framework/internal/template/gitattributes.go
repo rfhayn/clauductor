@@ -11,7 +11,7 @@ const GitattributesPath = ".gitattributes"
 
 // gitattributesHeader introduces the block MergeGitattributes adds to a project's own file. The
 // plugin's scaffold.sh writes the same two lines (TestScaffoldMergesGitattributes holds them equal).
-const gitattributesHeader = "# Clauductor: LF line endings on every OS, so shell scripts run under WSL2 and Git for Windows\n" +
+const gitattributesHeader = "# Stridal: LF line endings on every OS, so shell scripts run under WSL2 and Git for Windows\n" +
 	"# (.claude/checks/line-endings.sh holds it). Your own lines below still override these.\n"
 
 // MergeGitattributes returns the project's .gitattributes (have) with the template's rules (want)

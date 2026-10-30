@@ -123,7 +123,7 @@ rm -f "$F/.claude/project.conf" "$F/stub.sh"
 # roadmap names an artifact address.
 e=$(gen --url 2>&1) && fail "--url printed an address with no tracker-url: $e" \
   || case $e in *"no tracker configured on this machine (tracker-url)"*) ok "--url with no tracker-url says no tracker is configured" ;; *) fail "--url with no tracker-url: $e" ;; esac
-c="$(git -C "$F" rev-parse --path-format=absolute --git-common-dir)/clauductor"
+c="$(git -C "$F" rev-parse --path-format=absolute --git-common-dir)/stridal"
 mkdir -p "$c" && printf 'https://example.invalid/tracker\n' > "$c/tracker-url"
 [ "$(gen --url 2>&1)" = "https://example.invalid/tracker" ] && ok "--url prints the machine's tracker-url" || fail "--url: $(gen --url 2>&1)"
 rm -f "$c/tracker-url"
@@ -133,7 +133,7 @@ rm -f "$c/tracker-url"
 # single repeated character, or the artifacts module README's sample id (listed here, so allowing
 # another is an edit to this check).
 leaks() {
-  _u=$(head -n 1 "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir)/clauductor/tracker-url" 2>/dev/null)
+  _u=$(head -n 1 "$(git -C "$1" rev-parse --path-format=absolute --git-common-dir)/stridal/tracker-url" 2>/dev/null)
   if [ -n "$_u" ]; then git -C "$1" grep -nF -e "$_u"
   # Per address, not per line: -o prints each match whole (the id runs to its last [A-Za-z0-9], so
   # the id compares whole), and only an exempt id is dropped, never its line's neighbours.
@@ -157,7 +157,7 @@ git -C "$F" commit -qam 'plant: sample ids, and one that only starts like one'
 sample=EXAMPLEEXAMPLEEXAMPLE0
 [ "$(leaks "$F")" = "notes.md:1:claude.ai/artifact/${sample}7" ] && ok "...the sample ids are exempt whole, never a longer id that starts like one" || fail "the sample-id exemption: [$(leaks "$F")]"
 git -C "$F" rm -q notes.md && git -C "$F" commit -qm 'plant: removed'
-if [ -s "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/clauductor/tracker-url" ]; then how="its tracker-url's exact value"; else how="an artifact address (no tracker-url here)"; fi
+if [ -s "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)/stridal/tracker-url" ]; then how="its tracker-url's exact value"; else how="an artifact address (no tracker-url here)"; fi
 leak=$(leaks "$ROOT")
 [ -z "$leak" ] && ok "no tracked file in this repository names $how" || fail "a tracked file names the tracker: $(printf '%s\n' "$leak" | cut -d: -f1-2 | tr '\n' ' ')"
 
@@ -185,7 +185,7 @@ built=$(git -C "$F" hash-object docs/roadmap.md | cut -c1-7)
 add_row C-2
 gen --mark "$O" >/dev/null 2>&1
 case $(ctx) in "tracker: STALE, built from $built, "*) ok "an edit between the build and --mark -> STALE (the stamp is the built blob)" ;; *) fail "an edit between the build and --mark: $(ctx)" ;; esac
-s="$(git -C "$F" rev-parse --path-format=absolute --git-common-dir)/clauductor/tracker-refreshed"
+s="$(git -C "$F" rev-parse --path-format=absolute --git-common-dir)/stridal/tracker-refreshed"
 cp "$s" "$(scratch)/stamp.before"
 rm -rf "$(scratch)/none"
 gen --mark "$(scratch)/none" >/dev/null 2>&1 && fail "--mark stamped with nothing built" || ok "--mark refuses a directory it did not build"

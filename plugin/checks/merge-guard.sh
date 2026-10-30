@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # pr-merge-guard.sh, as a payload → exit-code table in both directions, against a throwaway repo
 # whose origin is a local bare repo named like `owner/name` (so the foreign-repo rules run) and a
 # stub `gh` on PATH (so no network and no GitHub are needed). Also: the receipt library across
@@ -10,11 +10,11 @@ need git jq
 d=$(scratch)
 R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/hooks/lib" "$R/.claude/lib" "$R/docs" "$d/bin"
-cp "$CLAUDUCTOR_FW/hooks/pr-merge-guard.sh" "$R/.claude/hooks/"
-cp "$CLAUDUCTOR_FW/hooks/lib/"* "$R/.claude/hooks/lib/"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/evals.sh" "$R/.claude/lib/"
-[ -f "$CLAUDUCTOR_FW/lib/docs-gate.sh" ] && cp "$CLAUDUCTOR_FW/lib/docs-gate.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/scenario-trace.sh" "$R/.claude/"
+cp "$STRIDAL_FW/hooks/pr-merge-guard.sh" "$R/.claude/hooks/"
+cp "$STRIDAL_FW/hooks/lib/"* "$R/.claude/hooks/lib/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/evals.sh" "$R/.claude/lib/"
+[ -f "$STRIDAL_FW/lib/docs-gate.sh" ] && cp "$STRIDAL_FW/lib/docs-gate.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/scenario-trace.sh" "$R/.claude/"
 cat > "$R/.claude/project.conf" <<'EOF'
 GATE_DISPLAY_CONTEXTS="ci/local"
 EOF
@@ -365,8 +365,8 @@ mv "$lane_receipt" "$d/receipt.keep"
 guard 2 "a GREEN display context with no receipt (display is not evidence)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"SUCCESS","bucket":"pass"}]'
 # The ci-status module on, GATE_DISPLAY_CONTEXTS left to its module.conf default: both directions
 # hold for both contexts its publisher posts, and every other check still gates.
-mkdir -p "$R/.claude/modules"; cp -R "$CLAUDUCTOR_FW/modules/ci-status" "$R/.claude/modules/"
-cp "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
+mkdir -p "$R/.claude/modules"; cp -R "$STRIDAL_FW/modules/ci-status" "$R/.claude/modules/"
+cp "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
 cp "$R/.claude/project.conf" "$d/conf.keep"
 printf 'MODULES="ci-status"\nGATE_REMOTE_WORKFLOW="ci.yml"\n' > "$R/.claude/project.conf"
 guard 2 "ci-status on: green ci/local and ci/github with no receipt" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"ci/local","state":"SUCCESS","bucket":"pass"},{"name":"ci/github","state":"SUCCESS","bucket":"pass"}]'
@@ -626,7 +626,7 @@ guard 2 "rule 9: a build whose only non-record edit is a git mv into changes/<id
 # CHANGES_LEGACY (lib/records.sh): a grandfathered change keeps the format it was approved in, so
 # rules 9–11 do not ask it for the records this format added; finishing is still asked.
 git -C "$R" checkout -q main
-cp "$CLAUDUCTOR_FW/lib/records.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/lib/records.sh" "$R/.claude/lib/"
 git -C "$R" add -A && git -C "$R" commit -qm "records library"
 cp "$R/.claude/project.conf" "$d/conf.bak"
 legacy_on() { cp "$d/conf.bak" "$R/.claude/project.conf"; printf '%s\n' "$@" >> "$R/.claude/project.conf"; }
@@ -662,8 +662,8 @@ git -C "$R" checkout -q main; receipt "$MAINSHA"
 
 # Rule 12: provenance trailers, while model-roles.json enables them.
 # The template ships it on; an installed project (it has an install or plugin marker) may turn it
-# off, as clauductor's own repo does, so the fixture forces it on to test the rule either way.
-if [ -f "$ROOT/.claude/clauductor-template" ] || [ -f "$ROOT/.claude/clauductor-plugin" ]; then
+# off, as stridal's own repo does, so the fixture forces it on to test the rule either way.
+if [ -f "$ROOT/.claude/stridal-template" ] || [ -f "$ROOT/.claude/stridal-plugin" ]; then
   ok "this project sets provenance.enabled to $(jq -r .provenance.enabled "$ROOT/.claude/model-roles.json"); rule 12 is tested with it on"
 else
   jq -e '.provenance.enabled == true' "$ROOT/.claude/model-roles.json" >/dev/null && ok "the template turns provenance on by default" || fail "model-roles.json provenance.enabled is not true in the template"
@@ -914,7 +914,7 @@ guard 0 "OPS-66: gh pr list with 2>/dev/null last" 'gh pr list 2>/dev/null'
 rm -f "$R/.git/ci-receipt"
 # The backstop's git -C rewrite takes no value that "$@" or "${a[@]}" can split into several words
 # (`-c alias.x='!gh pr' x`). The reader refuses both first, so merge_hint is tested on its own.
-hint=$(sed -n '/^HIBYTES=/,/^}/p' "$CLAUDUCTOR_FW/hooks/pr-merge-guard.sh")
+hint=$(sed -n '/^HIBYTES=/,/^}/p' "$STRIDAL_FW/hooks/pr-merge-guard.sh")
 for v in '"$@"' '"${a[@]}"'; do
   (eval "$hint"; merge_hint "git -C $v merge 5") \
     && ok "OPS-66: merge_hint still matches git -C $v before merge" \
@@ -1090,8 +1090,8 @@ nojq 2 'git -C $X merge 5' "OPS-66: blocks git -C with an unquoted, splitting va
 
 # raw_command is duplicated on purpose (a sourced lib's missing-file failure is shell-dependent);
 # the two copies must not drift.
-a=$(sed -n '/^raw_command() {/,/^}/p' "$CLAUDUCTOR_FW/hooks/pr-merge-guard.sh")
-b=$(sed -n '/^raw_command() {/,/^}/p' "$CLAUDUCTOR_FW/hooks/no-blind-source-rewrite.sh")
+a=$(sed -n '/^raw_command() {/,/^}/p' "$STRIDAL_FW/hooks/pr-merge-guard.sh")
+b=$(sed -n '/^raw_command() {/,/^}/p' "$STRIDAL_FW/hooks/no-blind-source-rewrite.sh")
 [ -n "$a" ] && [ "$a" = "$b" ] && ok "raw_command is identical in pr-merge-guard.sh and no-blind-source-rewrite.sh" || fail "raw_command differs between the two hooks"
 
 # Rule 13: a model choice rests on an eval receipt (OPS-10). main gets model-roles.json (provenance
@@ -1101,7 +1101,7 @@ b=$(sed -n '/^raw_command() {/,/^}/p' "$CLAUDUCTOR_FW/hooks/no-blind-source-rewr
 git -C "$R" checkout -q main
 mkdir -p "$R/.claude/agents" "$R/.claude/workflows" "$R/.claude/evals/reviewer/cases"
 jq '.provenance.enabled = false | .attribution.enabled = true' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
-cp "$CLAUDUCTOR_FW/agents/reviewer.md" "$CLAUDUCTOR_FW/agents/builder.md" "$R/.claude/agents/"
+cp "$STRIDAL_FW/agents/reviewer.md" "$STRIDAL_FW/agents/builder.md" "$R/.claude/agents/"
 wf() {  # wf [PROMPT] [OUTSIDE] [CALL] [AGENT_TYPE]: a build-change.js with both marked sections
   printf '// the workflow %s\nconst a = 1\n// <review-prompt>\nconst REVIEW_PROMPT = "%s"\nconst REVIEW = {"type":"object","properties":{"findings":{"type":"array"}},"required":["findings"]}\nconst reviewSpawn = () => agent(REVIEW_PROMPT, { schema: REVIEW, agentType: %s })\n// </review-prompt>\nconst b = 2\n// <review-call>\nconst rev = await %s\n// </review-call>\nconst pick = (role) => {\n  return ROLES[role]\n}\n' \
     "${2:-}" "${1:-Review group {n} of {change}.}" "${4:-'reviewer'}" "${3:-reviewSpawn()}" > "$R/.claude/workflows/build-change.js"
@@ -1247,7 +1247,7 @@ git -C "$R" checkout -q main
 
 # Extension rules: the enabled modules' guard.d/*.sh and .claude/local/guard.d/*.sh run after the
 # core rules, with the same exit/advisory contract, and fail closed (lib/modules.sh).
-cp "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
 TOP=$(git -C "$R" rev-parse HEAD); receipt "$TOP"
 G="$R/.claude/local/guard.d"; mkdir -p "$G"
 gx() {  # gx WANT LABEL [env...]: a plain merge of the clean head, through the extension rules

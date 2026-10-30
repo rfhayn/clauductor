@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // fastEnv is the driver's bounds for the controls and mutants. WAIT is how long a
@@ -105,7 +105,7 @@ func writeImpl(t *testing.T, dir, name, body string) string {
 	return p
 }
 
-// goImpl is lock-run: this test binary acts as `clauductor lock-run` (TestMain). The
+// goImpl is lock-run: this test binary acts as `stridal lock-run` (TestMain). The
 // adapter hands it the argv as JSON.
 func goImpl(t *testing.T, dir string) string {
 	testBin, err := filepath.Abs(os.Args[0])
@@ -194,7 +194,7 @@ func TestLeaseConformanceControlsFail(t *testing.T) {
 		{"always takes the lease", `#!/bin/sh
 lock=$1; shift 2
 rm -rf "$lock"; mkdir -p "$lock"
-CLAUDUCTOR_LOCK_HELD=$lock "$@"; rc=$?
+STRIDAL_LOCK_HELD=$lock "$@"; rc=$?
 rm -rf "$lock"; exit $rc
 `, []string{"live-holder", "proc-format", "no-ps", "pstart-no-ps", "other-host-live", "other-host-no-ttl",
 			"missing-pid", "missing-host", "child-alive", "spaced-owner-live"}},
@@ -321,7 +321,7 @@ func TestLeaseConformanceLockEnvMode(t *testing.T) {
 	src := filepath.Join(dir, "lease.sh")
 	os.WriteFile(src, []byte(docLeaseText(t)), 0o644)
 	gate := writeImpl(t, dir, "gate-wrapper", "#!/usr/bin/env bash\nset -euo pipefail\n. '"+src+"'\n"+
-		"lease_run \"${GATE_LOCK:?}\" \"${CLAUDUCTOR_LANE:-gate}\" \"$@\"\n")
+		"lease_run \"${GATE_LOCK:?}\" \"${STRIDAL_LANE:-gate}\" \"$@\"\n")
 	cases := []string{"live-holder", "dead-pid", "cancel", "owner-record", "symlinked-lock"}
 	out, err := runConformance(driver, nil, cases, "--lock-env", "GATE_LOCK", gate)
 	if err != nil || strings.Contains(out, "not ok") || strings.Count(out, "\nok ") != len(cases) {
@@ -347,7 +347,7 @@ func TestLeaseConformanceRefusesUnfilledPlaceholders(t *testing.T) {
 	// dead-pid passes an implementation that always takes the lease, so only the
 	// placeholder can fail it.
 	impl := writeImpl(t, t.TempDir(), "takes", "#!/bin/sh\nlock=$1; shift 2\nrm -rf \"$lock\"; mkdir -p \"$lock\"\n"+
-		"CLAUDUCTOR_LOCK_HELD=$lock \"$@\"; rc=$?\nrm -rf \"$lock\"; exit $rc\n")
+		"STRIDAL_LOCK_HELD=$lock \"$@\"; rc=$?\nrm -rf \"$lock\"; exit $rc\n")
 	out, _ := runConformance(driver, nil, []string{"dead-pid"}, impl)
 	if ok, _ := runConformance(filepath.Join(suite, "conformance.sh"), nil, []string{"dead-pid"}, impl); !strings.Contains(ok, "unfilled placeholder") {
 		t.Fatalf("an unfilled placeholder did not fail the case:\n%s", ok)

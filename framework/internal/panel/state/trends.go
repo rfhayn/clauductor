@@ -4,7 +4,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-11: what the lane dashboard shows over time, and two cheap reads (ps, git)

@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// Clauductor's first operating model (lock-based skills, session hooks that called the binary)
-// was installed by the same `clauductor install`. A repository that runs it is clauductor's to
+// Stridal's first operating model (lock-based skills, session hooks that called the binary)
+// was installed by the same `stridal install`. A repository that runs it is stridal's to
 // update, but install used to recognise it only by orchestration/config.json, runtime state that
 // is gitignored, so a fresh clone of such a repository looked foreign and was refused (OPS-8
 // rehearsal, finding 1). And once the current model was installed over it, nothing named the old
@@ -39,7 +39,7 @@ var oldModelDistinctive = []string{
 	"spawn", "start-work", "supervisor",
 }
 
-// oldModelHooks are the old model's hook scripts (each called the clauductor binary).
+// oldModelHooks are the old model's hook scripts.
 var oldModelHooks = []string{
 	"auto-lock.sh", "doc-freshness.sh", "heartbeat.sh", "lock-guard.sh", "session-register.sh",
 	"status-sync.sh",
@@ -229,7 +229,7 @@ func OldModelUnchanged(dir, rel string) bool {
 	return err == nil && contains(hs, h)
 }
 
-// OldModelSigns lists the evidence that dir runs clauductor's old model, read from files a fresh
+// OldModelSigns lists the evidence that dir runs stridal's old model, read from files a fresh
 // clone has (and the old runtime state, when present). Empty means none.
 func OldModelSigns(dir string) []string {
 	var signs []string
@@ -254,16 +254,6 @@ func OldModelSigns(dir string) []string {
 	}
 	if len(named) >= 3 {
 		signs = append(signs, fmt.Sprintf("%d of the old model's skills (%s)", len(named), strings.Join(named, ", ")))
-	}
-	var hooks []string
-	for _, h := range oldModelHooks {
-		b, err := os.ReadFile(filepath.Join(dir, ".claude", "hooks", h))
-		if err == nil && strings.Contains(string(b), "clauductor ") {
-			hooks = append(hooks, h)
-		}
-	}
-	if len(hooks) > 0 {
-		signs = append(signs, "the old model's hooks, calling the clauductor binary ("+strings.Join(hooks, ", ")+")")
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(SettingsPath))); err == nil {
 		var reg []string

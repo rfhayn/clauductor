@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/claudecall"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/claudecall"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // PANEL-49 (D3, D6): an attached project's sessions are measured from their

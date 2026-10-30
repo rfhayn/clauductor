@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The two GitHub Actions health lines (.claude/health/push-main.sh, scheduled-workflows.sh, over
 # .claude/lib/health.sh), driven through a stub `gh` in a throwaway repo, never asserted against
 # their own source: a check that re-reads the strings it checks proves only that the file has not
@@ -14,9 +14,9 @@ need git jq awk
 d=$(scratch)
 R="$d/p"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/health" "$R/.github/workflows" "$d/bin"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/health.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/health.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
 cp "$ROOT/.claude/health/push-main.sh" "$ROOT/.claude/health/scheduled-workflows.sh" "$R/.claude/health/"
-cp "$CLAUDUCTOR_FW/extensions.sh" "$R/.claude/"
+cp "$STRIDAL_FW/extensions.sh" "$R/.claude/"
 printf 'name: Audit\non:\n  schedule:\n    - cron: "0 14 * * 1"\n  workflow_dispatch:\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/audit.yml"
 printf 'name: CI\non:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/ci.yml"
 git -C "$R" add -A && git -C "$R" commit -qm base
@@ -84,7 +84,7 @@ has "scheduled: no scheduled workflow still prints a line (before any gh or offl
 cover() {  # cover ROOTDIR: the script's --list against a cron grep of the same directory
   want=$(for f in "$1"/.github/workflows/*.yml "$1"/.github/workflows/*.yaml; do
     [ -f "$f" ] && sed 's/#.*$//' "$f" | grep -qE '(^|[^A-Za-z_])cron[[:space:]]*:' && basename "$f"; done | sort | tr '\n' ' ')
-  have=$(ROOT="$1" CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"; . "$0"; health_scheduled --list' "$CLAUDUCTOR_FW/lib/health.sh" | sort | tr '\n' ' ')
+  have=$(ROOT="$1" STRIDAL_FW="$STRIDAL_FW" sh -c '. "$STRIDAL_FW/lib/conf.sh"; . "$0"; health_scheduled --list' "$STRIDAL_FW/lib/health.sh" | sort | tr '\n' ' ')
   [ "$want" = "$have" ] && ok "scheduled: covers exactly the workflows with a cron in ${2:-$1} (${have:-none})" || fail "scheduled: --list ($have) differs from the workflows with a cron ($want) in ${2:-$1}"
 }
 cover "$R" "the fixture"
@@ -94,7 +94,7 @@ if [ -d "$ROOT/.github/workflows" ]; then cover "$ROOT" "this project"; else ok 
 [ "$(cd "$d" && sh "$R/.claude/health/scheduled-workflows.sh" --list)" = audit.yml ] && ok "scheduled: resolves its root from its own path, not from git or the cwd" || fail "scheduled: --list from outside the repo: $(cd "$d" && sh "$R/.claude/health/scheduled-workflows.sh" --list 2>&1)"
 # No workflow file named in the executable half: a literal name is a hand list, and the coverage
 # case above would then agree with it forever.
-code=$(sed 's/#.*$//' "$CLAUDUCTOR_FW/lib/health.sh" "$ROOT/.claude/health/scheduled-workflows.sh" "$ROOT/.claude/health/push-main.sh")
+code=$(sed 's/#.*$//' "$STRIDAL_FW/lib/health.sh" "$ROOT/.claude/health/scheduled-workflows.sh" "$ROOT/.claude/health/push-main.sh")
 named=""
 for f in "$ROOT"/.github/workflows/*.yml "$ROOT"/.github/workflows/*.yaml audit.yml ci.yml; do
   n=$(basename "$f"); case $n in '*.yml' | '*.yaml') continue ;; esac
@@ -230,7 +230,7 @@ must() { "$@" >/dev/null || { fail "coauthor: a fixture step failed, so the case
 C="$d/co"; new_repo "$C"
 FB=$(git -C "$C" symbolic-ref --short HEAD)
 mkdir -p "$C/.claude/lib" "$C/.claude/health"
-must cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/health.sh" "$C/.claude/lib/"
+must cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/health.sh" "$C/.claude/lib/"
 roles() { printf '{"attribution":{"enabled":%s,"trailer":"Co-Authored-By: A <a@secret.invalid>"}}\n' "$1" > "$C/.claude/model-roles.json"; }
 roles false
 must git -C "$C" add -A
@@ -367,7 +367,7 @@ rm -f "$C/.claude/project.conf"
 # A project whose MAIN_BRANCH is not main: the line reads origin/<that branch> and names it in the fix.
 Mf="$d/co-master"; new_repo "$Mf"
 mkdir -p "$Mf/.claude/lib" "$Mf/.claude/health"
-must cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/health.sh" "$Mf/.claude/lib/"
+must cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/health.sh" "$Mf/.claude/lib/"
 must cp "$d/coauthor-caller.sh" "$Mf/.claude/health/coauthor-trailers.sh"
 must cp "$C/.claude/model-roles.json" "$Mf/.claude/"
 printf 'MAIN_BRANCH="master"\n' > "$Mf/.claude/project.conf"
@@ -405,19 +405,19 @@ all=$( { SW GH_FAIL=1; SW GH_SCHED="$F0"; PM GH_PUSH="$(pushrun success complete
 bad=$(printf '%s\n' "$all" | grep -vE '^(OK|FAILED|STALE|STUCK|RUNNING|NEVER RAN|CANNOT CHECK —) ')
 [ -z "$bad" ] && ok "every health line starts with its verdict (.claude/health/README.md)" || fail "lines without a verdict: $bad"
 # A plugin project: its health lines are its own files, but lib/health.sh is the plugin's. The
-# runner exports the plugin root (CLAUDUCTOR_FW), and the line finds the library there.
+# runner exports the plugin root (STRIDAL_FW), and the line finds the library there.
 mkdir -p "$d/fw/lib"; mv "$R/.claude/lib/health.sh" "$d/fw/lib/health.sh"
-has "a health line with no lib/health.sh in its checkout, and no plugin, says so by name" "$(cd "$R" && CONTEXT_OFFLINE=1 CLAUDUCTOR_FW= sh .claude/health/push-main.sh)" "lib/health.sh is missing"
-has "a health line finds the plugin's lib/health.sh through CLAUDUCTOR_FW" "$(cd "$R" && CONTEXT_OFFLINE=1 CLAUDUCTOR_FW="$d/fw" sh .claude/health/scheduled-workflows.sh)" "CANNOT CHECK — offline"
+has "a health line with no lib/health.sh in its checkout, and no plugin, says so by name" "$(cd "$R" && CONTEXT_OFFLINE=1 STRIDAL_FW= sh .claude/health/push-main.sh)" "lib/health.sh is missing"
+has "a health line finds the plugin's lib/health.sh through STRIDAL_FW" "$(cd "$R" && CONTEXT_OFFLINE=1 STRIDAL_FW="$d/fw" sh .claude/health/scheduled-workflows.sh)" "CANNOT CHECK — offline"
 mv "$d/fw/lib/health.sh" "$R/.claude/lib/health.sh"
-# ...and the runner hands CLAUDUCTOR_FW on. The plugin's copy sets it, NOT exported, in a prologue;
+# ...and the runner hands STRIDAL_FW on. The plugin's copy sets it, NOT exported, in a prologue;
 # that is simulated here by an unexported assignment just before the export line (so it is the
 # export line, and nothing in the caller's environment, that can make it reach the health line).
-printf '#!/bin/sh\necho "OK fw=${CLAUDUCTOR_FW:-unset}"\n' > "$R/.claude/health/zz-fw.sh"
-awk -v fw="$d/fw" 'index($0, "|| export CLAUDUCTOR_FW") { print "CLAUDUCTOR_FW=" fw } { print }' "$R/.claude/extensions.sh" > "$R/.claude/extensions-fw.sh"
-out=$(cd "$R" && CONTEXT_OFFLINE=1 CLAUDUCTOR_FW= sh .claude/extensions-fw.sh health | grep -A1 'Health: zz-fw')
+printf '#!/bin/sh\necho "OK fw=${STRIDAL_FW:-unset}"\n' > "$R/.claude/health/zz-fw.sh"
+awk -v fw="$d/fw" 'index($0, "|| export STRIDAL_FW") { print "STRIDAL_FW=" fw } { print }' "$R/.claude/extensions.sh" > "$R/.claude/extensions-fw.sh"
+out=$(cd "$R" && CONTEXT_OFFLINE=1 STRIDAL_FW= sh .claude/extensions-fw.sh health | grep -A1 'Health: zz-fw')
 rm -f "$R/.claude/extensions-fw.sh"
-case "$out" in *"OK fw=unset"*|"") fail "extensions.sh does not export CLAUDUCTOR_FW to a health line: $out" ;; *"OK fw="*) ok "extensions.sh exports CLAUDUCTOR_FW to the health lines it runs" ;; esac
+case "$out" in *"OK fw=unset"*|"") fail "extensions.sh does not export STRIDAL_FW to a health line: $out" ;; *"OK fw="*) ok "extensions.sh exports STRIDAL_FW to the health lines it runs" ;; esac
 rm -f "$R/.claude/health/zz-fw.sh"
 printf '#!/bin/sh\necho "CANNOT CHECK — said on stderr" >&2\n' > "$R/.claude/health/zz-stderr.sh"
 has "the runner (extensions.sh health) merges a health line's stderr, so a CANNOT CHECK there is read" \

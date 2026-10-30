@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 const testPort = 4393
@@ -145,7 +145,7 @@ func TestTokenExchangeSetsAStrictCookie(t *testing.T) {
 func TestForeignHostRefused(t *testing.T) {
 	t.Parallel()
 	s, _ := newTestServer(t)
-	// [::1]:4393 is allowed since v2 (clauductor.localhost resolves to ::1 first);
+	// [::1]:4393 is allowed since v2 (stridal.localhost resolves to ::1 first);
 	// hosts_test.go covers the full list.
 	for _, host := range []string{"evil.example:4393", "127.0.0.1:4394", "localhost", "[::2]:4393", "127.0.0.1.nip.io:4393", "evil.localhost:4393"} {
 		for _, target := range []string{"/", "/hook", "/events"} {

@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/metrics"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/metrics"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // laneRoutes adds the v1 routes. Every one except /healthz needs the auth cookie; the
@@ -23,12 +23,12 @@ import (
 // upgrade keeps working for one release.
 // TODO (PANEL-19): remove the routes without /p/{project}.
 func (s *Server) laneRoutes(mux *http.ServeMux) {
-	// /healthz tells `clauductor panel open` and a person with curl that the panel is
+	// /healthz tells `stridal panel open` and a person with curl that the panel is
 	// up. It answers "ok" and nothing else, so it needs no token.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		// The PID lets `clauductor panel open` check it is talking to THIS panel (the
-		// one in ~/.clauductor/panel/pid) before it sends the token anywhere.
+		// The PID lets `stridal panel open` check it is talking to THIS panel (the
+		// one in ~/.stridal/panel/pid) before it sends the token anywhere.
 		fmt.Fprintf(w, "ok pid=%d\n", os.Getpid())
 	})
 	files := http.FileServerFS(webFS)

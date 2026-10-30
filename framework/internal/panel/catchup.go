@@ -16,11 +16,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // Catch-up (OPS-118 D3): after a merge, the panel fast-forwards a project's main
@@ -39,7 +39,7 @@ const catchUpCallTimeout = 60 * time.Second
 var catchUpRetries = []time.Duration{time.Minute, 3 * time.Minute, 6 * time.Minute}
 
 // catchUpTitle titles every catch-up notice (D6): the checkout's path is in the body.
-const catchUpTitle = "clauductor panel"
+const catchUpTitle = "stridal panel"
 
 // catchUpBodyMax caps a notice's body, in runes, in the notification and the push
 // alike (sendCatchUp, catchUpNotifyArgv). Not signals.Clip: its OneLine cuts at
@@ -658,7 +658,7 @@ func (u *rebuilt) notInPlace(ctx context.Context) string {
 }
 
 // waitsForOwner is how a config that is not trusted waits for the owner.
-const waitsForOwner = "waits for the owner (Trust config… on the page, or `clauductor panel trust`)"
+const waitsForOwner = "waits for the owner (Trust config… on the page, or `stridal panel trust`)"
 
 // withdrawnSaid is a notice's account of a withdrawal (rebuilt.withdraw) of the trust
 // recorded on arrival for rel: "is withdrawn" and then what follows, or why it could not
@@ -768,7 +768,7 @@ func (c *catchUp) arrived(ctx context.Context, t catchUpTarget, res catchUpResul
 
 // unreadKeeps is what becomes of a config catch-up could not read when the running
 // binary goes on serving.
-const unreadKeeps = "the panel keeps serving the config it had loaded. Read the file; `clauductor panel trust` trusts it, and the panel's next start serves it"
+const unreadKeeps = "the panel keeps serving the config it had loaded. Read the file; `stridal panel trust` trusts it, and the panel's next start serves it"
 
 // unread is the log line and the one notice of an arrival whose config's blobs could
 // not be read (blobs): whether the fast-forward changed the config is not known, so
@@ -780,7 +780,7 @@ func (c *catchUp) unread(ctx context.Context, a arrival, err error, swaps bool) 
 	root := a.t.root
 	what := unreadKeeps
 	if swaps {
-		what = "the rebuilt panel serves the file as it is on disk, untrusted if it changed. Read it, then Trust config… on the page, or `clauductor panel trust`"
+		what = "the rebuilt panel serves the file as it is on disk, untrusted if it changed. Read it, then Trust config… on the page, or `stridal panel trust`"
 	}
 	fmt.Fprintf(c.out, "catch-up %s: cannot read %s at %s and %s, so nothing is trusted on arrival and %s: %v\n",
 		root, a.rel, short(a.res.from), short(a.res.to), what, err)
@@ -966,7 +966,7 @@ func (ls *liveSet) arrive(ctx context.Context, c *catchUp, a arrival) {
 	default:
 		fmt.Fprintf(c.out, "catch-up %s: the new %s (%s) is not trusted on arrival: %s; it waits for the owner\n", root, a.rel, from, strings.Join(why, "; "))
 		c.send(ctx, catchUpNotice{root: root, key: key, waits: true, body: catchUpBody(fmt.Sprintf(
-			"Catch-up moved %s to %s (%s), and did not trust its new %s: %s. The config waits for the owner: Trust config… on the page, or `clauductor panel trust`.",
+			"Catch-up moved %s to %s (%s), and did not trust its new %s: %s. The config waits for the owner: Trust config… on the page, or `stridal panel trust`.",
 			root, short(to), from, a.rel, strings.Join(why, "; ")))}, loadedNotify)
 	}
 	if rebuiltOK {

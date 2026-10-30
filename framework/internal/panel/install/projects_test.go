@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/treesnap"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/treesnap"
 )
 
 // projectDir is a repository root with a panel.json, and a linked worktree inside it,
@@ -44,7 +44,7 @@ func TestAddProject(t *testing.T) {
 	now := time.Unix(1_790_000_000, 0)
 	a, runA := projectDir(t, "Standing T", "")
 	res, err := AddProject(ctx, AddOptions{Home: home, Project: a, Run: runA, Now: now, Strict: true})
-	if err != nil || !res.Added || res.Entry.ID != "standing-t" || res.Entry.TmuxSocket != "clauductor" || res.Entry.Root != a {
+	if err != nil || !res.Added || res.Entry.ID != "standing-t" || res.Entry.TmuxSocket != "stridal" || res.Entry.Root != a {
 		t.Fatalf("first add: %+v %v", res.Entry, err)
 	}
 	if TrustedNow(home, a, res.Entry.ConfigPath(), "anything") {
@@ -56,7 +56,7 @@ func TestAddProject(t *testing.T) {
 	if err := os.Symlink(a, link); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{a, link, filepath.Join(a, ".clauductor")} {
+	for _, p := range []string{a, link, filepath.Join(a, ".stridal")} {
 		if res, err := AddProject(ctx, AddOptions{Home: home, Project: p, Run: runA, Now: now, Strict: true}); err != nil || res.Added {
 			t.Fatalf("%s added again: %+v %v", p, res, err)
 		}
@@ -68,10 +68,10 @@ func TestAddProject(t *testing.T) {
 	if res, err := AddProject(ctx, AddOptions{Home: home, Project: linked, Run: runA, Now: now}); err != nil || res.Added || res.Entry.Root != a {
 		t.Fatalf("a bare panel in a linked worktree names its main one: %+v %v", res.Entry, err)
 	}
-	// A second project gets clauductor-<id>; its name taken, the id gets a suffix.
+	// A second project gets stridal-<id>; its name taken, the id gets a suffix.
 	b, runB := projectDir(t, "Standing T", "")
 	res, err = AddProject(ctx, AddOptions{Home: home, Project: b, Run: runB, Now: now, Strict: true})
-	if err != nil || res.Entry.ID != "standing-t-2" || res.Entry.TmuxSocket != "clauductor-standing-t-2" {
+	if err != nil || res.Entry.ID != "standing-t-2" || res.Entry.TmuxSocket != "stridal-standing-t-2" {
 		t.Fatalf("second add: %+v %v", res.Entry, err)
 	}
 	reg, _ := config.LoadProjects(home)
@@ -79,7 +79,7 @@ func TestAddProject(t *testing.T) {
 		t.Fatalf("the default moved without --default: %s", reg.Default)
 	}
 	// A config naming a socket another project has is refused.
-	c, runC := projectDir(t, "C", `,"tmux_socket":"clauductor"`)
+	c, runC := projectDir(t, "C", `,"tmux_socket":"stridal"`)
 	if _, err := AddProject(ctx, AddOptions{Home: home, Project: c, Run: runC, Now: now, Strict: true}); err == nil || !strings.Contains(err.Error(), "socket") {
 		t.Fatalf("a shared socket: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestConfigOutsideResolvesAMissingRootAsItsConfig(t *testing.T) {
 
 // ATTACH-4's requirement, `panel list`'s config line (design.md D7): every project's
 // config path; one outside its repository is marked so, with a line when the
-// repository's own .clauductor/panel.json is there and not read. A config reached
+// repository's own .stridal/panel.json is there and not read. A config reached
 // through a symlink into the repository is inside it. (The scenario's test, which also
 // loads the project as the panel does, is TestAttachedProjectReadsItsSidecar.)
 func TestListProjectsNamesEachConfig(t *testing.T) {
@@ -191,7 +191,7 @@ func TestListProjectsNamesEachConfig(t *testing.T) {
 	}
 	linked, runLinked := projectDir(t, "Linked", "") // --config through a symlink into the repository
 	link := filepath.Join(t.TempDir(), "in")
-	if err := os.Symlink(filepath.Join(linked, ".clauductor"), link); err != nil {
+	if err := os.Symlink(filepath.Join(linked, ".stridal"), link); err != nil {
 		t.Fatal(err)
 	}
 	sidecar := func(id, name string) string {
@@ -243,7 +243,7 @@ func TestListProjectsNamesEachConfig(t *testing.T) {
 }
 
 // CheckAdd is every check AddProject makes before it saves, so that a caller asking "would this
-// be refused" (clauductor doctor, to pick the fix it prints) cannot read the rule differently
+// be refused" (stridal doctor, to pick the fix it prints) cannot read the rule differently
 // from the command. Each refusal AddProject makes has the same text from CheckAdd, and neither
 // writes the home directory when it refuses.
 func TestCheckAddRefusesWhatAddProjectRefusesAndWritesNothing(t *testing.T) {
@@ -251,7 +251,7 @@ func TestCheckAddRefusesWhatAddProjectRefusesAndWritesNothing(t *testing.T) {
 	ctx := context.Background()
 	now := time.Unix(1_790_000_000, 0)
 
-	// registered is a home holding project "a" (name "A", socket clauductor).
+	// registered is a home holding project "a" (name "A", socket stridal).
 	registered := func(t *testing.T) (home, a string, runA signals.Runner) {
 		t.Helper()
 		home = t.TempDir()
@@ -325,7 +325,7 @@ func TestCheckAddRefusesWhatAddProjectRefusesAndWritesNothing(t *testing.T) {
 		}},
 		{"a tmux socket another project holds", "give this project its own tmux_socket", func(t *testing.T) AddOptions {
 			home, _, _ := registered(t)
-			c, runC := projectDir(t, "C", `,"tmux_socket":"clauductor"`)
+			c, runC := projectDir(t, "C", `,"tmux_socket":"stridal"`)
 			return AddOptions{Home: home, Project: c, Run: runC, Now: now, Strict: true}
 		}},
 	}

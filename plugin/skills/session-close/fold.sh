@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # fold.sh: the daily close's fold (OPS-108). Every row fragment waiting in JOURNAL_FRAGMENTS becomes
 # one `## Session N` entry in JOURNAL; their insight rows go to the top of INSIGHTS' table; each
 # landed row's Status in ROADMAP becomes `✅ merged (#PR)`, with every row a batched PR's fragment
@@ -17,11 +17,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plug
 # Status cell it cannot find, or a roadmap that no longer parses after the edit: each stops it,
 # naming why, before ANY file changes. A fold that wrote half would drop a row's record silently.
 # Exit 0 folded (or nothing to fold), 1 refused.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/fragments.sh"
+. "$STRIDAL_FW/lib/fragments.sh"
 
 refuse() { echo "fold: REFUSED — $*; nothing was changed"; exit 1; }
 n="" focus="" dry=""

@@ -1,6 +1,6 @@
 # Project Name
 
-> Set up with [Clauductor](https://github.com/rfhayn/clauductor)'s operating model for Claude
+> Set up with [Stridal](https://github.com/rfhayn/stridal)'s operating model for Claude
 > Code: hands-off sessions, one lane per git worktree on the local panel, a roadmap queue,
 > approved proposals, per-task-group review, and guards that execute the rules.
 
@@ -10,13 +10,13 @@ Start with **`docs/playbook.md`**: it explains the whole model, lane by lane.
 
 ```bash
 claude
-/clauductor:start-project      # fills .claude/project.conf, the gate steps and AGENTS.md's essentials
-/clauductor:session-start      # every session
+/stridal:start-project      # fills .claude/project.conf, the gate steps and AGENTS.md's essentials
+/stridal:session-start      # every session
 ```
 
 A new machine (macOS, Linux, or Windows through WSL2) needs a few tools first: `docs/playbook.md`,
-**Setting up a machine**. On macOS, `clauductor panel` adds the optional local panel (see the
-clauductor repo's `docs/panel.md`); nothing needs it.
+**Setting up a machine**. On macOS, `stridal panel` adds the optional local panel (see the
+stridal repo's `docs/panel.md`); nothing needs it.
 
 ## Where things are
 
@@ -29,7 +29,7 @@ clauductor repo's `docs/panel.md`); nothing needs it.
 | `${CLAUDE_PLUGIN_ROOT}/checks/run.sh` | Plain-shell checks that hold the model to what AGENTS.md says |
 | `${CLAUDE_PLUGIN_ROOT}/workflows/build-change.js` | The per-task-group build loop (the Workflow tool) |
 | `${CLAUDE_PLUGIN_ROOT}/modules/` | Optional modules, off by default: OpenSpec, the claude.ai review page |
-| `.clauductor/panel.json` | The local panel's preset: lanes, lane templates, the gate queue, cards |
+| `.stridal/panel.json` | The local panel's preset: lanes, lane templates, the gate queue, cards |
 | `scripts/ci/` | The gate: `steps.sh` (yours), `run-local.sh`, `gate.sh`, `lease.sh` |
 | `docs/roadmap.md` | Phases and the change queue |
 | `changes/<id>/` | A proposed or in-flight change: proposal, design, tasks |

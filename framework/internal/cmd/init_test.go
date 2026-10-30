@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-47: the `cd` line init prints as a next step runs as printed. The project's
@@ -22,7 +22,7 @@ func TestInitNextStepsCdIsShellQuoted(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(signals.ResolvePath(t.TempDir()), "o'k proj")
-	r := cliEnv(t, "", t.TempDir(), []string{"CLAUDUCTOR_FRAMEWORK=" + framework}, "init", dir)
+	r := cliEnv(t, "", t.TempDir(), []string{"STRIDAL_FRAMEWORK=" + framework}, "init", dir)
 	if r.code != 0 {
 		t.Fatalf("init: exit %d: %s %s", r.code, r.stdout, r.stderr)
 	}

@@ -4,7 +4,7 @@
 # .claude/model-roles.json. A workflow script cannot read a file, and a skill's prose cannot hold a
 # value a project changes; both ask this script instead, so no project edits a framework file to
 # change a branch prefix or turn attribution off (OPS-8 rehearsal: build-change.js held both, and
-# `clauductor update` then flagged it forever).
+# `stridal update` then flagged it forever).
 #
 #   sh .claude/project-config.sh --json            {"branch": {"change","fix","ops","main"}, "changesDir",
 #                                                   "specsDir", "gate", "gateWait", "quickFlags", "attribution",

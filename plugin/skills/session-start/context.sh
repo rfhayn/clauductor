@@ -1,19 +1,19 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Context for session-start: everything the session needs to orient, COMPUTED. Every section that
 # cannot run says CANNOT CHECK (or "learned NOTHING") instead of printing nothing or "none": an
 # absent answer must never read as a healthy one. No `set -e`: one failing section must not hide
 # the ones after it.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 cd "$ROOT" || exit 0
 ind() { sed 's/^/    /'; }
 # The GitHub-reading sections (remote branches with no PR). Tested for, never sourced blind: a `.`
 # of a missing file ends the script under dash and hides every section after it.
-if [ -f "$CLAUDUCTOR_FW/lib/context.sh" ]; then
+if [ -f "$STRIDAL_FW/lib/context.sh" ]; then
   # shellcheck disable=SC1091
-  . "$CLAUDUCTOR_FW/lib/context.sh"
+  . "$STRIDAL_FW/lib/context.sh"
 else
   ctx_open_prs() { gh pr list --state open --limit 100 --json number,title,headRefName,author,updatedAt,files 2>/dev/null; }
   ctx_loose_branches() { echo "CANNOT CHECK — .claude/lib/context.sh is missing"; }
@@ -30,15 +30,15 @@ echo "- Branch: ${branch:-detached} in $where"
 
 # First on purpose: work only the owner can do at the computer.
 echo "- $(printf '%s' "$OWNER_ROLE" | tr '[:lower:]' '[:upper:]') QUEUE (needs the $OWNER_ROLE at the computer; repeat each item in the summary):"
-sh "$CLAUDUCTOR_FW"/owner-queue.sh 2>&1 | ind
+sh "$STRIDAL_FW"/owner-queue.sh 2>&1 | ind
 
 # The local panel: up = its port file holds digits only AND /healthz answers within 0.3 s.
-port=$(cat "$HOME/.clauductor/panel/port" 2>/dev/null) || port=
+port=$(cat "$HOME/.stridal/panel/port" 2>/dev/null) || port=
 case "$port" in '' | *[!0-9]*) port= ;; esac
 if [ "${CONTEXT_OFFLINE:-}" != 1 ] && [ -n "$port" ] && curl -s -o /dev/null --max-time 0.3 "http://127.0.0.1:$port/healthz" 2>/dev/null; then
   echo "- Panel: up (http://127.0.0.1:$port)"
 else
-  echo "- Panel: not running (optional; nothing in this repo needs it. If installed: clauductor panel)"
+  echo "- Panel: not running (optional; nothing in this repo needs it. If installed: stridal panel)"
 fi
 
 echo "- Status:"
@@ -76,7 +76,7 @@ ctx_loose_branches "$prs" 2>&1 | ind
 
 # The change queue, the latest journal entry, the recent insights and the two record indexes, as
 # DIGESTS (ST-11): printed whole they dominated the block. digests.sh says what each keeps and why.
-sh "$CLAUDUCTOR_FW"/skills/session-start/digests.sh || echo "    (digests.sh failed — the queue, journal, insights and indexes may be INCOMPLETE above)"
+sh "$STRIDAL_FW"/skills/session-start/digests.sh || echo "    (digests.sh failed — the queue, journal, insights and indexes may be INCOMPLETE above)"
 echo "- Proposed, not yet built ($CHANGES_DIR/, at most one ahead):"
 found=""
 for d in "$CHANGES_DIR"/*/; do
@@ -89,6 +89,6 @@ done
 
 # Pluggable health lines: every script in .claude/health, the directory being the list, then the
 # enabled modules' and the local layer's (.claude/extensions.sh), each run per its own #! line.
-sh "$CLAUDUCTOR_FW"/extensions.sh health 2>&1
+sh "$STRIDAL_FW"/extensions.sh health 2>&1
 # Sections the enabled modules and the local layer add (context.d/session-start/).
-sh "$CLAUDUCTOR_FW"/extensions.sh context session-start
+sh "$STRIDAL_FW"/extensions.sh context session-start

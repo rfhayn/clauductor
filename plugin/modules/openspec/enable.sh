@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # enable.sh: switch the OpenSpec module on (D2 of the change process). Nothing is migrated: the
 # records stay in CHANGES_DIR and SPECS_DIR, and OpenSpec's own layout points at them.
 #
@@ -13,8 +13,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plug
 # deletes that scenario on archive, and ignores `skip_specs`. An older CLI is refused, by name.
 # Then set PROPOSALS="openspec" in .claude/project.conf; .claude/checks/openspec.sh runs
 # `openspec validate --all --strict` in every gate from then on.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+. "$STRIDAL_FW/lib/conf.sh"
 MIN=1.13
 CHECK=""; [ "${1:-}" = --check ] && CHECK=1
 # --check reports every finding before it exits (one failure must not hide the next); enabling
@@ -53,7 +53,7 @@ link specs "$SPECS_DIR" || failed
 # not a link (a link into a plugin's cache breaks when the plugin moves). The project tunes its
 # frontmatter model: and effort: to its own thinker role (checks/model-roles.sh holds the copy to
 # that), so those two lines are the project's: the comparison ignores them, and a refresh keeps them.
-sk_src="$CLAUDUCTOR_FW/modules/openspec/skills/explore/SKILL.md"
+sk_src="$STRIDAL_FW/modules/openspec/skills/explore/SKILL.md"
 # Spelt with the quote before /skills on purpose: the destination is the PROJECT's .claude/, which
 # the plugin build must not rewrite to the plugin's own copy.
 sk_dst="$ROOT/.claude"/skills/explore/SKILL.md
@@ -61,7 +61,7 @@ sk_dst="$ROOT/.claude"/skills/explore/SKILL.md
 body() { awk 'NR==1 && $0=="---" { fm=1; print; next } fm && $0=="---" { fm=0 } fm && /^(model|effort):/ { next } { print }' "$1"; }
 if [ -f "$sk_dst" ] && [ "$(body "$sk_src")" = "$(body "$sk_dst")" ]; then echo "ok   .claude/skills/explore is the module's explore skill"
 elif [ -n "$CHECK" ]; then
-  echo "FAIL .claude/skills/explore $( [ -f "$sk_dst" ] && echo 'differs from' || echo 'is not installed from') .claude/modules/openspec/skills/explore (run sh "$CLAUDUCTOR_FW"/modules/openspec/enable.sh)"; rc=1
+  echo "FAIL .claude/skills/explore $( [ -f "$sk_dst" ] && echo 'differs from' || echo 'is not installed from') .claude/modules/openspec/skills/explore (run sh "$STRIDAL_FW"/modules/openspec/enable.sh)"; rc=1
 else
   keep=""; [ -f "$sk_dst" ] && keep=$(awk 'NR>1 && $0=="---" { exit } NR>1 && /^(model|effort):/' "$sk_dst")
   mkdir -p "$(dirname "$sk_dst")" &&
@@ -72,7 +72,7 @@ else
     echo "made .claude/skills/explore (map it in .claude/model-roles.json: \"explore\": \"thinker\", and add its row to the playbook's skills table)"
 fi
 if [ -z "$CHECK" ] && [ ! -f "$ROOT/openspec/config.yaml" ]; then
-  cp "$CLAUDUCTOR_FW/modules/openspec/config.yaml" "$ROOT/openspec/config.yaml" && echo "made openspec/config.yaml (adjust its rules)"
+  cp "$STRIDAL_FW/modules/openspec/config.yaml" "$ROOT/openspec/config.yaml" && echo "made openspec/config.yaml (adjust its rules)"
 fi
 [ -n "$CHECK" ] || echo "next: set PROPOSALS=\"openspec\" in .claude/project.conf"
 exit "$rc"

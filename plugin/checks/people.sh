@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The people module (.claude/modules/people), whether it is on here or not, in a throwaway project
 # with the module on and fixture people, roadmap and GitHub reads:
 #   - who is on what (people.sh --activity): a block per person in the registry and only them;
@@ -19,13 +19,13 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 need git jq
 
-M="$CLAUDUCTOR_FW/modules/people"
+M="$STRIDAL_FW/modules/people"
 d=$(scratch)
 R="$d/p"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/checks" "$R/docs" "$R/.claude/modules" "$d/bin" "$d/fix"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/extensions.sh" "$CLAUDUCTOR_FW/roadmap-queue.sh" "$R/.claude/"
-cp "$CLAUDUCTOR_FW/checks/run.sh" "$CLAUDUCTOR_FW/checks/lib.sh" "$R/.claude/checks/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/extensions.sh" "$STRIDAL_FW/roadmap-queue.sh" "$R/.claude/"
+cp "$STRIDAL_FW/checks/run.sh" "$STRIDAL_FW/checks/lib.sh" "$R/.claude/checks/"
 cp -R "$M" "$R/.claude/modules/people"
 printf 'MODULES="people"\n' > "$R/.claude/project.conf"
 PS="$R/.claude/modules/people/people.sh"
@@ -87,8 +87,8 @@ world() {
 }
 act() { _st=$1; shift; (cd "$R" && sh "$PS" --activity --state "$_st" "$@") 2>&1; }
 # inr SCRIPT: sh code run in the project with its own config read (ROOT is the check's otherwise).
-# CLAUDUCTOR_FW names its .claude/ too: the plugin build's conf.sh finds its libraries through it.
-inr() { (cd "$R" && ROOT="$R" CLAUDUCTOR_FW="$R/.claude" sh -c ". .claude/lib/conf.sh; $1") 2>&1; }
+# STRIDAL_FW names its .claude/ too: the plugin build's conf.sh finds its libraries through it.
+inr() { (cd "$R" && ROOT="$R" STRIDAL_FW="$R/.claude" sh -c ". .claude/lib/conf.sh; $1") 2>&1; }
 # blk NAME: from the output on stdin, NAME's block (header through the line before the next one).
 blk() { awk -v n="$1 (" 'index($0, n) == 1 { on = 1; print; next } on && /^[^ ]/ { exit } on { print }'; }
 has() {  # has yes|no NEEDLE HAYSTACK LABEL

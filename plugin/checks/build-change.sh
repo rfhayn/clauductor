@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # build-change's review loop decides with pure functions (the `pure` block of
 # .claude/workflows/build-change.js): the grade of each round and the stuck-loop breaker. This loads
 # that block into node and falsifies it both ways:
@@ -14,17 +14,17 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # And the project's settings: build-change takes its branch prefix, changes directory, gate,
 # attribution trailer and provenance from .claude/project-config.sh at run time, never from a
 # constant a project would have to edit (OPS-8 rehearsal: turning attribution off meant editing
-# this framework file, which `clauductor update` then flagged forever). project-config.sh is run
+# this framework file, which `stridal update` then flagged forever). project-config.sh is run
 # against a project with attribution and provenance off and other branch keys, and its output is
 # fed to the workflow's own projectSettings and trailerBlock.
 # Then the driver (below): the whole script, run with a stubbed agent, for review routing and the
 # main-checkout stop.
 #
 # node runs workflow scripts, so a project using build-change has it; without it this says SKIPPED
-# and why. NODE_REQUIRED=1 makes that a failure (clauductor's CI sets it).
+# and why. NODE_REQUIRED=1 makes that a failure (stridal's CI sets it).
 . "$(dirname "$0")/lib.sh"
 
-wf="$CLAUDUCTOR_FW/workflows/build-change.js"
+wf="$STRIDAL_FW/workflows/build-change.js"
 [ -f "$wf" ] || { ok "no build-change workflow in this project"; finish; }
 d=$(scratch)
 
@@ -42,10 +42,10 @@ grep -qF 'project-config.sh --json' "$wf" && grep -qF 'CFG = projectSettings(set
   || fail "build-change.js does not read its settings from .claude/project-config.sh --json"
 
 # project-config.sh against a project that turned attribution and provenance off and moved its branches.
-pc="$CLAUDUCTOR_FW/project-config.sh"
+pc="$STRIDAL_FW/project-config.sh"
 if [ -f "$pc" ] && command -v jq >/dev/null 2>&1; then
   mkdir -p "$d/p/.claude/lib"
-  cp "$CLAUDUCTOR_FW/lib/conf.sh" "$d/p/.claude/lib/"; cp "$pc" "$d/p/.claude/"
+  cp "$STRIDAL_FW/lib/conf.sh" "$d/p/.claude/lib/"; cp "$pc" "$d/p/.claude/"
   conf='BRANCH_CHANGE="feature/"\nCHANGES_DIR="openspec/changes"\nGATE="infra/ci/gate.sh"\nGATE_QUICK_FLAGS="--fast"\n'
   printf '{"attribution": {"enabled": false, "trailer": "Co-Authored-By: X <x@y>"}, "provenance": {"enabled": false}}\n' > "$d/p/.claude/model-roles.json"
   # gate-wait.sh is where install put it (Mapping): beside the template's runner, moved or not, and
@@ -244,7 +244,7 @@ const prefixRun = async (risk, econ) => {
   t("reviewPrompt() is REVIEW_PROMPT filled in one pass", m.reviewPrompt(g, 'C', []) === fill(P, g, 'C'), `got ${JSON.stringify(m.reviewPrompt(g, 'C', []))}`)
   m.reviewSpawn(g, 'C', [], 1)
   t('reviewSpawn() sends PIN + that prompt, the REVIEW schema and agentType reviewer',
-    !!sent && sent.prompt === 'PIN|' + fill(P, g, 'C') && deq(sent.opts.schema, S) && sent.opts.agentType === 'clauductor:reviewer' && sent.opts.model === 'm',
+    !!sent && sent.prompt === 'PIN|' + fill(P, g, 'C') && deq(sent.opts.schema, S) && sent.opts.agentType === 'stridal:reviewer' && sent.opts.model === 'm',
     `sent ${JSON.stringify(sent && { prompt: sent.prompt, agentType: sent.opts.agentType })}`)
 } catch (e) { t('the reviewer contract could be evaluated', false, e.message) }
 console.log(out.join('\n'))
@@ -498,7 +498,7 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   r = await run([], { args: { resume: 3 }, budget: { quotaGate: `${STOP}\nexit 1` } })
   t('a resumed run is not stopped by the quota gate: it warns, quoting the STOP, and finishes', r.report.stoppedAt === null && built(r) && warned(r, 'resume', STOP), [r.report.stoppedAt, r.report.warnings])
   t('...and its marker runs', ranMarker(r), r.calls.map((c) => c.opts.label))
-  const NONE = 'quota-gate: no reading — no readable ~/.clauductor/quota-reading.json; the quota is NOT checked, so the lane may start'
+  const NONE = 'quota-gate: no reading — no readable ~/.stridal/quota-reading.json; the quota is NOT checked, so the lane may start'
   r = await run([], { budget: { quotaGate: `${NONE}\nexit 0` } })
   t('no reading fails open and says so in report.warnings', r.report.stoppedAt === null && built(r) && r.report.warnings.includes(NONE), [r.report.stoppedAt, r.report.warnings])
   for (const odd of ['', 'quota-gate: below — 7d 40% under 90% (QUOTA_LANE_STOP_PCT)', 'something else\nexit 0']) {

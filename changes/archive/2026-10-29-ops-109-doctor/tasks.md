@@ -25,7 +25,7 @@
   Left: the full gate and review. Limit: the sandbox cannot bind ports, so the port-binding tests
   in `panel/install` (e.g. `TestStatusLineSnippetPostsOnlyToALivePanel`) did not run here.
 - 2026-10-24 group 3 (The panel, and where a user meets doctor) built and reviewed: converged in 2 round(s), peak low; grades R1 fail, R2 pass
-- 2026-10-29 the Slice ticked at S16's close: a `clauductor doctor` built from `main` (ddf72d7a)
+- 2026-10-29 the Slice ticked at S16's close: a `stridal doctor` built from `main` (ddf72d7a)
   printed its Machine and Project lines, each finding with its fix, in a directory outside git and
   in this repository.
 - 2026-10-29 archived: actual cost $50.25 (no budget)
@@ -86,7 +86,7 @@
 - 2026-10-24 group 2 (review fix, replacing the footer entry that stood here): the model's own
   checks are appended to the count line itself, `1 failed, 2 warnings. The model's own checks: sh
   .claude/checks/run.sh` (and `Nothing missing or broken. The model's own checks: …`), only when
-  the repository holds Clauductor's model. The last line is then the count in every report
+  the repository holds Stridal's model. The last line is then the count in every report
   (DOCTOR-3-S2) and names the checks (DOCTOR-2-S5); *The checks* says the count line "adds" it.
   Alternatives: a footer after the count line, which made a model repository's last line the
   pointer and broke S2; a line just before the count, which breaks S5's "the last line names".
@@ -98,20 +98,20 @@
   `--template-dir`) for group 3's panel lines to read.
 - 2026-10-24 group 2: the `--template-dir` a fix carries is `Source.Dir` of a fresh `Resolve` (the
   override's resolved directory, which `templateIn` makes absolute); flag appended last
-  (`clauductor update --dry-run --template-dir '<dir>'`); alternative: the flag as typed. A
+  (`stridal update --dry-run --template-dir '<dir>'`); alternative: the flag as typed. A
   relative path would not survive the `cd`.
 - 2026-10-24 group 2 (review fix, superseding the fallback above and round 1's "relative
   `--template-dir` that is no template" test): when no template resolves (a `--template-dir` that
   is none, or a found template of another version), the model line prints NO repository fix,
   neither `install` nor `diff`: both refuse without a template, and D8 prints no fix the command
   would refuse. The note still names the command, adding "once the template line is ok", so
-  DOCTOR-2-S2/S3's "names `clauductor install`/`diff`" holds; the template line's FAIL says why.
+  DOCTOR-2-S2/S3's "names `stridal install`/`diff`" holds; the template line's FAIL says why.
   The Abs fallback for an unresolvable override is deleted, not kept: no fix carries the flag
   then. `diff` is included though the finding named only `install`, since it is the same rule at
   the same source (`doctorRepo.fixes`). Alternative: print the fix and let the command refuse.
-- 2026-10-24 group 2: the own-model fix is `clauductor diff` (with the `cd` below the toplevel),
+- 2026-10-24 group 2: the own-model fix is `stridal diff` (with the `cd` below the toplevel),
   printed as a `fix:` line although `diff` changes nothing; alternative: prose only. Spec
-  DOCTOR-2-S3 says the note names `clauductor diff`, and `diff` reads the current directory (E2)
+  DOCTOR-2-S3 says the note names `stridal diff`, and `diff` reads the current directory (E2)
   like `update`, so it needs the same `cd`.
 - 2026-10-24 group 2: the drift line's detail words the counts from `Report.Files`' framework tier
   ("1 framework file differs, 1 missing, settings.json would change") and every `Report.Warnings`
@@ -146,25 +146,25 @@
   when it returns no error; otherwise the detail says `update refuses here, so no fix is printed:`
   and the refusal itself. A refusal added to `planUpdate` reaches doctor with no change here.
   Alternatives: a doctor-side copy of each precondition (the per-case guard the findings warned
-  about); printing `clauductor install` for the missing skills (needs install's own checks shared
+  about); printing `stridal install` for the missing skills (needs install's own checks shared
   too, and the refusal text already names it). Group 3's `CheckAdd` should share
   `AddProject`'s checks the same way. Tested by mutation (doctor ignoring the error fails both
   cases of `TestDoctorDriftPrintsNoUpdateFixUpdateWouldRefuse`).
 - 2026-10-24 group 2 (review fix, after the cap): the same class for `install` (a repository with
   no sign `modelOf` reads, but a framework-tier file the template ships already there with other
   content, e.g. `scripts/ci/gate.sh`, or a `project.conf` install cannot place: doctor printed
-  `fix: clauductor install`, which refused). Closed as `planUpdate` closed it for `update`:
+  `fix: stridal install`, which refused). Closed as `planUpdate` closed it for `update`:
   install's read-only checks before it prints its plan (the template, `refusePluginModel`,
   `foreignModel`/`refuseForeign`, `planInstall`, `planExtras`) moved out of its `RunE` into
   `prepareInstall` (`install.go`), which `install` runs and doctor's model line runs (writing to
   `io.Discard`); its error text and order are unchanged, and the foreign refusal is marked
   (`foreignRefusal`) so `install --dry-run` still prints it and exits 0. Doctor prints the install
   fix only when it returns no error; otherwise the note still says "has no operating model" and
-  names `clauductor install` (DOCTOR-2-S2's GIVEN holds in that state, so its THEN does too) and
+  names `stridal install` (DOCTOR-2-S2's GIVEN holds in that state, so its THEN does too) and
   adds `install refuses here, so no fix is printed:` with the refusal, as the drift line does
   (one helper, `refusesHere`). Alternatives: widen `modelOf`'s signs to every framework-tier file
   (a second reading of install's rule, which drifts); call such a repository "its own model" (S2's
-  GIVEN names it a no-model repository). The sweep found one more fix of the class: `clauductor
+  GIVEN names it a no-model repository). The sweep found one more fix of the class: `stridal
   diff` was guarded only by `Resolve`, while diff's RunE is `template.Survey`, which also refuses
   when the template's defaults cannot be read; the own-model line now runs `Survey` and prints the
   diff fix only when it succeeds. Tested by `TestDoctorNoModelPrintsNoInstallFixInstallWouldRefuse`
@@ -191,11 +191,11 @@
   sentence in the build note and a bare `panel install` fix are printed only when the registry's
   default project's config loads (else `panel install` would refuse); `CheckAdd` runs with a zero
   `AddOptions.Now` (it only sets `Added`).
-- 2026-10-24 group 3: the existing doctor tests read the machine's real `~/.clauductor` once the
+- 2026-10-24 group 3: the existing doctor tests read the machine's real `~/.stridal` once the
   panel lines ran on macOS; they now take an empty HOME through `ownHome`. Alternative: leave them
   reading the owner's home (passes or fails by whose machine it is).
 - 2026-10-24 group 3: `printPrereqs` prints the doctor line in Go (a `defer`, so the "no script"
-  path ends with it too), not from `prereqs.sh`: the plugin's `/clauductor:init` and `install.sh`
+  path ends with it too), not from `prereqs.sh`: the plugin's `/stridal:init` and `install.sh`
   run the same script where there may be no binary. Alternative: a line in the script (names a
   command a plugin user may not have).
 - 2026-10-25 group 3 (review fix): class "a line built from a stand-in value as if it were read":
@@ -218,11 +218,11 @@
   and D7's `python3` row with its Linux hint. The human report is otherwise unchanged. Tested in
   `framework/internal/cmd/prereqs_test.go`: a `--rows` test over a stub `PATH` and `PREREQS_OS`,
   and the existing tests' missing counts and *All present* list brought up to the new row. Then
-  `scripts/build-plugin.sh`, and `env -u CLAUDUCTOR_FRAMEWORK framework/clauductor update` from
+  `scripts/build-plugin.sh`, and `env -u STRIDAL_FRAMEWORK framework/stridal update` from
   the repository root with the binary built from this checkout, its `Template:` line checked to
   name this worktree's `template/`. Commit only `.claude/prereqs.sh` from it: the other tracked
   drift it writes (`.claude/model-roles.json`'s `roles.reviewer.eval.baseline`) is OPS-119's
-  (`docs/insights-log.md`, *update follows CLAUDUCTOR_FRAMEWORK*), and is restored with `git
+  (`docs/insights-log.md`, *update follows STRIDAL_FRAMEWORK*), and is restored with `git
   checkout -- .claude/model-roles.json`.
 - [x] 1.2 `framework/internal/cmd/doctor.go` (new), registered on the root command as `diff` is
   (`diff.go`), taking `--template-dir` through `addTemplateFlag`: the *Machine* and *Project*
@@ -237,7 +237,7 @@
   Citing [DOCTOR-1-S1], [DOCTOR-1-S2].
 - [x] 1.4 The template line in `framework/internal/cmd/doctor.go`, from `template.Resolve` (its error, or `Source.Warning`), and the
   tools line as a note when no template resolves. Tested in `doctor_test.go` with
-  `CLAUDUCTOR_FRAMEWORK` naming a template whose `.template-version` is not the binary's. Citing
+  `STRIDAL_FRAMEWORK` naming a template whose `.template-version` is not the binary's. Citing
   [DOCTOR-1-S3].
 - [x] 1.5 The gh line: `gh auth token` with its output discarded, its exit status alone read.
   Tested in `doctor_test.go` with a stand-in `gh` (`testbin`) that exits 1, then one that prints a
@@ -247,7 +247,7 @@
 - [x] 2.1 The repository line (`git rev-parse --show-toplevel`, and the main checkout as
   `install/candidate.go`'s `mainRoot` finds it: the first entry of `signals.ReadWorktrees`,
   resolved), and the model line with `ownguard.go`'s readings (the plugin marker first, then the
-  install marker and the old model's signs, then `ownModelSigns`), the no-model fix `clauductor
+  install marker and the old model's signs, then `ownModelSigns`), the no-model fix `stridal
   install` as D8 prints it. Tested in `doctor_test.go` with a directory outside any repository, a
   bare `git init` (run from a subdirectory, the fix asserted with its `cd <toplevel> &&`), one
   holding `.claude/skills`, and one holding the plugin marker. Citing [DOCTOR-2-S1], [DOCTOR-2-S2], [DOCTOR-2-S3].
@@ -255,7 +255,7 @@
   of framework files that differ and are missing, whether `settings.json` would change, each
   `Report.Warnings` entry but the template's own warning, and the fix as D8 prints it (a given
   `--template-dir` carried as the resolved `Source.Dir`, quoted, so it survives the `cd`); the last
-  line's `sh .claude/checks/run.sh` for Clauductor's model (D4). Tested in `doctor_test.go` with a repository installed by `install`,
+  line's `sh .claude/checks/run.sh` for Stridal's model (D4). Tested in `doctor_test.go` with a repository installed by `install`,
   then one framework file edited and one deleted, run from a subdirectory. Citing [DOCTOR-2-S4],
   [DOCTOR-2-S5].
 - [x] 2.3 Doctor writes nothing. Tested in `framework/internal/cmd/doctor_test.go` with `internal/treesnap` taken over
@@ -289,8 +289,8 @@
   repository with no `panel.json`, an unknown field, and a linked worktree made with `git worktree
   add`. Citing [DOCTOR-1-S7], [DOCTOR-2-S6], [DOCTOR-2-S7], [DOCTOR-2-S8], [DOCTOR-2-S9].
 - [x] 3.4 `framework/internal/cmd/prereqs.go`: `printPrereqs` ends with the line naming
-  `clauductor doctor`. Tested in `prereqs_test.go`. Docs: a `clauductor doctor` row in
+  `stridal doctor`. Tested in `prereqs_test.go`. Docs: a `stridal doctor` row in
   `README.md`'s command table; `docs/QUICKSTART.md` *Prerequisites* and *Troubleshooting*; and
   `docs/panel.md` *Troubleshooting*.
 
-- [x] Slice: a user can run clauductor doctor in any directory and see what on their machine and in their project is missing or broken, each with what to do about it
+- [x] Slice: a user can run stridal doctor in any directory and see what on their machine and in their project is missing or broken, each with what to do about it

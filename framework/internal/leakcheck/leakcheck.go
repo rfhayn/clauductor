@@ -24,11 +24,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testbin"
 )
 
 // Prefix begins the name of every tmux socket a test makes.
-const Prefix = "clauductor-test-"
+const Prefix = "stridal-test-"
 
 // own is the name prefix of this process's sockets.
 func own() string { return Prefix + strconv.Itoa(os.Getpid()) + "-" }

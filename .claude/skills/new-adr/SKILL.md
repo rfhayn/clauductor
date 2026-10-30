@@ -22,7 +22,7 @@ If the line above shows as literal text instead of output, run
    - **How we work** (a lesson about testing, review, evidence or process with a mechanism, or a
      tooling decision behind one) → a practice record in `PRACTICES_DIR` (`docs/practices/`),
      headed `# PRAC NNNN: <title>`, cited `PRAC-NNNN`. If the directory is missing, create it from
-     the template's `docs/practices/` (its README and TEMPLATE.md; `clauductor update` offers them).
+     the template's `docs/practices/` (its README and TEMPLATE.md; `stridal update` offers them).
 
    Below, *the record* is that ADR or practice record, and `<DIR>` its directory.
 0a. **Decide: a new record, an amendment, or neither.** Read *What this tier holds* in

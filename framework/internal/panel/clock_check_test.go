@@ -21,7 +21,7 @@ import (
 var clockCalls = map[string]bool{"Now": true, "Since": true, "Until": true, "After": true, "AfterFunc": true,
 	"NewTimer": true, "NewTicker": true, "Tick": true, "Sleep": true}
 
-const clockPkg = "github.com/clauductor/clauductor/internal/panel/clock"
+const clockPkg = "github.com/rfhayn/stridal/internal/panel/clock"
 
 // systemClockSites are the only uses of clock.System outside package clock, by file
 // and function, each with the number of uses and why it is not injected.
@@ -156,7 +156,7 @@ func TestClockCheckCatchesEveryForm(t *testing.T) {
 		`package x; import "time"; var now = time.Now`:                                                               1, // a reference is a clock too
 		`package x; import "time"; func f() { time.NewTicker(1); time.NewTimer(1) }`:                                 2,
 		`package x; import . "time"; var n = Now()`:                                                                  1, // a dot-import hides the calls
-		`package x; import . "github.com/clauductor/clauductor/internal/panel/clock"; var c = System`:                1,
+		`package x; import . "github.com/rfhayn/stridal/internal/panel/clock"; var c = System`:                       1,
 		`package x; import "time"; type c struct{}; func (c) Now() time.Time { var x c; _ = x; return time.Time{} }`: 0,
 		`package x; type clk struct{}; func (clk) Now() int { return 0 }; var time clk; var n = time.Now()`:          0,
 	} {
@@ -171,9 +171,9 @@ func TestClockCheckCatchesEveryForm(t *testing.T) {
 	}
 	// clock.System is counted by the function that takes it, however the import is named.
 	for src, want := range map[string]map[string]int{
-		`package x; import "github.com/clauductor/clauductor/internal/panel/clock"; func f() { _ = clock.System }`:                           {"f": 1},
-		`package x; import c "github.com/clauductor/clauductor/internal/panel/clock"; type T struct{}; func (*T) g() { _ = c.System.Now() }`: {"T.g": 1},
-		`package x; import "github.com/clauductor/clauductor/internal/panel/clock"; var sys = clock.System`:                                  {"": 1},
+		`package x; import "github.com/rfhayn/stridal/internal/panel/clock"; func f() { _ = clock.System }`:                           {"f": 1},
+		`package x; import c "github.com/rfhayn/stridal/internal/panel/clock"; type T struct{}; func (*T) g() { _ = c.System.Now() }`: {"T.g": 1},
+		`package x; import "github.com/rfhayn/stridal/internal/panel/clock"; var sys = clock.System`:                                  {"": 1},
 	} {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, "x.go", src, 0)

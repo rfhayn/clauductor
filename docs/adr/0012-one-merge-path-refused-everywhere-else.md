@@ -82,7 +82,7 @@ Two lessons come from that record. Moving the judgment to the argv closes every 
 merge through `gh` on PATH. But what the hook must still read, the ways past the wrapper, does not
 converge either when it is a grammar; it converges only as a coarse refusal.
 
-**Clauductor already ships the route.** `hooks/pattern-kill-path.sh` writes `.claude/bin` first on
+**Stridal already ships the route.** `hooks/pattern-kill-path.sh` writes `.claude/bin` first on
 PATH through `CLAUDE_ENV_FILE` on SessionStart and drops any alias or function of the wrapped name,
 so `.claude/bin/pkill` and `killall` refuse every call (ST-14). `no-pattern-kill.sh` refuses the
 ways past them that a command shows: a path, `command -p`, `env PATH=`. A `gh` wrapper would ride

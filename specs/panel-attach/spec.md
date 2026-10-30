@@ -1,17 +1,17 @@
 # panel-attach Specification
 
 ## Purpose
-The panel serves a repository that does not install Clauductor. It keeps that repository's panel config beside it, under the user's home, and never writes into the repository. The config's commands still run in the repository's root, against the repository's own scripts, and only once the owner trusts it.
+The panel serves a repository that does not install Stridal. It keeps that repository's panel config beside it, under the user's home, and never writes into the repository. The config's commands still run in the repository's root, against the repository's own scripts, and only once the owner trusts it.
 
 ## Requirements
 ### Requirement: Attach serves a repository from a config outside it
-WHEN the owner runs `clauductor panel attach` on a repository THE SYSTEM SHALL write the panel config `panel init` would write for it, with its commands in argv form, to `~/.clauductor/projects/<id>/panel.json`, register the repository with that file as its config, and leave its commands off until the owner trusts it; it SHALL NOT overwrite an existing file.
+WHEN the owner runs `stridal panel attach` on a repository THE SYSTEM SHALL write the panel config `panel init` would write for it, with its commands in argv form, to `~/.stridal/projects/<id>/panel.json`, register the repository with that file as its config, and leave its commands off until the owner trusts it; it SHALL NOT overwrite an existing file.
 
 #### Scenario: [ATTACH-1-S1] Attach writes the sidecar and registers the repository
-- **GIVEN** a git repository with no `.clauductor/panel.json` that is not registered
-- **WHEN** the owner runs `clauductor panel attach <repo>`
-- **THEN** `~/.clauductor/projects/<id>/panel.json` exists, and `projects.json` lists the repository with `config` naming that file
-- **AND** the project loads, its config is untrusted, and the output names `clauductor panel trust --project <repo>`
+- **GIVEN** a git repository with no `.stridal/panel.json` that is not registered
+- **WHEN** the owner runs `stridal panel attach <repo>`
+- **THEN** `~/.stridal/projects/<id>/panel.json` exists, and `projects.json` lists the repository with `config` naming that file
+- **AND** the project loads, its config is untrusted, and the output names `stridal panel trust --project <repo>`
 
 #### Scenario: [ATTACH-1-S2] The sidecar is panel init's reading of the repository
 - **GIVEN** a git repository with the operating model's queue scripts, and another without them
@@ -20,13 +20,13 @@ WHEN the owner runs `clauductor panel attach` on a repository THE SYSTEM SHALL w
 - **AND** the output prints init's notes for each choice, and the sidecar passes the sidecar command rule with no line marked
 
 #### Scenario: [ATTACH-1-S3] An existing sidecar is never overwritten
-- **GIVEN** `~/.clauductor/projects/<id>/panel.json` exists for the id the repository would get
+- **GIVEN** `~/.stridal/projects/<id>/panel.json` exists for the id the repository would get
 - **WHEN** the owner attaches the repository
 - **THEN** attach is refused, and the file's bytes are unchanged
-- **AND** the message names the file, `clauductor panel add --project <repo> --config <file>`, and `--id`
+- **AND** the message names the file, `stridal panel add --project <repo> --config <file>`, and `--id`
 
 #### Scenario: [ATTACH-1-S4] A registered project that cannot load is attached in place
-- **GIVEN** a registered project whose registry `config` is empty, with no `.clauductor/panel.json`, and with lanes in its lane registry
+- **GIVEN** a registered project whose registry `config` is empty, with no `.stridal/panel.json`, and with lanes in its lane registry
 - **WHEN** the owner attaches it
 - **THEN** its registry entry names the sidecar as its config, with the same id and tmux socket
 - **AND** its lane registry is unchanged, and the project loads
@@ -35,7 +35,7 @@ WHEN the owner runs `clauductor panel attach` on a repository THE SYSTEM SHALL w
 - **GIVEN** a registered project whose config loads
 - **WHEN** the owner attaches it
 - **THEN** attach is refused with its id and the config it reads
-- **AND** nothing is written under `~/.clauductor/projects/`
+- **AND** nothing is written under `~/.stridal/projects/`
 
 #### Scenario: [ATTACH-1-S6] A refused registration leaves no sidecar
 - **GIVEN** a repository whose tmux socket would be another registered project's
@@ -48,7 +48,7 @@ THE SYSTEM SHALL leave every file under an attached repository's root, its `.git
 
 #### Scenario: [ATTACH-2-S1] Attach leaves the repository untouched
 - **GIVEN** a git repository with commits, a branch, an untracked file and an ignored file
-- **WHEN** the owner runs `clauductor panel attach <repo>`
+- **WHEN** the owner runs `stridal panel attach <repo>`
 - **THEN** every file and directory under the root, `.git` included, has the same path, mode, size, modification time and SHA-256 as before
 
 #### Scenario: [ATTACH-2-S2] Serving leaves the repository untouched
@@ -62,7 +62,7 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT tr
 
 #### Scenario: [ATTACH-3-S1] Trust is refused for a command outside the repository
 - **GIVEN** an attached project whose sidecar has a card running `/usr/local/bin/report`, and a queue running `sh ../other/gate.sh`
-- **WHEN** the owner runs `clauductor panel trust --project <repo>`
+- **WHEN** the owner runs `stridal panel trust --project <repo>`
 - **THEN** trust is refused, and each of the two lines is printed marked as not allowed in a sidecar, with the word that resolves outside and "move it into a script in the repository"
 - **AND** nothing is recorded in the project's `trusted-config.json`
 
@@ -79,7 +79,7 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT tr
 - **THEN** it is trusted and recorded, and no line is marked
 
 #### Scenario: [ATTACH-3-S4] An in-repository config keeps today's rules
-- **GIVEN** a project whose config is its own `.clauductor/panel.json`, and runs `/usr/local/bin/report` and `sh -c "sh .claude/owner-queue.sh 2>&1"`
+- **GIVEN** a project whose config is its own `.stridal/panel.json`, and runs `/usr/local/bin/report` and `sh -c "sh .claude/owner-queue.sh 2>&1"`
 - **WHEN** the owner trusts it
 - **THEN** it is trusted and recorded, as before this change
 
@@ -113,21 +113,21 @@ WHERE a project's config resolves outside its repository THE SYSTEM SHALL NOT tr
 - **AND** `["git", "log", "main..HEAD"]`, `["make", "-j4", "gate"]`, `["go", "test", "./..."]` and `["make", "-C", "sub", "gate"]` are trusted (ATTACH-3-S3)
 
 ### Requirement: The registry's config is the one every command reads
-THE SYSTEM SHALL read a registered project's config from the registry's `config` in every command and on the page, and SHALL say when a project reads a config outside its repository and when the repository's own `.clauductor/panel.json` is therefore not read.
+THE SYSTEM SHALL read a registered project's config from the registry's `config` in every command and on the page, and SHALL say when a project reads a config outside its repository and when the repository's own `.stridal/panel.json` is therefore not read.
 
 #### Scenario: [ATTACH-4-S1] With both, the sidecar is read and the panel says so
-- **GIVEN** an attached project whose repository also has its own `.clauductor/panel.json`
-- **WHEN** the panel loads it, and the owner runs `clauductor panel list`
+- **GIVEN** an attached project whose repository also has its own `.stridal/panel.json`
+- **WHEN** the panel loads it, and the owner runs `stridal panel list`
 - **THEN** the panel serves the sidecar's name, cards and templates
-- **AND** `panel list` names the sidecar's path as outside the repository, and says the repository's `.clauductor/panel.json` is not read
+- **AND** `panel list` names the sidecar's path as outside the repository, and says the repository's `.stridal/panel.json` is not read
 
 #### Scenario: [ATTACH-4-S2] panel trust trusts the registry's config
-- **GIVEN** an attached project with no `.clauductor/panel.json` in its repository
-- **WHEN** the owner runs `clauductor panel trust --project <repo>` without `--config`
+- **GIVEN** an attached project with no `.stridal/panel.json` in its repository
+- **WHEN** the owner runs `stridal panel trust --project <repo>` without `--config`
 - **THEN** the sidecar is trusted and recorded, and the output names its path
 
 #### Scenario: [ATTACH-4-S3] A bare panel in an attached repository serves it
-- **GIVEN** an attached project with no `.clauductor/panel.json` in its repository
+- **GIVEN** an attached project with no `.stridal/panel.json` in its repository
 - **WHEN** the panel starts with `--project <repo>` and no `--config`
 - **THEN** it starts and serves the project from its sidecar
 
@@ -138,18 +138,18 @@ THE SYSTEM SHALL read a registered project's config from the registry's `config`
 - **AND** the other project's row says nothing about its config
 
 ### Requirement: Removing an attached project keeps its sidecar
-WHEN an attached project is removed THE SYSTEM SHALL keep its `~/.clauductor/projects/<id>/` folder and SHALL say where it is and how to serve it again.
+WHEN an attached project is removed THE SYSTEM SHALL keep its `~/.stridal/projects/<id>/` folder and SHALL say where it is and how to serve it again.
 
 #### Scenario: [ATTACH-5-S1] Remove keeps the folder, and add brings it back
 - **GIVEN** an attached project with no lanes
-- **WHEN** the owner runs `clauductor panel remove <id>`
-- **THEN** `~/.clauductor/projects/<id>/panel.json` is unchanged, and the output names it and `clauductor panel add --project <repo> --config <file>`
+- **WHEN** the owner runs `stridal panel remove <id>`
+- **THEN** `~/.stridal/projects/<id>/panel.json` is unchanged, and the output names it and `stridal panel add --project <repo> --config <file>`
 - **AND** running that `panel add` serves the project again from the same file, still trusted when its bytes were trusted
 
 #### Scenario: [ATTACH-5-S2] The page's Remove confirmation says how an attached project comes back
 - **GIVEN** a panel serving an attached project with no lanes, and a project with its own config
 - **WHEN** the page's Remove from panel… opens its confirmation for each
-- **THEN** the attached project's confirmation names its sidecar, says it stays, and gives `clauductor panel add --project <repo> --config <file>` as the way to serve it again, and does not say that adding it again from the page brings it back
+- **THEN** the attached project's confirmation names its sidecar, says it stays, and gives `stridal panel add --project <repo> --config <file>` as the way to serve it again, and does not say that adding it again from the page brings it back
 - **AND** the other project's confirmation reads as it does today
 
 ### Requirement: A sidecar's card shows its stderr without a shell

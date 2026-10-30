@@ -149,7 +149,7 @@ func missingWhy(cmd Command, havePayload, haveWindow bool, k, w string) string {
 	case !cmd.Configured:
 		return "Only a project's metrics command reports this (metrics.command in panel.json; docs/panel.md, Metrics)."
 	case !cmd.Trusted:
-		return "The metrics command is off until you trust panel.json (clauductor panel trust)."
+		return "The metrics command is off until you trust panel.json (stridal panel trust)."
 	case cmd.Pending:
 		return "The metrics command has not reported yet."
 	case !havePayload:

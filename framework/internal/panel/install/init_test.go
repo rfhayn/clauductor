@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testgit"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testgit"
 )
 
 func initGit(t *testing.T, dir string, args ...string) {
@@ -65,7 +65,7 @@ func TestInitConfigFromARepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Path != filepath.Join(root, ".clauductor", "panel.json") {
+	if res.Path != filepath.Join(root, ".stridal", "panel.json") {
 		t.Fatalf("path %s", res.Path)
 	}
 	c, err := config.LoadConfig(res.Path)
@@ -88,7 +88,7 @@ func TestInitConfigFromARepository(t *testing.T) {
 		t.Errorf("lanes %v", c.Lanes)
 	}
 	// The best-named gate the project defines, from whichever file: `make ci`.
-	if len(c.Queues) != 1 || !reflect.DeepEqual(c.Queues[0].Command, []string{"make", "ci"}) || c.Queues[0].Lock != "clauductor/gate.lock" {
+	if len(c.Queues) != 1 || !reflect.DeepEqual(c.Queues[0].Command, []string{"make", "ci"}) || c.Queues[0].Lock != "stridal/gate.lock" {
 		t.Fatalf("queues %+v", c.Queues)
 	}
 	// Nothing that runs by itself.
@@ -108,7 +108,7 @@ func TestInitConfigFromARepository(t *testing.T) {
 
 func TestInitConfigRefusesToOverwrite(t *testing.T) {
 	root := newRepo(t, nil)
-	path := filepath.Join(root, ".clauductor", "panel.json")
+	path := filepath.Join(root, ".stridal", "panel.json")
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	os.WriteFile(path, []byte("mine"), 0o644)
 	if _, err := InitConfig(context.Background(), signals.ExecRunner, root); !errors.Is(err, ErrConfigExists) {
@@ -166,7 +166,7 @@ func TestInitConfigHintsAtCardsAndTemplates(t *testing.T) {
 		t.Fatalf("cards %+v templates %+v", c.Cards, c.Templates)
 	}
 	notes := strings.Join(res.Notes, "\n")
-	if strings.Count(notes, "clauductor install") != 1 || !strings.Contains(notes, "add them by hand") {
+	if strings.Count(notes, "stridal install") != 1 || !strings.Contains(notes, "add them by hand") {
 		t.Fatalf("the hint is not there once:\n%s", notes)
 	}
 }
@@ -230,7 +230,7 @@ func TestInitConfigDetectsTheOperatingModel(t *testing.T) {
 				t.Errorf("suggest=%v: the notes do not say %q:\n%s", withSuggest, s, notes)
 			}
 		}
-		if strings.Contains(notes, "clauductor install") || strings.Count(notes, "queues ") != 1 {
+		if strings.Contains(notes, "stridal install") || strings.Count(notes, "queues ") != 1 {
 			t.Errorf("suggest=%v: the hint, or two queue lines:\n%s", withSuggest, notes)
 		}
 	}

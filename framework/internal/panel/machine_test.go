@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	pclock "github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/panel/web"
+	pclock "github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/web"
 )
 
 // dispatchProject is a project runtime with only what the dispatcher touches.
@@ -112,7 +112,7 @@ func TestQuotaAlertNotifiesOncePerMachine(t *testing.T) {
 		projects = append(projects, r)
 	}
 	m := &Machine{o: Options{Notify: notify, Out: io.Discard}, projects: projects, def: projects[0],
-		notifier: state.Notifier{MinInterval: time.Minute, Project: "clauductor panel"}, notifyPath: filepath.Join(t.TempDir(), "n.json")}
+		notifier: state.Notifier{MinInterval: time.Minute, Project: "stridal panel"}, notifyPath: filepath.Join(t.TempDir(), "n.json")}
 	for _, r := range projects {
 		r.machine = m
 		r.pollNotify()(context.Background(), t0)
@@ -121,7 +121,7 @@ func TestQuotaAlertNotifiesOncePerMachine(t *testing.T) {
 	m.pollQuotaAlert(context.Background(), t0.Add(time.Second))
 	mu.Lock()
 	defer mu.Unlock()
-	if len(sent) != 1 || !strings.HasPrefix(sent[0].Title, "clauductor panel") {
+	if len(sent) != 1 || !strings.HasPrefix(sent[0].Title, "stridal panel") {
 		t.Fatalf("sent %+v, want one quota notification from the machine", sent)
 	}
 	for _, r := range projects {
@@ -149,7 +149,7 @@ func TestLoginLockAlertNotifiesOncePerMachine(t *testing.T) {
 	}
 	projects := []*Runtime{project("a"), project("b")}
 	m := &Machine{o: Options{Notify: notify, Out: io.Discard}, projects: projects, def: projects[0],
-		notifier: state.Notifier{MinInterval: time.Minute, Project: "clauductor panel"}, notifyPath: filepath.Join(t.TempDir(), "n.json")}
+		notifier: state.Notifier{MinInterval: time.Minute, Project: "stridal panel"}, notifyPath: filepath.Join(t.TempDir(), "n.json")}
 	lock := types.LoginLock{Which: "current", Path: "/h/.claude/.oauth_refresh.lock", State: "live",
 		ModTime: t0.Add(-2 * time.Second).UnixMilli(), LiveSince: t0.Add(-3 * time.Minute).UnixMilli(), PID: 4242,
 		Command: "claude -p hi", HolderState: "running", Holder: "other"}
@@ -166,7 +166,7 @@ func TestLoginLockAlertNotifiesOncePerMachine(t *testing.T) {
 	m.pollQuotaAlert(context.Background(), t0)
 	m.pollQuotaAlert(context.Background(), t0.Add(time.Second))
 	mu.Lock()
-	if len(sent) != 1 || !strings.HasPrefix(sent[0].Title, "clauductor panel") || !strings.Contains(sent[0].Body, "pid 4242") {
+	if len(sent) != 1 || !strings.HasPrefix(sent[0].Title, "stridal panel") || !strings.Contains(sent[0].Body, "pid 4242") {
 		t.Fatalf("sent %+v, want one login-lock notification from the machine", sent)
 	}
 	mu.Unlock()

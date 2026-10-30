@@ -4,7 +4,7 @@ The skills, hooks and agents in `.claude/` cite these by name (*in italics*). Ea
 the expensive way in the project this model was extracted from; the incident is summarised in a
 line so you can judge whether it applies to you. They are not rules on their own: `AGENTS.md`
 holds the four rules, and its *What executes each rule* table says what, if anything, enforces
-each. When your project decides something of this kind, record it as an ADR (`/clauductor:new-adr`) and cite
+each. When your project decides something of this kind, record it as an ADR (`/stridal:new-adr`) and cite
 the ADR instead.
 
 ## Propose just in time, at most one ahead
@@ -124,6 +124,6 @@ success), never for "the checks" in general. Only a complete run writes a receip
 ## One machine, one gate at a time
 
 Every worktree of a repository shares one gate lease (`docs/panel.md`, *Queue and the gate lock
-protocol* in the clauductor repo), so two lanes never run the full gate at once and starve each
+protocol* in the stridal repo), so two lanes never run the full gate at once and starve each
 other into false reds. A false red is not harmless: the second one teaches you to distrust the
 gate.

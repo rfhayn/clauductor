@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // The account's quota (PANEL-15). The status line reports whatever windows the

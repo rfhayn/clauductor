@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # review-cap.sh: how many review rounds a row's PR gets before REVIEW_AT_CAP applies at the cap.
 #
 #   sh .claude/review-cap.sh <row>          the cap, a number ("3")
@@ -21,13 +21,13 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # The rounds per risk are REVIEW_CAPS (.claude/project.conf; low 2, normal 3, high 3 by default).
 # At the cap, REVIEW_AT_CAP is stop (default: medium or worse stops for the owner) or known-limits
 # (leftovers under KNOWN LIMITS and merge). Lows merge either way, each with an owner there.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/change.sh"
+. "$STRIDAL_FW/lib/change.sh"
 
-[ -n "${1:-}" ] || { echo "usage: sh "$CLAUDUCTOR_FW"/review-cap.sh <row id | change id | branch> [--why]" >&2; exit 1; }
+[ -n "${1:-}" ] || { echo "usage: sh "$STRIDAL_FW"/review-cap.sh <row id | change id | branch> [--why]" >&2; exit 1; }
 arg=$1; why=""; [ "${2:-}" = --why ] && why=1
 case $arg in "$BRANCH_CHANGE"*) arg=${arg#"$BRANCH_CHANGE"} ;; esac
 

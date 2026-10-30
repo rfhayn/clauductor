@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # archive-change.sh promotes a change's spec deltas without losing what the living specs hold.
 # Each case runs the real script in a throwaway project built from the example change
 # (.claude/examples), and asserts what the living spec BECOMES, not only the exit code:
@@ -15,14 +15,14 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # Behaviour parity with Standing Tee's archive (its skill, run over its own archive history) is in
 # the PR that added this; the cases below are its decisions, each falsified against a mutation.
 . "$(dirname "$0")/lib.sh"
-. "$CLAUDUCTOR_FW/lib/change.sh"
+. "$STRIDAL_FW/lib/change.sh"
 
-EX="$CLAUDUCTOR_FW/examples"
+EX="$STRIDAL_FW/examples"
 C=changes/add-greeting-name
 mk() {  # mk NAME: a project holding the example change and the greeting living spec; in $F
   F="$(scratch)/$1"; mkdir -p "$F/.claude/lib" "$F/changes" "$F/specs"
-  cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$F/.claude/lib/"
-  cp "$CLAUDUCTOR_FW/archive-change.sh" "$F/.claude/"
+  cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$F/.claude/lib/"
+  cp "$STRIDAL_FW/archive-change.sh" "$F/.claude/"
   cp -R "$EX/changes/add-greeting-name" "$F/changes/"; cp -R "$EX/specs/greeting" "$F/specs/"
 }
 arc() { (cd "$F" && sh .claude/archive-change.sh "$@") > "$F/out" 2>&1; }

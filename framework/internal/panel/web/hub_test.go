@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	pclock "github.com/clauductor/clauductor/internal/panel/clock"
+	pclock "github.com/rfhayn/stridal/internal/panel/clock"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // hubRounds waits until the hub has decided whether to push n times in all.

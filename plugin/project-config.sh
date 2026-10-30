@@ -1,11 +1,11 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # project-config.sh: the project's settings that the model's skills and its build-change workflow
 # need at run time, read from .claude/project.conf (over .claude/lib/conf.sh's defaults) and
 # .claude/model-roles.json. A workflow script cannot read a file, and a skill's prose cannot hold a
 # value a project changes; both ask this script instead, so no project edits a framework file to
 # change a branch prefix or turn attribution off (OPS-8 rehearsal: build-change.js held both, and
-# `clauductor update` then flagged it forever).
+# `stridal update` then flagged it forever).
 #
 #   sh .claude/project-config.sh --json            {"branch": {"change","fix","ops","main"}, "changesDir",
 #                                                   "specsDir", "gate", "gateWait", "quickFlags", "attribution",
@@ -25,8 +25,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # attribution.enabled is false); provenance is model-roles.json's provenance.enabled. Exit 2 when
 # it cannot read them (no jq, or model-roles.json missing or invalid): a caller stops rather than
 # guess.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+. "$STRIDAL_FW/lib/conf.sh"
 
 case "${1:-}" in
   prefixes | '')

@@ -53,6 +53,6 @@ func (m *Model) hookBanners(v *View, now time.Time) {
 	if !m.hooks.repairedAt.IsZero() && now.Sub(m.hooks.repairedAt) < hookRepairShown {
 		v.Warnings = append(v.Warnings, "The panel's hooks in ~/.claude/settings.json had drifted ("+m.hooks.drift+
 			") and were reinstalled at "+m.hooks.repairedAt.Local().Format("15:04:05")+
-			". If another clauductor panel keeps re-pointing them, stop it: there is one panel per machine.")
+			". If another stridal panel keeps re-pointing them, stop it: there is one panel per machine.")
 	}
 }

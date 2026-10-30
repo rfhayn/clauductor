@@ -219,7 +219,7 @@ grep -q '^Our own ideas skill\.$' "$R/.claude/skills/ideas/SKILL.md" && ok "enab
 has yes "not the ideas module's" "$out" "enable: ...saying why"
 (cd "$R" && sh .claude/modules/ideas/enable.sh --check >/dev/null 2>&1); expect_rc 1 $? "enable --check: a foreign skill fails"
 rm -rf "$R/.claude/skills/ideas"; mv "$d/skill.keep" "$R/.claude/skills/ideas"
-# From the plugin, the installed skill runs the tool through clauductor-model: held by the plugin's
+# From the plugin, the installed skill runs the tool through stridal-model: held by the plugin's
 # own TestPluginChecksPassInScaffoldedProject, which runs the plugin's enable.sh in a scaffolded
 # project (a copy in a project's .claude/, as here, is never the plugin's).
 git -C "$R" add -A >/dev/null && git -C "$R" commit -qm start

@@ -378,22 +378,22 @@ printf 'MODULES=""\n' > "$G/.claude/project.conf"
 merge 0 "a fix/ PR with no receipt while the module is OFF (the rule is the module's)" "Fixes the closed card."
 
 # --- enable.sh: the panel's fix lane --------------------------------------------------------------
-E="$d/proj"; new_repo "$E"; mkdir -p "$E/.claude/modules" "$E/.clauductor"
+E="$d/proj"; new_repo "$E"; mkdir -p "$E/.claude/modules" "$E/.stridal"
 cp -R "$M" "$E/.claude/modules/premise-check"
-jq -n '{templates: [{id: "fix", lane_type: "fix", first_prompt: "Fix GitHub issue {issue}."}, {id: "ops", lane_type: "ops", first_prompt: "Ops."}]}' > "$E/.clauductor/panel.json"
+jq -n '{templates: [{id: "fix", lane_type: "fix", first_prompt: "Fix GitHub issue {issue}."}, {id: "ops", lane_type: "ops", first_prompt: "Ops."}]}' > "$E/.stridal/panel.json"
 out=$(cd "$E" && sh .claude/modules/premise-check/enable.sh --check 2>&1); rc=$?
 [ "$rc" = 1 ] && has yes "FAIL the fix lane template(s) fix" "$out" "enable.sh --check: a fix lane without the check fails" || fail "enable.sh --check: a fix lane without the check fails: it passed: $out"
 (cd "$E" && sh .claude/modules/premise-check/enable.sh >/dev/null 2>&1)
-p=$(jq -r '.templates[0].first_prompt' "$E/.clauductor/panel.json")
+p=$(jq -r '.templates[0].first_prompt' "$E/.stridal/panel.json")
 has yes "Fix GitHub issue {issue}. Before fixing, run the premise check, sh $PC {issue}" "$p" "enable.sh: the fix lane's prompt runs the check first, with the command as typed at the root"
-has no "premise" "$(jq -r '.templates[1].first_prompt' "$E/.clauductor/panel.json")" "enable.sh: ...and no other lane's prompt changes"
+has no "premise" "$(jq -r '.templates[1].first_prompt' "$E/.stridal/panel.json")" "enable.sh: ...and no other lane's prompt changes"
 (cd "$E" && sh .claude/modules/premise-check/enable.sh >/dev/null 2>&1)
-[ "$(jq -r '.templates[0].first_prompt' "$E/.clauductor/panel.json")" = "$p" ] && ok "enable.sh: a second run changes nothing" || fail "enable.sh: a second run changes nothing: it added the sentence again"
+[ "$(jq -r '.templates[0].first_prompt' "$E/.stridal/panel.json")" = "$p" ] && ok "enable.sh: a second run changes nothing" || fail "enable.sh: a second run changes nothing: it added the sentence again"
 # Two fix lanes, one already running the check: only the other gains the sentence.
-jq --arg p "$p" '.templates += [{id: "fix2", lane_type: "fix", first_prompt: "Fix {issue} quickly."}]' "$E/.clauductor/panel.json" > "$d/panel2" && mv "$d/panel2" "$E/.clauductor/panel.json"
+jq --arg p "$p" '.templates += [{id: "fix2", lane_type: "fix", first_prompt: "Fix {issue} quickly."}]' "$E/.stridal/panel.json" > "$d/panel2" && mv "$d/panel2" "$E/.stridal/panel.json"
 (cd "$E" && sh .claude/modules/premise-check/enable.sh >/dev/null 2>&1)
-n1=$(jq -r '.templates[0].first_prompt' "$E/.clauductor/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
-n2=$(jq -r '.templates[2].first_prompt' "$E/.clauductor/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
+n1=$(jq -r '.templates[0].first_prompt' "$E/.stridal/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
+n2=$(jq -r '.templates[2].first_prompt' "$E/.stridal/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
 [ "$n1:$n2" = "1:1" ] && ok "enable.sh: a lane that already runs the check is left alone while another gains it" \
   || fail "enable.sh: a lane that already runs the check is left alone while another gains it: counts $n1:$n2"
 out=$(cd "$E" && sh .claude/modules/premise-check/enable.sh --check 2>&1) && has yes "ok   every fix lane" "$out" "enable.sh --check: passes once the fix lane runs it" || fail "enable.sh --check: passes once the fix lane runs it: it did not: $out"

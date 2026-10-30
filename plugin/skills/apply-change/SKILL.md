@@ -36,15 +36,15 @@ do one group alone. The loop is the same, and so are its stops.
   a clean tree.
 - **The models follow the proposal's `**Risk:**` tier**: a role with a variant for that tier in
   `.claude/model-roles.json` (`roles.<role>.tiers`) runs on it; pass its `model` and `effort` when
-  you spawn the agent. In economy mode (`~/.clauductor/panel/economy.json` says `"economy": true`)
+  you spawn the agent. In economy mode (`~/.stridal/panel/economy.json` says `"economy": true`)
   the roles in `.economy.roles` drop a tier; the reviewer never does.
-- **The budget**: if `proposal.md` has `**Budget:** $N`, check `clauductor-model change-cost.sh <id>`
+- **The budget**: if `proposal.md` has `**Budget:** $N`, check `stridal-model change-cost.sh <id>`
   before each group; OVER BUDGET is a stop for the owner (raise it, on the
   roadmap row on main first and then in the proposal, or cut scope). Over a soft
   budget (`$N, soft`; the line says so), tell the owner the spend and go on; UNREADABLE is a stop.
 
 ## For each task group with open tasks, in order
-1. **Build.** Spawn the `clauductor:builder` agent: "Implement task group N (<title>) of change <id>
+1. **Build.** Spawn the `stridal:builder` agent: "Implement task group N (<title>) of change <id>
    (changes/<id>/). Only group N. Record in tasks.md's Decision log each decision design.md does
    not settle. Leave the work uncommitted." A `design-issue` or `blocked` reply
    is a STOP: one line to `reportTo`, or with none to the owner (`PushNotification`), and stop.
@@ -57,10 +57,10 @@ do one group alone. The loop is the same, and so are its stops.
    the background, call `scripts/ci/gate-wait.sh` in the foreground (timeout 600000): exit 3
    means call it again; any other exit is the answer (0 PASS, 1 FAIL; 4 or 2: no result, run the
    gate again).
-4. **Review.** Spawn the `clauductor:reviewer` agent with only the change id and the group number, never the
+4. **Review.** Spawn the `stridal:reviewer` agent with only the change id and the group number, never the
    builder's summary (its blind spots must differ). Findings medium or worse go back to the builder
    to fix at their source, or to dispute with a reason; then gate again and review again. **Stop**
-   if peak severity RISES between rounds, or at the cap without converging (`clauductor-model review-cap.sh
+   if peak severity RISES between rounds, or at the cap without converging (`stridal-model review-cap.sh
    <id> --why`: its rounds, and `REVIEW_AT_CAP`). When the cap's round still finds something medium
    or worse, `stop` (the default) stops the run and names the disputes for the owner: raise the cap,
    split the work, or send it back to design. Do not put those findings under `KNOWN LIMITS` or
@@ -78,7 +78,7 @@ do one group alone. The loop is the same, and so are its stops.
   If the tool moves the gate to the background, call `scripts/ci/gate-wait.sh` in the foreground
   (timeout 600000): exit 3 means call it again; any other exit is the answer (0 PASS, 1 FAIL; 4 or
   2: no result, run the gate again).
-- `/clauductor:verify-change <id>`: every task ticked, every scenario cited, the diff matching `tasks.md`.
+- `/stridal:verify-change <id>`: every task ticked, every scenario cited, the diff matching `tasks.md`.
 - Write the row's fragment (`docs/journal.d/<row id>.md`; the row's Status is the daily close's
   fold's, never set in this PR). Push, open the PR, and land it with
   `merge-pr` (passing on any `reportTo`), recording `Review: converged in <n> round(s), peak

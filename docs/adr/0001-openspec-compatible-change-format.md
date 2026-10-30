@@ -14,7 +14,7 @@ format would strand projects that later want the tool.
 ## Decision
 - A change lives in `changes/<id>/{proposal,design,tasks}.md` plus spec deltas; living specs in
   `specs/<capability>/spec.md`. The folders are configurable (`CHANGES_DIR`, `SPECS_DIR`).
-- The format is OpenSpec-compatible Markdown, written by clauductor's own skills (`/propose`,
+- The format is OpenSpec-compatible Markdown, written by stridal's own skills (`/propose`,
   `/archive-change`) with no install.
 - The OpenSpec CLI is an optional module: it symlinks `openspec/{specs,changes}` to the same
   folders, so `openspec validate` works on them. Nothing is migrated.

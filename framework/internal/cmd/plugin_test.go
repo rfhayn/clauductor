@@ -19,7 +19,7 @@ func TestCommittedPluginIsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(diffs) > 0 {
-		t.Fatalf("plugin/ is stale against template/; run `cd framework && go run ./cmd/clauductor plugin build`:\n  %s", strings.Join(diffs, "\n  "))
+		t.Fatalf("plugin/ is stale against template/; run `cd framework && go run ./cmd/stridal plugin build`:\n  %s", strings.Join(diffs, "\n  "))
 	}
 }
 

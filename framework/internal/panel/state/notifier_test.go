@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 func TestNotifierRateLimitGroupingFocusAndCounter(t *testing.T) {

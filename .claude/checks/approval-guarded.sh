@@ -144,8 +144,8 @@ want='`${CLAUDE_PLUGIN_ROOT}/gone.sh` names no file: name the file that runs it,
   || fail "self-test: under the plugin, found [$got]"
 
 [ -f "$ROOT/AGENTS.md" ] || { fail "no AGENTS.md in $ROOT, so the table cannot be read"; finish; }
-# Under the plugin the rewriter points this path at the plugin root's list, and CLAUDUCTOR_FW is set.
-found=$(problems "$ROOT" "$ROOT/.claude/lib/approval-guarded.txt" "${CLAUDUCTOR_FW:-}")
+# Under the plugin the rewriter points this path at the plugin root's list, and STRIDAL_FW is set.
+found=$(problems "$ROOT" "$ROOT/.claude/lib/approval-guarded.txt" "${STRIDAL_FW:-}")
 if [ -n "$found" ]; then
   fail "AGENTS.md's table names a control a delegated approval could change, or a name that is no file; guard it in .claude/lib/approval-guarded.txt (the framework's) or .claude/local/approval-guarded.txt (yours), with APPROVAL_DELEGATED off too, so the list is whole before the key turns on:"
   printf '%s\n' "$found" | sed 's/^/       /'

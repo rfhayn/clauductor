@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/metrics"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/metrics"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // This file is the pure reducer: events and poll results in, state out. It does no
@@ -1476,7 +1476,7 @@ type TermLaneView struct {
 	PromptNote  string `json:"promptNote,omitempty"`
 	// Approx: Status is not a current `claude agents` reading (PANEL-5).
 	Approx bool `json:"approx,omitempty"`
-	// CloseHeld is why the lane's work has not ended, so that `clauductor lane close`
+	// CloseHeld is why the lane's work has not ended, so that `stridal lane close`
 	// and auto-close leave it running; "" when it may close (PANEL-57 D2, closeheld.go).
 	CloseHeld string `json:"closeHeld,omitempty"`
 }
@@ -2058,7 +2058,7 @@ func (m *Model) snapshotV2(v *View, now time.Time) {
 			what = "panel.json is not trusted yet (sha256 " + config.ShortHash(m.v2.trust.Hash) + ")"
 		}
 		v.banner(BannerUntrusted, what+". Its commands (cards, queue RUN) and templates are off until you review it and run "+
-			"`clauductor panel trust` (or restart with --trust-config).")
+			"`stridal panel trust` (or restart with --trust-config).")
 	}
 	v.Verification = m.verification()
 	switch vf := v.Verification; {

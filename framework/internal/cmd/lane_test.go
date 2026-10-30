@@ -16,16 +16,16 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/testgit"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/testgit"
 )
 
-// PANEL-57 task 3.1: `clauductor lane close` against a stub panel, a Unix-socket server
+// PANEL-57 task 3.1: `stridal lane close` against a stub panel, a Unix-socket server
 // answering canned plans, results and refusals, found through a pid file and an
 // owner.json in a temporary home, with the process check replaced. Each test moves into
-// its directory with t.Chdir and sets CLAUDUCTOR_LANE, so none runs in parallel.
+// its directory with t.Chdir and sets STRIDAL_LANE, so none runs in parallel.
 
 // stubPID and stubStart are the stub panel's process, as the replaced check reports it.
 const (
@@ -173,7 +173,7 @@ func registerProjects(t *testing.T, home string, idRoots ...string) {
 	t.Helper()
 	reg := &config.Projects{Version: config.ProjectsVersion}
 	for i := 0; i+1 < len(idRoots); i += 2 {
-		reg.Projects = append(reg.Projects, config.ProjectEntry{ID: idRoots[i], Root: idRoots[i+1], TmuxSocket: "clauductor-" + idRoots[i]})
+		reg.Projects = append(reg.Projects, config.ProjectEntry{ID: idRoots[i], Root: idRoots[i+1], TmuxSocket: "stridal-" + idRoots[i]})
 	}
 	if len(reg.Projects) > 0 {
 		reg.Default = reg.Projects[0].ID
@@ -206,7 +206,7 @@ func newLaneWorld(t *testing.T, dry, close stubAnswer) *laneWorld {
 	stub := newStubPanel(t, dry, close)
 	claimAs(t, home, install.PanelOwner{PID: stubPID, PStart: stubStart, Port: 1, Projects: []string{root}, Socket: stub.sock})
 	t.Chdir(root)
-	t.Setenv("CLAUDUCTOR_LANE", "")
+	t.Setenv("STRIDAL_LANE", "")
 	// The command's git, without a hook's GIT_DIR (laneRun's comment).
 	old := laneRun
 	t.Cleanup(func() { laneRun = old })
@@ -214,7 +214,7 @@ func newLaneWorld(t *testing.T, dry, close stubAnswer) *laneWorld {
 	return &laneWorld{home: home, root: root, stub: stub}
 }
 
-// run is `clauductor lane close id [--yes]` in the current directory: its output and error.
+// run is `stridal lane close id [--yes]` in the current directory: its output and error.
 func (w *laneWorld) run(t *testing.T, id string, yes bool) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
@@ -352,7 +352,7 @@ func TestLaneCloseRefusalOfTheCloseFollowsThePlan(t *testing.T) {
 // [LANECLOSE-1-S5] Run from a linked worktree (git worktree add) and from a
 // subdirectory, the command asks about the main checkout's project. Run from a
 // repository no project names, from one the running panel does not serve, or from a
-// directory in no repository, it is refused naming `clauductor panel list`, and the
+// directory in no repository, it is refused naming `stridal panel list`, and the
 // panel is asked nothing.
 func TestLaneCloseAsksAboutTheMainCheckoutsProject(t *testing.T) {
 	w := newLaneWorld(t, planOK(mergedPlan), resultOK(lanes.CloseResult{}))
@@ -367,7 +367,7 @@ func TestLaneCloseAsksAboutTheMainCheckoutsProject(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	linkedSub := filepath.Join(linked, ".clauductor")
+	linkedSub := filepath.Join(linked, ".stridal")
 	for _, dir := range []string{linked, linkedSub, sub} {
 		t.Chdir(dir)
 		before := len(w.stub.requests())
@@ -388,8 +388,8 @@ func TestLaneCloseAsksAboutTheMainCheckoutsProject(t *testing.T) {
 			t.Chdir(dir)
 			before := w.stub.connections()
 			out, err := w.run(t, "a", true)
-			if err == nil || !strings.Contains(err.Error(), "`clauductor panel list`") {
-				t.Errorf("from %s: %v, want a refusal naming `clauductor panel list`", dir, err)
+			if err == nil || !strings.Contains(err.Error(), "`stridal panel list`") {
+				t.Errorf("from %s: %v, want a refusal naming `stridal panel list`", dir, err)
 			}
 			if out != "" || w.stub.connections() != before {
 				t.Errorf("from %s: printed %q and connected %d times, want nothing asked", dir, out, w.stub.connections()-before)
@@ -398,7 +398,7 @@ func TestLaneCloseAsksAboutTheMainCheckoutsProject(t *testing.T) {
 	}
 }
 
-// [LANECLOSE-2-S2] An id equal to CLAUDUCTOR_LANE is refused before anything is read
+// [LANECLOSE-2-S2] An id equal to STRIDAL_LANE is refused before anything is read
 // or the panel is asked, naming the page's Close lane and auto-close, exit 1, with or
 // without --yes: the process check is never called, a corrupt registry is not reported,
 // and run from a directory in no project the refusal is the same.
@@ -411,7 +411,7 @@ func TestLaneCloseRefusesTheCallersOwnLane(t *testing.T) {
 	if err := os.WriteFile(config.ProjectsPath(w.home), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CLAUDUCTOR_LANE", "a")
+	t.Setenv("STRIDAL_LANE", "a")
 	for _, dir := range []string{w.root, t.TempDir()} {
 		for _, yes := range []bool{false, true} {
 			t.Chdir(dir)
@@ -442,7 +442,7 @@ func TestLaneCloseRefusesTheCallersOwnLane(t *testing.T) {
 func TestLaneCloseCommandExitsOneOnItsOwnLane(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	r := cliEnv(t, t.TempDir(), home, []string{"CLAUDUCTOR_LANE=a"}, "lane", "close", "a", "--yes")
+	r := cliEnv(t, t.TempDir(), home, []string{"STRIDAL_LANE=a"}, "lane", "close", "a", "--yes")
 	if r.code != 1 || !strings.Contains(r.stderr, "does not close itself") || r.stdout != "" {
 		t.Errorf("exit %d\nstdout: %s\nstderr: %s\nwant exit 1 with the self refusal", r.code, r.stdout, r.stderr)
 	}
@@ -455,7 +455,7 @@ func TestLaneCloseCommandExitsOneOnItsOwnLane(t *testing.T) {
 // command on its own lane still gives the fixed refusal, not a home-directory error.
 func TestLaneCloseRefusesItsOwnLaneWithNoHome(t *testing.T) {
 	t.Parallel()
-	r := cliEnv(t, t.TempDir(), t.TempDir(), []string{"HOME=", "CLAUDUCTOR_LANE=a"}, "lane", "close", "a")
+	r := cliEnv(t, t.TempDir(), t.TempDir(), []string{"HOME=", "STRIDAL_LANE=a"}, "lane", "close", "a")
 	if r.code != 1 || !strings.Contains(r.stderr, "does not close itself") || !strings.Contains(r.stderr, "Close lane") || r.stdout != "" {
 		t.Errorf("exit %d\nstdout: %s\nstderr: %s\nwant exit 1 with the self refusal", r.code, r.stdout, r.stderr)
 	}
@@ -463,13 +463,13 @@ func TestLaneCloseRefusesItsOwnLaneWithNoHome(t *testing.T) {
 
 // [LANECLOSE-3-S2] With no live panel and a socket file a killed panel left (here, a
 // stub still serving it, which would answer), the command says no panel runs, names
-// `clauductor panel`, connects to nothing and exits 1.
+// `stridal panel`, connects to nothing and exits 1.
 func TestLaneCloseWithNoLivePanelConnectsToNothing(t *testing.T) {
 	w := newLaneWorld(t, planOK(mergedPlan), resultOK(lanes.CloseResult{}))
 	liveProc(t, false)
 	out, err := w.run(t, "a", true)
-	if err == nil || !strings.Contains(err.Error(), "no clauductor panel is running") || !strings.Contains(err.Error(), "`clauductor panel`") {
-		t.Errorf("%v, want it to say no panel runs, naming `clauductor panel`", err)
+	if err == nil || !strings.Contains(err.Error(), "no stridal panel is running") || !strings.Contains(err.Error(), "`stridal panel`") {
+		t.Errorf("%v, want it to say no panel runs, naming `stridal panel`", err)
 	}
 	if out != "" {
 		t.Errorf("printed %q", out)
@@ -491,9 +491,9 @@ func TestLaneCloseRefusesAPanelWithNoSocket(t *testing.T) {
 	check := func(what string) {
 		t.Helper()
 		out, err := w.run(t, "a", true)
-		if err == nil || !strings.Contains(err.Error(), "has no command socket") || !strings.Contains(err.Error(), "`clauductor panel`") ||
+		if err == nil || !strings.Contains(err.Error(), "has no command socket") || !strings.Contains(err.Error(), "`stridal panel`") ||
 			strings.Contains(err.Error(), "panel list") {
-			t.Errorf("%s: %v, want it refused for the socket, naming `clauductor panel`", what, err)
+			t.Errorf("%s: %v, want it refused for the socket, naming `stridal panel`", what, err)
 		}
 		if out != "" {
 			t.Errorf("%s: printed %q", what, out)
@@ -523,15 +523,15 @@ func TestLaneCloseRefusesAPanelWithNoSocket(t *testing.T) {
 	}
 }
 
-// A live panel whose socket does not answer: the command says so, naming `clauductor
+// A live panel whose socket does not answer: the command says so, naming `stridal
 // panel`, and exits 1.
 func TestLaneCloseSaysWhenTheSocketDoesNotAnswer(t *testing.T) {
 	w := newLaneWorld(t, planOK(mergedPlan), resultOK(lanes.CloseResult{}))
 	gone := filepath.Join(filepath.Dir(w.stub.sock), "gone")
 	claimAs(t, w.home, install.PanelOwner{PID: stubPID, PStart: stubStart, Port: 1, Projects: []string{w.root}, Socket: gone})
 	out, err := w.run(t, "a", true)
-	if err == nil || !strings.Contains(err.Error(), "does not answer") || !strings.Contains(err.Error(), "`clauductor panel`") {
-		t.Errorf("%v, want it to say the socket does not answer, naming `clauductor panel`", err)
+	if err == nil || !strings.Contains(err.Error(), "does not answer") || !strings.Contains(err.Error(), "`stridal panel`") {
+		t.Errorf("%v, want it to say the socket does not answer, naming `stridal panel`", err)
 	}
 	if out != "" {
 		t.Errorf("printed %q", out)

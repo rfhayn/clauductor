@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"testing"
 
-	_ "github.com/clauductor/clauductor/internal/testgit" // as every package's tests import it
+	_ "github.com/rfhayn/stridal/internal/testgit" // as every package's tests import it
 )
 
 // atInit is git that a test file runs as a package-level variable: before any TestMain, so only a

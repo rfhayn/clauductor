@@ -102,7 +102,7 @@ fi
 REG=${ARTIFACT_REGISTRY:-docs/artifacts.json}
 RM=${ROADMAP:-docs/roadmap.md}
 self=".claude/modules/artifacts/bin/currency.sh"
-case ${CLAUDUCTOR_FW:-} in '' | */.claude) STAMP_CMD="sh $self" ;; *) STAMP_CMD="clauductor-model modules/artifacts/bin/currency.sh" ;; esac
+case ${STRIDAL_FW:-} in '' | */.claude) STAMP_CMD="sh $self" ;; *) STAMP_CMD="stridal-model modules/artifacts/bin/currency.sh" ;; esac
 WALK_LIMIT=100
 if [ -n "$check" ]; then WALK_BUDGET=4; else WALK_BUDGET=12; fi
 start_s=$(date +%s)

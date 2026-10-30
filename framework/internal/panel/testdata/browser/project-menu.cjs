@@ -18,7 +18,7 @@ const pw = require(process.env.PLAYWRIGHT || "playwright");
 const [base, token, proj, other, sock2] = process.argv.slice(2);
 const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
 const shots = process.env.SHOTS;
-const cfg = path.join(other, ".clauductor", "panel.json");
+const cfg = path.join(other, ".stridal", "panel.json");
 
 (async () => {
   const b = await pw.chromium.launch();
@@ -98,7 +98,7 @@ const cfg = path.join(other, ".clauductor", "panel.json");
     if (!(await p.$eval("#ad-trust", (e) => e.hidden))) fail("Trust and add is offered before there is a config");
     if (fs.existsSync(cfg)) fail("the init preview wrote " + cfg);
     const preview = await p.$eval("#ad-body", (e) => e.innerText);
-    if (!/clauductor panel init would write/.test(preview) || !/"version"/.test(preview) || !/name\s+"addme"/.test(preview)) fail("the preview: " + preview.slice(0, 400));
+    if (!/stridal panel init would write/.test(preview) || !/"version"/.test(preview) || !/name\s+"addme"/.test(preview)) fail("the preview: " + preview.slice(0, 400));
     await shot("add-init-preview");
     await p.click("#ad-init");
     await p.waitForSelector("#ad-trust:not([hidden])", { timeout: 8000 });

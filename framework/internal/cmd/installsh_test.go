@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/testbin"
 	"github.com/creack/pty"
+	"github.com/rfhayn/stridal/internal/testbin"
 )
 
 // installRoot is a throwaway copy of what install.sh reads: the script itself (it finds the
 // framework from its own path, SCRIPT_DIR), an empty framework/ for the stub `go` to build into,
 // and the template's prerequisites report. The script never runs in the real checkout, where its
-// build step would write over, and then delete, the developer's own framework/clauductor.
+// build step would write over, and then delete, the developer's own framework/stridal.
 func installRoot(t *testing.T) string {
 	t.Helper()
 	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
@@ -40,12 +40,12 @@ func installRoot(t *testing.T) string {
 	return root
 }
 
-// keepRealBuild asserts the checkout's framework/clauductor is untouched by the test: the
+// keepRealBuild asserts the checkout's framework/stridal is untouched by the test: the
 // developer's build when there is one, or a marker put there for the duration (and removed only
 // if it is still ours).
 func keepRealBuild(t *testing.T) {
 	t.Helper()
-	real, err := filepath.Abs(filepath.Join("..", "..", "clauductor"))
+	real, err := filepath.Abs(filepath.Join("..", "..", "stridal"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func keepRealBuild(t *testing.T) {
 	t.Cleanup(func() {
 		after, err := os.ReadFile(real)
 		if err != nil || !bytes.Equal(after, before) {
-			t.Errorf("the test changed the checkout's framework/clauductor (err %v)", err)
+			t.Errorf("the test changed the checkout's framework/stridal (err %v)", err)
 			return
 		}
 		if ours {
@@ -123,7 +123,7 @@ func stubTools(t *testing.T) (bin, calls string) {
 	stub(t, bin, "brew", calls, "exit 0")
 	stub(t, bin, "sudo", calls, "exit 0")
 	stub(t, bin, "apt-get", calls, "exit 0")
-	stub(t, bin, "go", calls, `case $1 in build) printf '#!/bin/sh\necho "clauductor v0.0.0-test"\n' > clauductor; chmod +x clauductor ;; version) echo "go version go0.0 test" ;; esac`)
+	stub(t, bin, "go", calls, `case $1 in build) printf '#!/bin/sh\necho "stridal v0.0.0-test"\n' > stridal; chmod +x stridal ;; version) echo "go version go0.0 test" ;; esac`)
 	return bin, calls
 }
 
@@ -166,20 +166,20 @@ func TestInstallShNeverInstallsUnasked(t *testing.T) {
 		}
 		// The summary names the version of the binary it just installed (#66: escaped quotes
 		// inside $(…) made it print "unknown").
-		if !strings.Contains(out, "Version:   clauductor v0.0.0-test") {
+		if !strings.Contains(out, "Version:   stridal v0.0.0-test") {
 			t.Errorf("run %d: install.sh's summary did not name the installed version:\n%s", run, out)
 		}
 	}
-	if !fileExists(filepath.Join(home, "bin", "clauductor")) {
+	if !fileExists(filepath.Join(home, "bin", "stridal")) {
 		t.Error("install.sh did not install the stub build")
 	}
 	rc, _ := os.ReadFile(filepath.Join(home, ".zshrc"))
-	if n := strings.Count(string(rc), "export CLAUDUCTOR_FRAMEWORK="); n != 1 {
-		t.Errorf("two runs left %d CLAUDUCTOR_FRAMEWORK lines in .zshrc, want 1:\n%s", n, rc)
+	if n := strings.Count(string(rc), "export STRIDAL_FRAMEWORK="); n != 1 {
+		t.Errorf("two runs left %d STRIDAL_FRAMEWORK lines in .zshrc, want 1:\n%s", n, rc)
 	}
 }
 
-// At a terminal, CLAUDUCTOR_INSTALL_ASSUME=no still answers every offer "no": the script neither
+// At a terminal, STRIDAL_INSTALL_ASSUME=no still answers every offer "no": the script neither
 // waits for an answer nor installs anything.
 func TestInstallShAssumeNoAtATerminal(t *testing.T) {
 	if runtime.GOOS != "darwin" {
@@ -190,7 +190,7 @@ func TestInstallShAssumeNoAtATerminal(t *testing.T) {
 	bin, calls := stubTools(t)
 	c := exec.Command("/bin/bash", filepath.Join(root, "install.sh"))
 	c.Dir = root
-	c.Env = installEnv(t, bin, t.TempDir(), "CLAUDUCTOR_INSTALL_ASSUME=no")
+	c.Env = installEnv(t, bin, t.TempDir(), "STRIDAL_INSTALL_ASSUME=no")
 	tty, err := pty.Start(c) // stdin, stdout and the controlling terminal are the pty
 	if err != nil {
 		t.Skipf("no pty here: %v", err)
@@ -210,11 +210,11 @@ func TestInstallShAssumeNoAtATerminal(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		c.Process.Kill()
 		<-done
-		t.Fatalf("install.sh waited for an answer at a terminal despite CLAUDUCTOR_INSTALL_ASSUME=no:\n%s", out.String())
+		t.Fatalf("install.sh waited for an answer at a terminal despite STRIDAL_INSTALL_ASSUME=no:\n%s", out.String())
 	}
 	noInstalls(t, calls, "at a terminal")
 	if strings.Contains(out.String(), "[y/N]") {
-		t.Errorf("install.sh asked despite CLAUDUCTOR_INSTALL_ASSUME=no:\n%s", out.String())
+		t.Errorf("install.sh asked despite STRIDAL_INSTALL_ASSUME=no:\n%s", out.String())
 	}
 }
 

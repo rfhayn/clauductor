@@ -5,8 +5,8 @@ effort: high
 description: "First-time setup of this project's operating model: fill .claude/project.conf and the matching panel config, the gate's steps, the formatter, AGENTS.md's essentials, the commit trailer, the first roadmap rows, and the optional modules; then run the checks. Skips what is already configured. TRIGGER when the user says 'start project', 'set up the project', 'configure the operating model', 'first time setup', 'onboard'."
 ---
 
-> **Installed as the clauductor plugin.** If `.claude/project.conf` is missing, run
-> `/clauductor:init` first: it scaffolds this repository's own files. The scripts, hooks, skills and
+> **Installed as the stridal plugin.** If `.claude/project.conf` is missing, run
+> `/stridal:init` first: it scaffolds this repository's own files. The scripts, hooks, skills and
 > agents named below are the plugin's (`${CLAUDE_PLUGIN_ROOT}`, read-only); the files under `.claude/`
 > that this setup edits (project.conf, model-roles.json, settings.json) are the repository's.
 
@@ -30,16 +30,16 @@ If those lines show as literal text, run the commands yourself.
    others), `OWNER_ROLE` (the word for whoever approves designs: "owner", "founder", "lead") and
    `OWNER_NAME`, `MAIN_BRANCH`, `INSIGHT_AREAS` (5–10 coarse buckets for the insights log).
    Then offer **delegated approval** (`APPROVAL_DELEGATED`, `"0"` by default): with `"1"`,
-   `/clauductor:propose` approves a converged proposal itself on the owner's behalf and pushes them one line,
+   `/stridal:propose` approves a converged proposal itself on the owner's behalf and pushes them one line,
    except a change touching a path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt` (or the
-   project's own `.claude/local/approval-guarded.txt`) lists, or one `/clauductor:propose` step 3a keeps for them (money, legal, outward, irreversible, an ADR),
+   project's own `.claude/local/approval-guarded.txt`) lists, or one `/stridal:propose` step 3a keeps for them (money, legal, outward, irreversible, an ADR),
    which the owner still approves. It holds only once merged to
    `MAIN_BRANCH`. The choice is the owner's: set it only on their word, never by default.
-2. **The panel config** (`.clauductor/panel.json`): set `name` to `PROJECT_NAME` and
+2. **The panel config** (`.stridal/panel.json`): set `name` to `PROJECT_NAME` and
    `tmux_socket` to `PROJECT_SLUG`; make `lanes` and each template's `branch_pattern` use the
-   `BRANCH_*` prefixes and `MAIN_BRANCH` (`clauductor install` writes them so when it creates the
-   file; `clauductor-model checks/run.sh branch-prefixes` names any that disagree), and `base`
-   `origin/<MAIN_BRANCH>`. Then tell the user to run `clauductor panel trust` themselves
+   `BRANCH_*` prefixes and `MAIN_BRANCH` (`stridal install` writes them so when it creates the
+   file; `stridal-model checks/run.sh branch-prefixes` names any that disagree), and `base`
+   `origin/<MAIN_BRANCH>`. Then tell the user to run `stridal panel trust` themselves
    (a config's commands run only once its owner has trusted it; never trust on their behalf).
 3. **The gate** (`scripts/ci/steps.sh`): ask for the lint, typecheck and test commands, and any
    slow suite for the full gate only; write each as a `step`. Keep the "process checks" step.
@@ -54,16 +54,16 @@ If those lines show as literal text, run the commands yourself.
    `sh scripts/ci/lease-conformance/run.sh <impl>`.
    Then run `scripts/ci/gate.sh --quick` and show the result.
 4. **The formatter** (`FORMAT_CMD`, `FORMAT_EXT`), if the project has one.
-4b. **Least privilege** (`.claude/settings.json`, kept current by `clauductor install`): Claude may
+4b. **Least privilege** (`.claude/settings.json`, kept current by `stridal install`): Claude may
    not read `.env` files, keys, `~/.ssh` or `~/.aws`, force-push, or kill a tmux server, and Bash
-   runs in the sandbox with a network allowlist (git, gh, tmux, clauductor, docker and the gate run
+   runs in the sandbox with a network allowlist (git, gh, tmux, stridal, docker and the gate run
    outside it). Tell the user. If one of the project's tools fails in the sandbox, or needs a host,
    loosen it in **`.claude/settings.local.json`** (`sandbox.excludedCommands`,
    `sandbox.network.allowedDomains`: these lists merge with the project's, and an install never
    overwrites the local file), not in `settings.json`.
 5. **AGENTS.md "Essentials"**: replace the examples with this project's few load-bearing rules
    (two lines each), and fill the *(yours)* sections of `docs/conventions.md`. Keep AGENTS.md under
-   its byte budget (`clauductor-model checks/run.sh agents-md-budget`; the ceilings are
+   its byte budget (`stridal-model checks/run.sh agents-md-budget`; the ceilings are
    `AGENTS_MD_MAX_BYTES` and `AGENTS_MD_MAX_ROW`). If the playbook lives elsewhere (or is an HTML
    page), set `PLAYBOOK`. If the project's change records carry sections of their own, list them in
    `CHANGE_RECORD_EXTRA`.
@@ -76,7 +76,7 @@ If those lines show as literal text, run the commands yourself.
    role's model or effort only in `model-roles.json`, then fix what `checks/model-roles.sh` names.
 7. **The first roadmap rows** (`docs/roadmap.md`): replace the example Phase 1 with the real first
    phase: its exit criterion, its owner, and 2–5 rows, each a change id and what a user can then
-   do. Then `clauductor-model roadmap-queue.sh --check`.
+   do. Then `stridal-model roadmap-queue.sh --check`.
 8. **Health lines** (`.claude/health/`): delete the GitHub ones if the project does not use
    GitHub Actions; add any the project needs (a migration ledger, a backup's age). Uncomment the
    ecosystems this project uses in `.github/dependabot.yml` (each keeps its `cooldown`).
@@ -89,8 +89,8 @@ If those lines show as literal text, run the commands yourself.
    `MODULES` (`${CLAUDE_PLUGIN_ROOT}/modules/README.md` lists them). What the project adds of its own
    (an extra guard rule, a context section, a health line, a skill step, a conflict row) goes in
    `.claude/local/` (its README has each contract), never in a framework file the next
-   `clauductor update` overwrites. `clauductor-model extensions.sh list` shows what is on.
-10. **Verify**: `clauductor-model checks/run.sh` must pass. Then commit, open the PR, and land it with
+   `stridal update` overwrites. `stridal-model extensions.sh list` shows what is on.
+10. **Verify**: `stridal-model checks/run.sh` must pass. Then commit, open the PR, and land it with
     `merge-pr` (the gate must pass in full first: `scripts/ci/gate.sh`).
 
 ## Rules

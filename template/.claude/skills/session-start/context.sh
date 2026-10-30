@@ -32,12 +32,12 @@ echo "- $(printf '%s' "$OWNER_ROLE" | tr '[:lower:]' '[:upper:]') QUEUE (needs t
 sh .claude/owner-queue.sh 2>&1 | ind
 
 # The local panel: up = its port file holds digits only AND /healthz answers within 0.3 s.
-port=$(cat "$HOME/.clauductor/panel/port" 2>/dev/null) || port=
+port=$(cat "$HOME/.stridal/panel/port" 2>/dev/null) || port=
 case "$port" in '' | *[!0-9]*) port= ;; esac
 if [ "${CONTEXT_OFFLINE:-}" != 1 ] && [ -n "$port" ] && curl -s -o /dev/null --max-time 0.3 "http://127.0.0.1:$port/healthz" 2>/dev/null; then
   echo "- Panel: up (http://127.0.0.1:$port)"
 else
-  echo "- Panel: not running (optional; nothing in this repo needs it. If installed: clauductor panel)"
+  echo "- Panel: not running (optional; nothing in this repo needs it. If installed: stridal panel)"
 fi
 
 echo "- Status:"

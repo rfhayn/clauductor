@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/template"
 	"github.com/spf13/pflag"
 )
 
-// installed runs `clauductor install` in dir (a git repo clauductor owns) and returns its output.
+// installed runs `stridal install` in dir (a git repo stridal owns) and returns its output.
 func runInstall(t *testing.T, dir string, dry bool) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
@@ -25,7 +25,7 @@ func runInstall(t *testing.T, dir string, dry bool) (string, error) {
 	return out.String(), err
 }
 
-// ownedRepo is a git repository clauductor installed into before.
+// ownedRepo is a git repository stridal installed into before.
 func ownedRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

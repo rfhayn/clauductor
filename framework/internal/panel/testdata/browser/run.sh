@@ -1,5 +1,5 @@
 #!/bin/bash
-# Browser tests for the panel page. It builds clauductor, starts a throwaway panel (its
+# Browser tests for the panel page. It builds stridal, starts a throwaway panel (its
 # own port, HOME, tmux socket and project; a fake `claude` and `gh`), and drives the
 # page with Playwright:
 # - focus-survives-updates.cjs (PANEL-6): focus and a text selection survive live
@@ -40,12 +40,12 @@ here=$(cd "$(dirname "$0")" && pwd)
 fw=$(cd "$here/../../../.." && pwd)
 port=${PORT:-4589}
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/browser-test.XXXXXX")
-prefix="clauductor-browser-test-"
+prefix="stridal-browser-test-"
 sock="$prefix$$"
 # tmux keeps a socket FILE per server, and kill-server leaves it behind: every run left
 # one. Only this harness's own names are touched, and a file is removed only when no
 # server answers on it, so a run going on beside this one keeps its socket. Never the
-# owner's sockets (the default, clauductor, a project's) and never a server this run
+# owner's sockets (the default, stridal, a project's) and never a server this run
 # did not start (ADR-0005).
 sockdir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
 drop_socket() { # name: remove its file if no server answers on it
@@ -71,8 +71,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-(cd "$fw" && go build -o "$tmp/clauductor" ./cmd/clauductor)
-mkdir -p "$tmp/bin" "$tmp/home" "$tmp/project/.clauductor"
+(cd "$fw" && go build -o "$tmp/stridal" ./cmd/stridal)
+mkdir -p "$tmp/bin" "$tmp/home" "$tmp/project/.stridal"
 cat > "$tmp/bin/claude" <<'SH'
 #!/bin/sh
 case "$1" in
@@ -82,7 +82,7 @@ case "$1" in
   # test can check which keys reach claude. Lane "second" also behaves as claude's
   # fullscreen TUI does for terminal-links-selection.cjs: it asks for every mouse
   # motion, and prints a URL and two OSC 8 links.
-  *) if [ "$CLAUDUCTOR_LANE" = second ]; then
+  *) if [ "$STRIDAL_LANE" = second ]; then
        printf '\033[?1000h\033[?1002h\033[?1003h\033[?1006h'
        printf 'Selectable words on this row\n'
        printf 'PR: https://github.com/o/r/pull/12 is open.\n'
@@ -106,7 +106,7 @@ chmod +x "$tmp/bin/claude" "$tmp/bin/gh"
 
 proj="$tmp/project"
 git -C "$proj" init -q -b main
-cat > "$proj/.clauductor/panel.json" <<JSON
+cat > "$proj/.stridal/panel.json" <<JSON
 { "name": "Focus test", "version": 4, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock",
   "metrics": { "command": ["sh", "$fw/internal/panel/metrics/testdata/metrics.sh"], "refresh": "interval:3600" },
   "cards": [
@@ -123,7 +123,7 @@ JSON
 git -C "$proj" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m start
 proj=$(cd "$proj" && pwd -P)
 
-HOME="$tmp/home" PATH="$tmp/bin:$PATH" "$tmp/clauductor" panel --project "$proj" --port "$port" --no-open --trust-config > "$tmp/panel.log" 2>&1 &
+HOME="$tmp/home" PATH="$tmp/bin:$PATH" "$tmp/stridal" panel --project "$proj" --port "$port" --no-open --trust-config > "$tmp/panel.log" 2>&1 &
 pid=$!
 for _ in $(seq 100); do grep -q 't=' "$tmp/panel.log" 2>/dev/null && break; sleep 0.1; done
 url=$(grep -o 'http://[^ ]*t=[0-9a-f]*' "$tmp/panel.log" | head -1)
@@ -172,7 +172,7 @@ t project-menu "$base" "$tok" "$proj" "$other" "$sock-2"
 # idle session in that lane's worktree; its `gh` lists #7 open for change/second.
 stall_run() {
   local h="$tmp/stall-home" sp="$tmp/stall-project" sb="$tmp/stall-bin" sport=$((port + 1))
-  mkdir -p "$h" "$sb" "$sp/.clauductor"
+  mkdir -p "$h" "$sb" "$sp/.stridal"
   cat > "$sb/claude" <<'SH'
 #!/bin/sh
 case "$1" in
@@ -191,13 +191,13 @@ esac
 SH
   chmod +x "$sb/claude" "$sb/gh"
   git -C "$sp" init -q -b main
-  cat > "$sp/.clauductor/panel.json" <<JSON
+  cat > "$sp/.stridal/panel.json" <<JSON
 { "name": "Stall test", "version": 7, "base": "main", "lanes": { "main": "orchestrator", "change/": "build" }, "tmux_socket": "$sock-3",
   "alerts": { "stall_minutes": 0.05, "notify": false } }
 JSON
   git -C "$sp" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m start
   sp=$(cd "$sp" && pwd -P)
-  HOME="$h" PATH="$sb:$PATH" "$tmp/clauductor" panel --project "$sp" --port "$sport" --no-open --trust-config > "$tmp/stall-panel.log" 2>&1 &
+  HOME="$h" PATH="$sb:$PATH" "$tmp/stridal" panel --project "$sp" --port "$sport" --no-open --trust-config > "$tmp/stall-panel.log" 2>&1 &
   pid2=$!
   for _ in $(seq 100); do grep -q 't=' "$tmp/stall-panel.log" 2>/dev/null && break; sleep 0.1; done
   local surl stok sbase

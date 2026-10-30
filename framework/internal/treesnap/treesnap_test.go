@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/treesnap"
+	"github.com/rfhayn/stridal/internal/treesnap"
 )
 
 // Each kind of write the D8 proof must catch shows in a diff: a file rewritten with

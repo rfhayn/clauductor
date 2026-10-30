@@ -54,11 +54,11 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Only a daily close adds a `## Session N`, never one claimed twice; a row's records go to its fragment, `docs/journal.d/<row id>.md` | **`pr-merge-guard.sh`** rule 7 (blocking); **`checks/journal.sh`** (the fragment's shape); `session-close/fold.sh`; **`checks/fold.sh`**; writing the fragment: **Nothing. You.** |
 | A PR that changes the journal or insights log lands on top of `origin/main`, never on a picture main has moved past | **`pr-merge-guard.sh`** rule 8 (blocking, any branch); **`checks/merge-guard.sh`** |
 | Review stops at the row's cap; medium+ at cap stops for the owner (`REVIEW_AT_CAP stop`); lows go to KNOWN LIMITS | **`${CLAUDE_PLUGIN_ROOT}/review-cap.sh`** via `build-change.js` and `merge-pr` step 3; **`checks/review-cap.sh`** |
-| An open change has the shape build-change reads and records its approval | **`checks/changes.sh`**; `/clauductor:propose` stops for the owner, unless step 3a delegates |
+| An open change has the shape build-change reads and records its approval | **`checks/changes.sh`**; `/stridal:propose` stops for the owner, unless step 3a delegates |
 | A delegated approval needs `APPROVAL_DELEGATED="1"` on `origin/<main>`, nothing guarded, no `Approval: owner`, no Risk below its row's | **`${CLAUDE_PLUGIN_ROOT}/change-approval.sh`** `--delegate` (propose step 3a); **`checks/changes.sh`**, **`checks/approval-guarded.sh`**; 3a's judgment: **Nothing. You.** |
 | An approval covers the design as written; an edit after it voids it | **`checks/changes.sh`** via `${CLAUDE_PLUGIN_ROOT}/change-approval.sh` (the design hash); **`checks/change-tools.sh`** |
 | Every scenario a change adds or modifies is cited by a test, and a merged one stays cited | **`${CLAUDE_PLUGIN_ROOT}/scenario-trace.sh`**: a `run-local.sh` step and `pr-merge-guard.sh` rule 10 (blocking); **`checks/scenarios.sh`** |
-| A build merges finished; an archive holds only a finished change, its cost and its outcome row | **`pr-merge-guard.sh`** rules 9 and 11 (blocking); `/clauductor:verify-change`; **`checks/merge-guard.sh`** |
+| A build merges finished; an archive holds only a finished change, its cost and its outcome row | **`pr-merge-guard.sh`** rules 9 and 11 (blocking); `/stridal:verify-change`; **`checks/merge-guard.sh`** |
 | An archive loses no living scenario, keeps superseded wording out, and skips a `NOT-SYNCED.md` capability | **`${CLAUDE_PLUGIN_ROOT}/archive-change.sh`** (`archive-change` step 1); **`checks/archive-change.sh`** |
 | Every registered hook launches from any directory; the panel's cards run what session-start runs | **`checks/hooks.sh`** (the registration table); **`checks/panel-contract.sh`** (and no panel hook checked in) |
 | A squash commit names its change, role, model and session | **`pr-merge-guard.sh`** rule 12 (blocking while `provenance.enabled`) |
@@ -68,7 +68,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A build-change run starts only below the 7-day quota threshold | **`${CLAUDE_PLUGIN_ROOT}/quota-gate.sh`** via build-change's preflight; **`checks/quota-reading.sh`**; other lanes (panel, by hand): **Nothing. You.** |
 | No secret is committed, and agents cannot read the project's | **`run-local.sh`** secrets step (gitleaks; fails under CI without it); **`settings.json`** deny list and sandbox; **`checks/settings.sh`**, **`checks/gate.sh`** |
 | A dependency release ages before it is proposed; an advisory reaches a reader | **`.github/dependabot.yml`** cooldown; **`dependency-audit.yml`** and its health line; **`checks/supply-chain.sh`** |
-| Review a change PER TASK GROUP, not per PR | **`${CLAUDE_PLUGIN_ROOT}/workflows/build-change.js`** when built through it; **Nothing. You.** by hand (`/clauductor:apply-change`) |
+| Review a change PER TASK GROUP, not per PR | **`${CLAUDE_PLUGIN_ROOT}/workflows/build-change.js`** when built through it; **Nothing. You.** by hand (`/stridal:apply-change`) |
 | The panel offers only what the roadmap allows next | **`${CLAUDE_PLUGIN_ROOT}/panel-suggest.sh`** over the one parser; **`checks/panel-suggest.sh`** |
 | Claude merges only once review has CONVERGED; a proposal converges before the owner reads it | **`merge-pr`** step 3, **`propose`** step 2b: skill steps, **no hook checks them**; **`checks/change-process.sh`** holds the steps in place |
 | No scripted find-replace against tracked source | **`${CLAUDE_PLUGIN_ROOT}/hooks/no-blind-source-rewrite.sh`** (blocking) |
@@ -92,7 +92,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A project's history is never reformatted; records since adoption meet the format | `RECORDS_BASELINE`, `CHANGES_LEGACY` (`lib/records.sh`); **`checks/journal.sh`**, **`adr-numbering.sh`**, **`changes.sh`** |
 | An ADR or PRAC number is never taken twice (one space); each is indexed and names its enforcement | **`checks/adr-numbering.sh`**; `new-adr` numbers from `origin/main` and open PRs |
 | A skill's context script and every `.claude/` path a skill or agent names exists | **`checks/skills.sh`** |
-| The repo works without clauductor: nothing needs the binary or the panel | **`checks/run.sh`** runs the checks with `clauductor` off `PATH`; **`checks/no-clauductor.sh`** asserts it, and runs the gate, a context script and the status line there |
+| The repo works without stridal: nothing needs the binary or the panel | **`checks/run.sh`** runs the checks with `stridal` off `PATH`; **`checks/no-stridal.sh`** asserts it, and runs the gate, a context script and the status line there |
 | A branch is named by its `BRANCH_*` key, never a literal prefix | **`checks/branch-prefixes.sh`**: the model's files and `panel.json` |
 | Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | A script's temporary file lands in `$TMPDIR`: every `mktemp` line holds a `${TMPDIR:-` template or says why not | **`checks/mktemp-in-tmpdir.sh`** over every tracked shell script |
@@ -100,13 +100,13 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | **This file stays a budget, not an archive** | **`${CLAUDE_PLUGIN_ROOT}/checks/agents-md-budget.sh`** |
 | **Everything else in this file and `docs/conventions.md`** | **Nothing. You.** Including all four rules above. |
 
-Run every check with `clauductor-model checks/run.sh`.
+Run every check with `stridal-model checks/run.sh`.
 
 ## Who decides
 
 **The owner decides** (the role named `OWNER_ROLE` in `.claude/project.conf`):
 - a change's proposal and every `design.md` decision, unless `APPROVAL_DELEGATED="1"` delegates
-  them to Claude (`/clauductor:propose` step 3a): never for a change on a path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt`
+  them to Claude (`/stridal:propose` step 3a): never for a change on a path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt`
   or `.claude/local/approval-guarded.txt` lists, nor one the decisions below keep;
 - ADRs and practice records (`docs/adr/`, `docs/practices/`);
 - anything irreversible (a production data migration, a deletion, a release);

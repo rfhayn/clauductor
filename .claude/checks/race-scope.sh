@@ -51,7 +51,7 @@ for f in $(cd "$ROOT/framework" && find . -name '*_test.go' -not -path '*/testda
   for d in $(grep -oE '"docs", "[^"]+"|docsPath\("[^"]+"\)|Join\(docs, "[^"]+"\)' "$src" | grep -oE '"[^"]+"\)?$' | tr -d '")'); do
     reads="$reads docs/$d"
   done
-  grep -qE 'Join\((root|repo|repoRoot\(t\)), "\.(claude|clauductor)"' "$src" && reads="$reads .claude/x"
+  grep -qE 'Join\((root|repo|repoRoot\(t\)), "\.(claude|stridal)"' "$src" && reads="$reads .claude/x"
   if [ -z "$reads" ]; then
     fail "framework/$f reads outside framework/ (a \"..\" chain of $dots) but this check cannot tell what: name it here and map it in steps.sh"
     continue

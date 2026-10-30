@@ -7,7 +7,7 @@ integration rule.
 other's verdict, and at what pair slowdown *s*?
 **Criteria:** G1–G5, as the owner approved them on 2026-10-21 (OPS-105's row in `docs/roadmap.md`).
 **Raw data:** `~/spike/` on the owner's Mac, kept until this note merges: `single-N` and
-`pair-N-{a,b}` `.out` and `.log` files, each clone's `.git/clauductor/gate-runs.log` (each run's
+`pair-N-{a,b}` `.out` and `.log` files, each clone's `.git/stridal/gate-runs.log` (each run's
 result and each step's seconds) and `mem.log` (one sample every 5 s).
 
 ## Verdict
@@ -95,10 +95,10 @@ test passed in all three singles:
 
 | Test | Step | Pair runs failed | What it said |
 |---|---|---|---|
-| `TestStallPushUntrustedTitle` (`internal/panel`) | short (3), race (1) | 3b, 4a, 5b; 3a | `push_test.go:763: the push's arguments [""]` (or `["clauductor panel · a"]`), want the title and the body |
+| `TestStallPushUntrustedTitle` (`internal/panel`) | short (3), race (1) | 3b, 4a, 5b; 3a | `push_test.go:763: the push's arguments [""]` (or `["stridal panel · a"]`), want the title and the body |
 | `TestLeaseConformanceCatchesEveryMutant` (`internal/panel/lease`) | race | 1b, 2a, 2b | `conformance_test.go:297: the suite passed a lease.sh with …`: 3, 5 and 4 mutants missed |
 | `TestDaemonLeftByTheGateDoesNotHoldTheLease/shell` | race | 1b, 2a, 2b | `lease_shell_test.go:497: took 4.15 s` (5.94 s, 6.84 s): the daemon's fd held the lease |
-| `TestShellLeaseInteroperatesWithLockRun` | race | 2a, 2b | `lease_shell_test.go:124: timed out after 10s waiting for three iterations of the shell's wait loop (CLAUDUCTOR_TEST_SLOW=1)` |
+| `TestShellLeaseInteroperatesWithLockRun` | race | 2a, 2b | `lease_shell_test.go:124: timed out after 10s waiting for three iterations of the shell's wait loop (STRIDAL_TEST_SLOW=1)` |
 | `TestTemplateLaneGetsItsFirstPromptOnceWhenReady` (`internal/panel`) | race | 2a | `orchestration_test.go:195: the restart re-notified` |
 
 What the code shows about each:
@@ -111,7 +111,7 @@ What the code shows about each:
 - **The lease tests run against fixed wall-clock bounds.** One is the 4 s bound at
   `lease_shell_test.go:496`. Another is the conformance driver's `CONFORMANCE_WAIT=2` and
   `CONFORMANCE_TIMEOUT=12`, which nothing scales. `testwait`'s own waits run at
-  `CLAUDUCTOR_TEST_SLOW=1` in the gate. A mutant reads as "passed" when its failing case runs out
+  `STRIDAL_TEST_SLOW=1` in the gate. A mutant reads as "passed" when its failing case runs out
   of time before it can say `not ok`. #92 is open on the same `DaemonLeft` test. #169 fixed a
   zombie cause that made it fail, and this is its other bound, under load.
 - **The lane prompt test** re-notified once across a restart. Its cause was not read here.
@@ -129,7 +129,7 @@ runs: 8 in `a` and 5 in `b`.
 
 **Pass on what was observed.**
 
-- **Lease:** each clone has its own `<git dir>/clauductor/gate.lock`, and every run's queue time
+- **Lease:** each clone has its own `<git dir>/stridal/gate.lock`, and every run's queue time
   was 0 s, so neither clone held the other's lease.
 - **Run log and receipt:** each clone's `gate-runs.log` lists only its own runs, and each receipt
   names its own clone's path.

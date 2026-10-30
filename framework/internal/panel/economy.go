@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // Economy mode (PANEL-19). The quota is the machine's, so economy mode is too: while
 // the account's 5-hour quota is at or above the default project's
-// quota_economy.five_hour_pct, the panel writes ~/.clauductor/panel/economy.json with
+// quota_economy.five_hour_pct, the panel writes ~/.stridal/panel/economy.json with
 // "economy": true, and false once the quota falls economyHysteresis points below.
 // The operating model's build-change reads the file and drops the roles its
 // model-roles.json names under "economy" one tier. The file is a documented contract

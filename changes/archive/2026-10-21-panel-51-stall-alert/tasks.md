@@ -234,7 +234,7 @@
   version, 7, with a MODIFIED delta of LANECTX-3 and its S1 in this change; or (B) they keep
   writing 6, LANECTX-3 standing as written, and a project raises its own version to set
   `stall_minutes`. Group 3 is uncommitted, with no quick gate and no review round run on it; a
-  copy is the local ref `refs/clauductor/p51-d5-group3`. $146.63 spent before group 3's builder.
+  copy is the local ref `refs/stridal/p51-d5-group3`. $146.63 spent before group 3's builder.
   Resume with apply-change at group 3's review once the owner has chosen.
 - 2026-10-20 the owner chose option A (D5, re-approved at 1e365ec5ebf7) and accepted #186's M1
   and M2 as built. Session 6 TRACK D6: the MODIFIED delta of LANECTX-3 and its S1 ("declare the
@@ -243,7 +243,7 @@
   version 6 ... want 7"). Group 3's review next.
 - 2026-10-20 group 3's review (session 6 TRACK D6, apply-change): **NOT converged after 3 rounds,
   peak medium each round (never rising), so the build stops; group 3 stays uncommitted.** A copy
-  is the local ref `refs/clauductor/p51-d6-group3`, with this entry. Round 1, quick gate PASS on its
+  is the local ref `refs/stridal/p51-d6-group3`, with this entry. Round 1, quick gate PASS on its
   tree (bc34abf0c): 1 medium, 8 low; M1 (a stale `stall.json` restored when stalls are turned
   back on) and L1 to L7 fixed (Decision log), L8 (the template's `panel.json` at version 6) left
   for the owner, #189. Round 2, quick gate PASS (5b1c138f4): 1 medium, 3 low; M1 (a save before
@@ -1023,14 +1023,14 @@
     branch's older merge (read as "none" for HEAD) and a list holding both. No other test's fake
     answers the readiness read (`autoclose_integration_test.go` answers auto-close's unchanged argv).
   - **#189 (D5 as amended: the template's `panel.json` declares version 7).** Raised
-    `template/.clauductor/panel.json` to 7 and regenerated `plugin/scaffold/.clauductor/panel.json`
+    `template/.stridal/panel.json` to 7 and regenerated `plugin/scaffold/.stridal/panel.json`
     (`scripts/build-plugin.sh`). No test or check pinned the preset's version (grepped
     `framework` tests, `.claude/checks`, `template/.claude/checks`; `TestTemplatePanelConfigLoads`
     and `TestScaffoldPanelConfigLoads` only parsed it), so both now require `config.LatestVersion`
     rather than a literal: the next version raise fails them until the preset follows. Shown
-    failing at 6: "template/.clauductor/panel.json declares version 6, want the latest, 7: raise
+    failing at 6: "template/.stridal/panel.json declares version 6, want the latest, 7: raise
     it and rebuild the plugin (scripts/build-plugin.sh)" and "scaffold panel.json declares
-    version 6, want the latest, 7". This repository's own `.clauductor/panel.json` is its own
+    version 6, want the latest, 7". This repository's own `.stridal/panel.json` is its own
     config and is not changed.
   - **Round 3, L1: a failed merged read with no result waits `Ticks.MergedNone` (5 minutes), as
     "none" does.** `mergedEntry` records the branch and HEAD the last read was tried for, and a
@@ -1259,7 +1259,7 @@
   - **L7:** a failed push's error carries the last line it printed that is not blank, clipped to
     200 runes (`lastLine`, `push.go`).
   - **L8:** the window is `testwait.Scale(3 s)`, the stall time written from it, and the first
-    panel's watch five sixths of it; passes at `CLAUDUCTOR_TEST_SLOW=2`.
+    panel's watch five sixths of it; passes at `STRIDAL_TEST_SLOW=2`.
 - 2026-10-21, group 5 (builder), the page (D11 leaves these open):
   - **`stall-view.js` takes the lane view (`x.lv`), not `lanesOf`'s row,** with four functions:
     `mark(lv, base)` (the square's and word's class, the word, approx and its title; `base` while
@@ -1404,7 +1404,7 @@
 ## 3. The config and the reads without a page (D1, D5, D10)
 - [x] 3.1 `framework/internal/panel/config`: `alerts.stall_minutes` (default 30, 0 off) at config version 7, in `config.go`'s `AlertConfig` and `Thresholds` and in `fields.go`'s table; regenerate `docs/panel.schema.json` and the *Keys* table in `docs/panel.md` as `config/generated_test.go` requires. Tested in `framework/internal/panel/config/config_test.go` (the default, 0, a negative refused) and `config/version_test.go` (the key refused at version 6). Citing [STALL-1-S8]. `panel init` and `panel attach` write the latest version (D5, the owner's option A of 2026-10-20): the MODIFIED delta of LANECTX-3 in `changes/panel-51-stall-alert/specs/panel-lane-context/spec.md`, and `framework/internal/panel/install/attach_test.go` checks `config.LatestVersion`, citing [LANECTX-3-S1].
 - [x] 3.2 `framework/internal/panel/readiness_source.go`: the receipt read runs whether or not a page is in view; `tasks.md` and the review threads stay page-only (D10). The merged read runs `mergedPR`'s `gh pr list --head <branch> --state merged` (`autoclose.go`) through a variant that returns its error, for each lane with a clean receipt for its HEAD and no open PR, asking for `number,headRefOid` and counting a merge only when its `headRefOid` is the lane's HEAD, as `lanes/close.go`'s `mergedBranch` does (D10, the owner's #188): only a merge found is cached, per branch and HEAD; "none" is read again when the branch leaves the open-PR list, which this source tracks itself from the view's `PRs`, and otherwise at most every 5 minutes; a failed read keeps the last result, and with none the receipt is unknown, never "none", and the read waits the same 5 minutes (D10; review round 3, L1).
-- [x] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.clauductor/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, each one-shot's resolved fire time, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Build the path as `notifier.json`'s is, `filepath.Join(config.ProjectDir(home, root), "stall.json")`: no literal `.clauductor` path, and no new helper in `config/paths.go`; `framework/internal/brand` holds the name (the owner's architect's constraint, in OPS-101's row in `docs/roadmap.md`). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
+- [x] 3.3 `framework/internal/panel/runtime.go`: save D1's state to `~/.stridal/panel/<project hash>/stall.json` (the time of the save; each lane's and each live session's last movement and whether it was stalled; each waiting session's ask time; each live session's kept `Stop` allowlist, each task's ended mark, each one-shot's resolved fire time, and the `agent_id`s of its last 64 `SubagentStop`s; the same for a session kept aside after failing polls; 0600, written atomically as `notifier.json` is, at most once every 30 s while it has changed and once at a clean stop) and hand it to the model at start (D1). Build the path as `notifier.json`'s is, `filepath.Join(config.ProjectDir(home, root), "stall.json")`: no literal `.stridal` path, and no new helper in `config/paths.go`; `framework/internal/brand` holds the name (the owner's architect's constraint, in OPS-101's row in `docs/roadmap.md`). Add its read site to `fileReadSites` in `framework/internal/panel/notranscript_test.go`, with a comment on what it reads.
 - [x] 3.4 Tested in `framework/internal/panel/stall_integration_test.go`, a runtime with no page in view, a fake `gh` and a receipt written for a lane's HEAD:
   - with the merged read's 5-minute wait shortened, `/api/state` shows the lane stalled while the fake `gh` lists no pull request for its branch, open or merged; still stalled when the next merged read fails; and not stalled once the fake `gh` has listed a pull request open for the branch and then lists it merged instead;
   - a second lane whose first merged read fails is not stalled until a read succeeds;
@@ -1417,7 +1417,7 @@
 ## 4. The notification and the push (D6, D7)
 - [x] 4.1 `framework/internal/panel/state/notifier.go`: a `stalled` alert interrupts by the notifier's rules unchanged, but for one: while the view says stalls are pending (D1), `Process` keeps each `stalled:` mark it holds rather than deleting it as cleared. Each `Notice` carries its `stalled` alert apart, if it has one. `noticeLine` words a stall's line for the macOS notification. Tested in `framework/internal/panel/state/notifier_test.go`, citing [STALL-3-S2], [STALL-3-S3] and [STALL-3-S7].
 - [x] 4.2 `framework/internal/panel/push.go`:
-  - read `~/.clauductor/panel/push.json` (as the next bullet says when), its path built as `filepath.Join(config.PanelDir(home), "push.json")`, with no literal `.clauductor` path and no new helper in `config/paths.go` (OPS-101's row, as in 3.3), and refuse it by D7's rules (the file's owner and mode, its folder's mode, an absolute `argv[0]`, one JSON object) with a warning bar naming the file and why;
+  - read `~/.stridal/panel/push.json` (as the next bullet says when), its path built as `filepath.Join(config.PanelDir(home), "push.json")`, with no literal `.stridal` path and no new helper in `config/paths.go` (OPS-101's row, as in 3.3), and refuse it by D7's rules (the file's owner and mode, its folder's mode, an absolute `argv[0]`, one JSON object) with a warning bar naming the file and why;
   - for each notice that carries a stall, run its argv with a title and body built from the `stalled` alert's own fields (D7), never from `Notice.Body`, with no shell and a 10 s timeout; a failure counts in the notifier's failures with its error;
   - the machine (`machine.go`) reads the file once for every project, at start and from a machine source that checks its `pathSignature` every 10 s; each project's `pollNotify` (`runtime.go`) takes the machine's current command or refusal at each tick, runs the command, and adds a refusal to its view's `Warnings`; the machine's own notifier (the quota, the login locks) never pushes;
   - its read site goes in `fileReadSites` (`notranscript_test.go`), with a comment on what it reads.

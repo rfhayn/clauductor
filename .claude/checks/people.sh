@@ -86,8 +86,8 @@ world() {
 }
 act() { _st=$1; shift; (cd "$R" && sh "$PS" --activity --state "$_st" "$@") 2>&1; }
 # inr SCRIPT: sh code run in the project with its own config read (ROOT is the check's otherwise).
-# CLAUDUCTOR_FW names its .claude/ too: the plugin build's conf.sh finds its libraries through it.
-inr() { (cd "$R" && ROOT="$R" CLAUDUCTOR_FW="$R/.claude" sh -c ". .claude/lib/conf.sh; $1") 2>&1; }
+# STRIDAL_FW names its .claude/ too: the plugin build's conf.sh finds its libraries through it.
+inr() { (cd "$R" && ROOT="$R" STRIDAL_FW="$R/.claude" sh -c ". .claude/lib/conf.sh; $1") 2>&1; }
 # blk NAME: from the output on stdin, NAME's block (header through the line before the next one).
 blk() { awk -v n="$1 (" 'index($0, n) == 1 { on = 1; print; next } on && /^[^ ]/ { exit } on { print }'; }
 has() {  # has yes|no NEEDLE HAYSTACK LABEL

@@ -5,7 +5,7 @@
 #   sh .claude/metrics.sh --window 30d        one window (repeatable)
 #   sh .claude/metrics.sh --line              one health line from the 30d window (health/flow.sh, session-close)
 #
-# THE CONTRACT is the panel's (docs/panel.md in the clauductor repository, *Metrics*, version 1),
+# THE CONTRACT is the panel's (docs/panel.md in the stridal repository, *Metrics*, version 1),
 # read strictly and drawn whole or not at all: an unknown key, a negative number, a percent over
 # 100 or a count that is not an integer refuses the WHOLE payload. So this script prints only the
 # keys the contract names, rounds every figure, and never prints anything else on stdout.

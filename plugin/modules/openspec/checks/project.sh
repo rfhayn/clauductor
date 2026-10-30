@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The OpenSpec module's own check, run by checks/run.sh only while the module is on (MODULES, or the
 # legacy PROPOSALS="openspec"): this project's links point where CHANGES_DIR and SPECS_DIR say, and
 # its changes and specs pass `openspec validate --all --strict`. Without a 1.13+ CLI the validation
@@ -8,7 +8,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # shellcheck disable=SC1090
 . "${CHECKS_LIB:?run this through checks/run.sh}"
 
-EN="$CLAUDUCTOR_FW/modules/openspec/enable.sh"
+EN="$STRIDAL_FW/modules/openspec/enable.sh"
 d=$(scratch)
 bin=${OPENSPEC_BIN:-openspec}
 skip() {

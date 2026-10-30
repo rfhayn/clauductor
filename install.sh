@@ -6,7 +6,7 @@ INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 FRAMEWORK_DIR="$SCRIPT_DIR"
 
 echo "==================================="
-echo "  Clauductor Framework Installer"
+echo "  Stridal Framework Installer"
 echo "==================================="
 echo ""
 
@@ -15,7 +15,7 @@ echo ""
 # A missing tool is OFFERED, never installed unasked, and never with sudo: on macOS the offer is
 # `brew install` (Homebrew installs into its own prefix, as the user); anywhere else the
 # prerequisites report at the end prints the command to run yourself. With no terminal to ask
-# (a CI job, a script), or CLAUDUCTOR_INSTALL_ASSUME=no, every offer is answered "no". Re-running
+# (a CI job, a script), or STRIDAL_INSTALL_ASSUME=no, every offer is answered "no". Re-running
 # is safe: a tool already present is not offered again.
 
 OS="$(uname -s)"
@@ -24,7 +24,7 @@ OS="$(uname -s)"
 # is not one: under `curl … | bash` stdin is this script, and reading it would eat the script.
 ask() {
     local response=""
-    [[ "${CLAUDUCTOR_INSTALL_ASSUME:-}" == no ]] && return 1
+    [[ "${STRIDAL_INSTALL_ASSUME:-}" == no ]] && return 1
     if [[ -t 0 ]]; then
         read -r -p "$1" response || return 1
     elif { : < /dev/tty; } 2>/dev/null; then
@@ -65,9 +65,9 @@ offer() {
 }
 
 echo "Checking prerequisites..."
-if ! offer go "builds clauductor from this checkout"; then
+if ! offer go "builds stridal from this checkout"; then
     echo ""
-    echo "Go is required to build clauductor from source: https://go.dev/dl/"
+    echo "Go is required to build stridal from source: https://go.dev/dl/"
     exit 1
 fi
 offer jq "the operating model's hooks, checks and context scripts read JSON with it" || true
@@ -83,9 +83,9 @@ echo ""
 
 # --- Build ---
 
-echo "Building clauductor..."
+echo "Building stridal..."
 cd "$FRAMEWORK_DIR/framework"
-go build -o clauductor ./cmd/clauductor
+go build -o stridal ./cmd/stridal
 echo "  Build successful."
 echo ""
 
@@ -93,11 +93,11 @@ echo ""
 
 echo "Installing to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
-cp clauductor "$INSTALL_DIR/clauductor"
-chmod +x "$INSTALL_DIR/clauductor"
+cp stridal "$INSTALL_DIR/stridal"
+chmod +x "$INSTALL_DIR/stridal"
 
 # Clean up build artifact
-rm -f clauductor
+rm -f stridal
 
 # Check if INSTALL_DIR is in PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
@@ -111,26 +111,26 @@ fi
 
 # Set framework location for template lookups
 echo ""
-echo "Setting CLAUDUCTOR_FRAMEWORK environment variable..."
+echo "Setting STRIDAL_FRAMEWORK environment variable..."
 SHELL_RC="$HOME/.zshrc"
 if [[ -f "$HOME/.bashrc" ]] && [[ ! -f "$HOME/.zshrc" ]]; then
     SHELL_RC="$HOME/.bashrc"
 fi
 
-if ! grep -q "CLAUDUCTOR_FRAMEWORK" "$SHELL_RC" 2>/dev/null; then
+if ! grep -q "STRIDAL_FRAMEWORK" "$SHELL_RC" 2>/dev/null; then
     echo "" >> "$SHELL_RC"
-    echo "# Clauductor framework location" >> "$SHELL_RC"
-    echo "export CLAUDUCTOR_FRAMEWORK=\"$FRAMEWORK_DIR\"" >> "$SHELL_RC"
+    echo "# Stridal framework location" >> "$SHELL_RC"
+    echo "export STRIDAL_FRAMEWORK=\"$FRAMEWORK_DIR\"" >> "$SHELL_RC"
     echo "  Added to $SHELL_RC"
 else
     echo "  Already set in $SHELL_RC"
 fi
 
 # Export for current session
-export CLAUDUCTOR_FRAMEWORK="$FRAMEWORK_DIR"
+export STRIDAL_FRAMEWORK="$FRAMEWORK_DIR"
 
 echo ""
-# The same report `clauductor install` prints in a project: every tool, with this OS's install hint.
+# The same report `stridal install` prints in a project: every tool, with this OS's install hint.
 sh "$FRAMEWORK_DIR/template/.claude/prereqs.sh" || true
 
 echo ""
@@ -138,14 +138,14 @@ echo "==================================="
 echo "  Installation complete!"
 echo "==================================="
 echo ""
-echo "  Binary:    $INSTALL_DIR/clauductor"
+echo "  Binary:    $INSTALL_DIR/stridal"
 echo "  Framework: $FRAMEWORK_DIR"
 # Quotes inside $(…) start afresh: escaping them here would make them part of the command name.
-echo "  Version:   $("$INSTALL_DIR/clauductor" version 2>/dev/null || echo 'unknown')"
+echo "  Version:   $("$INSTALL_DIR/stridal" version 2>/dev/null || echo 'unknown')"
 echo ""
 echo "Usage:"
-echo "  clauductor init ~/Development/my-app    # New project"
-echo "  cd existing-project && clauductor install  # Existing repo"
-echo "  clauductor panel                         # The local panel (docs/panel.md)"
+echo "  stridal init ~/Development/my-app    # New project"
+echo "  cd existing-project && stridal install  # Existing repo"
+echo "  stridal panel                         # The local panel (docs/panel.md)"
 echo ""
 echo "Note: restart your shell or run 'source $SHELL_RC' to update PATH."

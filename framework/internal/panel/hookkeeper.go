@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // hookKeeper keeps this panel's hooks installed: at start, then every interval.
@@ -65,7 +65,7 @@ func (k *hookKeeper) check() bool {
 	}
 	switch {
 	case !k.installed && changed:
-		fmt.Fprintf(k.out, "Installed panel hooks in %s (pre-panel backup: settings.json.clauductor-panel.bak). Running sessions pick them up live (Claude Code 2.1.284); restart any that do not.\n", install.SettingsPath(k.home))
+		fmt.Fprintf(k.out, "Installed panel hooks in %s (pre-panel backup: settings.json.stridal-panel.bak). Running sessions pick them up live (Claude Code 2.1.284); restart any that do not.\n", install.SettingsPath(k.home))
 	case !k.installed:
 		fmt.Fprintf(k.out, "Panel hooks already present in %s.\n", install.SettingsPath(k.home))
 	case changed:

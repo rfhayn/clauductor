@@ -1,18 +1,18 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # session-start's ideas section: the Ideas page's link (from the registry) and what the last close
 # rendered into IDEAS_FILE (its counts and its data-through stamp). The LIVE count needs the page's
 # database, which no shell reads: the module's session-start step reads it with ArtifactData and
 # compares it with this file. Never silent: a missing url or file is CANNOT CHECK. No network.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
-r="$CLAUDUCTOR_FW/modules/ideas/bin/render.sh"
+. "$STRIDAL_FW/lib/conf.sh"
+r="$STRIDAL_FW/modules/ideas/bin/render.sh"
 f=${IDEAS_FILE:-docs/ideas.md}
 if u=$(sh "$r" --url 2>&1); then echo "Ideas page: $u (live count: the module's session-start step)"
 else echo "CANNOT CHECK — the Ideas page: $(printf '%s' "$u" | sed 's/^ideas-render: //')"; fi
 if [ ! -f "$ROOT/$f" ]; then
-  echo "CANNOT CHECK — $f does not exist (sh "$CLAUDUCTOR_FW"/modules/ideas/enable.sh makes it; every close renders it)"
+  echo "CANNOT CHECK — $f does not exist (sh "$STRIDAL_FW"/modules/ideas/enable.sh makes it; every close renders it)"
   exit 0
 fi
 if why=$(sh "$r" --check "$ROOT/$f" 2>&1); then

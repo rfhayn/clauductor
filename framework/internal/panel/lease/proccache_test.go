@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/testgit"
+	"github.com/rfhayn/stridal/internal/testgit"
 )
 
 func TestProcCacheReadsAStartTimeOncePerProcess(t *testing.T) {

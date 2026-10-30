@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-49 (D3, D4, D5, D7): a project whose config is outside its repository is

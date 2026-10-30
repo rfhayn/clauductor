@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/brand"
+	"github.com/rfhayn/stridal/internal/brand"
 )
 
 //go:generate go test -run TestGeneratedFilesAreCurrent -update .

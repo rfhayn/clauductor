@@ -6,16 +6,17 @@ import (
 	"io"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/brand"
+	"github.com/rfhayn/stridal/internal/template"
 	"github.com/spf13/cobra"
 )
 
 var Version = "0.1.0"
 
 var rootCmd = &cobra.Command{
-	Use:   "clauductor",
+	Use:   brand.Name,
 	Short: "An operating model for Claude Code, and the panel that runs it",
-	Long: `Clauductor installs an operating model into a repository (skills, hooks, checks,
+	Long: `Stridal installs an operating model into a repository (skills, hooks, checks,
 agents and docs), keeps it current, and runs the panel: one local page for the
 lanes of every project.`,
 	// Main prints a command's error; cobra printing it too showed every error twice (#251).

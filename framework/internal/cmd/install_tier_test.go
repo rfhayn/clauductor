@@ -51,7 +51,7 @@ func TestClassifyFile(t *testing.T) {
 		".claude/evals/run.sh":                                   tierDoc,
 		".claude/evals/reviewer/cases/go-tenant-scope/case.json": tierDoc,
 		".claude/lib/evals.sh":                                   tierFramework,
-		".clauductor/panel.json":                                 tierDoc,
+		".stridal/panel.json":                                    tierDoc,
 		"scripts/ci/steps.sh":                                    tierDoc,
 		"AGENTS.md":                                              tierDoc,
 		"docs/roadmap.md":                                        tierDoc,

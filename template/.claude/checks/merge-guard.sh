@@ -661,8 +661,8 @@ git -C "$R" checkout -q main; receipt "$MAINSHA"
 
 # Rule 12: provenance trailers, while model-roles.json enables them.
 # The template ships it on; an installed project (it has an install or plugin marker) may turn it
-# off, as clauductor's own repo does, so the fixture forces it on to test the rule either way.
-if [ -f "$ROOT/.claude/clauductor-template" ] || [ -f "$ROOT/.claude/clauductor-plugin" ]; then
+# off, as stridal's own repo does, so the fixture forces it on to test the rule either way.
+if [ -f "$ROOT/.claude/stridal-template" ] || [ -f "$ROOT/.claude/stridal-plugin" ]; then
   ok "this project sets provenance.enabled to $(jq -r .provenance.enabled "$ROOT/.claude/model-roles.json"); rule 12 is tested with it on"
 else
   jq -e '.provenance.enabled == true' "$ROOT/.claude/model-roles.json" >/dev/null && ok "the template turns provenance on by default" || fail "model-roles.json provenance.enabled is not true in the template"

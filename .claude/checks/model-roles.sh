@@ -6,7 +6,7 @@
 #   - .claude/workflows/build-change.js's ROLES, TIERS and ECONOMY tables and its ECONOMY_FILE,
 #     when the workflow exists (its attribution and provenance are read at run time from
 #     .claude/project-config.sh, so there is nothing to restate: checks/build-change.sh holds that);
-#   - .clauductor/panel.json `lane_types`, when the panel config exists.
+#   - .stridal/panel.json `lane_types`, when the panel config exists.
 # The sets are enumerated from the filesystem, not from the JSON (*Enumerate the authority*):
 # a skill directory the JSON forgot is a failure, and so is a JSON entry naming nothing.
 #
@@ -168,7 +168,7 @@ if [ -f "$wf" ]; then
 fi
 
 # ── The panel's lane types ─────────────────────────────────────────────────────────────
-pj="$ROOT/.clauductor/panel.json"
+pj="$ROOT/.stridal/panel.json"
 if [ -f "$pj" ]; then
   for lane in $(jq -r '.lanes | to_entries[] | select(.key | startswith("_") | not) | .key' "$roles"); do
     r=$(jq -r --arg l "$lane" '.lanes[$l]' "$roles")

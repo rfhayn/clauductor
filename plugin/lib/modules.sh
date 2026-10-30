@@ -22,7 +22,7 @@
 # Order: modules in MODULES order, then the local layer; within a directory, by file name.
 
 # The modules the model ships. In the plugin build this path is the plugin's own modules/.
-MODULES_FW="$CLAUDUCTOR_FW/modules"
+MODULES_FW="$STRIDAL_FW/modules"
 # The project's own modules. Spelt with the quote before /modules on purpose: the plugin build
 # rewrites "$ROOT/.claude/modules" to the plugin's copy, and this one must stay the repository's.
 MODULES_OWN="$ROOT/.claude"/modules

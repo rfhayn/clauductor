@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // Trusting a config (`panel trust`, and `panel install`, which trusts what it
@@ -17,7 +17,7 @@ func TestTrustSaysWhatItTrusts(t *testing.T) {
 	cfg := filepath.Join(root, "panel.json")
 	os.WriteFile(cfg, []byte(`{"name":"T","version":2,"lanes":{"fix/":"fix"},
 		"cards":[{"id":"todo","command":["sh","-c","grep -rn TODO src"],"refresh":"interval:60"}],
-		"queues":[{"id":"gate","lock":"clauductor/gate.lock","command":["make","ci"]},{"id":"bare","lock":"x.lock"}],
+		"queues":[{"id":"gate","lock":"stridal/gate.lock","command":["make","ci"]},{"id":"bare","lock":"x.lock"}],
 		"templates":[{"id":"fix","lane_type":"fix","first_prompt":"Fix issue {issue}"}]}`), 0o644)
 	h, runs, err := TrustConfigReport(home, root, cfg)
 	if err != nil || !TrustedNow(home, root, cfg, h) {

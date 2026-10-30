@@ -359,7 +359,7 @@ cnone && ok "...and once that entry is written, the close is not offered again" 
 printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 
 # The preset panel config: every command it names exists in this project.
-pj="$ROOT/.clauductor/panel.json"
+pj="$ROOT/.stridal/panel.json"
 if [ -f "$pj" ]; then
   jq -e . "$pj" >/dev/null 2>&1 && ok "panel.json parses" || fail "panel.json is not valid JSON"
   for p in $(jq -r '[.cards[]?.command, .templates[]?.suggest.command, .queues[]?.command] | map(select(. != null)) | .[] | .[]' "$pj" \

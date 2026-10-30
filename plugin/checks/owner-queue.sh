@@ -1,11 +1,11 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # .claude/owner-queue.sh prints every open item of the owner queue and nothing else, and says
 # CANNOT CHECK (never "nothing queued") when the file is missing. Also: the project's queue file
 # exists, since session-start and the panel card both read it.
 . "$(dirname "$0")/lib.sh"
 
-q="$CLAUDUCTOR_FW/owner-queue.sh"
+q="$STRIDAL_FW/owner-queue.sh"
 d=$(scratch)
 cat > "$d/q.md" <<'EOF'
 # Queue

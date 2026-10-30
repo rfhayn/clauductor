@@ -58,7 +58,7 @@
 # "[exited with code N]" and "[killed]" lines belong to shell tasks only.
 #
 # THE RECORD lives in the git common dir (every worktree shares it), per session:
-# <common dir>/clauductor-cd-guard/<session_id>/holds/<task id>: the root on its first line, then
+# <common dir>/stridal-cd-guard/<session_id>/holds/<task id>: the root on its first line, then
 # "task <task id>" and "state <state file>" when the payload names them; outside a git repository,
 # under TMPDIR. Another session's records untouched for two days are pruned.
 #
@@ -102,7 +102,7 @@ if ! command -v jq >/dev/null 2>&1 || ! printf '%s' "$payload" | jq -e . >/dev/n
   printf '%s' "$payload" | grep -Eq '"tool_name"[[:space:]]*:[[:space:]]*"Bash"' || exit 0
   printf '%s' "$payload" | grep -Eq '(^|[^A-Za-z0-9_.-])(cd|pushd)([^A-Za-z0-9_.-]|$)' || exit 0
   held=""
-  for held in "$(common_dir)"/clauductor-cd-guard/*/holds/*; do [ -f "$held" ] && break; held=""; done
+  for held in "$(common_dir)"/stridal-cd-guard/*/holds/*; do [ -f "$held" ] && break; held=""; done
   [ -n "$held" ] || exit 0
   block "jq could not read the hook payload (jq missing, or a malformed payload), this command holds a cd, and a build-change run holds a worktree ($held), so it is refused rather than risk moving the session out of it. Install jq (macOS: brew install jq; Debian/Ubuntu: apt-get install jq). $FIX"
 fi
@@ -121,7 +121,7 @@ EOF
 sid=$(safe "$sid"); [ -n "$sid" ] || sid=unknown
 task_id=$(safe "$task_id"); run_id=$(safe "$run_id")
 [ -n "$cwd" ] || cwd=$(pwd)
-BASE="$(common_dir)/clauductor-cd-guard"
+BASE="$(common_dir)/stridal-cd-guard"
 HOLDS="$BASE/$sid/holds"
 
 if [ "$event" = PostToolUse ]; then

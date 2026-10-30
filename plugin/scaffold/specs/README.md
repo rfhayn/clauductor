@@ -49,7 +49,7 @@ Every scenario header is `#### Scenario: [CAP-n-Sn] <title>`.
   reviewer checks that each citing test really asserts the THEN.
 - A scenario no test can reach was escaped, with a reason, in the `tasks.md` of the change that
   added it (`(manual: …)` or `(untestable: …)`); that line stays in the archive and still counts.
-- `/clauductor:propose` reads the specs a change touches **before** drafting it, and says in the proposal what
+- `/stridal:propose` reads the specs a change touches **before** drafting it, and says in the proposal what
   they already guarantee.
 - The format is OpenSpec's, so its CLI can read these files through the optional module's
   symlinks (`${CLAUDE_PLUGIN_ROOT}/modules/openspec`) without a rewrite.

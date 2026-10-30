@@ -43,7 +43,7 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
     await p.evaluate(() => { selectLane("t:main"); sideTab = "checks"; render(); });
     const main = await p.$eval("#side .sidebody", (e) => e.textContent);
     if (!/no branch of its own/.test(main)) fail("main's Checks tab: " + main);
-    await p.evaluate(() => { sideTab = "agents"; try { localStorage.setItem("clauductor-panel-sidetab", "agents"); } catch (e) {} render(); });
+    await p.evaluate(() => { sideTab = "agents"; try { localStorage.setItem("stridal-panel-sidetab", "agents"); } catch (e) {} render(); });
     if (errors.length) fail("page errors: " + errors.join("; "));
     if (!process.exitCode) console.log("ok lane-readiness");
   } finally {

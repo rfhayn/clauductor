@@ -1,4 +1,4 @@
-**Approved:** 2026-10-02 by Rich · design 5827905f82b0
+**Approved:** 2026-10-30 by Rich · design f7306f84fcb7
 **Roadmap row:** PANEL-25
 **Risk:** normal
 
@@ -38,7 +38,7 @@ None of these reads has a reader while nothing is happening:
   The four polls above never learned to.
 
 Separately, the login agent opens a browser tab at every login (`run.go`: under `--launchd` it
-opens once per login, held to once per 5 minutes by `browser-opened`). `clauductor panel` has a
+opens once per login, held to once per 5 minutes by `browser-opened`). `stridal panel` has a
 `--no-open` flag (`internal/cmd/panel.go`), but `panel install` never writes it into the plist
 (`install/launchd.go` `renderPlist`), and `Run` checks `Launchd` before `NoOpen`, so the flag
 would be ignored under the agent even if it were there.
@@ -69,8 +69,8 @@ An idle panel spawns almost nothing, and nothing that needs it waits:
   time. The rate shows in the observability footer and `/api/state`, and the login agent writes
   each project's last hour to its log once an hour. Each auto-close writes a log line with the
   merge time and the close time.
-- **`clauductor panel install --no-open`** installs a login agent that never opens a browser tab.
-  `clauductor panel open`, the app and a bookmark still open the page.
+- **`stridal panel install --no-open`** installs a login agent that never opens a browser tab.
+  `stridal panel open`, the app and a bookmark still open the page.
 
 ## What the existing specs already guarantee
 
@@ -115,7 +115,7 @@ launchd agent*. Each is updated to match.
   spawns **at most 1.2 processes a minute, down from about 17.4**, and the machine's own calls stay
   under 0.2 a minute (`claude --version` every 10 minutes, once PANEL-28 has taken `auth status`
   off its timer): two idle projects together **under 3 a minute, down from about 35**. Read
-  from the login agent's hourly lines in `~/.clauductor/panel/logs/panel.log` ("spawns, last hour,
+  from the login agent's hourly lines in `~/.stridal/panel/logs/panel.log` ("spawns, last hour,
   <project>: idle N min, M spawns …"), over the hours with at least 30 idle minutes. Neither the
   log nor `/api/state` makes a page "in view". Where a project has turned `lanes_auto_close` on
   (neither registered project has today; it is off by default), each auto-close log line shows the

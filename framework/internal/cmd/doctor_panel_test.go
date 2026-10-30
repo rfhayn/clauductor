@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/treesnap"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/treesnap"
 )
 
 // panelHome is an empty home directory for a doctor run as macOS, with a template that resolves.
@@ -42,7 +42,7 @@ func panelJSON(name, extra string) string {
 func projectWithConfig(t *testing.T, name, extra string) string {
 	t.Helper()
 	dir := newRepo(t)
-	write(t, dir, ".clauductor/panel.json", panelJSON(name, extra))
+	write(t, dir, ".stridal/panel.json", panelJSON(name, extra))
 	return dir
 }
 
@@ -96,7 +96,7 @@ func TestDoctorNoPanelInstalledIsANoteWithTheInstallThatWorks(t *testing.T) {
 	if !strings.Contains(l, "optional") {
 		t.Errorf("the note does not say the panel is optional: %q", l)
 	}
-	needExact(t, out, "fix: clauductor panel install --project "+install.ShellWord(dir))
+	needExact(t, out, "fix: stridal panel install --project "+install.ShellWord(dir))
 	needNoLine(t, out, "panel init")
 	needNoProblem(t, out)
 	if d := treesnap.Diff(before, treesnap.Take(t, home)); len(d) > 0 {
@@ -109,8 +109,8 @@ func TestDoctorNoPanelInstalledIsANoteWithTheInstallThatWorks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exit: %v\n%s", err, out)
 	}
-	initFix := "fix: clauductor panel init --project " + install.ShellWord(bare)
-	installFix := "fix: clauductor panel install --project " + install.ShellWord(bare)
+	initFix := "fix: stridal panel init --project " + install.ShellWord(bare)
+	installFix := "fix: stridal panel install --project " + install.ShellWord(bare)
 	needExact(t, out, initFix)
 	needExact(t, out, installFix)
 	if strings.Index(out, initFix) > strings.Index(out, installFix) {
@@ -132,7 +132,7 @@ func TestDoctorNoPanelInstalledIsANoteWithTheInstallThatWorks(t *testing.T) {
 	}
 }
 
-// panelInstallWith runs `clauductor panel install --project dir --remote-control off` in the
+// panelInstallWith runs `stridal panel install --project dir --remote-control off` in the
 // test's HOME, with launchctl, plutil and osacompile stood in: nothing reaches launchd.
 func panelInstallWith(t *testing.T, dir string) {
 	t.Helper()
@@ -154,7 +154,7 @@ func panelInstallWith(t *testing.T, dir string) {
 	}
 }
 
-// panelInstallRun runs `clauductor panel install --project dir --remote-control off` in the
+// panelInstallRun runs `stridal panel install --project dir --remote-control off` in the
 // test's HOME with exec standing in for launchctl, plutil and osacompile.
 func panelInstallRun(t *testing.T, dir string, exec func(argv ...string) ([]byte, error)) (string, error) {
 	t.Helper()
@@ -237,7 +237,7 @@ func TestDoctorNotInstalledPrintsNoInstallFixWhenAddWouldRefuse(t *testing.T) {
 	if !strings.Contains(l, "refuses here") || !strings.Contains(l, "bogus") {
 		t.Errorf("the note does not give the refusal: %q", l)
 	}
-	needNoLine(t, out, "fix: clauductor panel")
+	needNoLine(t, out, "fix: stridal panel")
 }
 
 // Outside a repository there is no project path to name.
@@ -247,7 +247,7 @@ func TestDoctorNotInstalledOutsideARepositoryNamesTheProjectFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exit: %v\n%s", err, out)
 	}
-	needLine(t, out, "note", "panel", "not installed", "`clauductor panel install --project` with a repository's path")
+	needLine(t, out, "note", "panel", "not installed", "`stridal panel install --project` with a repository's path")
 	needNoLine(t, out, "fix:")
 }
 
@@ -259,7 +259,7 @@ func TestDoctorNotInstalledInALinkedWorktreeNamesTheMainCheckout(t *testing.T) {
 	linked := filepath.Join(filepath.Dir(top), filepath.Base(top)+"-lane")
 	gitIn(t, top, "worktree", "add", "-q", "-b", "lane", linked)
 	out, _ := doctorIn(t, linked)
-	needExact(t, out, "fix: clauductor panel install --project "+install.ShellWord(top))
+	needExact(t, out, "fix: stridal panel install --project "+install.ShellWord(top))
 }
 
 // Linux and WSL2 have no panel lines: the panel runs on macOS.
@@ -303,13 +303,13 @@ func TestDoctorRegisteredProjectWithNoLoginAgentIsANote(t *testing.T) {
 	needLine(t, out, "note", "running", "no login agent")
 	needNoLine(t, out, "warn", "running")
 	// The registry's default project loads, so the login agent can be installed (D8).
-	needExact(t, out, "fix: clauductor panel install")
+	needExact(t, out, "fix: stridal panel install")
 
 	// Its config no longer loads: panel install would refuse, so it is not printed.
-	write(t, dir, ".clauductor/panel.json", panelJSON("Fine", `,"bogus":1`))
+	write(t, dir, ".stridal/panel.json", panelJSON("Fine", `,"bogus":1`))
 	out, _ = doctorIn(t, dir)
 	needLine(t, out, "note", "running", "no login agent")
-	needNoLine(t, out, "fix: clauductor panel install")
+	needNoLine(t, out, "fix: stridal panel install")
 }
 
 // A live panel is ok, with its pid and port. The process check is the test's, so no process is
@@ -354,11 +354,11 @@ func TestDoctorPanelBuildOfAnotherRevisionIsANote(t *testing.T) {
 		t.Fatalf("a note is not a failure: %v\n%s", err, out)
 	}
 	exe, _ := os.Executable()
-	l := needLine(t, out, "note", "build", "aaaaaaaa", "bbbbbbbb", bin, exe, "modified", "`clauductor panel install`", "rotates the page's token")
+	l := needLine(t, out, "note", "build", "aaaaaaaa", "bbbbbbbb", bin, exe, "modified", "`stridal panel install`", "rotates the page's token")
 	if strings.Contains(l, "cccccccc") {
 		t.Errorf("unexpected revision: %q", l)
 	}
-	needNoLine(t, out, "fix: clauductor panel install")
+	needNoLine(t, out, "fix: stridal panel install")
 	needNoLine(t, out, "warn", "build")
 
 	// The same revision is ok, and no revision at all cannot be compared.
@@ -394,7 +394,7 @@ func TestDoctorBuildNoteNamesNoPanelInstallThatWouldRefuse(t *testing.T) {
 // A registry that does not load fails, and the project's panel lines say they did not run.
 func TestDoctorRegistryThatDoesNotLoadFails(t *testing.T) {
 	home := panelHome(t)
-	write(t, home, ".clauductor/panel/projects.json", "not json")
+	write(t, home, ".stridal/panel/projects.json", "not json")
 	out, err := doctorIn(t, newRepo(t))
 	if err == nil {
 		t.Errorf("a registry that does not load must exit 1:\n%s", out)
@@ -414,7 +414,7 @@ func TestDoctorRegistryThatDoesNotLoadFails(t *testing.T) {
 func TestDoctorRegistryThatDoesNotLoadStillSaysTheLoginAgent(t *testing.T) {
 	home := panelHome(t)
 	writePlist(t, home)
-	write(t, home, ".clauductor/panel/projects.json", "not json")
+	write(t, home, ".stridal/panel/projects.json", "not json")
 	out, _ := doctorIn(t, newRepo(t))
 	needLine(t, out, "ok", "panel", "login agent installed")
 	needNoLine(t, out, "0 projects")
@@ -437,7 +437,7 @@ func TestDoctorServedConfigNotTrustedWarns(t *testing.T) {
 	needLine(t, out, "ok", "config")
 	needLine(t, out, "ok", "trust")
 
-	write(t, dir, ".clauductor/panel.json", panelJSON("Fine", `,"queues":[]`)) // changed since it was trusted
+	write(t, dir, ".stridal/panel.json", panelJSON("Fine", `,"queues":[]`)) // changed since it was trusted
 	out, err = doctorIn(t, dir)
 	if err != nil {
 		t.Fatalf("a warning is not a failure: %v\n%s", err, out)
@@ -446,7 +446,7 @@ func TestDoctorServedConfigNotTrustedWarns(t *testing.T) {
 	if !strings.Contains(l, "cards, Run and templates do nothing") {
 		t.Errorf("the warning does not say what stops: %q", l)
 	}
-	needExact(t, out, "fix: clauductor panel trust --project "+install.ShellWord(dir))
+	needExact(t, out, "fix: stridal panel trust --project "+install.ShellWord(dir))
 }
 
 // A project never trusted is the same warning.
@@ -465,7 +465,7 @@ func TestDoctorProjectThePanelDoesNotServeIsANote(t *testing.T) {
 	home := panelHome(t)
 	writePlist(t, home)
 	served := projectWithConfig(t, "Served", "")
-	registerProject(t, home, served) // holds the socket "clauductor"
+	registerProject(t, home, served) // holds the socket "stridal"
 	mine := projectWithConfig(t, "Mine", `,"tmux_socket":"mine"`)
 
 	out, err := doctorIn(t, mine)
@@ -473,11 +473,11 @@ func TestDoctorProjectThePanelDoesNotServeIsANote(t *testing.T) {
 		t.Fatalf("a note is not a failure: %v\n%s", err, out)
 	}
 	needLine(t, out, "note", "serves", "does not serve")
-	needExact(t, out, "fix: clauductor panel add --project "+install.ShellWord(mine))
+	needExact(t, out, "fix: stridal panel add --project "+install.ShellWord(mine))
 	needNoLine(t, out, "config")
 	needNoLine(t, out, "trust")
 
-	write(t, mine, ".clauductor/panel.json", panelJSON("Mine", `,"tmux_socket":"clauductor"`))
+	write(t, mine, ".stridal/panel.json", panelJSON("Mine", `,"tmux_socket":"stridal"`))
 	out, err = doctorIn(t, mine)
 	if err != nil {
 		t.Fatalf("a note is not a failure: %v\n%s", err, out)
@@ -486,11 +486,11 @@ func TestDoctorProjectThePanelDoesNotServeIsANote(t *testing.T) {
 	if !strings.Contains(l, "give this project its own tmux_socket") {
 		t.Errorf("the note does not give panel add's refusal: %q", l)
 	}
-	needNoLine(t, out, "fix: clauductor panel add")
-	needNoLine(t, out, "fix: clauductor panel init")
+	needNoLine(t, out, "fix: stridal panel add")
+	needNoLine(t, out, "fix: stridal panel init")
 
 	// The THEN: the command the note named, run on the project as it was then, registers it.
-	write(t, mine, ".clauductor/panel.json", panelJSON("Mine", `,"tmux_socket":"mine"`))
+	write(t, mine, ".stridal/panel.json", panelJSON("Mine", `,"tmux_socket":"mine"`))
 	registerProject(t, home, mine)
 	if reg, err := config.LoadProjects(home); err != nil || reg.Find(mine) == nil {
 		t.Fatalf("panel add did not register the project the note named: %v", err)
@@ -506,8 +506,8 @@ func TestDoctorUnservedProjectWithNoConfigNamesInitThenAdd(t *testing.T) {
 	registerProject(t, home, projectWithConfig(t, "Served", ""))
 	mine := newRepo(t)
 	out, _ := doctorIn(t, mine)
-	initFix := "fix: clauductor panel init --project " + install.ShellWord(mine)
-	addFix := "fix: clauductor panel add --project " + install.ShellWord(mine)
+	initFix := "fix: stridal panel init --project " + install.ShellWord(mine)
+	addFix := "fix: stridal panel add --project " + install.ShellWord(mine)
 	needExact(t, out, initFix)
 	needExact(t, out, addFix)
 	if strings.Index(out, initFix) > strings.Index(out, addFix) {
@@ -538,7 +538,7 @@ func TestDoctorUnservedProjectAddRefusesForAnotherReasonPrintsNoInit(t *testing.
 	if err := config.SaveProjects(home, reg); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(top, ".clauductor", "panel.json")); err != nil {
+	if err := os.Remove(filepath.Join(top, ".stridal", "panel.json")); err != nil {
 		t.Fatal(err)
 	}
 	out, _ := doctorIn(t, top)
@@ -546,7 +546,7 @@ func TestDoctorUnservedProjectAddRefusesForAnotherReasonPrintsNoInit(t *testing.
 	if !strings.Contains(l, "registered already as") {
 		t.Errorf("the note does not give panel add's refusal: %q", l)
 	}
-	needNoLine(t, out, "fix: clauductor panel")
+	needNoLine(t, out, "fix: stridal panel")
 }
 
 // [DOCTOR-2-S8] A config that does not load fails with the loader's error, and doctor exits 1.
@@ -554,8 +554,8 @@ func TestDoctorServedConfigThatDoesNotLoadFails(t *testing.T) {
 	home := panelHome(t)
 	dir := projectWithConfig(t, "Fine", "")
 	registerProject(t, home, dir)
-	write(t, dir, ".clauductor/panel.json", panelJSON("Fine", `,"bogus":1`))
-	_, _, loadErr := config.LoadConfigRaw(filepath.Join(dir, ".clauductor", "panel.json"))
+	write(t, dir, ".stridal/panel.json", panelJSON("Fine", `,"bogus":1`))
+	_, _, loadErr := config.LoadConfigRaw(filepath.Join(dir, ".stridal", "panel.json"))
 	if loadErr == nil {
 		t.Fatal("the fixture's config loads")
 	}
@@ -573,7 +573,7 @@ func TestDoctorServedConfigMissingIsANote(t *testing.T) {
 	home := panelHome(t)
 	dir := projectWithConfig(t, "Fine", "")
 	registerProject(t, home, dir)
-	if err := os.Remove(filepath.Join(dir, ".clauductor", "panel.json")); err != nil {
+	if err := os.Remove(filepath.Join(dir, ".stridal", "panel.json")); err != nil {
 		t.Fatal(err)
 	}
 	out, err := doctorIn(t, dir)
@@ -581,7 +581,7 @@ func TestDoctorServedConfigMissingIsANote(t *testing.T) {
 		t.Fatalf("a note is not a failure: %v\n%s", err, out)
 	}
 	needLine(t, out, "note", "config", "no panel config")
-	needExact(t, out, "fix: clauductor panel init --project "+install.ShellWord(dir))
+	needExact(t, out, "fix: stridal panel init --project "+install.ShellWord(dir))
 
 	reg, _ := config.LoadProjects(home)
 	reg.Projects[0].Config = filepath.Join(home, "sidecar", "panel.json")
@@ -590,7 +590,7 @@ func TestDoctorServedConfigMissingIsANote(t *testing.T) {
 	}
 	out, _ = doctorIn(t, dir)
 	needLine(t, out, "note", "config", "no panel config")
-	needNoLine(t, out, "fix: clauductor panel init")
+	needNoLine(t, out, "fix: stridal panel init")
 }
 
 // [DOCTOR-2-S9] From a lane worktree the panel's lines read the main checkout, and the drift line
@@ -642,6 +642,6 @@ func TestDoctorLaneWorktreeOfABareRepositoryHasOnePanelNote(t *testing.T) {
 	gitIn(t, bare, "worktree", "add", "-q", "-b", "lane", linked)
 	out, _ := doctorIn(t, linked)
 	needLine(t, out, "note", "serves", "bare")
-	needNoLine(t, out, "fix: clauductor panel")
+	needNoLine(t, out, "fix: stridal panel")
 	_ = home
 }

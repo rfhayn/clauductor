@@ -18,7 +18,7 @@ document reads exactly like a current one. So the checks below **run** rather th
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
 
 If the line above shows as literal text instead of output, run
-`clauductor-model skills/session-close/context.sh` yourself and read the result before step 1.
+`stridal-model skills/session-close/context.sh` yourself and read the result before step 1.
 
 ## Hands-off, and who hears about it
 
@@ -46,7 +46,7 @@ keep: no hook refuses a row PR's edit to the log.
   PR, `<JOURNAL_FRAGMENTS>/<row id>.md`, written last, before the final gate. The shape is
   `docs/journal.d/README.md`'s and `checks/journal.sh` holds it: the PR, the session marker's
   `S<n>` and time (the PR body's first line, from `session-start/marker.sh`), review rounds and peak
-  against `clauductor-model review-cap.sh <row id>`, the last full gate's minutes (both the runs before
+  against `stridal-model review-cap.sh <row id>`, the last full gate's minutes (both the runs before
   the fragment's commit, which the final gate's receipt then covers), the cost (`usage-report.sh`, this row's sessions; optional `; top: …` from `--contributors`), the
   marker's `session-start cost:` line, then what
   happened, decisions, surprises, and insight lines as rows of the log's table. A batched PR that
@@ -68,7 +68,7 @@ never conflict: one file per row.
 |---|---|
 | the journal | keep **both** entries, yours on top, renumbered to the next number no entry holds (`pr-merge-guard` rule 7 blocks a duplicate) |
 | the insights log | keep both rows |
-| the roadmap | keep both sides' status edits; `clauductor-model roadmap-queue.sh --check` must pass |
+| the roadmap | keep both sides' status edits; `stridal-model roadmap-queue.sh --check` must pass |
 | `docs/adr/` | keep both index rows; take the next free number for **yours** (file, title, index, every citation) |
 | the owner queue | keep both sides' items |
 
@@ -86,16 +86,16 @@ TAB, what to do). Their rows, if any:
 - Then `git fetch --prune`, and confirm the remote branch list against GitHub, not local refs.
 
 ### 2. Archive what finished, check what is proposed
-- A change whose tasks are all `[x]` and whose PR merged: **`/clauductor:archive-change`**. Archiving promotes
+- A change whose tasks are all `[x]` and whose PR merged: **`/stridal:archive-change`**. Archiving promotes
   its spec deltas into the living specs; skipping it leaves the spec tier one change behind.
 - **At most ONE change may remain proposed.** Two in the Context block is the finding.
 
 ### 3. Update the written record
 - **The fold** first, on the close's branch cut from `origin/main`:
-  `clauductor-model skills/session-close/fold.sh <N> --focus "<short focus>"`, `--dry-run` first. `N` is
+  `stridal-model skills/session-close/fold.sh <N> --focus "<short focus>"`, `--dry-run` first. `N` is
   the Context block's `This close's session` (the session Up next offers this close as); with none
   offered, the first plan session the close covers (its `Fragments:` line lists what waits). With
-  no fragment to fold (a session that only proposed), `/clauductor:dev-journal` writes that same `## Session N`.
+  no fragment to fold (a session that only proposed), `/stridal:dev-journal` writes that same `## Session N`.
   It writes one `## Session N` entry from every fragment, moves their insight rows to the top of the
   log, sets each folded row's Status `✅ merged (#PR)`, and removes the fragments. It is all or
   nothing: a malformed fragment, a taken number or a log with no table stops it with every file
@@ -104,15 +104,15 @@ TAB, what to do). Their rows, if any:
   merged change `✅ merged (#N)`, an open PR's row `⬜ in flight (#N)` (every `QUEUED ON` line in
   the Context block is one still reading queued on `origin/main`), a dropped one
   `❌ cancelled — <why>`, and `git rm -r` its `changes/<id>/` (`changes/README.md`). Only a row waiting on something else takes its own word (`⬜ planned`,
-  `⬜ deferred — <trigger>`); a misspelling of these four is an error. Then `clauductor-model roadmap-queue.sh --check`.
+  `⬜ deferred — <trigger>`); a misspelling of these four is an error. Then `stridal-model roadmap-queue.sh --check`.
 - **Remote branches with no open PR** (the Context block): land each of yours, hand it off in the
   journal, or delete it. **Living specs still carrying TBD**: fill each one's text.
-- **`/clauductor:log-insight`** for anything non-obvious found today. If the Context block counts `0` rows
+- **`/stridal:log-insight`** for anything non-obvious found today. If the Context block counts `0` rows
   today after a substantive session, that is the finding. Then the promotion check: a topic at 3+
-  Raw rows is the trigger for `/clauductor:new-adr`.
+  Raw rows is the trigger for `/stridal:new-adr`.
 - **The owner queue**: anything left that needs the owner at the computer, as a `- [ ]` line with
   the date and what it needs first; tick what this session did.
-- **`/clauductor:dev-journal`** last, once the facts are settled: it adds the close's own narrative under the
+- **`/stridal:dev-journal`** last, once the facts are settled: it adds the close's own narrative under the
   entry the fold wrote (with no fragment to fold, it writes the entry: number and author from the
   Context block's `Journal:` line). Put the Context block's **Flow** line and this session's cost total (its
   `usage-report.sh` table, by role and model) in the entry: the model chosen for each role is a
@@ -123,7 +123,7 @@ TAB, what to do). Their rows, if any:
 The Context block's **Compound** section lists every insight still `Raw`, oldest first, with the
 number of sessions it has waited (`NEW` = logged since the last close). A lesson that is only
 logged teaches nothing; this step decides each one, deliberately:
-- **Promote** it: a new ADR or an amendment (`/clauductor:new-adr`), or a check or hook that now executes it
+- **Promote** it: a new ADR or an amendment (`/stridal:new-adr`), or a check or hook that now executes it
   (AGENTS.md rule 4). Status `Promoted → ADR-NNNN` (or `→ checks/<name>.sh`).
 - **Mark it an instance** of a rule or ADR that already covers it: find the covering sentence
   first. Status `Instance of ADR-NNNN (…)`.
@@ -133,14 +133,14 @@ Leaving a row Raw is allowed while it is young, but `checks/compound.sh` fails t
 has waited `COMPOUND_MAX_SESSIONS` sessions. Say in the journal entry which rows you promoted.
 
 ### 4. Set the forward-looking status line
-`clauductor-model status-write.sh "[main] <what just landed>; next: <the actual next action>"`: written
+`stridal-model status-write.sh "[main] <what just landed>; next: <the actual next action>"`: written
 for the person opening the next session.
 
 ### 5. Verify by existence, never by this skill's report
 Re-run the Context block and read it (AGENTS.md rule 2). The end state: clean tree, nothing ahead
 of `origin`, no unaccounted open PR of yours, no unarchived finished change, at most one proposed,
 journal and insights carrying today's date (on a row's close, instead: the row's fragment in its
-PR, passing `clauductor-model checks/run.sh journal`), `clauductor-model checks/run.sh` green, a status line
+PR, passing `stridal-model checks/run.sh journal`), `stridal-model checks/run.sh` green, a status line
 pointing forward. Then state what is still outstanding **and the change that owns it** (AGENTS.md
 rule 1); if no change owns it, creating one (a roadmap row, an issue) is part of closing.
 
@@ -152,11 +152,11 @@ rule 1); if no change owns it, creating one (a roadmap row, an issue) is part of
    blocks a close whose head does not contain `origin/main`.
 3. The gate (`scripts/ci/gate.sh`, no flags): the merge commit is a new head and needs its own
    receipt.
-4. **`merge-pr`**, all of it. For a docs-only diff its review step takes the `clauductor:reviewer-docs` lane.
+4. **`merge-pr`**, all of it. For a docs-only diff its review step takes the `stridal:reviewer-docs` lane.
    If rule 7 blocks, renumber and repeat from 2. Anything else that blocks and is not mechanical is
    a **Blocked** notification.
 5. **Leave the machine quiet**: from the main checkout, after the last gate,
-   `clauductor-model machine-quiet.sh` (try `--dry-run` first if unsure). Put its output in your final
+   `stridal-model machine-quiet.sh` (try `--dry-run` first if unsure). Put its output in your final
    message; a `KEEP` line is a finding to name. It never kills tmux (the panel's lanes), removes
    no dirty or locked worktree, and removes none while the live sessions cannot be read; run it
    with no subagent of yours in flight.
@@ -168,8 +168,8 @@ rule 1); if no change owns it, creating one (a roadmap row, an issue) is part of
 - **A check that could not run learned nothing.** `gh` failing on expired auth is not "no open PRs".
 - **Close the lanes**: every build, proposal and fix lane is landed, handed off in the journal, or
   stopped, and the main checkout is back on `main`. For each panel lane whose pull request merged
-  and that is still open, run `clauductor lane close <id>` from the repository under a 10-minute
-  Bash timeout (`timeout: 600000`; the plan; skip this when `clauductor` is not on `PATH` or no
+  and that is still open, run `stridal lane close <id>` from the repository under a 10-minute
+  Bash timeout (`timeout: 600000`; the plan; skip this when `stridal` is not on `PATH` or no
   panel runs), trying first the id that is the folder name of the merged branch's worktree in
   `git worktree list`, and, when that id is unknown, the id the refusal's `id (branch)` list
   gives the merged branch; a dry run that times out changed nothing, and the final message names

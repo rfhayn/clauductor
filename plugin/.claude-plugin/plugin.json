@@ -2,9 +2,9 @@
   "author": {
     "name": "Rich Hayn"
   },
-  "description": "Clauductor's operating model for Claude Code: hands-off sessions, a roadmap queue, approved proposals, per-task-group build and review, and hooks and checks that execute the rules. Run /clauductor:init in a repository to scaffold its project files.",
-  "displayName": "Clauductor",
-  "homepage": "https://github.com/rfhayn/clauductor",
+  "description": "Stridal's operating model for Claude Code: hands-off sessions, a roadmap queue, approved proposals, per-task-group build and review, and hooks and checks that execute the rules. Run /stridal:init in a repository to scaffold its project files.",
+  "displayName": "Stridal",
+  "homepage": "https://github.com/rfhayn/stridal",
   "keywords": [
     "orchestration",
     "workflow",
@@ -13,7 +13,7 @@
     "roadmap"
   ],
   "license": "MIT",
-  "name": "clauductor",
-  "repository": "https://github.com/rfhayn/clauductor",
+  "name": "stridal",
+  "repository": "https://github.com/rfhayn/stridal",
   "version": "0.1.0"
 }

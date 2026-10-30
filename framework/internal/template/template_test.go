@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
-// repoRoot is the clauductor repository root, from this package's directory.
+// repoRoot is the stridal repository root, from this package's directory.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
@@ -25,7 +25,7 @@ func repoRoot(t *testing.T) string {
 }
 
 // The template vendors the plain-shell lease protocol so a project's gate queues on the panel's
-// lease without clauductor installed. The copy must stay the block docs/panel.md documents, which
+// lease without stridal installed. The copy must stay the block docs/panel.md documents, which
 // is the one TestLeaseConformance runs against: a drifted copy would be an implementation nobody
 // tests, in every project that adopts the template.
 func TestVendoredLeaseMatchesPanelDoc(t *testing.T) {
@@ -98,16 +98,16 @@ func TestLeaseConformanceKitVersion(t *testing.T) {
 // the owner's #189), so an adopting project can set the newest keys without raising it first.
 // [STALL-1-S29]
 func TestTemplatePanelConfigLoads(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "template", ".clauductor", "panel.json"))
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "template", ".stridal", "panel.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	c, err := config.ParseConfig(raw)
 	if err != nil {
-		t.Fatalf("template/.clauductor/panel.json is not a valid panel config: %v", err)
+		t.Fatalf("template/.stridal/panel.json is not a valid panel config: %v", err)
 	}
 	if c.Version != config.LatestVersion {
-		t.Fatalf("template/.clauductor/panel.json declares version %d, want the latest, %d: raise it and rebuild the plugin (scripts/build-plugin.sh)", c.Version, config.LatestVersion)
+		t.Fatalf("template/.stridal/panel.json declares version %d, want the latest, %d: raise it and rebuild the plugin (scripts/build-plugin.sh)", c.Version, config.LatestVersion)
 	}
 }
 
@@ -131,7 +131,7 @@ func TestTemplatePanelMetricsCommand(t *testing.T) {
 			need = f.Version
 		}
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "template", ".clauductor", "panel.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "template", ".stridal", "panel.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,19 +147,19 @@ func TestTemplatePanelMetricsCommand(t *testing.T) {
 	}
 	if need == 0 {
 		if preset.Metrics != nil {
-			t.Fatal("template/.clauductor/panel.json has \"metrics\", which this panel's config does not know yet (PANEL-19)")
+			t.Fatal("template/.stridal/panel.json has \"metrics\", which this panel's config does not know yet (PANEL-19)")
 		}
 		return
 	}
 	const want = `"metrics": {"command": ["sh", "-c", "sh .claude/metrics.sh 2>&1"], "refresh": "interval:600"}`
 	if preset.Metrics == nil {
-		t.Fatalf("the panel config now knows \"metrics\" (version %d): add %s to template/.clauductor/panel.json, set its \"version\" to at least %d, delete the TODO (OPS-9) above, and rebuild the plugin (scripts/build-plugin.sh)", need, want, need)
+		t.Fatalf("the panel config now knows \"metrics\" (version %d): add %s to template/.stridal/panel.json, set its \"version\" to at least %d, delete the TODO (OPS-9) above, and rebuild the plugin (scripts/build-plugin.sh)", need, want, need)
 	}
 	if strings.Join(preset.Metrics.Command, "\x00") != strings.Join(templateMetrics.Command, "\x00") || preset.Metrics.Refresh != templateMetrics.Refresh {
-		t.Fatalf("template/.clauductor/panel.json \"metrics\" is %+v, want %s", *preset.Metrics, want)
+		t.Fatalf("template/.stridal/panel.json \"metrics\" is %+v, want %s", *preset.Metrics, want)
 	}
 	if preset.Version < need {
-		t.Fatalf("template/.clauductor/panel.json declares version %d; \"metrics\" needs %d", preset.Version, need)
+		t.Fatalf("template/.stridal/panel.json declares version %d; \"metrics\" needs %d", preset.Version, need)
 	}
 }
 

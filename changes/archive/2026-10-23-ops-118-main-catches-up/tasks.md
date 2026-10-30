@@ -31,7 +31,7 @@
   review runs stopped "not falling", each round finding a new medium. Open at that stop: (a)
   `panel config-check` judges with `config.LoadConfig` alone, so a config arriving with a
   rebuild skips `canStart` (the tmux socket clash, `live.go`; D1 (e)); (b) no test drives the
-  real `selfUpdater`'s preflight config-check failure and its discard of `clauductor.new`: only
+  real `selfUpdater`'s preflight config-check failure and its discard of `stridal.new`: only
   the stand-in at `catchup_trust_integration_test.go:565` re-implements that block.
 - 2026-10-23 group 3: (a) and (b) fixed (decision log). `go test -short ./...` passes; the
   group's tests and the new full-panel test pass under `-race` without `-short`, as do
@@ -115,12 +115,12 @@
 - 2026-10-22 (proposal, review round 4; fixed in place on the owner's word) `alerts.notify`
   withholds one catch-up notice only, that a config waits for the owner, which the page's
   untrusted banner backs up; every other catch-up notice goes whatever it says, titled
-  "clauductor panel", since merge-pr's report no longer names the owner's step. A failed build
+  "stridal panel", since merge-pr's report no longer names the owner's step. A failed build
   with a changed config sends two notices, one under each rule. merge-pr counts catch-up as on
   only on exit 0 and `on`.
 - 2026-10-22 (proposal, review round 5) The titles are a rule of their own (D6, *Titles*): only
   the trust-on-arrival notice is titled with a name, the config it trusted; every other
-  catch-up notice, the waits notice included, is titled "clauductor panel" with the checkout's
+  catch-up notice, the waits notice included, is titled "stridal panel" with the checkout's
   path. This corrects round 4's line above, whose "titled" took in the trust notice.
 - 2026-10-22 (group 1) `catch-up.json` is `{"roots":[...]}`, decoded strictly, an unreadable file
   read as off for every project (logged); not a bare list, nor an unreadable file failing the
@@ -170,7 +170,7 @@
 - 2026-10-22 (group 2) The note lives in the trust file beside the record (`notes`, keyed by
   hash), and `CheckTrust` returns it while the hash matches; not `markTrusted` on the running
   runtime alone; the page's report and a restarted runtime read it from the record. A hand trust
-  (`clauductor panel trust`, the page) drops it.
+  (`stridal panel trust`, the page) drops it.
 - 2026-10-22 (group 2) Group 3 plugs in through `Options.selfUpdate` (`run.go`), which returns a
   `*rebuilt`: `err` (the build or its preflight failed), `check` (the new binary's
   `config-check`, set when the merge changed the config) and `swap`. Catch-up sends the
@@ -253,14 +253,14 @@
   not a `rebuilt.err`; that would make D1's trust read "the rebuild failed" for a rebuild that
   never started, where the running binary's own load is the right judge.
 - 2026-10-23 (group 3) The build's base is R when R is a commit and an ancestor of B, else A (the
-  fast-forward's start); not always A; D4's notice and its `clauductor panel install` line are
+  fast-forward's start); not always A; D4's notice and its `stridal panel install` line are
   over "the build's range", and the running binary is R's build. A `git` failure in `Decide` is
   said in the notice, never read as framework/ unchanged.
 - 2026-10-23 (group 3) The PATH binary is copied (`copyExecutable`, mode 0755) and renamed after
   the installed one, and its failure is only reported in the restart notice; not
   `copyFileAtomic`, which makes the destination's directory 0700, and not a failure of the swap,
   since the login agent runs the installed binary alone.
-- 2026-10-23 (group 3) The restart marker (`~/.clauductor/panel/restarted`) is written after the
+- 2026-10-23 (group 3) The restart marker (`~/.stridal/panel/restarted`) is written after the
   swap and before the wait for claude calls, so a stop meanwhile still starts the new binary with
   its notice; `TakeRestartMarker` removes it once read, before parsing it or sending the notice,
   so neither a crash nor an unreadable marker repeats the notice at every start. Not a field in
@@ -273,8 +273,8 @@
   kickstart`), then the install step, then the merge; the commands name framework/, not its
   path, and a skip's reason is clipped to 200 runes; the body is cut at 600 runes, and these
   are what nothing else says.
-- 2026-10-23 (group 3) `clauductor panel` reaches the run through a package variable `runPanel`,
-  which the cmd test binary replaces when `CLAUDUCTOR_CMD_HELPER_RESTART` is set, so the exit 75
+- 2026-10-23 (group 3) `stridal panel` reaches the run through a package variable `runPanel`,
+  which the cmd test binary replaces when `STRIDAL_CMD_HELPER_RESTART` is set, so the exit 75
   is read from a real child process; not a real rebuild in the cmd test, which run_test.go does.
 - 2026-10-23 (group 3) The "now running" notice runs on catch-up's source at its first poll
   (`catchUp.atStart`), so it goes through the same sender as the rebuild's other notices; a
@@ -315,7 +315,7 @@
   (`configCheck` requires the field, so an older binary's answer is no judgement), and the
   preflight runs `liveSet.canServe` on it: the socket the project would be served on
   (`servedSocket`, which `loadProject` now uses too) checked by `socketFree`, the clash loop
-  `tryLoad` already ran. A clash is a preflight failure: `clauductor.new` is discarded and the
+  `tryLoad` already ran. A clash is a preflight failure: `stridal.new` is discarded and the
   running binary judges the config, which `arrive` reports as not loading. Not a check in
   `arrive` after the preflight passed, since the swap would still run and the new binary load
   the clashing file from disk; not `config-check` reading `projects.json`, since a lone binary
@@ -325,11 +325,11 @@
   panel, `TestRebuildPreflightJudgesTheConfigItWillServe`, with no scenario ID: no scenario's
   GIVEN is a config the new binary refuses (CATCHUP-3-S5 starts from a trusted one). The
   throwaway module's `config-check` reads the file instead of printing a fixed answer. Without
-  `rb.Discard()` both subtests fail (`clauductor.new` is left); without `su.canServe =
+  `rb.Discard()` both subtests fail (`stridal.new` is left); without `su.canServe =
   ls.canServe` the socket subtest fails (the binary was swapped).
 - 2026-10-23 (group 3, review finding 1) A stop (logout, launchd unload) during the rebuild or
   between the arrival and the swap dropped the rebuild in silence: the notices went out on the
-  cancelled context, the swap was skipped and `clauductor.new` discarded with no word, a trust
+  cancelled context, the swap was skipped and `stridal.new` discarded with no word, a trust
   recorded on arrival (judged by the new build) stayed while the old binary kept running, and the
   next start found `from == to`, so nothing re-ran. The class is "a stop mid-operation loses a
   one-shot, event-triggered action with no retry at start". Closed where each step is taken:
@@ -407,7 +407,7 @@
   task names: from a subdirectory of the main checkout `--git-common-dir` prints a relative
   `../.git` while `--git-dir` prints an absolute path, so the plain compare calls the main
   checkout a lane.
-- 2026-10-23 (group 4) The owner's step names `./install.sh` and `clauductor panel install` only
+- 2026-10-23 (group 4) The owner's step names `./install.sh` and `stridal panel install` only
   "after a change to the panel's own source (`framework/`, in the repository the panel is built
   from)"; not after any `framework/` change: the skill ships to projects that have no
   `framework/`, and for them that step would be noise.
@@ -446,18 +446,18 @@
   click, the binaries replaced, the account as the boundary) and the "explicit trust click" line
   names it as the one trust with no click; *What the panel writes to disk* lists `catch-up.json`,
   the main checkout's fetch and fast-forward, the trust record's note, the rebuild's binaries
-  (the one on PATH included, outside `~/.clauductor`) and the `restarted` marker. Not a link to
+  (the one on PATH included, outside `~/.stridal`) and the `restarted` marker. Not a link to
   *Catch up after a merge* alone: the Security model is where the boundary and the writes are
   read whole.
 - 2026-10-23 (group 4) *Catch up after a merge* sits under *Operations*, after *The launchd
   agent* it refers to; not under *Config trust*: it covers the checkout and the binary as well
   as trust, and both trust sections link to it.
-- 2026-10-23 (group 4) `framework/clauductor update` also merged the template's
+- 2026-10-23 (group 4) `framework/stridal update` also merged the template's
   `roles.reviewer.eval.baseline` into `.claude/model-roles.json` and reformatted that file;
   reverted, since it is drift that predates this change and a model-roles edit is
   `pr-merge-guard.sh` rule 13's to judge. This repo's copy still lacks that key.
 - 2026-10-23 (the owner) Task 3.4, the check on the owner's Mac after the merge (catch-up on, a
-  `framework/` PR merged from a lane, `go version -m`, `clauductor.prev`, the page's token), can
+  `framework/` PR merged from a lane, `go version -m`, `stridal.prev`, the page's token), can
   run only after the build merges, and verify refuses any open task. Its checks move into
   proposal.md's *How we'll know*, read at the outcome check; CATCHUP-4-S1 stays cited by
   `framework/internal/panel/run_test.go`, and its live half is that signal.
@@ -486,24 +486,24 @@
   closed: a write in prose that names no git ("pull the main checkout").
 
 ## 1. The switch and the fast-forward (D2, D3)
-- [x] 1.1 `framework/internal/panel/config/catchup.go` (new): read and write `~/.clauductor/panel/catch-up.json`, a list of repository roots; absent or unlisted reads off; written atomically. Tested in `framework/internal/panel/config/catchup_test.go` (new). Citing [CATCHUP-1-S1].
-- [x] 1.2 `framework/internal/cmd/panel.go`: `clauductor panel catch-up --project <path> [on|off]` beside `panel trust`, writing only `catch-up.json`, refused for an attached project (`configOutside`, in `install/projects.go`) with nothing written; `RemoveProject` (`install/projects.go`) clears the root. Tested in `framework/internal/cmd/panel_catchup_test.go` (new), with `projects.json` compared byte for byte and `catch-up.json` checked absent after a refusal, and a remove then a fresh add at the same root. Citing [CATCHUP-1-S1], [CATCHUP-1-S2], [CATCHUP-1-S7].
+- [x] 1.1 `framework/internal/panel/config/catchup.go` (new): read and write `~/.stridal/panel/catch-up.json`, a list of repository roots; absent or unlisted reads off; written atomically. Tested in `framework/internal/panel/config/catchup_test.go` (new). Citing [CATCHUP-1-S1].
+- [x] 1.2 `framework/internal/cmd/panel.go`: `stridal panel catch-up --project <path> [on|off]` beside `panel trust`, writing only `catch-up.json`, refused for an attached project (`configOutside`, in `install/projects.go`) with nothing written; `RemoveProject` (`install/projects.go`) clears the root. Tested in `framework/internal/cmd/panel_catchup_test.go` (new), with `projects.json` compared byte for byte and `catch-up.json` checked absent after a refusal, and a remove then a fresh add at the same root. Citing [CATCHUP-1-S1], [CATCHUP-1-S2], [CATCHUP-1-S7].
 - [x] 1.3 A test that a `panel.json` setting `catch_up` fails to load and names the key (the strict decoder, `config.go`). Tested in `framework/internal/panel/config/config_test.go`. Citing [CATCHUP-1-S4].
-- [x] 1.4 `framework/internal/panel/catchup.go` (new): the fast-forward of D3 on a machine-level source of the liveSet beside `pollRegistry` (`live.go`), woken without blocking by the open-PR poll when a pull request leaves the open list (`runtime.go`, beside `lanes_auto_close`'s hook in `autoclose.go`) and once at the panel's start; `catch-up.json` read and `configOutside` checked at each wake; every precondition read with `git -C <root>`; `base` read through `BaseRef()` and split as `<remote>/<branch>`; after the fetch, the commit C that `<remote>/<branch>` names read once (`git rev-parse`), each first-parent commit of `HEAD..C` looked up with `gh api repos/{owner}/{repo}/commits/<sha>/pulls`, then `gh api repos/{owner}/{repo}/pulls/<n>` (`merged_by`, `base.ref`, `merge_commit_sha`), against `gh api user`'s login, before `merge --ff-only C` (C's hash, never the ref's name); each git and `gh` call under a 60 s timeout; a transient failure (`git fetch` or `gh` erroring or timing out, or any git call timing out) woken again at 1, 3 and 6 minutes (on the clock the tests drive), and git's own refusals not retried; a catch-up notifier of its own (keys of project, reason and remote commit, created with the source; not `notifyOnce`) and a panel log line for each refusal, the refusal's notice (and the skip of a config outside its repository) sent whatever `alerts.notify` says, titled "clauductor panel" and naming the checkout's path. Tested in `framework/internal/panel/catchup_integration_test.go` (new), with real git repositories (a bare remote and a clone), a fake `gh` written by `internal/testbin` (for [CATCHUP-2-S10], one whose first lookup moves the clone's `origin/main` with `git update-ref` to a commit after C, as another worktree's fetch would), and `internal/treesnap` for "as before". Citing [CATCHUP-1-S3], [CATCHUP-1-S5], [CATCHUP-1-S6], [CATCHUP-2-S1], [CATCHUP-2-S2], [CATCHUP-2-S3], [CATCHUP-2-S4], [CATCHUP-2-S5], [CATCHUP-2-S6], [CATCHUP-2-S7], [CATCHUP-2-S8], [CATCHUP-2-S9], [CATCHUP-2-S10], [CATCHUP-2-S11] (its push read from the stand-in program `push_test.go` uses).
+- [x] 1.4 `framework/internal/panel/catchup.go` (new): the fast-forward of D3 on a machine-level source of the liveSet beside `pollRegistry` (`live.go`), woken without blocking by the open-PR poll when a pull request leaves the open list (`runtime.go`, beside `lanes_auto_close`'s hook in `autoclose.go`) and once at the panel's start; `catch-up.json` read and `configOutside` checked at each wake; every precondition read with `git -C <root>`; `base` read through `BaseRef()` and split as `<remote>/<branch>`; after the fetch, the commit C that `<remote>/<branch>` names read once (`git rev-parse`), each first-parent commit of `HEAD..C` looked up with `gh api repos/{owner}/{repo}/commits/<sha>/pulls`, then `gh api repos/{owner}/{repo}/pulls/<n>` (`merged_by`, `base.ref`, `merge_commit_sha`), against `gh api user`'s login, before `merge --ff-only C` (C's hash, never the ref's name); each git and `gh` call under a 60 s timeout; a transient failure (`git fetch` or `gh` erroring or timing out, or any git call timing out) woken again at 1, 3 and 6 minutes (on the clock the tests drive), and git's own refusals not retried; a catch-up notifier of its own (keys of project, reason and remote commit, created with the source; not `notifyOnce`) and a panel log line for each refusal, the refusal's notice (and the skip of a config outside its repository) sent whatever `alerts.notify` says, titled "stridal panel" and naming the checkout's path. Tested in `framework/internal/panel/catchup_integration_test.go` (new), with real git repositories (a bare remote and a clone), a fake `gh` written by `internal/testbin` (for [CATCHUP-2-S10], one whose first lookup moves the clone's `origin/main` with `git update-ref` to a commit after C, as another worktree's fetch would), and `internal/treesnap` for "as before". Citing [CATCHUP-1-S3], [CATCHUP-1-S5], [CATCHUP-1-S6], [CATCHUP-2-S1], [CATCHUP-2-S2], [CATCHUP-2-S3], [CATCHUP-2-S4], [CATCHUP-2-S5], [CATCHUP-2-S6], [CATCHUP-2-S7], [CATCHUP-2-S8], [CATCHUP-2-S9], [CATCHUP-2-S10], [CATCHUP-2-S11] (its push read from the stand-in program `push_test.go` uses).
 
 ## 2. Trust on arrival, and the push (D1, D6)
 - [x] 2.1 `framework/internal/panel/catchup.go`: after a fast-forward from A to B that changed the in-repository `panel.json`, on the same liveSet source, the checks of D1 (a) to (f): the loaded config's trust and its bytes against the blob at A, the file on disk against the blob at B (`git cat-file`), D3's pull-request check having passed for `A..B`, `canStart`, and the new config's `alerts.notify`; when a rebuild follows (task 3.1), (e) and (f) come from the new binary's `panel config-check` and the trust is recorded before the swap. On success: `install.TrustExact`, the notice, then the reload `liveSet.Trust` does (`canStart`, `restartStop`, `startEntry`, `live.go`) with the note "trusted on arrival from #N" (`markTrusted`); otherwise the untrusted restart or the kept config, with the reason in the panel log; the notice that the config waits for the owner sent only while the loaded config's `alerts.notify` is on, and the notice of a config that does not load sent whatever it says; when the build or its preflight fails, the running binary's own load decides between the two, and the build's error goes in the rebuild's own notice (task 3.2), a second notice. The notice's `+` and `−` lines are the difference between the old and new `TrustRuns` lists. Tested in `framework/internal/panel/catchup_trust_integration_test.go` (new), with a fake `gh` and a stand-in new binary written by `internal/testbin`. Citing [CATCHUP-3-S1], [CATCHUP-3-S2], [CATCHUP-3-S3], [CATCHUP-3-S4], [CATCHUP-3-S5], [CATCHUP-3-S6], [CATCHUP-3-S7], [CATCHUP-3-S8], [CATCHUP-3-S9], [CATCHUP-3-S10].
 - [x] 2.2 `framework/internal/panel/install/trust.go`: a trust record may carry the note it was made with, so the page's trust report shows "trusted on arrival from #N" after a restart. Tested in `framework/internal/panel/install/trust_test.go`. Citing [CATCHUP-3-S1].
-- [x] 2.3 `framework/internal/panel/push.go`: a catch-up notice runs the push command under STALL-3's rules, `alerts.notify` withholding only the notice that a config waits for the owner; only the trust notice titled with a name (the config it trusted), every other catch-up notice (the config waiting, refusals, a config that does not load, the rebuild's of task 3.2) titled "clauductor panel" and naming the checkout's path; a `waiting` alert still never pushes. Tested in `framework/internal/panel/push_test.go` with its stand-in program. Citing [STALL-3-S12], and re-running [STALL-3-S1], [STALL-3-S6], [STALL-3-S10], [STALL-3-S11] unchanged.
+- [x] 2.3 `framework/internal/panel/push.go`: a catch-up notice runs the push command under STALL-3's rules, `alerts.notify` withholding only the notice that a config waits for the owner; only the trust notice titled with a name (the config it trusted), every other catch-up notice (the config waiting, refusals, a config that does not load, the rebuild's of task 3.2) titled "stridal panel" and naming the checkout's path; a `waiting` alert still never pushes. Tested in `framework/internal/panel/push_test.go` with its stand-in program. Citing [STALL-3-S12], and re-running [STALL-3-S1], [STALL-3-S6], [STALL-3-S10], [STALL-3-S11] unchanged.
 
 ## 3. The rebuild and the restart (D4)
-- [x] 3.1 `framework/internal/panel/install/selfupdate.go` (new): from `debug.ReadBuildInfo`, the module, `vcs.revision` and `vcs.modified`; the module `<root>/framework/go.mod` declares, checked first, with nothing sent when it differs; whether R is a commit of the repository and an ancestor of B, and `framework/` differs between R and B; `git status --porcelain` empty; the build into `clauductor.new` under a 5-minute timeout; the preflight (the new binary's build information read with `debug/buildinfo`: the same module, `vcs.revision` B, `vcs.modified` false; then `version`, `panel list`, and `panel config-check` when the merge changed `panel.json`); the two renames for the installed binary and, when its own build information qualifies, the one on PATH. The token, the plist and the hooks are never opened for writing. `framework/internal/cmd/panel.go`: the `panel config-check --config <file>` command, printing the config's `alerts.notify` and run list as JSON, or failing with the load's error. Tested in `framework/internal/panel/install/selfupdate_test.go` (new) with a throwaway module and repository, a stand-in `go` from `internal/testbin` for the failure cases, and `internal/treesnap` over the repository; `config-check` in `framework/internal/cmd/panel_catchup_test.go`. Citing [CATCHUP-4-S1], [CATCHUP-4-S2], [CATCHUP-4-S3], [CATCHUP-4-S5], [CATCHUP-4-S9], [CATCHUP-4-S10].
-- [x] 3.2 `framework/internal/panel/run.go`: under `--launchd` only, the restart: wait until no `claude` call of the panel's runs (the call gate), up to 10 minutes; the notice naming R, B and the rollback, with `clauductor panel install` when `R..B` (the build's range, not the last merge's) changed `install/launchd.go` or `install/hooks.go`; every notice of the rebuild, this one, its refusals and the new binary's, sent whatever `alerts.notify` says, titled "clauductor panel"; a marker file for the new binary's "now running" notice; the browser open recorded as `ShouldOpenAtLogin` records it; then the run's context ended, as SIGTERM ends it, with exit status 75 recorded and returned once the run loop's shutdown is done. `framework/internal/cmd/panel.go` exits the process with that status (`os.Exit`, as `internal/cmd/lockrun.go` does), since `cmd/clauductor/main.go` turns every error into 1. A hand-started panel sends the "update yourself" notice instead. Tested in `framework/internal/panel/run_test.go`, which drives the restart path and then a second start in the same home and asserts it opens no tab, and in `framework/internal/cmd/panel_catchup_test.go`, which runs the built command as a child process and reads its exit status. Citing [CATCHUP-4-S1], [CATCHUP-4-S4], [CATCHUP-4-S6], [CATCHUP-4-S7], [CATCHUP-4-S8], [CATCHUP-4-S11].
+- [x] 3.1 `framework/internal/panel/install/selfupdate.go` (new): from `debug.ReadBuildInfo`, the module, `vcs.revision` and `vcs.modified`; the module `<root>/framework/go.mod` declares, checked first, with nothing sent when it differs; whether R is a commit of the repository and an ancestor of B, and `framework/` differs between R and B; `git status --porcelain` empty; the build into `stridal.new` under a 5-minute timeout; the preflight (the new binary's build information read with `debug/buildinfo`: the same module, `vcs.revision` B, `vcs.modified` false; then `version`, `panel list`, and `panel config-check` when the merge changed `panel.json`); the two renames for the installed binary and, when its own build information qualifies, the one on PATH. The token, the plist and the hooks are never opened for writing. `framework/internal/cmd/panel.go`: the `panel config-check --config <file>` command, printing the config's `alerts.notify` and run list as JSON, or failing with the load's error. Tested in `framework/internal/panel/install/selfupdate_test.go` (new) with a throwaway module and repository, a stand-in `go` from `internal/testbin` for the failure cases, and `internal/treesnap` over the repository; `config-check` in `framework/internal/cmd/panel_catchup_test.go`. Citing [CATCHUP-4-S1], [CATCHUP-4-S2], [CATCHUP-4-S3], [CATCHUP-4-S5], [CATCHUP-4-S9], [CATCHUP-4-S10].
+- [x] 3.2 `framework/internal/panel/run.go`: under `--launchd` only, the restart: wait until no `claude` call of the panel's runs (the call gate), up to 10 minutes; the notice naming R, B and the rollback, with `stridal panel install` when `R..B` (the build's range, not the last merge's) changed `install/launchd.go` or `install/hooks.go`; every notice of the rebuild, this one, its refusals and the new binary's, sent whatever `alerts.notify` says, titled "stridal panel"; a marker file for the new binary's "now running" notice; the browser open recorded as `ShouldOpenAtLogin` records it; then the run's context ended, as SIGTERM ends it, with exit status 75 recorded and returned once the run loop's shutdown is done. `framework/internal/cmd/panel.go` exits the process with that status (`os.Exit`, as `internal/cmd/lockrun.go` does), since `cmd/stridal/main.go` turns every error into 1. A hand-started panel sends the "update yourself" notice instead. Tested in `framework/internal/panel/run_test.go`, which drives the restart path and then a second start in the same home and asserts it opens no tab, and in `framework/internal/cmd/panel_catchup_test.go`, which runs the built command as a child process and reads its exit status. Citing [CATCHUP-4-S1], [CATCHUP-4-S4], [CATCHUP-4-S6], [CATCHUP-4-S7], [CATCHUP-4-S8], [CATCHUP-4-S11].
 - [x] 3.3 `framework/internal/panel/install/launchd.go`: `go`'s directory joins `pathForAgent`'s tools. Tested in `framework/internal/panel/install/launchd_test.go`.
 
 ## 4. merge-pr, the docs and the template (D5)
-- [x] 4.1 `template/.claude/skills/merge-pr/SKILL.md` step 5: find the main checkout (the first `worktree` entry of `git worktree list --porcelain`) and ask `clauductor panel catch-up --project <that root>`, catch-up counting as on only when it exits 0 and prints `on` (anything else, an older `clauductor` included, is off); with catch-up on, confirm the squash commit on the remote's base (`git fetch`, `git log -1`) and do not pull; with it off, `pull --ff-only` only when run from the main checkout itself (`git rev-parse --git-dir` equal to `--git-common-dir`), and from a lane confirm without pulling; the report names the owner's step unless catch-up is on, leaving out the pull when step 5 made it. `template/.claude/checks/change-process.sh` holds step 5 to those three branches: the root from `git worktree list --porcelain`, the "exits 0 and prints `on`" test, the `--git-common-dir` test before any `pull --ff-only`, and no pull while catch-up is on. Then `scripts/build-plugin.sh`, and `framework/clauductor update` from the repository root with the binary built from this checkout.
-- [x] 4.2 `docs/panel.md`: a *Catch up after a merge* section (the switch, the fast-forward and its refusals, trust on arrival and what it rests on, the rebuild and its rollback); *Config trust* and *Add, trust and remove from the page* name the second way a config is trusted; *When the cards may be stale* says catch-up clears it; *Notifications* names the catch-up notices and the push; *The launchd agent* names exit status 75 and `clauductor.prev`.
+- [x] 4.1 `template/.claude/skills/merge-pr/SKILL.md` step 5: find the main checkout (the first `worktree` entry of `git worktree list --porcelain`) and ask `stridal panel catch-up --project <that root>`, catch-up counting as on only when it exits 0 and prints `on` (anything else, an older `stridal` included, is off); with catch-up on, confirm the squash commit on the remote's base (`git fetch`, `git log -1`) and do not pull; with it off, `pull --ff-only` only when run from the main checkout itself (`git rev-parse --git-dir` equal to `--git-common-dir`), and from a lane confirm without pulling; the report names the owner's step unless catch-up is on, leaving out the pull when step 5 made it. `template/.claude/checks/change-process.sh` holds step 5 to those three branches: the root from `git worktree list --porcelain`, the "exits 0 and prints `on`" test, the `--git-common-dir` test before any `pull --ff-only`, and no pull while catch-up is on. Then `scripts/build-plugin.sh`, and `framework/stridal update` from the repository root with the binary built from this checkout.
+- [x] 4.2 `docs/panel.md`: a *Catch up after a merge* section (the switch, the fast-forward and its refusals, trust on arrival and what it rests on, the rebuild and its rollback); *Config trust* and *Add, trust and remove from the page* name the second way a config is trusted; *When the cards may be stale* says catch-up clears it; *Notifications* names the catch-up notices and the push; *The launchd agent* names exit status 75 and `stridal.prev`.
 - [x] 4.3 `docs/roadmap.md`'s session-plan bullet *After each merge the owner* says the step applies only while catch-up is off. (The build PR's `Refs #164`, never closing it, is the PR opener's step: decision log.)
 
 - [ ] Slice: an owner can merge a PR from a lane and find the main checkout, the panel's config and the installed panel on the merged main without running a command, at the panel

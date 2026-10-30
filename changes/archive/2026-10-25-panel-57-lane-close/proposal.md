@@ -16,7 +16,7 @@ or stopped, and the only way to follow it is to ask the owner to click (#242, th
 of 2026-10-24).
 
 ## What changes
-`clauductor lane close <id>`, run in any checkout of a project the panel serves, asks the running
+`stridal lane close <id>`, run in any checkout of a project the panel serves, asks the running
 panel to close that lane through Close lane's own plan and guards. Nothing about what Close removes
 changes: the worktree goes only when it is clean, the branch only when it is merged, and nothing is
 forced.
@@ -35,7 +35,7 @@ forced.
   make their final check under the lock the close takes, which narrows the window in which a lane
   that starts working is stopped, but cannot close it: the panel reads claude every few seconds. A lane cannot close itself.
 - **Reached over a socket only the owner's user can open** (D1). The panel serves the close on
-  `~/.clauductor/panel/cli.sock` (mode 0600, in the 0700 panel directory). No browser can reach it,
+  `~/.stridal/panel/cli.sock` (mode 0600, in the 0700 panel directory). No browser can reach it,
   and the CLI holds no token.
 - **An interrupted command leaves the close finished** (D4). Once the panel starts a close, it
   finishes it.
@@ -44,7 +44,7 @@ forced.
   one whose plan keeps a dirty worktree (and with it the branch). It confirms with `--yes` only
   when the plan's first line names that merged branch, and names what stayed, and any refusal, in
   its final message.
-- **Allowed without a prompt** (D7). The template's settings allow `Bash(clauductor lane close *)`
+- **Allowed without a prompt** (D7). The template's settings allow `Bash(stridal lane close *)`
   and nothing wider, so a session close does not wait on the owner twice per lane. The command
   takes its project from the current directory alone (no `--project`), so an allowed call reaches
   only the project it runs in.
@@ -98,7 +98,7 @@ This change adds a new capability, `panel-lane-close` (LANECLOSE-1 to LANECLOSE-
   close lane <id>?`, `autoclose.go:97`) still standing: at the next session start, the page shows
   none. A lane still asked about because D2 holds it (a lease, background work, claude busy) is
   not a miss; its ask names why. One held because its session ended after a `/clear` is not a
-  miss either, but is counted and named in the check, so a hold that is common shows. Each lane a session closed has its `closed by clauductor lane close`
+  miss either, but is counted and named in the check, so a hold that is common shows. Each lane a session closed has its `closed by stridal lane close`
   line in the panel's log. A lane closed that the owner did not mean to lose (a working lane, or
   one whose worktree or branch held unmerged work) is a miss and gets a fix row. If no session
   close in the 14 days met such a lane, the signal is "not exercised" and the check is re-queued

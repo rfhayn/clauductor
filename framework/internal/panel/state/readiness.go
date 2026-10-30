@@ -3,7 +3,7 @@ package state
 import (
 	"fmt"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // Merge readiness (PANEL-20): one box per lane that says whether its branch is ready

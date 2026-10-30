@@ -124,6 +124,6 @@ success), never for "the checks" in general. Only a complete run writes a receip
 ## One machine, one gate at a time
 
 Every worktree of a repository shares one gate lease (`docs/panel.md`, *Queue and the gate lock
-protocol* in the clauductor repo), so two lanes never run the full gate at once and starve each
+protocol* in the stridal repo), so two lanes never run the full gate at once and starve each
 other into false reds. A false red is not harmless: the second one teaches you to distrust the
 gate.

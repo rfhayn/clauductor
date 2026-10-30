@@ -101,7 +101,7 @@ every open change against the shape below.
   (#272). It includes an earlier change's under the same id, so a new change takes a new id.
 - **The approval log** (OPS-131, #272) holds what a rewrite of the branch could take out of its
   history. `--record`, `--delegate` and `--revoke` each add a line to
-  `<git common dir>/clauductor/approvals.log` (`git rev-parse --git-common-dir`, outside every
+  `<git common dir>/stridal/approvals.log` (`git rev-parse --git-common-dir`, outside every
   branch and shared by every worktree of the clone), and `--delegate` refuses a change the log
   names, so a revoke made only on a branch still holds here after that branch is rewritten. A log
   the owner never started (missing, or holding no `start` or `record` line), or one that is

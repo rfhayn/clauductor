@@ -70,7 +70,7 @@
       "Bash(ls *)",
       "Bash(echo *)",
       "Bash(grep *)",
-      "Bash(clauductor *)"
+      "Bash(stridal *)"
     ]
   },
   "statusLine": {

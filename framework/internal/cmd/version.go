@@ -8,8 +8,8 @@ import (
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the Clauductor version",
+	Short: "Print the Stridal version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("clauductor v%s\n", Version)
+		fmt.Printf("stridal v%s\n", Version)
 	},
 }

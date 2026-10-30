@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The GitHub-reading context sections (.claude/lib/context.sh): remote branches with no PR, open PRs
 # whose roadmap row still reads queued on origin/<main>, and living specs still carrying TBD. Driven
 # through a stub `gh` in a throwaway repo whose origin is a local bare repo. Ported from the
@@ -11,8 +11,8 @@ need git jq awk
 d=$(scratch)
 R="$d/p"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/docs" "$R/specs/a" "$R/specs/b" "$d/bin"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/context.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$R/.claude/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/context.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/roadmap-queue.sh" "$R/.claude/"
 roadmap() {  # roadmap [2C.9-STATUS]
   cat <<EOF
 ## Phase 2 — the build
@@ -127,17 +127,17 @@ rm -rf "$R/specs"
 has "TBD: no specs directory is not a finding, and says why" "$(ctx ctx_tbd_specs)" "none: no specs/ here"
 
 # ── the context scripts print every section, CANNOT CHECK where it cannot read ─────────────────
-out=$(sh "$CLAUDUCTOR_FW/skills/session-close/context.sh" 2>&1)
+out=$(sh "$STRIDAL_FW/skills/session-close/context.sh" 2>&1)
 for h in "Remote branches with no open PR" "roadmap row still reads queued on origin/" "Living specs still carrying TBD"; do
   sec=$(printf '%s\n' "$out" | awk -v h="$h" 'done { next } index($0, h) { on = 1; next } on && /^- / { done = 1; next } on { print }')
   [ -n "$sec" ] && ok "session-close context: \"$h\" prints a line offline ($(printf '%s' "$sec" | head -1 | sed 's/^ *//'))" || fail "session-close context: \"$h\" printed nothing"
 done
-out=$(sh "$CLAUDUCTOR_FW/skills/session-start/context.sh" 2>&1)
+out=$(sh "$STRIDAL_FW/skills/session-start/context.sh" 2>&1)
 sec=$(printf '%s\n' "$out" | awk 'done { next } index($0, "Remote branches with no open PR") { on = 1; next } on && /^- / { done = 1; next } on { print }')
 case "$sec" in *"CANNOT CHECK"*) ok "session-start context: remote branches says CANNOT CHECK offline, never none" ;; *) fail "session-start remote branches offline: $sec" ;; esac
 # Without lib/context.sh the sections say so, and the script still reaches its last section. The
 # model's files are this project's .claude, or the plugin root when this check runs from the plugin.
-F="$d/full"; mkdir -p "$F"; cp -R "${CLAUDUCTOR_FW:-$ROOT/.claude}" "$F/.claude"; rm -f "$F/.claude/lib/context.sh"; new_repo "$F"
+F="$d/full"; mkdir -p "$F"; cp -R "${STRIDAL_FW:-$ROOT/.claude}" "$F/.claude"; rm -f "$F/.claude/lib/context.sh"; new_repo "$F"
 out=$(sh "$F/.claude/skills/session-close/context.sh" 2>&1)
 has "session-close context: lib/context.sh missing is CANNOT CHECK by name" "$out" "lib/context.sh is missing"
 has "session-close context: ...and the sections after it still print" "$out" "This session's cost"

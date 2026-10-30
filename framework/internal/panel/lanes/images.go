@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 // An image dropped (or pasted) on a lane's terminal (PANEL-15b). In a native terminal
@@ -114,7 +114,7 @@ func (m *LaneManager) PasteImage(ctx context.Context, id string, data []byte, na
 	}
 	// A paste buffer of the panel's own, pasted bracketed (-p) when the program asked
 	// for it, as a terminal pastes a drop; then a space. Never Enter.
-	buf := "clauductor-drop-" + id
+	buf := "stridal-drop-" + id
 	if _, err := m.tmux(ctx, "set-buffer", "-b", buf, "--", dropText(path)); err != nil {
 		return "", laneErr(500, "tmux", "%v", err)
 	}

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Who is on what: for each person in the people registry (PEOPLE), the last thing they merged,
 # what they have open now (PRs and PR-less remote branches), and the next roadmap row they own that
 # nobody has a PR or branch for. session-start prints it through `extensions.sh context
@@ -10,11 +10,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../../.." && pwd) # clauductor plugin: th
 # from what was read, so the derivation is tested on fixtures with no network. A file is written
 # into the state directory only when its read SUCCEEDED: a missing one prints CANNOT CHECK there,
 # never "none". No login is named here; every one comes from the registry.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 cd "$ROOT" || exit 1
-P="$CLAUDUCTOR_FW/modules/people/people.sh"
+P="$STRIDAL_FW/modules/people/people.sh"
 
 echo "Per person: Last = latest merged PR, Now = open PRs and PR-less branches, Next = their top unfinished roadmap row nobody has a PR or branch for."
 if [ "${CONTEXT_OFFLINE:-}" = 1 ]; then echo "CANNOT CHECK — offline"; exit 0; fi

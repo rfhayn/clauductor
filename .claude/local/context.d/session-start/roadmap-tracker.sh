@@ -14,8 +14,8 @@ if [ ! -f "$ROADMAP" ]; then
 fi
 now=$(git -C "$ROOT" hash-object -- "$ROADMAP" 2>/dev/null) || { echo "tracker: CANNOT CHECK — cannot hash $ROADMAP"; exit 0; }
 common=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { echo "tracker: CANNOT CHECK — not in a git repository"; exit 0; }
-stamp="$common/clauductor/tracker-refreshed"
-if [ ! -s "$common/clauductor/tracker-url" ]; then
+stamp="$common/stridal/tracker-refreshed"
+if [ ! -s "$common/stridal/tracker-url" ]; then
   echo "tracker: NOT CONFIGURED on this machine (no tracker-url)"
   exit 0
 fi

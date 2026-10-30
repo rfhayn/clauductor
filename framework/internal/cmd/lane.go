@@ -8,15 +8,15 @@ import (
 	"os"
 	"slices"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/lease"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/lease"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 	"github.com/spf13/cobra"
 )
 
-// `clauductor lane close` (PANEL-57) closes a finished panel lane from the command
+// `stridal lane close` (PANEL-57) closes a finished panel lane from the command
 // line, through the running panel's command socket and Close lane's own plan and
 // guards. The panel decides what may close (D2); this command only finds the panel and
 // the project, shows the plan, and with --yes confirms it.
@@ -67,19 +67,19 @@ func init() {
 // laneSelfWords refuses a lane's own close (D2): fixed words, since the command reads
 // no config to say which of these is on for the lane's type.
 func laneSelfWords(id string) error {
-	return fmt.Errorf("lane %s is the lane this command runs in (CLAUDUCTOR_LANE), and a lane does not close itself: "+
+	return fmt.Errorf("lane %s is the lane this command runs in (STRIDAL_LANE), and a lane does not close itself: "+
 		"it is closed after its work by the panel page's Close lane, or by auto-close where auto-close is on for the lane's type", id)
 }
 
-// runLaneClose is `clauductor lane close <id> [--yes]`, run from the current directory
-// with CLAUDUCTOR_LANE read from the environment. homeDir is asked only after the self
+// runLaneClose is `stridal lane close <id> [--yes]`, run from the current directory
+// with STRIDAL_LANE read from the environment. homeDir is asked only after the self
 // refusal, which reads nothing (D2). A returned error is the exit 1.
 func runLaneClose(ctx context.Context, out io.Writer, homeDir func() (string, error), id string, yes bool) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	// Before anything is read: the caller's own lane (E8).
-	if self := os.Getenv("CLAUDUCTOR_LANE"); self != "" && self == id {
+	if self := os.Getenv("STRIDAL_LANE"); self != "" && self == id {
 		return laneSelfWords(id)
 	}
 	home, err := homeDir()
@@ -91,10 +91,10 @@ func runLaneClose(ctx context.Context, out io.Writer, homeDir func() (string, er
 	owner := install.RunningPanel(ctx, home, os.Getpid(), laneProc)
 	switch {
 	case owner == nil:
-		return errors.New("no clauductor panel is running on this machine, so nothing was closed: `clauductor panel` starts one")
+		return errors.New("no stridal panel is running on this machine, so nothing was closed: `stridal panel` starts one")
 	case owner.Socket == "":
-		return fmt.Errorf("the running clauductor panel (pid %d) has no command socket, so nothing was closed: "+
-			"it could not make one (its output says why) or it is older than `clauductor lane close`; restart it with `clauductor panel`", owner.PID)
+		return fmt.Errorf("the running stridal panel (pid %d) has no command socket, so nothing was closed: "+
+			"it could not make one (its output says why) or it is older than `stridal lane close`; restart it with `stridal panel`", owner.PID)
 	}
 
 	// The project: the current directory's repository, resolved to its main checkout
@@ -125,7 +125,7 @@ func runLaneClose(ctx context.Context, out io.Writer, homeDir func() (string, er
 }
 
 // laneProject is the registered project of the current directory, refused naming
-// `clauductor panel list` when it is in none, or in one the running panel does not
+// `stridal panel list` when it is in none, or in one the running panel does not
 // serve.
 func laneProject(ctx context.Context, home string, owner *install.PanelOwner) (*config.ProjectEntry, error) {
 	wd, err := os.Getwd()
@@ -134,7 +134,7 @@ func laneProject(ctx context.Context, home string, owner *install.PanelOwner) (*
 	}
 	root, _, err := install.MainWorktree(ctx, laneRun, wd)
 	if err != nil {
-		return nil, fmt.Errorf("%v, so it is in no project the panel serves: run this in one of them (`clauductor panel list` names them)", err)
+		return nil, fmt.Errorf("%v, so it is in no project the panel serves: run this in one of them (`stridal panel list` names them)", err)
 	}
 	reg, err := config.LoadProjects(home)
 	if err != nil {
@@ -142,10 +142,10 @@ func laneProject(ctx context.Context, home string, owner *install.PanelOwner) (*
 	}
 	e := reg.Find(root)
 	if e == nil {
-		return nil, fmt.Errorf("%s is not a registered project, so nothing was closed: run this in a project the panel serves (`clauductor panel list` names them)", root)
+		return nil, fmt.Errorf("%s is not a registered project, so nothing was closed: run this in a project the panel serves (`stridal panel list` names them)", root)
 	}
 	if !slices.Contains(owner.Projects, e.Root) {
-		return nil, fmt.Errorf("project %s (%s) is registered, but the running panel does not serve it, so nothing was closed: `clauductor panel list` names the projects", e.ID, e.Root)
+		return nil, fmt.Errorf("project %s (%s) is registered, but the running panel does not serve it, so nothing was closed: `stridal panel list` names the projects", e.ID, e.Root)
 	}
 	return e, nil
 }

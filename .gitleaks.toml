@@ -6,7 +6,7 @@
 useDefault = true
 
 [allowlist]
-description = "Known non-secrets in clauductor"
+description = "Known non-secrets in stridal"
 paths = [
   # Vendored, minified third-party code (xterm.js): not ours to edit, and its bundles trip the
   # generic-api-key rule on identifier-like strings.

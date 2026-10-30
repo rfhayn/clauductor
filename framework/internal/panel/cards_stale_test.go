@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
-	pclock "github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/web"
+	pclock "github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/web"
 )
 
 // PANEL-18: the cards run in the project root and watch files there, so when that

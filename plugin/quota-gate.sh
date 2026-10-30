@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # quota-gate.sh: may a new lane start, as far as the account's quota goes? (OPS-167)
 #
 #   sh .claude/quota-gate.sh      one line, starting "quota-gate: ", and the exit code:
@@ -11,23 +11,23 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #                 above QUOTA_LANE_STOP_PCT (.claude/project.conf, default 90): start no new lane
 #     2  ERROR    QUOTA_LANE_STOP_PCT is not a whole number from 0 to 100
 #
-# The reading is the status line's (~/.clauductor/quota-reading.json, read by lib/quota.sh, which never
+# The reading is the status line's (~/.stridal/quota-reading.json, read by lib/quota.sh, which never
 # reports a window past its reset). Only the seven-day windows are judged: the five-hour one resets
 # within hours and the panel's own quota_guard holds it. Who calls it: build-change's preflight, the
 # one caller that enforces it (a STOP or an ERROR stops a new run, with notify, unless
 # args.overrideQuota; a resume only warns). session-start's "Run as an orchestrator of lanes" tells the
 # session to run it before a lane, which nothing checks; a panel lane or /apply-change does not run it.
 # checks/quota-reading.sh holds it.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/quota.sh"
+. "$STRIDAL_FW/lib/quota.sh"
 
 pct=$(quota_stop_pct) || { echo "quota-gate: ERROR — $pct; this stops every new build-change run until it is one"; exit 2; }
 [ "$pct" -gt 0 ] || { echo "quota-gate: off — QUOTA_LANE_STOP_PCT is 0, so the quota holds back no lane"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "quota-gate: no reading — jq is not installed; the quota is NOT checked, so the lane may start"; exit 0; }
-q=$(quota_read) || { echo "quota-gate: no reading — no readable ~/.clauductor/quota-reading.json; the quota is NOT checked, so the lane may start"; exit 0; }
+q=$(quota_read) || { echo "quota-gate: no reading — no readable ~/.stridal/quota-reading.json; the quota is NOT checked, so the lane may start"; exit 0; }
 
 TAB=$(printf '\t')
 # describe: quota_read's lines on stdin as "7d 63% (resets Mon 2026-11-02 12:00 ET), ...".

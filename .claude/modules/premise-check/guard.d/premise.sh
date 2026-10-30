@@ -54,7 +54,7 @@ done
 # The PR the merge names, as the guard reads it (#267): a bare number resolves through gh's default
 # repository, which in a fork's checkout is another repo's PR. Read before the cd: with no repo
 # named, the directory resolves it, and the guard checked the merge's against its own, not ROOT.
-[ -n "${GUARD_PR_REF:-}" ] || no "the merge guard did not pass GUARD_PR_REF, so which PR this merge names cannot be read (a guard older than this module: run clauductor update)."
+[ -n "${GUARD_PR_REF:-}" ] || no "the merge guard did not pass GUARD_PR_REF, so which PR this merge names cannot be read (a guard older than this module: run stridal update)."
 pr_json=$(gh pr view "$GUARD_PR_REF" ${GUARD_PR_REPO:+-R "$GUARD_PR_REPO"} --json title,body,closingIssuesReferences 2>/dev/null)
 cd "$ROOT" || exit 2
 repo=${GUARD_REPO:-}

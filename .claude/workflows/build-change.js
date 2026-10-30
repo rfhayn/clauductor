@@ -33,7 +33,7 @@ const change = args && args.change
 if (!change) throw new Error('build-change needs args.change (the change id)')
 // The project's settings (changes directory, branch prefix, gate, attribution, provenance) are read
 // at run time from .claude/project-config.sh, in the Preflight phase below: a project that changes
-// one edits project.conf or model-roles.json, never this file, so `clauductor update` sees this file
+// one edits project.conf or model-roles.json, never this file, so `stridal update` sees this file
 // as the template's (OPS-8 rehearsal: attribution off meant editing it, and update flagged it forever).
 // The gate and its quick flags come from there too (GATE, GATE_QUICK_FLAGS), each overridable by args,
 // and so does gate-wait.sh's path (gateWait: beside GATE_RUN, or scripts/ci/ for a project's own runner).
@@ -66,7 +66,7 @@ const ECONOMY = {
   orient: { model: "sonnet", effort: "low" },
   mechanic: { model: "haiku", effort: "low" },
 };
-const ECONOMY_FILE = '~/.clauductor/panel/economy.json'
+const ECONOMY_FILE = '~/.stridal/panel/economy.json'
 const SESSION = args.session ? String(args.session) : 'build-change'
 
 // ── pure: begin ── (no agent, no state: .claude/checks/build-change.sh loads this block into node

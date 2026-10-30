@@ -2,7 +2,7 @@
 
 The program plan: phases, their order, and the change queue. The queue tables below are the
 **authority** for what is next; every script reads them through one parser,
-`${CLAUDE_PLUGIN_ROOT}/roadmap-queue.sh` (`clauductor-model roadmap-queue.sh --check` validates this file), or the
+`${CLAUDE_PLUGIN_ROOT}/roadmap-queue.sh` (`stridal-model roadmap-queue.sh --check` validates this file), or the
 project's own named by `ROADMAP_PARSER` (*Plugging in your own parser*, below).
 
 ## How this layers with the other records
@@ -78,7 +78,7 @@ A project whose roadmap already has its own grammar keeps it, and its own parser
 `ROADMAP_PARSER` in `.claude/project.conf` to the command (run from the repo root, the mode
 appended, an explicit roadmap path after it when given; `ROOT` and `ROADMAP` are in its
 environment). Every reader goes through `roadmap_queue` in `${CLAUDE_PLUGIN_ROOT}/lib/conf.sh`, and
-`clauductor-model roadmap-queue.sh` hands every call to it, so the skills, the panel and the checks all
+`stridal-model roadmap-queue.sh` hands every call to it, so the skills, the panel and the checks all
 follow the one key. `checks/roadmap.sh` fails a script that reads the queue any other way.
 
 The contract a parser meets:

@@ -14,36 +14,36 @@ quick="" MODE=full
 for a in "$@"; do [ "$a" = --quick ] && quick=1 MODE=quick; done
 # A lease a caller holds is not this run's: verifying it at the end (lease_verify) could only fail
 # a run that writes no receipt.
-[ -z "$quick" ] || unset CLAUDUCTOR_LOCK_HELD
+[ -z "$quick" ] || unset STRIDAL_LOCK_HELD
 # Serialise the full gate across every worktree of this repo.
 lock=""
 if [ -n "$quick" ]; then :
 elif common=$(git rev-parse --git-common-dir 2>/dev/null); then
   case $common in /*) ;; *) common="$PWD/$common" ;; esac
-  lock="$common/clauductor/gate.lock"
+  lock="$common/stridal/gate.lock"
 fi
-lane="${CLAUDUCTOR_LANE:-$(basename "$PWD")}"
+lane="${STRIDAL_LANE:-$(basename "$PWD")}"
 if [ -n "$quick" ]; then :
 elif [ -z "$lock" ]; then
   echo "gate: not in a git checkout; running without the gate queue" >&2
-elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
-  if command -v clauductor >/dev/null 2>&1; then
-    # TERM=dumb skips a terminal query at clauductor's startup (up to 5 s on a
+elif [ "${STRIDAL_LOCK_HELD:-}" != "$lock" ]; then
+  if command -v stridal >/dev/null 2>&1; then
+    # TERM=dumb skips a terminal query at stridal's startup (up to 5 s on a
     # pty that does not answer); lock-run gives the gate the real TERM back, or
     # leaves it unset if it was unset. Ask the environment, not the shell: bash
     # sets an unexported TERM=dumb of its own when TERM is unset.
     term_set="" term_val=""
     if printenv TERM >/dev/null 2>&1; then term_set=1 term_val=$(printenv TERM); fi
-    CLAUDUCTOR_TERM="$term_val" CLAUDUCTOR_TERM_SET="$term_set" TERM=dumb \
-      exec clauductor lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
+    STRIDAL_TERM="$term_val" STRIDAL_TERM_SET="$term_set" TERM=dumb \
+      exec stridal lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
   fi
   if [ -f "$(dirname "$0")/lease.sh" ]; then
     . "$(dirname "$0")/lease.sh"        # the plain-shell protocol below
     lease_run "$lock" "$lane" bash "$0" "$@" && exit 0 || exit $?
   fi
-  echo "gate: neither clauductor nor lease.sh found; running without the gate queue" >&2
+  echo "gate: neither stridal nor lease.sh found; running without the gate queue" >&2
 fi
-# ── Above: the clauductor docs/panel.md "In a project's gate script" snippet, verbatim, but for the
+# ── Above: the stridal docs/panel.md "In a project's gate script" snippet, verbatim, but for the
 #    run-state lines at its top (OPS-41) and the --quick skip (OPS-103). ─────
 #
 # run-local.sh: THE full gate (GATE_RUN in .claude/project.conf). Runs every step in GATE_STEPS
@@ -85,7 +85,7 @@ fi
 # EVERY RUN IS RECORDED (lib/gate-state.sh, OPS-41), however it ends, a signal included (SIGKILL
 # aside): the worktree's state file (<git-dir>/ci-gate.state: started, then exit), which
 # gate-wait.sh reads to say PASS, FAIL or still running; and one line in the repository's run log
-# (<git common dir>/clauductor/gate-runs.log: when, lane, branch, sha, mode, result, exit code, run
+# (<git common dir>/stridal/gate-runs.log: when, lane, branch, sha, mode, result, exit code, run
 # and queue seconds, and each step's seconds, OPS-89).
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -212,10 +212,10 @@ fi
 # Still the lease's holder? A gate that lost its lease mid-run may have run beside another gate (two
 # gates binding one port fail each other falsely, or pass falsely), so its result cannot count:
 # lease.sh's lease_verify, by the nonce lease_run exported or, under lock-run, by the holder's pid.
-if [ "$code" -eq 0 ] && [ -n "${CLAUDUCTOR_LOCK_HELD:-}" ] && [ -f "$HERE/lease.sh" ]; then
+if [ "$code" -eq 0 ] && [ -n "${STRIDAL_LOCK_HELD:-}" ] && [ -f "$HERE/lease.sh" ]; then
   command -v lease_verify >/dev/null 2>&1 || . "$HERE/lease.sh"
-  if ! lease_verify "$CLAUDUCTOR_LOCK_HELD" "$PPID"; then
-    echo "==> FAIL: lease — this gate no longer holds $CLAUDUCTOR_LOCK_HELD (now: $(cat "$CLAUDUCTOR_LOCK_HELD/owner.json" 2>/dev/null || echo nobody)); another gate may have run beside it"
+  if ! lease_verify "$STRIDAL_LOCK_HELD" "$PPID"; then
+    echo "==> FAIL: lease — this gate no longer holds $STRIDAL_LOCK_HELD (now: $(cat "$STRIDAL_LOCK_HELD/owner.json" 2>/dev/null || echo nobody)); another gate may have run beside it"
     FAILED="$FAILED lease"; code=70
   fi
 fi

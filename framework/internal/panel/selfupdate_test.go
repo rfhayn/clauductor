@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // OPS-118 D4: the panel's rebuild and restart of itself, on catch-up's source. The
@@ -29,12 +29,12 @@ import (
 const selfMod = "example.com/selfpanel"
 
 // selfModule is that module's framework/, the twin of the install package's test
-// module: a go.mod, the ./cmd/clauductor the rebuild builds (answering the preflight's
+// module: a go.mod, the ./cmd/stridal the rebuild builds (answering the preflight's
 // version, panel list and panel config-check), and the files D4 names. Its config-check
 // reads the file's name and tmux_socket as JSON, and fails on a file that is not.
 var selfModule = map[string]string{
 	"framework/go.mod": "module " + selfMod + "\n\ngo 1.22\n",
-	"framework/cmd/clauductor/main.go": `package main
+	"framework/cmd/stridal/main.go": `package main
 
 import (
 	"encoding/json"
@@ -126,14 +126,14 @@ func (w *selfWorld) installStandIn(t *testing.T) string {
 	return readBytes(t, w.bin)
 }
 
-// installBuild builds the checkout, at r, into the installed binary, as `clauductor
+// installBuild builds the checkout, at r, into the installed binary, as `stridal
 // panel install` would, and returns its stamp: the panel's own build information.
 func (w *selfWorld) installBuild(t *testing.T, goPath string) install.BuildStamp {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(w.bin), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(goPath, "build", "-o", w.bin, "./cmd/clauductor")
+	cmd := exec.Command(goPath, "build", "-o", w.bin, "./cmd/stridal")
 	cmd.Dir = filepath.Join(w.root, "framework")
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v %s", err, b)
@@ -265,7 +265,7 @@ func TestRebuildLeavesABinaryItCannotRebuild(t *testing.T) {
 			}
 			w.unchanged(t, was)
 			w.oneNotice(t, &notices, short(b), "#7", "did not rebuild itself", tc.why, "keeps running as it was",
-				"To update it, run `go build -o clauductor ./cmd/clauductor && ./clauductor panel install` in framework/.")
+				"To update it, run `go build -o stridal ./cmd/stridal && ./stridal panel install` in framework/.")
 		})
 	}
 }
@@ -336,7 +336,7 @@ func TestRebuildIgnoresAnotherModulesFramework(t *testing.T) {
 // [CATCHUP-4-S6] A panel built at R; #7 changes install/launchd.go while an untracked
 // file stands in the checkout, so it does not rebuild; with the file gone, #8, which
 // changes only server.go, rebuilds the panel at B, and its restart notice says to run
-// `clauductor panel install` once: the install step is read over R..B, the build's
+// `stridal panel install` once: the install step is read over R..B, the build's
 // range, not over the last merge's.
 func TestRestartNoticeNamesInstallOverTheBuildsRange(t *testing.T) {
 	t.Parallel()
@@ -369,7 +369,7 @@ func TestRestartNoticeNamesInstallOverTheBuildsRange(t *testing.T) {
 	if len(ns) != 2 {
 		t.Fatalf("catch-up sent %d notices, want the untracked file's and the restart's: %+v", len(ns), ns)
 	}
-	for _, s := range []string{short(w.r), short(b), "#8", "run `clauductor panel install` once", "install/launchd.go"} {
+	for _, s := range []string{short(w.r), short(b), "#8", "run `stridal panel install` once", "install/launchd.go"} {
 		if !strings.Contains(ns[1].Body, s) {
 			t.Fatalf("the restart notice %q does not name %q", ns[1].Body, s)
 		}
@@ -429,7 +429,7 @@ func TestRestartWaitsForTheClaudeCallsAfterItsMarker(t *testing.T) {
 }
 
 // A stop during the restart's wait for the claude calls (a logout, `launchctl bootout`,
-// `clauductor panel install` reloading the agent) ends the run's context after the
+// `stridal panel install` reloading the agent) ends the run's context after the
 // binary replaced itself: the notice with the rollback still goes, though the run's
 // context has ended, and the restart goes no further (no browser record, no exit 75),
 // leaving the marker for the new binary's first start.
@@ -472,7 +472,7 @@ func TestRestartStoppedDuringItsWaitStillSendsTheRollback(t *testing.T) {
 		t.Fatalf("a stop during the wait sent %d notices, want the one with the rollback\n%s", len(ns), log.String())
 	}
 	for _, want := range []string{short(from), short(to), "stopped before its restart",
-		"`mv ~/.clauductor/panel/bin/clauductor.prev ~/.clauductor/panel/bin/clauductor`",
+		"`mv ~/.stridal/panel/bin/stridal.prev ~/.stridal/panel/bin/stridal`",
 		"`launchctl kickstart -k gui/$(id -u)/" + install.LaunchdLabel + "`", "#7"} {
 		if !strings.Contains(ns[0].Body, want) {
 			t.Fatalf("the notice %q does not name %q", ns[0].Body, want)
@@ -504,7 +504,7 @@ func endedShowsNothing(l *noticeLog) func(context.Context, state.Notice) error {
 // stoppedRebuildSays are what the notice of a rebuild a stop ended names, beyond the
 // merge: what the next start runs, and how the change still comes.
 var stoppedRebuildSays = []string{"#7", "Its next start runs the binary it ran", "catch-up's next fast-forward rebuilds it, this change included",
-	"To update it, run `go build -o clauductor ./cmd/clauductor && ./clauductor panel install` in framework/."}
+	"To update it, run `go build -o stridal ./cmd/stridal && ./stridal panel install` in framework/."}
 
 // A stop (a logout, `launchctl bootout`) while the rebuild builds: the build ends, no
 // .new is left, the installed binary is as it was, nothing restarts and no marker is
@@ -687,7 +687,7 @@ func TestRestartNoticeIsPushedAfterASlowNotification(t *testing.T) {
 		t.Fatalf("%d notices, restarts %+v: want the restart notice, then the restart\n%s", len(catchUpNotices(&notices)), restarts, log.String())
 	}
 	got := pushRuns(t, runs)
-	rollback := "`mv ~/.clauductor/panel/bin/clauductor.prev ~/.clauductor/panel/bin/clauductor`"
+	rollback := "`mv ~/.stridal/panel/bin/stridal.prev ~/.stridal/panel/bin/stridal`"
 	if len(got) != 1 || len(got[0]) != 2 || got[0][0] != catchUpTitle || !strings.Contains(got[0][1], rollback) {
 		t.Fatalf("pushes %q after a slow notification: want the restart notice, titled %q, with its rollback\n%s", got, catchUpTitle, log.String())
 	}
@@ -742,7 +742,7 @@ func restartOf(t *testing.T, p *panelRun, log *cuLog) *RestartError {
 }
 
 // partialGo is goPath behind a go that first writes a partial output: a build that
-// fails leaves a clauductor.new unless the rebuild removes it.
+// fails leaves a stridal.new unless the rebuild removes it.
 func partialGo(t *testing.T, goPath string) string {
 	t.Helper()
 	prog := filepath.Join(t.TempDir(), "go")
@@ -757,7 +757,7 @@ func (w *selfWorld) tildeOf(p string) string { return "~" + strings.TrimPrefix(p
 // changes framework/ and the panel's own project's panel.json, which in turn the new
 // binary's config-check refuses, and which would serve the project on the tmux socket
 // another served project (Alpha, the panel's --project) holds. Either is the preflight's
-// failure: no clauductor.new is left, nothing is swapped and the panel keeps running, one
+// failure: no stridal.new is left, nothing is swapped and the panel keeps running, one
 // notice names the preflight's error, and the running binary, judging the config, says
 // it does not load. (Review 2026-10-23: config-check judged the parse alone, and only a
 // stand-in of selfUpdate's discard was tested.)
@@ -824,11 +824,11 @@ func TestRebuildPreflightJudgesTheConfigItWillServe(t *testing.T) {
 	}
 }
 
-// A swap that cannot put the rebuilt binary in place (here clauductor.prev is a
+// A swap that cannot put the rebuilt binary in place (here stridal.prev is a
 // directory, so the rename of the installed binary fails), after the owner's #7 changed
 // framework/ and #8 the project's panel.json: the running binary takes the config over
 // as after a failed build (D1). Each time the panel keeps running on its own binary, no
-// clauductor.new is left, the new bytes are not trusted and the owner's trust of the
+// stridal.new is left, the new bytes are not trusted and the owner's trust of the
 // config the fast-forward started from stands. When the new binary's reading of the
 // config was trusted on arrival and this binary loads it, the project is served on it
 // untrusted, with Trust config… offered; when this binary cannot load it, or catch-up

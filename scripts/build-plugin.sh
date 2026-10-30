@@ -4,4 +4,4 @@
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root/framework"
-exec go run ./cmd/clauductor plugin build --repo "$root"
+exec go run ./cmd/stridal plugin build --repo "$root"

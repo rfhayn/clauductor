@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
 )
 
 // fakeAdmin records what reached it.

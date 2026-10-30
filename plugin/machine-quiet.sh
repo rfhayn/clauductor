@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # machine-quiet.sh: leave the machine quiet at session close. Run by session-close after the last
 # gate; `--dry-run` prints the same list and changes nothing.
 #
@@ -18,7 +18,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #      while the live sessions cannot be read or another live session sits at the repo root;
 #   4. (optional, MQ_COLIMA=1) stops colima if it runs and no gate (GATE_RUN) is running.
 #
-# It never touches: a tmux server or client, a claude or clauductor process, containers outside
+# It never touches: a tmux server or client, a claude or stridal process, containers outside
 # those paths, volumes, worktrees that are dirty, locked or a live session's cwd, or colima while
 # a gate runs. Checked by .claude/checks/machine-quiet.sh.
 
@@ -30,9 +30,9 @@ DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "machine-quiet: not in a git repo"; exit 0; }
 # The checkout's own config; a missing one leaves the defaults below.
-if [ -f "$CLAUDUCTOR_FW/lib/conf.sh" ]; then
+if [ -f "$STRIDAL_FW/lib/conf.sh" ]; then
   # shellcheck disable=SC1091
-  . "$CLAUDUCTOR_FW/lib/conf.sh"
+  . "$STRIDAL_FW/lib/conf.sh"
 fi
 WT="$ROOT/.claude/worktrees"
 act() { if [ "$DRY" = 1 ]; then echo "  would: $*"; else "$@"; fi; }
@@ -46,7 +46,7 @@ echo "machine-quiet ($([ "$DRY" = 1 ] && echo dry run || echo acting)):"
 # it, `tmux -L <socket> new-session -d -s <lane> -c <repo>/.claude/worktrees/<lane> …`. A version
 # that killed every such orphan SIGKILLed the tmux server at a session close, taking down every
 # lane, the closing session's own included (exit 137). So:
-#   - a process whose argv[0] is tmux (or `tmux: server`/`tmux: client`), claude or clauductor is
+#   - a process whose argv[0] is tmux (or `tmux: server`/`tmux: client`), claude or stridal is
 #     never killed, whatever its arguments name;
 #   - a process in any live Claude session's tree (`claude agents --json` pids) is never killed;
 #   - and of the rest, only a process matching one of MQ_ORPHAN_SHAPES is: shell glob patterns
@@ -62,7 +62,7 @@ fi
 ps -Ao pid=,ppid=,command= | while read -r pid ppid cmd; do
   [ "$ppid" = 1 ] || continue
   argv0=${cmd%% *}; base=${argv0##*/}
-  case "$base" in tmux | tmux: | claude | clauductor) continue ;; esac
+  case "$base" in tmux | tmux: | claude | stridal) continue ;; esac
   case "$cmd" in "tmux: "*) continue ;; esac
   case " $session_pids " in *" $pid "*) continue ;; esac
   hit=""
@@ -95,7 +95,7 @@ fi
 # kept, whatever the status. If that list cannot be read (no `claude`, no python3, a failure, a 5 s
 # timeout, JSON that is not a list of sessions with a cwd), NO worktree is removed (fail closed):
 # a leftover worktree costs disk, a wrong removal costs a live session its working directory. The
-# panel's lane registry (~/.clauductor/panel/*/lanes.json, each lane's `path`) is a second,
+# panel's lane registry (~/.stridal/panel/*/lanes.json, each lane's `path`) is a second,
 # optional authority: a lane it started is kept even while its session is down.
 #
 # A cwd only protects the worktree it is in. A session whose cwd is the repo root (an
@@ -201,7 +201,7 @@ for s in sessions:
             who = s.get("name") or s.get("sessionId") or "?"
             keep[w] = "live Claude session %s (%s) has its cwd there" % (who, s.get("status") or "status unknown")
 
-for reg in sorted(glob.glob(os.path.join(os.path.expanduser("~"), ".clauductor", "panel", "*", "lanes.json"))):
+for reg in sorted(glob.glob(os.path.join(os.path.expanduser("~"), ".stridal", "panel", "*", "lanes.json"))):
     try:
         with open(reg) as f:
             lanes = json.load(f).get("lanes") or []

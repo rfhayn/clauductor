@@ -1,8 +1,8 @@
 # The lease conformance kit
 
-The conformance suite of the gate lease protocol (clauductor's `docs/panel.md`, *Queue and the
+The conformance suite of the gate lease protocol (stridal's `docs/panel.md`, *Queue and the
 gate lock protocol*), shipped with the template so that **any** implementation can be tested from
-the project, with nothing of clauductor installed: the panel's `clauductor lock-run`, the
+the project, with nothing of stridal installed: the panel's `stridal lock-run`, the
 template's `scripts/ci/lease.sh`, or a project's own (a `gate-lock.sh` of its own, for example).
 
 | File | What it is |
@@ -28,12 +28,12 @@ per change to your implementation; it takes a minute or two (each case waits for
 ## The suite is the protocol: do not edit it
 
 `run.sh` refuses to run a suite whose sha256 differs from `VERSION`. If a case fails, fix the
-implementation. If the case itself is wrong, fix it in clauductor, where `TestLeaseConformance`
+implementation. If the case itself is wrong, fix it in stridal, where `TestLeaseConformance`
 runs it against `lock-run` and `lease.sh` and checks it can fail.
 
 ## Refreshing (the sha bump)
 
-`clauductor update` refreshes this directory (the framework tier). In clauductor itself, after any
+`stridal update` refreshes this directory (the framework tier). In stridal itself, after any
 change to `conformance.sh` or `cases/`:
 
 1. Run `sh template/scripts/ci/lease-conformance/run.sh --sha`. It fails and prints the new sha256.

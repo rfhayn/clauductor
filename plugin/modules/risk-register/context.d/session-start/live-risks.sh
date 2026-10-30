@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # live-risks.sh: session-start's live-risks section (the risk-register module). Every row of
 # RISK_REGISTER (project.conf) not marked closed, one line each: `R<n> <title> — gate <Gate> (<Issue>)`.
 #
@@ -10,12 +10,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../../.." && pwd) # clauductor plugin: th
 # cannot read must not look like one with no risks.
 #
 # One local file, no network, so CONTEXT_OFFLINE changes nothing here.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 reg=${RISK_REGISTER:-docs/risk-register.md}
 f="$ROOT/$reg"
-[ -f "$f" ] || { echo "CANNOT CHECK — RISK_REGISTER $reg does not exist (sh "$CLAUDUCTOR_FW"/modules/risk-register/enable.sh makes the stub)"; exit 0; }
+[ -f "$f" ] || { echo "CANNOT CHECK — RISK_REGISTER $reg does not exist (sh "$STRIDAL_FW"/modules/risk-register/enable.sh makes the stub)"; exit 0; }
 rows=$(grep -c '^| R[0-9][0-9]* |' "$f")
 [ "$rows" -gt 0 ] || { echo "none: $reg has no \`| R<n> |\` rows yet"; exit 0; }
 live=$(awk -F'|' '/^\| R[0-9]+ \|/ { id=$2; r=$3; g=$(NF-2); i=$(NF-1); gsub(/^ +| +$/,"",id); gsub(/^ +| +$/,"",g); gsub(/^ +| +$/,"",i); closed=0; if (match(r, /\*\*[^*]+\*\*/)) { r=substr(r, RSTART+2, RLENGTH-4); closed=(r ~ /✅/) } gsub(/^ +| +$/,"",r); if (!closed) print id" "r" — gate "g" ("i")" }' "$f")

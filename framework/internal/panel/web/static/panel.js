@@ -32,13 +32,13 @@ function projQuery(sep) { return pid() ? sep + "project=" + encodeURIComponent(p
 function loadSel() {
   selKey = null;
   try {
-    selKey = localStorage.getItem("clauductor-panel-sel:" + pid());
-    if (!selKey) selKey = localStorage.getItem("clauductor-panel-sel");
-    if (!selKey && localStorage.getItem("clauductor-panel-term")) selKey = "t:" + localStorage.getItem("clauductor-panel-term");
+    selKey = localStorage.getItem("stridal-panel-sel:" + pid());
+    if (!selKey) selKey = localStorage.getItem("stridal-panel-sel");
+    if (!selKey && localStorage.getItem("stridal-panel-term")) selKey = "t:" + localStorage.getItem("stridal-panel-term");
   } catch (e) {}
 }
 function saveSel(k) {
-  try { localStorage.setItem("clauductor-panel-sel:" + pid(), k); localStorage.removeItem("clauductor-panel-sel"); } catch (e) {}
+  try { localStorage.setItem("stridal-panel-sel:" + pid(), k); localStorage.removeItem("stridal-panel-sel"); } catch (e) {}
 }
 
 function el(tag, cls, text, kids) {
@@ -282,7 +282,7 @@ function renderConn() {
   const asOf = frozenAt ? hhmm(frozenAt) : "—";
   const wait = conn.nextAt ? Math.max(0, Math.ceil((conn.nextAt - Date.now()) / 1000)) : 0;
   const status = conn.expired
-    ? "The panel restarted with a new token: open the URL clauductor panel printed, or run clauductor panel open."
+    ? "The panel restarted with a new token: open the URL stridal panel printed, or run stridal panel open."
     : !conn.nextAt ? "Checking whether the panel is back…"
     : conn.attempt > 1 ? "Reconnect failed (attempt " + (conn.attempt - 1) + "), retrying in " + wait + " s."
     : "Retrying in " + wait + " s.";
@@ -581,12 +581,12 @@ function prCell(p, short) {
 
 let cols = COLS.filter((c) => c.def).map((c) => c.id), sortBy = { col: "state", dir: 1 }, colMenu = false;
 try {
-  const c = JSON.parse(localStorage.getItem("clauductor-panel-cols") || "null");
+  const c = JSON.parse(localStorage.getItem("stridal-panel-cols") || "null");
   if (Array.isArray(c) && c.every((id) => COLS.some((x) => x.id === id))) cols = c;
-  const s = JSON.parse(localStorage.getItem("clauductor-panel-sort") || "null");
+  const s = JSON.parse(localStorage.getItem("stridal-panel-sort") || "null");
   if (s && COLS.some((x) => x.id === s.col) && (s.dir === 1 || s.dir === -1)) sortBy = s;
 } catch (e) {}
-function saveCols() { try { localStorage.setItem("clauductor-panel-cols", JSON.stringify(cols)); localStorage.setItem("clauductor-panel-sort", JSON.stringify(sortBy)); } catch (e) {} }
+function saveCols() { try { localStorage.setItem("stridal-panel-cols", JSON.stringify(cols)); localStorage.setItem("stridal-panel-sort", JSON.stringify(sortBy)); } catch (e) {} }
 
 function laneTable(ls, cur) {
   const shown = COLS.filter((c) => cols.includes(c.id));
@@ -715,7 +715,7 @@ window.addEventListener("resize", moreBelow);
 // state/nesting.go): exact once the starting call returns, ≈ until then; workflow
 // agents under their run, always ≈. Finished agents fold under a count.
 let treeOpen = {};
-try { treeOpen = JSON.parse(localStorage.getItem("clauductor-panel-tree") || "{}") || {}; } catch (e) {}
+try { treeOpen = JSON.parse(localStorage.getItem("stridal-panel-tree") || "{}") || {}; } catch (e) {}
 function foldable(k, summaryText, kids) {
   const d = el("details", null, null, [el("summary", null, summaryText), ...kids]);
   if (treeOpen[k]) d.open = true;
@@ -723,7 +723,7 @@ function foldable(k, summaryText, kids) {
   // the discarded description, always closed, so an opened fold shut on the next poll.
   on(d, "toggle", function () {
     if (this.open) treeOpen[k] = 1; else delete treeOpen[k];
-    try { localStorage.setItem("clauductor-panel-tree", JSON.stringify(treeOpen)); } catch (e) {}
+    try { localStorage.setItem("stridal-panel-tree", JSON.stringify(treeOpen)); } catch (e) {}
   });
   return key(d, k);
 }
@@ -1093,7 +1093,7 @@ new ResizeObserver(() => fitTabs(true)).observe($("tabrow"));
 
 // ---- The lane's header ----------------------------------------------------------------------
 let sideOpen = true;
-try { sideOpen = localStorage.getItem("clauductor-panel-side") !== "closed"; } catch (e) {}
+try { sideOpen = localStorage.getItem("stridal-panel-side") !== "closed"; } catch (e) {}
 function kv1(k, v) { return el("span", "kv1", null, [el("span", "k", k), v]); }
 function renderLaneHead(x) {
   const kids = [];
@@ -1106,10 +1106,10 @@ function renderLaneHead(x) {
     const m = laneModel(x), lm = laneM(x), since = laneSince(x);
     const mode = [m.effort ? "effort " + m.effort : "", lm.thinking ? "thinking" : "", lm.fastMode ? "fast" : ""].filter(Boolean).join(", ");
     if (m.model || mode) kids.push(key(kv1("Model", el("span", null, (m.model || "unknown") + (mode ? ", " + mode : ""))), "model"));
-    // PANEL-20: the lane's own port, exported to it as CLAUDUCTOR_PORT.
+    // PANEL-20: the lane's own port, exported to it as STRIDAL_PORT.
     if (x.t && x.t.port) {
       const pk = kv1("Port", num(String(x.t.port)));
-      pk.title = "This lane's own port (ports in panel.json), exported to it as CLAUDUCTOR_PORT";
+      pk.title = "This lane's own port (ports in panel.json), exported to it as STRIDAL_PORT";
       kids.push(key(pk, "port"));
     }
     // PANEL-19: where Remote Control is on (the machine's choice at panel install).
@@ -1139,7 +1139,7 @@ function renderLaneHead(x) {
   const tog = button(shown ? "Hide details" : "Show details", "small", () => {
     // Showing it on a screen too small for it is your call for this visit; hiding it is kept.
     if (shown) { sideOpen = false; sideForced = false; } else { sideOpen = true; sideForced = !fitLayout().side; }
-    try { localStorage.setItem("clauductor-panel-side", sideOpen ? "open" : "closed"); } catch (e) {}
+    try { localStorage.setItem("stridal-panel-side", sideOpen ? "open" : "closed"); } catch (e) {}
     render();
     applyRail();
   }, fit.sideAuto ? "Hidden to leave the terminal room at this text size; click to show it anyway" : "Show or hide this lane's agents, figures, git, gate, alerts and activity", "sidetog");
@@ -1153,7 +1153,7 @@ function renderLaneHead(x) {
 // ---- The lane's side panel: tabs between metric families ------------------------------------
 const SIDE_TABS = [["agents", "Agents"], ["figures", "Figures"], ["git", "Git"], ["checks", "Checks"], ["gate", "Gate"], ["alerts", "Alerts"], ["activity", "Activity"]];
 let sideTab = "agents";
-try { const t = localStorage.getItem("clauductor-panel-sidetab"); if (SIDE_TABS.some((x) => x[0] === t)) sideTab = t; } catch (e) {}
+try { const t = localStorage.getItem("stridal-panel-sidetab"); if (SIDE_TABS.some((x) => x[0] === t)) sideTab = t; } catch (e) {}
 function kvRows(rows) {
   const box = el("div", "kv");
   for (const [k, v] of rows) {
@@ -1212,7 +1212,7 @@ function renderSide(x) {
     b.setAttribute("aria-selected", String(id === sideTab));
     b.tabIndex = id === sideTab ? 0 : -1;
     if (counts[id]) b.appendChild(el("span", "cnt" + (id === "alerts" ? (needs.some((n) => n.severity === "block") ? " c" : " w") : ""), String(counts[id])));
-    on(b, "click", () => { sideTab = id; try { localStorage.setItem("clauductor-panel-sidetab", id); } catch (e) {} render(); });
+    on(b, "click", () => { sideTab = id; try { localStorage.setItem("stridal-panel-sidetab", id); } catch (e) {} render(); });
     on(b, "keydown", (ev) => {
       let j = -1;
       if (ev.key === "ArrowRight") j = (i + 1) % tabs.length; else if (ev.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length;
@@ -1267,9 +1267,9 @@ function splitRow(s) {
 // The project box: a tab per pinned card, and a fold for the whole box. The tab and
 // whether it is folded are kept per browser.
 let projTab = null, projOpen = true;
-try { projTab = localStorage.getItem("clauductor-panel-projtab"); projOpen = localStorage.getItem("clauductor-panel-proj") !== "closed"; } catch (e) {}
+try { projTab = localStorage.getItem("stridal-panel-projtab"); projOpen = localStorage.getItem("stridal-panel-proj") !== "closed"; } catch (e) {}
 function saveProj() {
-  try { localStorage.setItem("clauductor-panel-projtab", projTab || ""); localStorage.setItem("clauductor-panel-proj", projOpen ? "open" : "closed"); } catch (e) {}
+  try { localStorage.setItem("stridal-panel-projtab", projTab || ""); localStorage.setItem("stridal-panel-proj", projOpen ? "open" : "closed"); } catch (e) {}
 }
 // PANEL-18: a project with no card says where cards come from, in one line where its
 // pinned cards would be, rather than nothing. (Cards that exist but are not pinned are
@@ -1279,7 +1279,7 @@ function noCards() {
   a.href = GUIDE_URL + "#cards";
   a.target = "_blank";
   a.rel = "noopener noreferrer";
-  return key(el("div", "sidepins nocards", null, [el("span", "dim", "No cards yet. Add them in .clauductor/panel.json. "), a]), "side:nocards");
+  return key(el("div", "sidepins nocards", null, [el("span", "dim", "No cards yet. Add them in .stridal/panel.json. "), a]), "side:nocards");
 }
 // PANEL-18: the cards run in the project's main checkout and watch files there, so while
 // its branch is behind its upstream they read old files. git counts against the last
@@ -1655,7 +1655,7 @@ function economyField() {
   const f = key(el("div", "f eco", null, [el("span", "k", "Economy"), el("span", "v", null, [el("span", "warn", "on"),
     el("span", "more", roles || "no role named")])]), "q:eco");
   f.title = (e.reason || "") + (e.since ? ", since " + hm(e.since) : "") + ". " + (roles ? "Roles on a cheaper tier: " + roles + "." : e.rolesNote || "") +
-    " The panel writes ~/.clauductor/panel/economy.json; the operating model's build-change reads it.";
+    " The panel writes ~/.stridal/panel/economy.json; the operating model's build-change reads it.";
   return [f];
 }
 function renderStatus(ls) {
@@ -1852,12 +1852,12 @@ const M_TABS = [["flow", "Flow"], ["cost", "Cost"], ["quality", "Quality"], ["ou
 const M_RANGES = ["7d", "30d", "90d"];
 let mv = { tab: "flow", range: "30d", scope: "project", data: null, err: "", loading: false, at: 0, timer: 0, returnTo: null, seq: 0 };
 try {
-  const t = JSON.parse(localStorage.getItem("clauductor-panel-metrics") || "{}");
+  const t = JSON.parse(localStorage.getItem("stridal-panel-metrics") || "{}");
   if (M_TABS.some((x) => x[0] === t.tab)) mv.tab = t.tab;
   if (M_RANGES.includes(t.range)) mv.range = t.range;
   if (t.scope === "all") mv.scope = "all";
 } catch (e) {}
-function saveMv() { try { localStorage.setItem("clauductor-panel-metrics", JSON.stringify({ tab: mv.tab, range: mv.range, scope: mv.scope })); } catch (e) {} }
+function saveMv() { try { localStorage.setItem("stridal-panel-metrics", JSON.stringify({ tab: mv.tab, range: mv.range, scope: mv.scope })); } catch (e) {} }
 // Each figure's name and unit. The units are the contract's: hours, per week, percent, dollars.
 const M_FIG = {
   "flow.cycle_time": ["Cycle time", "h"], "flow.merge_frequency": ["Merge frequency", "wk"], "flow.lead_time": ["Lead time", "h"],
@@ -1995,7 +1995,7 @@ function renderMetricsBody() {
     src.push(el("div", null, "All projects: " + (d.projects || []).join(", ") + ". Merges and spend add up; a median is the projects' own, weighted."));
     for (const e of d.errors || []) src.push(el("div", "srcerr", "The metrics command failed in " + e));
   } else if (!c.configured) src.push(el("div", null, "No metrics command: what shows is the panel's own (built in). metrics.command in panel.json adds the rest."));
-  else if (!c.trusted) src.push(el("div", "warn", "The metrics command is off until panel.json is trusted (clauductor panel trust)."));
+  else if (!c.trusted) src.push(el("div", "warn", "The metrics command is off until panel.json is trusted (stridal panel trust)."));
   else if (c.pending) src.push(el("div", "dim", "The metrics command has not reported yet."));
   else if (!c.ok) src.push(el("div", "srcerr", "The metrics command failed: " + c.error));
   else src.push(el("div", null, null, [document.createTextNode("From the metrics command"), c.generatedAt || c.at ? age(c.generatedAt || c.at, ", computed ", " ago") : null, document.createTextNode(", and the panel's own where it has none.")]));
@@ -2220,7 +2220,7 @@ function loadTermFace() {
 }
 // The terminal's text size: your own (A− / A+ under the terminal, kept per browser),
 // or the theme's --term-size times the page's scale.
-const TERM_KEY = "clauductor-panel-term-size";
+const TERM_KEY = "stridal-panel-term-size";
 let termSizeOwn = null;
 try { const v = parseFloat(localStorage.getItem(TERM_KEY)); if (v >= 11 && v <= 24) termSizeOwn = v; } catch (e) {}
 function termAutoSize() {
@@ -2426,7 +2426,7 @@ async function connectTerm(t) {
   }
   if (t.gone) return;
   const q = "lane=" + encodeURIComponent(t.id) + projQuery("&") + "&cols=" + t.term.cols + "&rows=" + t.term.rows;
-  const ws = new WebSocket("ws://" + location.host + "/ws/term?" + q, ["clauductor.term.v1", "ticket." + ticket]);
+  const ws = new WebSocket("ws://" + location.host + "/ws/term?" + q, ["stridal.term.v1", "ticket." + ticket]);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => { t.delay = 1000; fitTerm(t); termSend(t, { type: "resize", cols: t.term.cols, rows: t.term.rows }); sendFocus(t); };
   ws.onmessage = (e) => {
@@ -2447,7 +2447,7 @@ async function connectTerm(t) {
       return;
     }
     if (e.code === 4001) { // the token was rotated: this page's cookie is dead too
-      t.term.write("\r\n\x1b[2m[panel] the panel's token was rotated; run clauductor panel open\x1b[0m\r\n");
+      t.term.write("\r\n\x1b[2m[panel] the panel's token was rotated; run stridal panel open\x1b[0m\r\n");
       return;
     }
     t.term.write("\r\n\x1b[2m[panel] detached; reconnecting while the lane exists…\x1b[0m\r\n");
@@ -2974,7 +2974,7 @@ function stUpdate() {
     if (p && (model || effort)) p += ", then claude" + (model ? " --model " + model : "") + (effort ? " --effort " + effort : "");
     $("st-prompt").replaceChildren(el("div", null, "Once claude is idle, the panel types this, then Enter:"),
       el("div", "tpl-prompt", fillTpl(tpl.firstPrompt, name, issue)));
-    if (untrusted) $("st-prompt").appendChild(el("div", "stop", "Templates are off until panel.json is trusted as it is now (clauductor panel trust)."));
+    if (untrusted) $("st-prompt").appendChild(el("div", "stop", "Templates are off until panel.json is trusted as it is now (stridal panel trust)."));
   } else if (type && (type.model || type.effort)) p += ", then claude" + (type.model ? " --model " + type.model : "") + (type.effort ? " --effort " + type.effort : "");
   $("st-preview").textContent = p;
   // What a template is and what a lane type is, said where you choose them: a template
@@ -3221,22 +3221,22 @@ function renderBanners() {
 // about ("version:2.1.285"), so the same warning stays closed while its text moves on
 // ("2 of 3 confirmed"), and a new version, or a break, shows again.
 let warnClosed = {};
-try { warnClosed = JSON.parse(localStorage.getItem("clauductor-panel-warn-closed") || "{}") || {}; } catch (e) {}
+try { warnClosed = JSON.parse(localStorage.getItem("stridal-panel-warn-closed") || "{}") || {}; } catch (e) {}
 function closeWarning(k) {
   warnClosed[k] = 1;
-  try { localStorage.setItem("clauductor-panel-warn-closed", JSON.stringify(warnClosed)); } catch (e) {}
+  try { localStorage.setItem("stridal-panel-warn-closed", JSON.stringify(warnClosed)); } catch (e) {}
   render();
 }
 
 // The footer: one line of the counters that matter, the rest one click away.
 let obsOpen = false;
-try { obsOpen = localStorage.getItem("clauductor-panel-obs") === "open"; } catch (e) {}
+try { obsOpen = localStorage.getItem("stridal-panel-obs") === "open"; } catch (e) {}
 function renderObs() {
   const o = S.observe;
   const kv = (k, v, cls) => el("span", cls || null, null, [document.createTextNode(k + " "), el("b", null, String(v))]);
   const toggle = button(obsOpen ? "Fewer counters" : "All counters", "obstoggle", () => {
     obsOpen = !obsOpen;
-    try { localStorage.setItem("clauductor-panel-obs", obsOpen ? "open" : "closed"); } catch (e) {}
+    try { localStorage.setItem("stridal-panel-obs", obsOpen ? "open" : "closed"); } catch (e) {}
     render();
   }, obsOpen ? "Show the main counters only" : "Show every counter the panel keeps", "obstoggle");
   toggle.setAttribute("aria-expanded", String(obsOpen));
@@ -3359,7 +3359,7 @@ function render() {
 }
 
 // ---- Help (PANEL-17): the ? in the header, or the ? key outside the terminal and fields --
-const GUIDE_URL = "https://github.com/rfhayn/clauductor/blob/main/docs/guide.md";
+const GUIDE_URL = "https://github.com/rfhayn/stridal/blob/main/docs/guide.md";
 $("helplink").href = GUIDE_URL;
 let helpReturn = null;
 function openHelp() {
@@ -3427,7 +3427,7 @@ document.addEventListener("keydown", (ev) => {
 });
 
 // ---- The rail: hide it, or drag (or arrow-key) its edge. Kept per browser. ------------------
-const RAIL_KEY = "clauductor-panel-rail";
+const RAIL_KEY = "stridal-panel-rail";
 // On a phone the rail starts folded (the tabs switch lanes), so the terminal is near
 // the top; it is kept apart from the desktop's choice.
 const NARROW = matchMedia("(max-width: 900px)");
@@ -3454,7 +3454,7 @@ function termCellWidth() {
 }
 let sideForced = false, railForced = false;
 // The side panel's own width (its edge, below); 0 is the theme's.
-const SIDE_W_KEY = "clauductor-panel-side-w";
+const SIDE_W_KEY = "stridal-panel-side-w";
 let sideW = 0;
 try { sideW = parseInt(localStorage.getItem(SIDE_W_KEY), 10) || 0; } catch (e) {}
 // Up to half the window, and never so wide that the terminal would lose its TERM_COLS
@@ -3749,7 +3749,7 @@ $("projacts").addEventListener("keydown", (e) => {
 // confirmation names a lane to close first).
 function switchProject(id, lane) {
   closeProjects(true);
-  if (lane) { try { localStorage.setItem("clauductor-panel-sel:" + id, "t:" + lane); } catch (e) {} }
+  if (lane) { try { localStorage.setItem("stridal-panel-sel:" + id, "t:" + lane); } catch (e) {} }
   if (id === pid()) { if (lane) selectLane("t:" + lane); return; }
   PID = id;
   try { history.replaceState(null, "", location.pathname + "?p=" + encodeURIComponent(id)); } catch (e) {}
@@ -3861,20 +3861,20 @@ function adRender() {
       ...fact("Root", c.root), ...fact("Git common dir", c.commonDir), ...fact("Id", c.id), ...fact("tmux socket", c.socket),
     ]));
     if (!c.hasConfig) {
-      body.push(el("h4", null, "No .clauductor/panel.json yet"));
+      body.push(el("h4", null, "No .stridal/panel.json yet"));
       if (ad.plan) {
-        body.push(el("div", "sub", "clauductor panel init would write " + ad.plan.path + ":"));
+        body.push(el("div", "sub", "stridal panel init would write " + ad.plan.path + ":"));
         body.push(el("pre", "cfg", ad.plan.body));
         body.push(el("ul", "notes", null, (ad.plan.notes || []).map((n) => el("li", null, n))));
         body.push(el("div", "sub", "Create this config writes it (never over a file). Review it before you trust it."));
-      } else body.push(el("div", "sub", "Reading what clauductor panel init would write…"));
+      } else body.push(el("div", "sub", "Reading what stridal panel init would write…"));
     } else if (c.configError) {
       body.push(el("div", "stop", "Its config does not load, so it cannot be added yet: " + c.configError));
     } else {
       body.push(el("h4", null, c.trusted ? "Trusted already: sha256 " + c.hash.slice(0, 12) : "Trust report: sha256 " + c.hash.slice(0, 12)));
       body.push(el("div", "sub", c.configPath + " runs:"));
       body.push(c.runs && c.runs.length ? el("ul", "runs", null, c.runs.map((r) => el("li", null, r))) : el("div", "sub", "nothing: no cards, queue commands or templates"));
-      if (!c.trusted) body.push(el("div", "sub", "Trust and add trusts exactly these bytes. Add without trusting keeps its cards, queue commands and templates off until you trust it (its row's ⋯, or clauductor panel trust)."));
+      if (!c.trusted) body.push(el("div", "sub", "Trust and add trusts exactly these bytes. Add without trusting keeps its cards, queue commands and templates off until you trust it (its row's ⋯, or stridal panel trust)."));
     }
   }
   $("ad-body").replaceChildren(...body);

@@ -5,15 +5,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/template"
 	"github.com/spf13/cobra"
 )
 
 var initCmd = &cobra.Command{
 	Use:   "init [path]",
-	Short: "Create a new project with Clauductor framework",
-	Long: `Initialize a new project directory with the Clauductor operating model: skills,
+	Short: "Create a new project with Stridal framework",
+	Long: `Initialize a new project directory with the Stridal operating model: skills,
 hooks, checks, agents, docs and settings. If path doesn't exist, it will be created.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -26,7 +26,7 @@ hooks, checks, agents, docs and settings. If path doesn't exist, it will be crea
 		if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
 			entries, _ := os.ReadDir(targetDir)
 			if len(entries) > 0 {
-				return fmt.Errorf("%s is not empty — use 'clauductor install' to add framework to an existing project", targetDir)
+				return fmt.Errorf("%s is not empty — use 'stridal install' to add framework to an existing project", targetDir)
 			}
 		}
 
@@ -35,7 +35,7 @@ hooks, checks, agents, docs and settings. If path doesn't exist, it will be crea
 			return fmt.Errorf("could not create directory: %w", err)
 		}
 
-		fmt.Printf("Initializing new Clauductor project in %s\n", targetDir)
+		fmt.Printf("Initializing new Stridal project in %s\n", targetDir)
 		src, err := announceTemplate(cmd.OutOrStdout())
 		if err != nil {
 			return err

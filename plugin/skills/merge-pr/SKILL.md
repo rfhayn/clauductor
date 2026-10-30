@@ -43,7 +43,7 @@ ever worked around: no `--admin`, no `--auto`, no merge clicked on the website.
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
 
 If the line above shows as literal text instead of output, run
-`clauductor-model skills/merge-pr/context.sh` yourself and read the result before step 1.
+`stridal-model skills/merge-pr/context.sh` yourself and read the result before step 1.
 
 ## Steps
 
@@ -101,20 +101,20 @@ Find the change from the PR's own diff (`git diff --name-only origin/main...HEAD
 gate. A PR that touches no change directory is a continuation branch; the rule does not apply.
 
 ### 2c. Verify (change PRs that build a change)
-If the PR builds a change (it touches a change directory AND code), run `/clauductor:verify-change <id>`
-(`clauductor-model verify-change.sh <id>`): every task ticked, every scenario it adds or modifies cited by
+If the PR builds a change (it touches a change directory AND code), run `/stridal:verify-change <id>`
+(`stridal-model verify-change.sh <id>`): every task ticked, every scenario it adds or modifies cited by
 a test or escaped, the approval still covering the design, and the diff touching what `tasks.md`
 claims. `build-change` ran it already; run it again if anything was committed since. A FAIL is a
 stop until fixed; `pr-merge-guard` rules 9 and 10 block the same things at the merge.
 
 ### 3. Review CONVERGED (blocking, and yours to check)
 Converged means **the last review round found nothing medium or worse.** By how the PR was built:
-- **`/build-change` or `/clauductor:apply-change`**: their report shows each group's last round clean. Commits
+- **`/build-change` or `/stridal:apply-change`**: their report shows each group's last round clean. Commits
   made after the report (a merge of `origin/main`, a doc fix) are unreviewed: review that delta.
-- **Built by hand** (a fix or ops branch, a session close): run `/code-review` (or the `clauductor:reviewer` agent)
+- **Built by hand** (a fix or ops branch, a session close): run `/code-review` (or the `stridal:reviewer` agent)
   on `git diff origin/main...HEAD`, fix what is medium or worse, and re-run until a round comes back
   clean, or the cap. Stop and notify if peak severity rises between rounds.
-- **Docs only**: when the context reads `review-lane: docs`, spawn the `clauductor:reviewer-docs` agent
+- **Docs only**: when the context reads `review-lane: docs`, spawn the `stridal:reviewer-docs` agent
   instead; same convergence rule. Anything `full` gets the full review.
 - **A proposal PR** (`proposal: <id>`): `propose` step 2b reviewed it before the owner read it.
   Only a body line starting `Review: converged in` and ending `at <sha> · design <hash>` lets you
@@ -127,7 +127,7 @@ Converged means **the last review round found nothing medium or worse.** By how 
   (another line in that diff, a design hash that differs, a `<sha>` git cannot find) review the
   whole PR.
 
-**The cap.** `clauductor-model review-cap.sh <row id or branch> --why` prints how many rounds this PR gets:
+**The cap.** `stridal-model review-cap.sh <row id or branch> --why` prints how many rounds this PR gets:
 its proposal's `**Risk:**`, or an ops or fix row's `Risk:` in its Change cell, against `REVIEW_CAPS`
 (low 2, normal 3, high 3 by default), and names `REVIEW_AT_CAP` (`stop` or `known-limits` in
 `.claude/project.conf`; the template's default is `stop`). An exit 1 is a stop: fix what it names.
@@ -190,11 +190,11 @@ worktree is never the root you ask about.
 
 ```bash
 main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
-if cu=$(clauductor panel catch-up --project "$main" 2>/dev/null) && [ "$cu" = on ]; then echo on; else echo off; fi
+if cu=$(stridal panel catch-up --project "$main" 2>/dev/null) && [ "$cu" = on ]; then echo on; else echo off; fi
 ```
 
 Catch-up counts as on only when that command exits 0 and prints `on`. Anything else is off:
-`clauductor` not on PATH, an older one with no `panel catch-up`, or an error. Then take the one
+`stridal` not on PATH, an older one with no `panel catch-up`, or an error. Then take the one
 branch that applies:
 
 - **Catch-up on:** leave the main checkout to the panel, and do not pull it, even from the main
@@ -214,8 +214,8 @@ summary, or the `reportTo` message) ends with what the owner runs in the main ch
 nothing else runs it:
 - `git pull --ff-only`, unless step 5 pulled;
 - after a change to the panel's own source (`framework/`, in the repository the panel is built
-  from): `./install.sh`, then `clauductor panel install`;
-- after a change to `.clauductor/panel.json`: `clauductor panel trust`.
+  from): `./install.sh`, then `stridal panel install`;
+- after a change to `.stridal/panel.json`: `stridal panel trust`.
 
 With catch-up on, the report names none of them: the panel fast-forwards the checkout, trusts or
 holds the config, rebuilds itself, and sends a notice for whatever it could not do.
@@ -223,8 +223,8 @@ holds the config, rebuilds itself, and sends a notice for whatever it could not 
 ## After the merge
 - Leave the roadmap row's Status alone: the daily close's fold sets `✅ merged (#N)` from the
   row's fragment (`${CLAUDE_PLUGIN_ROOT}/skills/session-close/fold.sh`), and no row's PR sets it (OPS-108).
-- If the PR completed a change, archive it (`/clauductor:archive-change`).
-- Refresh the focus: `clauductor-model status-write.sh "[main] <next focus>"`.
+- If the PR completed a change, archive it (`/stridal:archive-change`).
+- Refresh the focus: `stridal-model status-write.sh "[main] <next focus>"`.
 - Remove the lane's worktree once it is merged and clean (`git worktree remove <path>`), or leave it
   to `session-close`'s `machine-quiet.sh`.
 

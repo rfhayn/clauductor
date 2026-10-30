@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // lifecycleRunner runs the hooks through /usr/bin/env for real and fakes git's
@@ -30,8 +30,8 @@ func lifecycleRunner(ctx context.Context, dir string, argv []string) ([]byte, er
 
 // PANEL-20, on a throwaway socket: a new lane gets a port of its own (in its registry
 // record and its tmux environment), the gitignored files .worktreeinclude names (and
-// no others), and worktree_setup runs in its worktree with CLAUDUCTOR_LANE and
-// CLAUDUCTOR_PORT before claude starts. Close runs worktree_teardown first; a teardown
+// no others), and worktree_setup runs in its worktree with STRIDAL_LANE and
+// STRIDAL_PORT before claude starts. Close runs worktree_teardown first; a teardown
 // that leaves a file keeps the worktree.
 func TestLaneLifecycleSetupPortsAndInclude(t *testing.T) {
 	t.Parallel()
@@ -41,8 +41,8 @@ func TestLaneLifecycleSetupPortsAndInclude(t *testing.T) {
 	gitRun(t, root, "init", "-q", "-b", "main")
 	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"T","version":5,"lanes":{"main":"orchestrator","fix/":"fix"},
 		"base":"main","worktree_dir":".wt","ports":{"base":4400,"per_lane":10},
-		"worktree_setup":{"command":["sh","-c","echo \"$CLAUDUCTOR_LANE $CLAUDUCTOR_PORT\" > .setup-ran"]},
-		"worktree_teardown":{"command":["sh","-c","test \"$CLAUDUCTOR_LANE\" = dirty && echo \"$CLAUDUCTOR_LANE $CLAUDUCTOR_PORT\" > leftover.txt; true"]}}`)
+		"worktree_setup":{"command":["sh","-c","echo \"$STRIDAL_LANE $STRIDAL_PORT\" > .setup-ran"]},
+		"worktree_teardown":{"command":["sh","-c","test \"$STRIDAL_LANE\" = dirty && echo \"$STRIDAL_LANE $STRIDAL_PORT\" > leftover.txt; true"]}}`)
 	writeFile(t, filepath.Join(root, ".gitignore"), ".wt/\n.env\n.cache/\n.setup-ran\nsecret.txt\n")
 	writeFile(t, filepath.Join(root, ".worktreeinclude"), ".env\nconfig/*.json\n")
 	writeFile(t, filepath.Join(root, "config", "tracked.json"), "{}") // tracked: never copied
@@ -82,7 +82,7 @@ func TestLaneLifecycleSetupPortsAndInclude(t *testing.T) {
 	if r, _ := reg.Get("one"); r.Port != 4400 {
 		t.Fatalf("registry port %d", r.Port)
 	}
-	if out, _ := exec.Command(tmux, "-L", sock, "show-environment", "-t", "=one", "CLAUDUCTOR_PORT").Output(); strings.TrimSpace(string(out)) != "CLAUDUCTOR_PORT=4400" {
+	if out, _ := exec.Command(tmux, "-L", sock, "show-environment", "-t", "=one", "STRIDAL_PORT").Output(); strings.TrimSpace(string(out)) != "STRIDAL_PORT=4400" {
 		t.Fatalf("tmux environment: %q", out)
 	}
 	// Close: teardown runs, the clean worktree goes.

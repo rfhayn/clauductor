@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // PANEL-19: economy mode switches on at the threshold and off only 3 points below it;
@@ -104,7 +104,7 @@ func TestEconomyEndToEnd(t *testing.T) {
 	case launch := <-ready:
 		u, _ := url.Parse(launch)
 		port, _ := strconv.Atoi(u.Port())
-		c = liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, u.Query().Get("t"))}
+		c = liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("stridal_panel_%d=%s", port, u.Query().Get("t"))}
 	case err := <-done:
 		t.Fatalf("Run exited: %v", err)
 	}

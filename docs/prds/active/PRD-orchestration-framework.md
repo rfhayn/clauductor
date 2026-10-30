@@ -1,4 +1,4 @@
-# PRD: Clauductor — Multi-Worker Orchestration Framework
+# PRD: Stridal — Multi-Worker Orchestration Framework
 
 **Author**: Rich
 **Status**: ACTIVE
@@ -18,7 +18,7 @@ The result: developers underutilize Claude Code's capacity. You could have 3 age
 
 ## Vision
 
-Evolve clauductor from a single-session development methodology into a **multi-worker orchestration framework** where:
+Evolve stridal from a single-session development methodology into a **multi-worker orchestration framework** where:
 
 - Multiple Claude Code sessions (human or agent) work simultaneously on the same codebase
 - A supervisor session dispatches work, monitors progress, and resolves conflicts
@@ -146,7 +146,7 @@ Additional runtime file:
 
 ### Claude Code Status Line
 
-Each Clauductor project includes `.claude/statusline.sh` and a `statusLine` config in `.claude/settings.json`. This displays the current milestone, session type, and context usage in Claude Code's bottom bar:
+Each Stridal project includes `.claude/statusline.sh` and a `statusLine` config in `.claude/settings.json`. This displays the current milestone, session type, and context usage in Claude Code's bottom bar:
 
 ```
 [M1.2] BUILD auth provider | 34% ctx
@@ -154,7 +154,7 @@ Each Clauductor project includes `.claude/statusline.sh` and a `statusLine` conf
 
 The status line reads from `orchestration/.session-status` (primary) with fallback to parsing the git branch name. Skills update the status file automatically — no manual maintenance.
 
-The `clauductor install` command configures this for existing projects.
+The `stridal install` command configures this for existing projects.
 
 ### The HUD
 
@@ -260,11 +260,11 @@ Before orchestration, implement the split next-prompt file pattern:
 The framework repo separates **source** (framework tooling) from **template** (what projects get). Projects never contain framework source code.
 
 ```
-clauductor/               ← FRAMEWORK REPO (development only)
+stridal/               ← FRAMEWORK REPO (development only)
 ├── CLAUDE.md                       ← framework's own dev instructions
 ├── framework/                      ← compiled tooling source
 │   ├── cmd/
-│   │   ├── clauductor/              ← single binary: CLI + HUD
+│   │   ├── stridal/              ← single binary: CLI + HUD
 │   │   │   └── main.go
 │   │   └── ...
 │   ├── internal/
@@ -274,7 +274,7 @@ clauductor/               ← FRAMEWORK REPO (development only)
 │   │   └── config/
 │   ├── go.mod
 │   └── go.sum
-├── template/                       ← copied to new projects via `clauductor init`
+├── template/                       ← copied to new projects via `stridal init`
 │   ├── CLAUDE.md                   ← project-level instructions
 │   ├── .claude/
 │   │   └── skills/                 ← coordination protocol
@@ -310,7 +310,7 @@ clauductor/               ← FRAMEWORK REPO (development only)
 └── LICENSE
 ```
 
-**A project** created via `clauductor init` gets only the `template/` contents:
+**A project** created via `stridal init` gets only the `template/` contents:
 
 ```
 my-project/                         ← YOUR PROJECT
@@ -329,17 +329,17 @@ No framework source code. No Go files. Just skills, docs, and your code.
 
 ```bash
 # One-time: clone and install the framework
-git clone <repo> ~/clauductor
-cd ~/clauductor && ./install.sh
+git clone <repo> ~/stridal
+cd ~/stridal && ./install.sh
 
 # install.sh:
 #   1. Checks prerequisites: Go toolchain, tmux
-#   2. Builds clauductor binary
-#   3. Installs to ~/.local/bin/clauductor
+#   2. Builds stridal binary
+#   3. Installs to ~/.local/bin/stridal
 #   4. Verifies installation
 
 # Create a new project (empty directory)
-clauductor init ~/Development/my-app
+stridal init ~/Development/my-app
 #   1. Copies template/ into target directory
 #   2. Initializes git if needed
 #   3. Creates orchestration/ directory + .gitignore entry
@@ -348,7 +348,7 @@ clauductor init ~/Development/my-app
 
 # Install into an existing repo
 cd ~/Development/existing-project
-clauductor install
+stridal install
 #   1. Detects existing project structure
 #   2. Categorizes template files into three tiers:
 #      FRAMEWORK files (skills, agents, settings, statusline):
@@ -362,7 +362,7 @@ clauductor install
 #   5. Supports --dry-run to preview changes
 
 # Update a project's skills/templates (preserves customizations)
-clauductor update
+stridal update
 #   1. Diffs template/ against project
 #   2. Shows changes, applies with interactive merge
 #   3. Does not touch user code or docs content
@@ -372,22 +372,22 @@ clauductor update
 
 ```
 Skill (markdown)
-  → shells out to `clauductor` CLI
+  → shells out to `stridal` CLI
     → writes to SQLite (orchestration/framework.db)
       → HUD reads SQLite, renders in real-time
 ```
 
-Skills remain readable markdown. The `clauductor` binary handles all state operations. The HUD is a read-only viewer with input forwarding to the supervisor.
+Skills remain readable markdown. The `stridal` binary handles all state operations. The HUD is a read-only viewer with input forwarding to the supervisor.
 
 ### Skill Hot-Reload
 
-Skills are markdown files read by Claude Code at invocation time — they are not compiled or cached. When `clauductor update` modifies a skill file on disk, the next invocation of that skill in any session picks up the change immediately. No session restart required. This is a natural property of how Claude Code skills work (read from disk on each `/skill` call).
+Skills are markdown files read by Claude Code at invocation time — they are not compiled or cached. When `stridal update` modifies a skill file on disk, the next invocation of that skill in any session picks up the change immediately. No session restart required. This is a natural property of how Claude Code skills work (read from disk on each `/skill` call).
 
 ### How Sessions Are Spawned
 
 The `/spawn` skill:
 1. Determines the right context (next-prompt-M#.#.md, PRD, etc.)
-2. Creates a new tmux pane within the Clauductor session
+2. Creates a new tmux pane within the Stridal session
 3. Launches Claude Code in the pane with initial context/prompt
 4. The new session runs `/session-start` which auto-registers with the orchestration layer
 5. If build session: runs `/claim` to declare manifest and lock files
@@ -403,9 +403,9 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - Create framework's own root CLAUDE.md for framework development
 - Set up `framework/` directory with Go module scaffolding
 - Create `install.sh` (build binary + install to PATH)
-- Implement `clauductor init` (copy template to new directory, init orchestration/)
-- Implement `clauductor install` (add framework to existing repo, non-destructive, conflict prompts)
-- Implement `clauductor update` (diff template against existing project, interactive merge)
+- Implement `stridal init` (copy template to new directory, init orchestration/)
+- Implement `stridal install` (add framework to existing repo, non-destructive, conflict prompts)
+- Implement `stridal update` (diff template against existing project, interactive merge)
 - Verify: clone → install → init → project works with existing skills
 - Verify: clone → install → install (existing repo) → framework integrates cleanly
 
@@ -421,8 +421,8 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 **Status: COMPLETE** (22 unit tests passing)
 **Scope**: Shared state infrastructure
 - Design SQLite schema (workers, locks, events, milestones)
-- Add state commands to `clauductor`: register, deregister, lock, unlock, event, query
-- `clauductor init` creates and initializes framework.db
+- Add state commands to `stridal`: register, deregister, lock, unlock, event, query
+- `stridal init` creates and initializes framework.db
 - Unit tests for state operations
 
 ### M4: Worker Registration & Locking
@@ -442,7 +442,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - Workers panel, file locks panel, activity feed, milestones panel
 - Auto-refresh on state changes
 - Keyboard navigation and basic commands
-- Launched via `clauductor watch`
+- Launched via `stridal watch`
 - Well-designed terminal/ASCII aesthetic
 
 ### M6: Supervisor & Spawning
@@ -462,7 +462,7 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 - Orchestration log export/query
 - `/assign` skill — auto-dispatch from priority queue
 - Documentation and onboarding guide
-- `clauductor update` — upgrade project skills from latest framework
+- `stridal update` — upgrade project skills from latest framework
 
 ## Constraints
 
@@ -483,13 +483,13 @@ All worker sessions live as tmux panes — the HUD can toggle between them direc
 | 5 | **Session persistence** | Yes — state is in SQLite. Supervisor can die and resume. Workers are unaffected. |
 | 6 | **HUD interaction** | Both — HUD command input for quick dispatch, supervisor's Claude Code session for deeper conversation. HUD toggles into sessions via tmux pane switching. |
 | 7 | **v1 scope** | M1-M7 (all milestones). Full orchestration framework. |
-| 8 | **Product name** | Clauductor. CLI binary: `clauductor`. |
-| 9 | **Skill hot-reload** | Yes — skills are read from disk on each invocation. `clauductor update` changes take effect immediately, no restart needed. |
-| 10 | **Existing repos** | `clauductor install` adds framework to existing repos non-destructively. |
-| 11 | **tmux** | Required dependency. All sessions (HUD + workers) run as tmux panes in a Clauductor-managed tmux session. |
+| 8 | **Product name** | Stridal. CLI binary: `stridal`. |
+| 9 | **Skill hot-reload** | Yes — skills are read from disk on each invocation. `stridal update` changes take effect immediately, no restart needed. |
+| 10 | **Existing repos** | `stridal install` adds framework to existing repos non-destructively. |
+| 11 | **tmux** | Required dependency. All sessions (HUD + workers) run as tmux panes in a Stridal-managed tmux session. |
 
-| 12 | **Naming conflicts** | `clauductor install` prompts for each conflict, recommends using framework version with warning that custom overrides may break functionality. No auto-merge. |
-| 13 | **tmux session naming** | `clauductor-{project-dirname}`. Supports multiple concurrent Clauductor-managed projects, each in its own tmux session. |
-| 14 | **Claude Code version** | `clauductor` checks for minimum Claude Code version on install/init and warns if incompatible. |
+| 12 | **Naming conflicts** | `stridal install` prompts for each conflict, recommends using framework version with warning that custom overrides may break functionality. No auto-merge. |
+| 13 | **tmux session naming** | `stridal-{project-dirname}`. Supports multiple concurrent Stridal-managed projects, each in its own tmux session. |
+| 14 | **Claude Code version** | `stridal` checks for minimum Claude Code version on install/init and warns if incompatible. |
 | 15 | **Naming convention** | PREFIX-#.# format (e.g., AUTH-1.3) with configurable prefix registry in CLAUDE.md. Replaces M#.#.# for new projects. Legacy M#.#.# supported for existing projects (e.g., forager). Framework's own milestones (M1-M7) use legacy format for historical reasons. |
 | 16 | **Code review** | Built-in `/review` skill checks convention compliance, manifest adherence, doc currency, code quality. Two modes: branch (pre-PR) and PR. Orchestration-aware. |

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
 )
 
 // LaneCloseAnswer is the panel's answer to a close asked on its command socket: the
@@ -31,7 +31,7 @@ type LaneCloseAnswer struct {
 // the panel wrote them. Any other error is one of three: the socket not answering
 // (nothing was sent, so nothing changed); a request sent and then cut off before its
 // answer (a close the panel had begun finishes there, D4, so its outcome is unknown
-// here); or an answer that cannot be read. It is the one client `clauductor lane
+// here); or an answer that cannot be read. It is the one client `stridal lane
 // close` uses, so the panel's tests drive the real route through it.
 func CloseLane(ctx context.Context, socket, project, id string, req lanes.CloseRequest) (LaneCloseAnswer, error) {
 	body, err := json.Marshal(req)
@@ -62,7 +62,7 @@ func CloseLane(ctx context.Context, socket, project, id string, req lanes.CloseR
 	resp, err := client.Do(hreq)
 	switch {
 	case err != nil && !connected.Load():
-		return LaneCloseAnswer{}, fmt.Errorf("the panel's socket %s does not answer: %w; nothing was asked of it (`clauductor panel` starts a panel)", socket, err)
+		return LaneCloseAnswer{}, fmt.Errorf("the panel's socket %s does not answer: %w; nothing was asked of it (`stridal panel` starts a panel)", socket, err)
 	case err != nil && req.DryRun:
 		// A dry run changes nothing, so a lost answer leaves nothing begun.
 		return LaneCloseAnswer{}, fmt.Errorf("the panel's answer did not arrive (%w); a dry run changes nothing, so ask again", err)

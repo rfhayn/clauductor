@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/testgit"
+	"github.com/rfhayn/stridal/internal/testgit"
 )
 
 const wantAttrs = "# rules\n* text=auto eol=lf\n*.png binary\n"

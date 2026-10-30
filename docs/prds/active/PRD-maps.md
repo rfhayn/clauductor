@@ -16,13 +16,13 @@ as the record of what was decided on 2026-10-12.
 
 ## Rescope (the owner, 2026-10-14)
 
-The owner weighed whether Clauductor was worth its cost against Pav Rusovs' AI OS itself, and chose **option B**:
+The owner weighed whether Stridal was worth its cost against Pav Rusovs' AI OS itself, and chose **option B**:
 
-- **MAPS is a personal workspace layer with no code governance.** Clauductor's core (the gate, the merge guard,
+- **MAPS is a personal workspace layer with no code governance.** Stridal's core (the gate, the merge guard,
   the change process, lanes) is what neither MAPS nor a plain repository gives, and stays.
 - **The weight was elsewhere.** It came from three things: a second copy of Standing Tee's operating model kept in
   step by porting, the Map's polish, and process rows that improve the process.
-- **Clauductor serves Standing Tee through attach mode** (PANEL-42, PANEL-43, `PRD-attach.md`) and stops porting its
+- **Stridal serves Standing Tee through attach mode** (PANEL-42, PANEL-43, `PRD-attach.md`) and stops porting its
   practices.
 - **Pulse stays:** routines (OPS-42, PANEL-37) and a Today view (PANEL-38).
 - **The investment goes into the panel's UI** (PANEL-45, PANEL-46, `PRD-ui.md`).
@@ -59,7 +59,7 @@ The dashboard is a dark three-column page:
 - a colour-coded, animated graph of the workspace, drawn six ways from one data file;
 - a column with the next session, what is waiting, a deck of skill buttons and a routines table.
 
-**How Clauductor compares:**
+**How Stridal compares:**
 
 - **Already ahead on the Screen layer.** The panel has lanes, the gate lock, metrics and alerts.
 - **Shares several principles.** Each figure names its subject and goes stale rather than hiding, deterministic
@@ -81,7 +81,7 @@ The Standing Tee playbook (updated 2026-10-07) has also moved past the 2026-10-0
 
 ## Decisions (the owner, 2026-10-12)
 
-1. **Build it into Clauductor's panel**, for every project, through the normal process: roadmap rows, `/propose` one
+1. **Build it into Stridal's panel**, for every project, through the normal process: roadmap rows, `/propose` one
    ahead, `build-change`, `merge-pr`.
 2. **Phase 1 is free:**
    - the Map view;
@@ -214,7 +214,7 @@ these tests:
 spend ledger, the worktrees, the gate receipts or a macOS-only flake. Their writes would also be outward, which is the
 owner's decision. The registry keeps a `where` field so a cloud runner can follow.
 
-**The registry: `.claude/routines.json`.** It is the project's own file, and `clauductor update` never overwrites it.
+**The registry: `.claude/routines.json`.** It is the project's own file, and `stridal update` never overwrites it.
 
 - **Top level:** `{version, caps, routines}`.
 - **Caps:** a daily dollar cap, a rolling-window dollar cap and a daily run count.
@@ -227,7 +227,7 @@ owner's decision. The registry keeps a `where` field so a cloud runner can follo
 
 - Takes a lock under the git common dir.
 - Checks the caps against the run log.
-- Reads the quota from `~/.clauductor/panel/quota.json` when it is there.
+- Reads the quota from `~/.stridal/panel/quota.json` when it is there.
 - Refuses when `ANTHROPIC_API_KEY` is set, so it runs on the subscription only, as lanes do.
 - Runs `claude -p --output-format json`, under a timeout that stops only its own child process (ADR-0005).
 - Takes the cost and turns from the JSON. A headless run never reaches the panel's spend ledger.
@@ -300,7 +300,7 @@ Three Claude Code behaviours are unverified and are probed before their designs 
 
 ## In an attached repository
 
-Attach mode (PANEL-42, `PRD-attach.md`) means a repository can use the panel with none of Clauductor's model installed
+Attach mode (PANEL-42, `PRD-attach.md`) means a repository can use the panel with none of Stridal's model installed
 in it. Standing Tee is the first. Each MAPS row works there as follows, and its proposal designs for both kinds of
 repository.
 
@@ -309,7 +309,7 @@ repository.
 | OPS-38, OPS-39 | Not used. The repository's cards run its own roadmap parser, so Standing Tee's derived order is its own. |
 | OPS-40 | No `map.sh`. Schema v1 allows a map the panel builds from what it already reads: lanes, worktrees, and the repository's `.claude/skills`, `.claude/agents` and settings hooks. Rule, control and record layers are empty, and the page says why. |
 | PANEL-35, PANEL-36 | Draw that panel-built map. The view is never an empty page. |
-| OPS-42 | The registry may live beside the sidecar config (`~/.clauductor/projects/<id>/routines.json`), with its run log there too. Its commands run in the repository, which it never writes to. |
+| OPS-42 | The registry may live beside the sidecar config (`~/.stridal/projects/<id>/routines.json`), with its run log there too. Its commands run in the repository, which it never writes to. |
 | PANEL-37 | Ticks the sidecar registry. The trust that covers the sidecar config covers it too. |
 | PANEL-38 | Works unchanged. Its sources are the panel's: the spend ledger, merged PRs and the routine log. With no gate run log, the gate row is absent, not zero. |
 | PANEL-39 | Works unchanged. Deck templates come from the sidecar config. |
@@ -321,7 +321,7 @@ repository.
 **When.** The owner subscribes for one month when phase 1 ends, after reading Patreon's terms. Until then the two rows
 sit at the end of Phase 2, so nothing waits on the purchase.
 
-**The clean-room rule.** Clauductor ships publicly, and paid source cannot be redistributed.
+**The clean-room rule.** Stridal ships publicly, and paid source cannot be redistributed.
 
 - The source lives outside every repository, worktree and plugin input path.
 - **OPS-48:** one session studies it and writes `docs/prds/active/PRD-maps-phase2.md`, a behaviour-only spec with no

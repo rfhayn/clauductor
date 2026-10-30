@@ -7,7 +7,7 @@
 //     call) becomes the plugin's components, with every `.claude/...` path rewritten to the
 //     plugin's own root, because the plugin's copy lives in Claude Code's plugin cache;
 //   - the PROJECT tier (AGENTS.md, project.conf, model-roles.json, docs/, changes/, specs/,
-//     scripts/ci/, .clauductor/panel.json, the settings the project needs) is carried under
+//     scripts/ci/, .stridal/panel.json, the settings the project needs) is carried under
 //     scaffold/, which no plugin component loads, and which the plugin's `init` skill copies into
 //     a repository without overwriting anything.
 //
@@ -28,18 +28,18 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
-// Name is the plugin's name, which namespaces every component (`/clauductor:session-start`), and
-// the marketplace's name, so the install id is clauductor@clauductor.
-const Name = "clauductor"
+// Name is the plugin's name, which namespaces every component (`/stridal:session-start`), and
+// the marketplace's name, so the install id is stridal@stridal.
+const Name = "stridal"
 
 // Marketplace is the name of the marketplace the repo root declares.
-const Marketplace = "clauductor"
+const Marketplace = "stridal"
 
 // Repo is the GitHub repository users add as the marketplace.
-const Repo = "rfhayn/clauductor"
+const Repo = "rfhayn/stridal"
 
 // PluginDir is where the built plugin is committed, relative to the repo root. A marketplace's
 // relative-path source must exist in the clone, so the build output is checked in and a test
@@ -52,7 +52,7 @@ const ScaffoldDir = "scaffold"
 // FWVar is the shell variable the rewritten scripts use for the plugin root. Each executed script
 // computes it from its own location, so it names the copy that is running (the plugin cache, or a
 // scratch repository a check copied the script into).
-const FWVar = "CLAUDUCTOR_FW"
+const FWVar = "STRIDAL_FW"
 
 // projectSkills are template skills a project edits (CONFIGURE FIRST stubs). A plugin's files are
 // read-only in the cache, so these are scaffolded as the project's own skills instead. Mirrors
@@ -61,7 +61,7 @@ var projectSkills = map[string]bool{"architecture-audit": true, "release-prep": 
 
 // frameworkDirs are the template's `.claude/` directories that become plugin directories of the
 // same name. `bin` is the refusing pkill and killall (ST-14): a project and the plugin both find
-// them as the sibling of hooks/. `.claude/health/` is not one: `clauductor install` treats it as the project's (a
+// them as the sibling of hooks/. `.claude/health/` is not one: `stridal install` treats it as the project's (a
 // project deletes the GitHub lines it does not use), so it is scaffolded. Nor is `.claude/evals/`:
 // a project adds cases for its own domain and commits the receipts its model choices rest on
 // (OPS-10), so the suite, its runner and its receipts are the project's.
@@ -93,7 +93,7 @@ var assets embed.FS
 
 // Options configure a build.
 type Options struct {
-	RepoRoot string // the clauductor repository (template/ lives under it)
+	RepoRoot string // the stridal repository (template/ lives under it)
 	OutDir   string // where the plugin is written; default <RepoRoot>/plugin
 	Version  string // the plugin version (internal/cmd.Version)
 }
@@ -275,7 +275,7 @@ const (
 // place decides where a template file goes: its path inside the plugin, or the scaffold.
 func place(rel string) (string, fileKind, error) {
 	if !strings.HasPrefix(rel, ".claude/") {
-		return "", kindScaffold, nil // AGENTS.md, docs/, changes/, specs/, scripts/ci/, .clauductor/ ...
+		return "", kindScaffold, nil // AGENTS.md, docs/, changes/, specs/, scripts/ci/, .stridal/ ...
 	}
 	sub := strings.TrimPrefix(rel, ".claude/")
 	if sub == "settings.json" {
@@ -410,9 +410,9 @@ func frontmatterModel(path string) (string, string, error) {
 func pluginManifest(version string) ([]byte, error) {
 	m := map[string]any{
 		"name":        Name,
-		"displayName": "Clauductor",
+		"displayName": "Stridal",
 		"version":     version,
-		"description": "Clauductor's operating model for Claude Code: hands-off sessions, a roadmap queue, approved proposals, per-task-group build and review, and hooks and checks that execute the rules. Run /clauductor:init in a repository to scaffold its project files.",
+		"description": "Stridal's operating model for Claude Code: hands-off sessions, a roadmap queue, approved proposals, per-task-group build and review, and hooks and checks that execute the rules. Run /stridal:init in a repository to scaffold its project files.",
 		"author":      map[string]any{"name": "Rich Hayn"},
 		"homepage":    "https://github.com/" + Repo,
 		"repository":  "https://github.com/" + Repo,
@@ -427,12 +427,12 @@ func pluginManifest(version string) ([]byte, error) {
 func MarketplaceJSON() ([]byte, error) {
 	m := map[string]any{
 		"name":        Marketplace,
-		"description": "Clauductor's operating model for Claude Code, as a plugin.",
+		"description": "Stridal's operating model for Claude Code, as a plugin.",
 		"owner":       map[string]any{"name": "Rich Hayn"},
 		"plugins": []any{map[string]any{
 			"name":        Name,
 			"source":      "./" + PluginDir,
-			"description": "The operating model: skills, agents, hooks, the build-change workflow and the process checks. /clauductor:init scaffolds a repository's own files.",
+			"description": "The operating model: skills, agents, hooks, the build-change workflow and the process checks. /stridal:init scaffolds a repository's own files.",
 			"category":    "development",
 		}},
 	}
@@ -500,7 +500,7 @@ func pluginHooks(settings []byte) ([]byte, error) {
 		"command": `sh "${CLAUDE_PLUGIN_ROOT}/hooks/plugin-session.sh"`,
 	}}})
 	return marshal(map[string]any{
-		"description": "Clauductor's operating-model hooks. Each runs only in a repository /clauductor:init set up (.claude/clauductor-plugin).",
+		"description": "Stridal's operating-model hooks. Each runs only in a repository /stridal:init set up (.claude/stridal-plugin).",
 		"hooks":       out,
 	})
 }
@@ -508,11 +508,11 @@ func pluginHooks(settings []byte) ([]byte, error) {
 // StatusLineCommand is the project's status line in plugin mode. A statusLine cannot come from a
 // plugin and cannot name ${CLAUDE_PLUGIN_ROOT}, whose path changes with every version, so the
 // plugin's SessionStart hook writes a shim into its persistent data directory, which does not.
-const StatusLineCommand = `f="${CLAUDE_CODE_PLUGIN_CACHE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins}/data/clauductor-clauductor/statusline.sh"; [ -f "$f" ] && sh "$f"`
+const StatusLineCommand = `f="${CLAUDE_CODE_PLUGIN_CACHE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins}/data/stridal-stridal/statusline.sh"; [ -f "$f" ] && sh "$f"`
 
 // projectSettings is the scaffold's .claude/settings.json: the template's settings minus the
 // hooks (the plugin registers them), with the status line through the shim, the allow rules for
-// the model's scripts through bin/clauductor-model, and the plugin enabled for everyone who
+// the model's scripts through bin/stridal-model, and the plugin enabled for everyone who
 // clones the repository.
 func projectSettings(settings []byte) ([]byte, error) {
 	keys, vals, err := orderedObject(settings)
@@ -589,7 +589,7 @@ func rewriteAllow(s string) string {
 	if m == nil {
 		return s
 	}
-	return "Bash(clauductor-model " + m[1] + m[2] + ")"
+	return "Bash(stridal-model " + m[1] + m[2] + ")"
 }
 
 func marshalCompact(v any) ([]byte, error) {

@@ -1,10 +1,10 @@
 #!/bin/sh
-# This project's side of the local panel's contract. The panel is clauductor's and is tested there;
+# This project's side of the local panel's contract. The panel is stridal's and is tested there;
 # nothing in this project's gate would notice these promises breaking (ported from Standing Tee's
 # control-panel-contract test; the status line's half is checks/statusline.sh):
 #   1. The checked-in .claude/settings.json carries no panel hook: the panel installs its hooks in
 #      the USER settings when it starts, so a machine that never ran the panel sends nothing.
-#   2. Every card in .clauductor/panel.json runs a script that exists, with a well-formed refresh,
+#   2. Every card in .stridal/panel.json runs a script that exists, with a well-formed refresh,
 #      and runs EXACTLY what session-start runs (context.sh, or digests.sh when context.sh
 #      calls it), stderr included: no panel-only copy
 #      (one parser), and a card that dropped `2>&1` would show silence for the very failure the
@@ -24,15 +24,15 @@ need jq
 # must END a path segment, so `.claude/hooks/...` and `status-write.sh` are not taken for them.
 panel_hooks() {  # panel_hooks FILE: each hook entry (url or command) that targets the panel
   jq -r '(.hooks // {}) | to_entries[] | .value[]? | .hooks[]? | "\(.url // "") \(.command // "")"' "$1" \
-    | grep -E '(127\.0\.0\.1|localhost):4393|/(hook|status)([?#"'"'"'[:space:]/]|$)|clauductor-panel' || true
+    | grep -E '(127\.0\.0\.1|localhost):4393|/(hook|status)([?#"'"'"'[:space:]/]|$)|stridal-panel' || true
 }
 # Installed as a plugin, the model's hooks are checked in too, in the plugin's hooks/hooks.json.
 plugin=""
-[ -n "${CLAUDUCTOR_FW:-}" ] && [ -f "$CLAUDUCTOR_FW/hooks/hooks.json" ] && plugin=1
+[ -n "${STRIDAL_FW:-}" ] && [ -f "$STRIDAL_FW/hooks/hooks.json" ] && plugin=1
 S="$ROOT/.claude/settings.json"
 if [ -f "$S" ]; then
   n=0
-  for f in "$S" ${plugin:+"$CLAUDUCTOR_FW/hooks/hooks.json"}; do
+  for f in "$S" ${plugin:+"$STRIDAL_FW/hooks/hooks.json"}; do
     k=$(jq '[(.hooks // {}) | to_entries[] | .value[]? | .hooks[]?] | length' "$f" 2>/dev/null) || { fail "$f does not parse"; continue; }
     n=$((n + k))
     found=$(panel_hooks "$f")
@@ -42,11 +42,11 @@ if [ -f "$S" ]; then
 else
   fail "no .claude/settings.json"
 fi
-# A card that runs the model through scripts/ci/clauductor-model.sh finds the plugin this way.
-[ -z "$plugin" ] || { CLAUDUCTOR_PLUGIN_ROOT=${CLAUDUCTOR_PLUGIN_ROOT:-$CLAUDUCTOR_FW}; export CLAUDUCTOR_PLUGIN_ROOT; }
+# A card that runs the model through scripts/ci/stridal-model.sh finds the plugin this way.
+[ -z "$plugin" ] || { STRIDAL_PLUGIN_ROOT=${STRIDAL_PLUGIN_ROOT:-$STRIDAL_FW}; export STRIDAL_PLUGIN_ROOT; }
 # The detector, both ways (a check that could never fire passes vacuously).
 F=$(scratch)/fx.json
-for u in 'http://127.0.0.1:4393/hook?src=clauductor-panel' 'http://localhost:4393/status' 'http://127.0.0.1:5000/hook' 'http://127.0.0.1:9/x?src=clauductor-panel'; do
+for u in 'http://127.0.0.1:4393/hook?src=stridal-panel' 'http://localhost:4393/status' 'http://127.0.0.1:5000/hook' 'http://127.0.0.1:9/x?src=stridal-panel'; do
   jq -n --arg u "$u" '{hooks: {Stop: [{hooks: [{type: "http", url: $u}]}]}}' > "$F"
   [ -n "$(panel_hooks "$F")" ] && ok "the detector fires on $u" || fail "the detector missed $u"
 done
@@ -55,9 +55,9 @@ jq -n --arg a "sh \"\$CLAUDE_PROJECT_DIR\"/$D/hooks/x.sh" --arg b "sh $D/status-
   '{hooks: {Stop: [{hooks: [{type: "http", url: "https://hooks.example.com/notify"}]}], PreToolUse: [{hooks: [{type: "command", command: $a}]}, {hooks: [{type: "command", command: $b}]}]}}' > "$F"
 [ -z "$(panel_hooks "$F")" ] && ok "the detector passes hooks that are not the panel's (.claude/hooks/, status-write.sh, another host)" || fail "the detector flagged a hook that is not the panel's: $(panel_hooks "$F")"
 
-PJ="$ROOT/.clauductor/panel.json"
-if [ ! -f "$PJ" ]; then ok "no .clauductor/panel.json: no panel contract to keep (the panel is optional)"; finish; fi
-jq -e . "$PJ" >/dev/null 2>&1 || { fail ".clauductor/panel.json does not parse"; finish; }
+PJ="$ROOT/.stridal/panel.json"
+if [ ! -f "$PJ" ]; then ok "no .stridal/panel.json: no panel contract to keep (the panel is optional)"; finish; fi
+jq -e . "$PJ" >/dev/null 2>&1 || { fail ".stridal/panel.json does not parse"; finish; }
 CTX="$ROOT/.claude/skills/session-start/context.sh"
 [ -f "$CTX" ] || { fail "session-start's context.sh is missing, so no card can be held to it"; finish; }
 
@@ -76,9 +76,9 @@ nc=$(jq '.cards | length' "$PJ"); nu=$(jq '[.cards[].id] | unique | length' "$PJ
 # runs: those lines are session-start's too. The match is the whole command left of a pipe, so an
 # echo that merely names the helper is not the command the card is held to.
 # Installed as a plugin, the same model script is spelled three ways (context.sh's
-# `sh "$CLAUDUCTOR_FW"/x.sh`, a card's `sh scripts/ci/clauductor-model.sh x.sh`, the template's
+# `sh "$STRIDAL_FW"/x.sh`, a card's `sh scripts/ci/stridal-model.sh x.sh`, the template's
 # `sh .claude/x.sh`): canon() makes them one spelling before they are compared.
-canon() { sed -e 's#roadmap_queue #sh @MODEL@/roadmap-queue.sh #g' -e 's#sh "\$CLAUDUCTOR_FW"/#sh @MODEL@/#g' -e 's#sh scripts/ci/clauductor-model\.sh #sh @MODEL@/#g' -e 's#sh [.]claude/#sh @MODEL@/#g'; }
+canon() { sed -e 's#roadmap_queue #sh @MODEL@/roadmap-queue.sh #g' -e 's#sh "\$STRIDAL_FW"/#sh @MODEL@/#g' -e 's#sh scripts/ci/stridal-model\.sh #sh @MODEL@/#g' -e 's#sh [.]claude/#sh @MODEL@/#g'; }
 ctx_lines=$(grep -v '^[[:space:]]*#' "$CTX" | canon)
 if grep -q 'skills/session-start/digests.sh' "$CTX"; then
   _dig="$ROOT/.claude/skills/session-start/digests.sh"
@@ -147,7 +147,7 @@ fi
 # ── 3. Every lane template delegates to something that exists ─────────────────────────────────────
 target_exists() {  # a skill (the project's, or the plugin's as /<plugin>:<skill>), or a workflow whose meta name is $1
   _n=${1#*:}
-  { [ -f "$ROOT/.claude/skills/$_n/SKILL.md" ] || { [ -n "${CLAUDUCTOR_FW:-}" ] && [ -f "$CLAUDUCTOR_FW/skills/$_n/SKILL.md" ]; }; } && return 0
+  { [ -f "$ROOT/.claude/skills/$_n/SKILL.md" ] || { [ -n "${STRIDAL_FW:-}" ] && [ -f "$STRIDAL_FW/skills/$_n/SKILL.md" ]; }; } && return 0
   [ -f "$ROOT/.claude/workflows/$_n.js" ] && grep -qE "name:[[:space:]]*['\"]$_n['\"]" "$ROOT/.claude/workflows/$_n.js"
 }
 commands_in() { printf '%s\n' "$1" | grep -oE '(^|[[:space:]])/[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*)?([[:space:].,;)]|:[[:space:]]|$)' | sed 's|^[[:space:]]*/||; s|[[:space:]:.,;)]*$||'; }
@@ -163,12 +163,12 @@ D=.claude  # spelled through a variable: a fixture, not a path this check uses
 pt="check with $D/checks/run.sh, then (sh $D/roadmap-queue.sh --text), not and/or nowhere/x.sh."
 [ "$(paths_in "$pt" | tr '\n' ' ')" = "$D/checks/run.sh $D/roadmap-queue.sh " ] \
   && ok "the path detector finds repo paths (trailing punctuation dropped), and not prose like and/or" || fail "the path detector: '$(paths_in "$pt" | tr '\n' ' ')'"
-[ "$(commands_in '/clauductor:propose {name}: its row' | tr '\n' ' ')" = "clauductor:propose " ] && ok "the /command detector reads a plugin's /<plugin>:<skill>" || fail "the /command detector on a plugin skill: '$(commands_in '/clauductor:propose {name}: its row')'"
+[ "$(commands_in '/stridal:propose {name}: its row' | tr '\n' ' ')" = "stridal:propose " ] && ok "the /command detector reads a plugin's /<plugin>:<skill>" || fail "the /command detector on a plugin skill: '$(commands_in '/stridal:propose {name}: its row')'"
 target_exists premise-check && fail "target_exists found a skill that does not exist" || ok "target_exists refuses a /command that is no skill or workflow"
 # Claude Code reads a leading /command up to the first space, so '/session-close:' is an unknown
 # command, not /session-close with its arguments (the S11 close lane).
 lead_ok() { printf '%s' "${1%% *}" | grep -qE '^/[A-Za-z0-9]([A-Za-z0-9_:-]*[A-Za-z0-9])?$'; }
-for p in '/session-close This lane' '/x then' '/clauductor:propose x' '/merge-pr'; do lead_ok "$p" && ok "the leading-command guard passes '${p%% *}'" || fail "the leading-command guard refused '${p%% *}'"; done
+for p in '/session-close This lane' '/x then' '/stridal:propose x' '/merge-pr'; do lead_ok "$p" && ok "the leading-command guard passes '${p%% *}'" || fail "the leading-command guard refused '${p%% *}'"; done
 for p in '/session-close: This lane' '/build-change, then' '/x.' '/-x y'; do lead_ok "$p" && fail "the leading-command guard passed '${p%% *}'" || ok "the leading-command guard refuses '${p%% *}'"; done
 jq -c '.templates[]?' "$PJ" > "$(scratch)/templates"
 while IFS= read -r t; do
@@ -193,8 +193,8 @@ while IFS= read -r t; do
     steps=$fp
     case $fp in /build-change*)
       steps="$fp $(grep -m1 'whenToUse:' "$ROOT/.claude/workflows/build-change.js" 2>/dev/null)"
-      # The plugin's build spells the step `clauductor-model skills/…`; either form runs the marker.
-      grep -qE '^[0-9]+\. \\`(sh \.claude/|clauductor-model )skills/session-start/marker\.sh' "$ROOT/.claude/workflows/build-change.js" 2>/dev/null \
+      # The plugin's build spells the step `stridal-model skills/…`; either form runs the marker.
+      grep -qE '^[0-9]+\. \\`(sh \.claude/|stridal-model )skills/session-start/marker\.sh' "$ROOT/.claude/workflows/build-change.js" 2>/dev/null \
         && ok "template $id: build-change runs the marker itself" || fail "template $id: build-change does not run sh .claude/skills/session-start/marker.sh, so a build lane starts with no marker"
       grep -qE '^if \(!MARKER_OK\.test\(markerLine\)\) report\.warnings\.push' "$ROOT/.claude/workflows/build-change.js" 2>/dev/null \
         && ok "template $id: a marker that did not report success reaches report.warnings" || fail "template $id: build-change.js does not push a marker that did not report success to report.warnings, so a failed marker reaches nobody" ;;

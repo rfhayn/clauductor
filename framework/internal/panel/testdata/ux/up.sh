@@ -7,13 +7,13 @@
 #                            sockets, projects, lanes, typedLog, bin}
 #   down.sh <runid>          tears it down
 #
-# It never touches the real ~/.claude or ~/.clauductor, launchd, or any tmux socket
+# It never touches the real ~/.claude or ~/.stridal, launchd, or any tmux socket
 # but its own: HOME is a temp dir, the panel's hooks go into that HOME's settings, and
 # every project names its socket in its panel.json.
 #
 # Environment:
-#   CLAUDUCTOR_BIN   use this binary instead of building the checkout
-#   UX_TMP           where runs live (default ${TMPDIR:-/tmp}/clauductor-ux)
+#   STRIDAL_BIN   use this binary instead of building the checkout
+#   UX_TMP           where runs live (default ${TMPDIR:-/tmp}/stridal-ux)
 #   UX_PORT_MIN/MAX  the allowed port range (default 4700–4799)
 #   UX_LIFECYCLE=1   also start the lanes the lifecycle flows act on (UX-2): shipclean and
 #                    shipdirty (lane type ship, closed by lanes_auto_close once their PRs
@@ -26,7 +26,7 @@ port=${2:-}
 [[ "$runid" =~ ^[a-z0-9]{1,16}$ ]] || { echo "usage: up.sh <runid: [a-z0-9]{1,16}> <port>" >&2; exit 2; }
 [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge "${UX_PORT_MIN:-4700}" ] && [ "$port" -le "${UX_PORT_MAX:-4799}" ] \
   || { echo "up.sh: port $port is outside ${UX_PORT_MIN:-4700}–${UX_PORT_MAX:-4799}" >&2; exit 2; }
-root=${UX_TMP:-${TMPDIR:-/tmp}/clauductor-ux}
+root=${UX_TMP:-${TMPDIR:-/tmp}/stridal-ux}
 mkdir -p "$root"
 root=$(cd "$root" && pwd -P)
 D="$root/$runid"
@@ -43,11 +43,11 @@ trap 'fail "line $LINENO"' ERR
 
 # Built under the real HOME, before it moves: go's module cache (read-only files) must
 # not land in the run's temp HOME, where down.sh could not remove it.
-if [ -n "${CLAUDUCTOR_BIN:-}" ]; then
-  cp "$CLAUDUCTOR_BIN" "$D/bin/clauductor"
+if [ -n "${STRIDAL_BIN:-}" ]; then
+  cp "$STRIDAL_BIN" "$D/bin/stridal"
 else
-  say "building clauductor from $fw"
-  (cd "$fw" && go build -o "$D/bin/clauductor" ./cmd/clauductor)
+  say "building stridal from $fw"
+  (cd "$fw" && go build -o "$D/bin/stridal" ./cmd/stridal)
 fi
 
 # The environment every command here and the panel see: the temp HOME, the fakes
@@ -65,7 +65,7 @@ cp "$here/fake/claude" "$here/fake/gh" "$D/bin/"
 # Alpha and, with METRICS_FIXTURE=bad, one that breaks the contract in Beta.
 cp "$fw/internal/panel/metrics/testdata/metrics.sh" "$fw/internal/panel/metrics/testdata/metrics.json" "$D/bin/"
 chmod +x "$D/bin/"*
-C="$D/bin/clauductor"
+C="$D/bin/stridal"
 
 s1="ux-$runid-1" s2="ux-$runid-2" s3="ux-$runid-3"
 # PANEL-22: s4 is Delta's, written into the config the page creates before it is trusted
@@ -75,12 +75,12 @@ printf '%s\n' "$s1" "$s2" "$s3" "$s4" "$s5" "$s6" > "$D/sockets"
 
 P="$D/projects"
 A="$P/alpha" B="$P/beta" G="$P/gamma"
-mkdir -p "$A/.clauductor" "$A/.claude" "$A/src" "$A/docs" "$B/.clauductor" "$G/.clauductor" "$HOME/fake"
+mkdir -p "$A/.stridal" "$A/.claude" "$A/src" "$A/docs" "$B/.stridal" "$G/.stridal" "$HOME/fake"
 now=$(date +%s)
 
 # Alpha: cards, a template with Up next, a queue; a bare origin so ahead/behind and
 # the stale-cards note have something to read.
-cat > "$A/.clauductor/panel.json" <<JSON
+cat > "$A/.stridal/panel.json" <<JSON
 { "name": "Alpha", "version": 5, "base": "main", "tmux_socket": "$s1",
   "lanes": { "main": "orchestrator", "change/": "build", "fix/": "fix", "ship/": "ship" },
   "lane_types": { "build": { "model": "opus", "effort": "high", "auto_close": "off" }, "fix": { "model": "sonnet", "auto_close": "off" }, "ship": { "model": "sonnet" } },
@@ -88,8 +88,8 @@ cat > "$A/.clauductor/panel.json" <<JSON
   "quota_economy": { "five_hour_pct": 40 },
   "lanes_auto_close": "on_merge",
   "quota_auto_resume": true,
-  "worktree_setup": { "command": ["sh", "-c", "printf '%s %s\\n' \"\$CLAUDUCTOR_LANE\" \"\$CLAUDUCTOR_PORT\" > .ux-setup && printf '%s %s\\n' \"\$CLAUDUCTOR_LANE\" \"\$CLAUDUCTOR_PORT\" >> '$HOME/fake/setup.log'"] },
-  "worktree_teardown": { "command": ["sh", "-c", "printf '%s %s\\n' \"\$CLAUDUCTOR_LANE\" \"\$CLAUDUCTOR_PORT\" >> '$HOME/fake/teardown.log'"] },
+  "worktree_setup": { "command": ["sh", "-c", "printf '%s %s\\n' \"\$STRIDAL_LANE\" \"\$STRIDAL_PORT\" > .ux-setup && printf '%s %s\\n' \"\$STRIDAL_LANE\" \"\$STRIDAL_PORT\" >> '$HOME/fake/setup.log'"] },
+  "worktree_teardown": { "command": ["sh", "-c", "printf '%s %s\\n' \"\$STRIDAL_LANE\" \"\$STRIDAL_PORT\" >> '$HOME/fake/teardown.log'"] },
   "ports": { "base": 39100, "per_lane": 10 },
   "metrics": { "command": ["sh", "$D/bin/metrics.sh"] },
   "cards": [
@@ -104,7 +104,7 @@ cat > "$A/.clauductor/panel.json" <<JSON
       "suggest": { "command": ["printf", "[{\\"name\\":\\"add-group-card\\",\\"title\\":\\"one golfer enters the card\\",\\"detail\\":\\"2C.27\\"},{\\"name\\":\\"fix-offline-sync\\",\\"title\\":\\"sync after airplane mode\\",\\"detail\\":\\"2C.31\\"}]"], "refresh": "interval:3600" } },
     { "id": "fix", "title": "Fix an issue", "lane_type": "fix", "branch_pattern": "fix/{name}", "first_prompt": "fix {issue}" }
   ],
-  "queues": [ { "id": "gate", "title": "Gate", "lock": "clauductor/gate.lock" } ] }
+  "queues": [ { "id": "gate", "title": "Gate", "lock": "stridal/gate.lock" } ] }
 JSON
 printf '# Alpha\n\nA throwaway repository for the UX harness.\n' > "$A/README.md"
 printf 'export const answer = 42;\n' > "$A/src/app.ts"
@@ -137,7 +137,7 @@ git -C "$A" fetch -q origin
 git -C "$A" branch -q -u origin/main main
 
 # Beta: a plain project with one card and a lane.
-cat > "$B/.clauductor/panel.json" <<JSON
+cat > "$B/.stridal/panel.json" <<JSON
 { "name": "Beta", "version": 4, "base": "main", "tmux_socket": "$s2",
   "lanes": { "main": "orchestrator", "feature/": "build" }, "alerts": { "notify": false },
   "metrics": { "command": ["env", "METRICS_FIXTURE=bad", "sh", "$D/bin/metrics.sh"] },
@@ -148,7 +148,7 @@ git -C "$B" init -q -b main && git -C "$B" add -A && git -C "$B" commit -q -m "S
 
 # Gamma: valid when added, broken before the panel starts, so the project menu shows
 # a project that cannot load.
-cat > "$G/.clauductor/panel.json" <<JSON
+cat > "$G/.stridal/panel.json" <<JSON
 { "name": "Gamma", "version": 3, "base": "main", "tmux_socket": "$s3", "alerts": { "notify": false } }
 JSON
 git -C "$G" init -q -b main && git -C "$G" add -A && git -C "$G" commit -q -m "Start Gamma"
@@ -158,17 +158,17 @@ git -C "$G" init -q -b main && git -C "$G" add -A && git -C "$G" commit -q -m "S
 # up.sh; Zeta is registered but untrusted (Trust config…, and a project that can be
 # removed: it has no lane).
 Dl="$P/delta" E="$P/epsilon" Z="$P/zeta"
-mkdir -p "$Dl" "$E/.clauductor" "$Z/.clauductor"
+mkdir -p "$Dl" "$E/.stridal" "$Z/.stridal"
 git -C "$Dl" init -q -b main && git -C "$Dl" commit -q --allow-empty -m "Start Delta"
-cat > "$E/.clauductor/panel.json" <<JSON
+cat > "$E/.stridal/panel.json" <<JSON
 { "name": "Epsilon", "version": 5, "base": "main", "tmux_socket": "$s5", "lanes": { "main": "orchestrator", "change/": "build" },
   "alerts": { "notify": false },
   "cards": [ { "id": "todo", "title": "To do", "pin": true, "refresh": "interval:3600", "command": ["printf", "nothing yet\\n"] } ],
   "templates": [ { "id": "build", "title": "Build a change", "lane_type": "build", "branch_pattern": "change/{name}", "first_prompt": "/build-change {name}" } ],
-  "queues": [ { "id": "gate", "title": "Gate", "lock": "clauductor/gate.lock", "command": ["sh", "scripts/ci/gate.sh"] } ] }
+  "queues": [ { "id": "gate", "title": "Gate", "lock": "stridal/gate.lock", "command": ["sh", "scripts/ci/gate.sh"] } ] }
 JSON
 git -C "$E" init -q -b main && git -C "$E" add -A && git -C "$E" commit -q -m "Start Epsilon"
-cat > "$Z/.clauductor/panel.json" <<JSON
+cat > "$Z/.stridal/panel.json" <<JSON
 { "name": "Zeta", "version": 5, "base": "main", "tmux_socket": "$s6", "lanes": { "main": "orchestrator" }, "alerts": { "notify": false },
   "cards": [ { "id": "health", "title": "Health", "refresh": "interval:3600", "command": ["printf", "zeta ok\\n"] } ] }
 JSON
@@ -182,12 +182,12 @@ Dl=$(cd "$Dl" && pwd -P) E=$(cd "$E" && pwd -P) Z=$(cd "$Z" && pwd -P)
 "$C" panel trust --project "$B" >>"$D/add.log" 2>&1
 "$C" panel add --project "$G" >>"$D/add.log" 2>&1
 "$C" panel add --project "$Z" >>"$D/add.log" 2>&1
-printf '{ "name": "Gamma", "version": 3, "tmux_socket": "%s", "lanes": { "main": ' "$s3" > "$G/.clauductor/panel.json"
+printf '{ "name": "Gamma", "version": 3, "tmux_socket": "%s", "lanes": { "main": ' "$s3" > "$G/.stridal/panel.json"
 # PANEL-19: remote control in lanes mode, the machine's choice `panel install` records,
 # under the temp HOME: each lane starts with --remote-control and its ⋯ has Remote control.
-mkdir -p "$HOME/.clauductor/panel" && chmod 700 "$HOME/.clauductor" "$HOME/.clauductor/panel"
-printf '{"mode":"lanes"}' > "$HOME/.clauductor/panel/remote-control.json"
-chmod 600 "$HOME/.clauductor/panel/remote-control.json"
+mkdir -p "$HOME/.stridal/panel" && chmod 700 "$HOME/.stridal" "$HOME/.stridal/panel"
+printf '{"mode":"lanes"}' > "$HOME/.stridal/panel/remote-control.json"
+chmod 600 "$HOME/.stridal/panel/remote-control.json"
 
 # The panel, in the background, recorded for down.sh.
 say "starting the panel on port $port"
@@ -341,7 +341,7 @@ $ok || say "warning: the state did not show every lane in 30 s"
 # A write of the panel's own (a hook marking a conversation) between our read and its
 # re-read would undo it, so it is written again until the state shows it (up to 40 s).
 sleep 2
-reg=$(grep -l '"id": *"quiet"' "$HOME"/.clauductor/panel/*/lanes.json 2>/dev/null | head -1 || true)
+reg=$(grep -l '"id": *"quiet"' "$HOME"/.stridal/panel/*/lanes.json 2>/dev/null | head -1 || true)
 if [ -n "$reg" ]; then
   backdate() { perl -0pe 's/("id":\s*"quiet".*?"created":\s*)\d+/${1}'"$(( (now - 5 * 86400) * 1000 ))"'/s' "$reg" > "$reg.ux" && mv "$reg.ux" "$reg"; }
   backdate

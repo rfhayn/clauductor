@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // Remove a worktree (PANEL-18) is Close lane's cleanup for a worktree that has no lane:

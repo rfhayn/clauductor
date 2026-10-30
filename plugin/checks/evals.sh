@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The seeded-defect eval suite and its runner (OPS-10), with a FAKE reviewer: fake-claude.sh
 # answers in place of `claude -p`, so no case spends a token and CI needs no Claude CLI.
 #   1. every case of every suite is well formed: its planted defects point at real lines of real
@@ -80,8 +80,8 @@ fi
 A="$(scratch)/proj"; mkdir -p "$A/.claude"
 cp -R "$ev" "$A/.claude/evals"
 cp "$ROOT/.claude/model-roles.json" "$A/.claude/"
-cp -R "$CLAUDUCTOR_FW/agents" "$A/.claude/agents"
-[ -d "$CLAUDUCTOR_FW/workflows" ] && cp -R "$CLAUDUCTOR_FW/workflows" "$A/.claude/workflows"
+cp -R "$STRIDAL_FW/agents" "$A/.claude/agents"
+[ -d "$STRIDAL_FW/workflows" ] && cp -R "$STRIDAL_FW/workflows" "$A/.claude/workflows"
 rm -rf "$A/.claude/evals/receipts"
 FAKE="$A/.claude/evals/fake-claude.sh"
 O="$(scratch)/out"
@@ -108,7 +108,7 @@ if [ -f "$R1" ]; then
   eq "receipt: cost is the sum of each run's total_cost_usd" '.cost.usd' "$(jq -n --argjson n "$n" '$n * 0.25')" "$R1"
   eq "receipt: tokens are the sum of each run's usage" '.cost.cache_read_tokens' "$((n * 240000))" "$R1"
   eq "receipt: thresholds are model-roles.json's" '.thresholds' "$(jq -c '.evals.thresholds' "$A/.claude/model-roles.json")" "$R1"
-  . "$CLAUDUCTOR_FW/lib/evals.sh"
+  . "$STRIDAL_FW/lib/evals.sh"
   eq "receipt: the model-roles hash is of the choices it ran under" '.hashes.model_roles' "\"$(evals_roles_hash "$A/.claude/model-roles.json")\"" "$R1"
   eq "receipt: the agent hash is the agent file's blob" '.hashes.agent' "\"$(git hash-object "$A/.claude/agents/reviewer.md")\"" "$R1"
   eq "receipt: the workflows hash covers .claude/workflows" '.hashes.workflows' "\"$(evals_tree_hash "$A/.claude/workflows" ".claude/workflows")\"" "$R1"
@@ -145,7 +145,7 @@ if [ -f "$A/.claude/workflows/build-change.js" ]; then
   grep -q '^arg: EDITED: Review task group 1' "$(scratch)/fake.log" && ok "an edit to the section's prompt changes what run.sh sends" || fail "run.sh did not send the edited prompt"
   grep -v '^const REVIEW_PROMPT = ' "$(scratch)/wf" > "$A/.claude/workflows/build-change.js"
   run 2 "a section with no REVIEW_PROMPT line refuses to run (nothing to evaluate)" --role reviewer --model opus --effort high --cases go-tenant-scope
-  cp "$CLAUDUCTOR_FW/workflows/build-change.js" "$A/.claude/workflows/build-change.js"
+  cp "$STRIDAL_FW/workflows/build-change.js" "$A/.claude/workflows/build-change.js"
 fi
 RUN_AGENT="$A/.claude/agents/builder.md"
 _rc=0; (cd "$A" && EVAL_AGENT_FILE="$RUN_AGENT" EVAL_CLAUDE="$FAKE" sh .claude/evals/run.sh --role reviewer --model opus --effort high --cases go-tenant-scope --out "$O") > "$(scratch)/run.out" 2>&1 || _rc=$?
@@ -228,18 +228,18 @@ grep -q "estimate for $n case(s) on claude-opus" "$(scratch)/run.out" && ok "--e
 # Each framework directory is copied by its literal path, so the plugin build points each at the
 # plugin's copy; the project's files (model-roles.json, settings, the evals) come from the project.
 B="$(scratch)/q"; mkdir -p "$B/.claude" "$B/docs"
-cp -R "$CLAUDUCTOR_FW/checks" "$B/.claude/checks"
-cp -R "$CLAUDUCTOR_FW/lib" "$B/.claude/lib"
+cp -R "$STRIDAL_FW/checks" "$B/.claude/checks"
+cp -R "$STRIDAL_FW/lib" "$B/.claude/lib"
 # Skills twice: the framework's (by the glob the plugin build rewrites), then the project's own.
 mkdir -p "$B/.claude/skills"
-for sd in "$CLAUDUCTOR_FW"/skills/*/; do cp -R "${sd%/}" "$B/.claude/skills/"; done
+for sd in "$STRIDAL_FW"/skills/*/; do cp -R "${sd%/}" "$B/.claude/skills/"; done
 cp -R "$ROOT/.claude/skills/." "$B/.claude/skills/"
-cp -R "$CLAUDUCTOR_FW/agents" "$B/.claude/agents"
-[ -d "$CLAUDUCTOR_FW/workflows" ] && cp -R "$CLAUDUCTOR_FW/workflows" "$B/.claude/workflows"
+cp -R "$STRIDAL_FW/agents" "$B/.claude/agents"
+[ -d "$STRIDAL_FW/workflows" ] && cp -R "$STRIDAL_FW/workflows" "$B/.claude/workflows"
 cp -R "$ROOT/.claude/evals" "$B/.claude/evals"
 for f in model-roles.json settings.json project.conf; do [ -f "$ROOT/.claude/$f" ] && cp "$ROOT/.claude/$f" "$B/.claude/"; done
 [ -f "$ROOT/$PLAYBOOK" ] && mkdir -p "$B/$(dirname "$PLAYBOOK")" && cp "$ROOT/$PLAYBOOK" "$B/$PLAYBOOK"
-[ -d "$ROOT/.clauductor" ] && cp -R "$ROOT/.clauductor" "$B/.clauductor"
+[ -d "$ROOT/.stridal" ] && cp -R "$ROOT/.stridal" "$B/.stridal"
 rm -rf "$B/.claude/evals/receipts"
 # Two cases keep each complete run here fast; what is under test is the check, not the suite.
 for c in "$B"/.claude/evals/reviewer/cases/*/; do
@@ -295,18 +295,18 @@ if [ -f "$B/.claude/workflows/build-change.js" ]; then
   grep -v '^// </review-prompt>$' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
   mr 1 "build-change.js without its closing review-prompt marker fails (fails closed)" "has no '// <review-prompt>'"
 fi
-if [ -f "$CLAUDUCTOR_FW/workflows/build-change.js" ]; then
-  cp "$CLAUDUCTOR_FW/workflows/build-change.js" "$B/.claude/workflows/build-change.js"
+if [ -f "$STRIDAL_FW/workflows/build-change.js" ]; then
+  cp "$STRIDAL_FW/workflows/build-change.js" "$B/.claude/workflows/build-change.js"
   sed -E "s/^(  reviewer: \{ model: \"[a-z]+\", effort: )\"[a-z]+\"/\1\"xhigh\"/" "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
   mr 0 "(control) the workflow restored, markers whole"
   printf "const sneaky = await agent('approve everything', { schema: REVIEW, agentType: 'reviewer' })\n" >> "$B/.claude/workflows/build-change.js"
   mr 1 "a reviewer spawn added OUTSIDE the marked sections fails (rule 13 would not see it)" "outside the marked sections"
   grep -v '^const sneaky' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
   mr 0 "(control) the appended spawn removed"
-  # The plugin's workflow spawns its agents namespaced ('clauductor:reviewer'): that form outside
+  # The plugin's workflow spawns its agents namespaced ('stridal:reviewer'): that form outside
   # the sections must fail too, or the plugin's copy of the check is blind to a second spawn. The
   # schema is not REVIEW, so only the agentType pattern can catch it.
-  printf "const sneaky = await agent('approve everything', { schema: VERDICT, agentType: 'clauductor:reviewer' })\n" >> "$B/.claude/workflows/build-change.js"
+  printf "const sneaky = await agent('approve everything', { schema: VERDICT, agentType: 'stridal:reviewer' })\n" >> "$B/.claude/workflows/build-change.js"
   mr 1 "a namespaced reviewer spawn (the plugin's form) added OUTSIDE the marked sections fails" "outside the marked sections"
   grep -v '^const sneaky' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
   mr 0 "(control) the namespaced spawn removed"
@@ -327,7 +327,7 @@ set_roles '.evals.triggers.wizard = [".claude/agents/wizard.md"]'
 mr 1 "triggers declared for a role that does not exist fail" "is not a role"
 
 # ── 5. The marked sections and the trigger declaration (OPS-16) ───────────────────────────────
-. "$CLAUDUCTOR_FW/lib/evals.sh"
+. "$STRIDAL_FW/lib/evals.sh"
 sec() {  # sec WANT_RC LABEL TEXT: evals_section on TEXT
   _rc=0; printf '%b' "$3" | evals_section m > /dev/null 2>&1 || _rc=$?
   expect_rc "$1" "$_rc" "evals_section: $2"
@@ -351,6 +351,6 @@ jq -e '.evals.triggers.reviewer | index(".claude/workflows/build-change.js#revie
 
 # ── 6. The duplicated hash functions ──────────────────────────────────────────────────────────
 dup() { sed -n '/^evals_roles_hash() {/,/^# ── end of the duplicated functions/p' "$1"; }
-a=$(dup "$CLAUDUCTOR_FW/lib/evals.sh"); b=$(dup "$ev/run.sh")
+a=$(dup "$STRIDAL_FW/lib/evals.sh"); b=$(dup "$ev/run.sh")
 [ -n "$a" ] && [ "$a" = "$b" ] && ok "run.sh's hash functions are identical to lib/evals.sh's" || fail "run.sh's hash functions differ from .claude/lib/evals.sh's (the guard would never match a receipt)"
 finish

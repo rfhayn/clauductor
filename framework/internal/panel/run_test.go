@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // fakeRunner stands in for git, claude and gh so Run can be exercised end to end.
@@ -118,7 +118,7 @@ func TestRunEndToEnd(t *testing.T) {
 	}
 	u, _ := url.Parse(launch)
 	port, _ := strconv.Atoi(u.Port())
-	c := liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, u.Query().Get("t"))}
+	c := liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("stridal_panel_%d=%s", port, u.Query().Get("t"))}
 
 	marker, err := os.ReadFile(install.MarkerPath(home))
 	if err != nil || strings.TrimSpace(string(marker)) != strconv.Itoa(port) {
@@ -277,7 +277,7 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 // [CATCHUP-4-S1] [CATCHUP-4-S7] [CATCHUP-4-S8] A panel running as the login agent, built
 // at R with no local changes, with catch-up on and the owner's #7 changing
 // framework/internal/panel/server.go: the fast-forward to #7's merge commit B puts the
-// build of B in place and the build of R at clauductor.prev, leaves the token and the
+// build of B in place and the build of R at stridal.prev, leaves the token and the
 // plist byte for byte as they were, sends one notice naming R, B and the rollback's mv and
 // launchctl kickstart, and ends the run with exit status 75. The login agent's start of
 // the new binary, within 5 minutes, opens no browser tab and sends one notice naming B;
@@ -314,7 +314,7 @@ func TestCatchUpRebuildsAndRestartsThePanel(t *testing.T) {
 		t.Fatalf("the installed binary is stamped %+v (%v), want %s at B %s with no local changes", s, err, selfMod, b)
 	}
 	if readBytes(t, w.bin+".prev") != rBuild {
-		t.Fatal("clauductor.prev is not the build of R")
+		t.Fatal("stridal.prev is not the build of R")
 	}
 	gone(t, w.bin+".new")
 	if readBytes(t, install.TokenPath(w.home)) != token || readBytes(t, install.PlistPath(w.home)) != plist {
@@ -352,7 +352,7 @@ func TestCatchUpRebuildsAndRestartsThePanel(t *testing.T) {
 // [CATCHUP-4-S11] A panel running as the login agent that would rebuild, its project
 // with catch-up on and alerts.notify false, and push.json's argv a stand-in that records
 // its arguments: the restart notice naming R, B and the rollback goes out as a
-// notification and as a push, titled "clauductor panel", and so does the new binary's
+// notification and as a push, titled "stridal panel", and so does the new binary's
 // notice naming B.
 func TestCatchUpRebuildNoticesIgnoreAlertsNotify(t *testing.T) {
 	t.Parallel()
@@ -375,8 +375,8 @@ func TestCatchUpRebuildNoticesIgnoreAlertsNotify(t *testing.T) {
 
 	restartOf(t, p, &log)
 	nt := w.oneNotice(t, &notices, short(w.r), short(b), "`mv ", "`launchctl kickstart -k ")
-	if got := pushRuns(t, runs); len(got) != 1 || len(got[0]) != 2 || got[0][0] != "clauductor panel" || got[0][1] != nt.Body {
-		t.Fatalf("pushes %q, want one titled clauductor panel with the restart notice's body %q", got, nt.Body)
+	if got := pushRuns(t, runs); len(got) != 1 || len(got[0]) != 2 || got[0][0] != "stridal panel" || got[0][1] != nt.Body {
+		t.Fatalf("pushes %q, want one titled stridal panel with the restart notice's body %q", got, nt.Body)
 	}
 	p.stop()
 
@@ -388,14 +388,14 @@ func TestCatchUpRebuildNoticesIgnoreAlertsNotify(t *testing.T) {
 	p2 := w.startSelfPanel(t, sock, true, rebuildEnv{self: newSelf, exe: w.bin, goCmd: goPath, timeout: 2 * time.Minute}, &notices2, &log, &opened)
 	p2.polls.until(t, "catch-up", 1)
 	nt2 := w.oneNotice(t, &notices2, "now running "+short(b))
-	if got := pushRuns(t, runs); len(got) != 2 || len(got[1]) != 2 || got[1][0] != "clauductor panel" || got[1][1] != nt2.Body {
-		t.Fatalf("pushes %q, want the new binary's second, titled clauductor panel with its body %q", got, nt2.Body)
+	if got := pushRuns(t, runs); len(got) != 2 || len(got[1]) != 2 || got[1][0] != "stridal panel" || got[1][1] != nt2.Body {
+		t.Fatalf("pushes %q, want the new binary's second, titled stridal panel with its body %q", got, nt2.Body)
 	}
 }
 
 // [CATCHUP-4-S2] A panel that would rebuild, and the owner's #7 whose framework/ does not
 // compile: the panel keeps running, the installed binary is as it was, no
-// clauductor.new is left (the go here writes a partial one before it fails), and one
+// stridal.new is left (the go here writes a partial one before it fails), and one
 // notice names the build's error.
 func TestCatchUpKeepsThePanelWhenItsBuildFails(t *testing.T) {
 	t.Parallel()
@@ -434,7 +434,7 @@ func TestCatchUpLeavesAHandStartedPanel(t *testing.T) {
 	w := newSelfWorld(t, cuPanelJSON)
 	w.catchUpOn(t, true)
 	goProg, runs := goStandIn(t)
-	exe := filepath.Join(w.dir, "bin", "clauductor")
+	exe := filepath.Join(w.dir, "bin", "stridal")
 	w.setOpen(7)
 	var notices noticeLog
 	var log cuLog
@@ -453,5 +453,5 @@ func TestCatchUpLeavesAHandStartedPanel(t *testing.T) {
 	}
 	gone(t, w.bin+".new")
 	w.oneNotice(t, &notices, short(b), "which changed framework/", "started by hand",
-		"`go build -o "+exe+" ./cmd/clauductor` in framework/", "stop this panel and start it again")
+		"`go build -o "+exe+" ./cmd/stridal` in framework/", "stop this panel and start it again")
 }

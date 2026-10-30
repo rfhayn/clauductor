@@ -82,7 +82,7 @@ type QueueView struct {
 type TmuxLane struct {
 	ID         string
 	Path       string // the pane's cwd (resolved), falling back to the session's start dir
-	Type       string // the lane type the panel started it as (brand.TmuxOption "type": @clauductor_type, or a legacy name's)
+	Type       string // the lane type the panel started it as (brand.TmuxOption "type": @stridal_type)
 	Project    string // the project id it was started for (brand.TmuxOption "project"; "" before PANEL-16)
 	Created    int64  // unix seconds
 	Attached   int    // attached clients
@@ -132,7 +132,7 @@ type LaneRecord struct {
 	PromptAt    int64  `json:"promptAt,omitempty"` // unix ms the prompt was typed
 	Restored    int64  `json:"restored,omitempty"` // unix ms of the last restore
 	// Port is the lane's own port (PANEL-20, ports in panel.json), exported to it as
-	// CLAUDUCTOR_PORT; 0 without one.
+	// STRIDAL_PORT; 0 without one.
 	Port int `json:"port,omitempty"`
 	// ContextWindow is the context window the lane was last launched with (PANEL-48,
 	// launch.context_window in panel.json); 0 without one. It is set on every launch,

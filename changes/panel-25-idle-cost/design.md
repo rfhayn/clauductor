@@ -172,7 +172,7 @@
      (`spawnsPerMin`, `spawnsIdlePerMin`, `spawnsBy`): the footer shows it beside the `claude
      agents` row, and `/api/state` returns it without marking a page in view. Under `--launchd` a
      machine source writes, once an hour, one line per project and one for the machine:
-     `spawns, last hour, clauductor: idle <I> min, <N> spawns (<N/I> a minute); busy <B> min, <M>
+     `spawns, last hour, stridal: idle <I> min, <N> spawns (<N/I> a minute); busy <B> min, <M>
      spawns; claude agents <a>, tmux list-panes <b>, git worktree <c>, gh pr <d>, other <e>`, and
      `spawns, last hour, machine: <n> (claude --version <v>, other <o>)` (`auth status` shows
      under "other" when **Refresh** or a start runs it).
@@ -208,7 +208,7 @@
    `--no-open` after `--launchd` in `ProgramArguments`. In `Run`, `o.NoOpen` wins under launchd
    too: no tab, and `browser-opened` is not written. `install` prints which it installed: "At
    login: opens the page once per login (--no-open to stop)" or "At login: opens no browser tab
-   (clauductor panel open opens it)".
+   (stridal panel open opens it)".
 9. **Docs**: `docs/panel.md`'s sources table, *What the panel reads, and when*, *Close a lane
    when its PR merges*, *The lane registry*, the `claude agents` cadence under *How signals are
    read*, *Metrics* and the `metrics.refresh` key (D10), *The launchd agent*, and the
@@ -323,7 +323,7 @@ A poll PANEL-28's gate skips spawns nothing, so skips lower these figures, never
   install states which it installed.
 - **Alternative:** a machine setting (like `remote-control.json`) that a reinstall without the
   flag keeps.
-- **Why:** it is the flag `clauductor panel` already has, visible in the one file that says what
+- **Why:** it is the flag `stridal panel` already has, visible in the one file that says what
   the agent runs, and `install` rewrites that file anyway. Only `panel install` writes the plist
   (`install.sh` does not), so a reinstall is always a person at a terminal who sees the line.
 

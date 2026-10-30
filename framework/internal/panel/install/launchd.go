@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/brand"
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/brand"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // The launchd login agent makes the panel "just there": it starts at login, restarts
@@ -30,29 +30,11 @@ import (
 // LaunchdLabel names the login agent.
 var LaunchdLabel = brand.LaunchdLabel(brand.Name)
 
-// removeLegacyAgents unloads and deletes a login agent a legacy name installed (brand.Names
-// after the first), so it never runs beside this one on the same port. While the names are
-// equal there is none to look for.
-func removeLegacyAgents(home string, names []string, run func(argv ...string) ([]byte, error)) error {
-	for _, n := range names[1:] {
-		label := brand.LaunchdLabel(n)
-		plist := filepath.Join(home, "Library", "LaunchAgents", label+".plist")
-		if _, err := os.Lstat(plist); err != nil {
-			continue
-		}
-		_, _ = run("/bin/launchctl", "bootout", guiDomain()+"/"+label) // "not loaded" is fine
-		if err := os.Remove(plist); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // AppName is the optional Dock/Spotlight launcher `install --app` creates.
-const AppName = "Clauductor Panel.app"
+const AppName = "Stridal Panel.app"
 
 // appMarker is written inside the launcher so uninstall removes only an app it made.
-const appMarker = "clauductor-panel-launcher"
+const appMarker = "stridal-panel-launcher"
 
 // TokenPath holds the persistent token in launchd mode.
 func TokenPath(home string) string { return filepath.Join(config.PanelDir(home), "token") }
@@ -65,10 +47,10 @@ func PlistPath(home string) string {
 	return filepath.Join(home, "Library", "LaunchAgents", LaunchdLabel+".plist")
 }
 
-// InstalledBinary is where install copies the clauductor binary the agent runs, so
+// InstalledBinary is where install copies the stridal binary the agent runs, so
 // the agent never depends on a build directory or a worktree that may disappear.
 func InstalledBinary(home string) string {
-	return filepath.Join(config.PanelDir(home), "bin", "clauductor")
+	return filepath.Join(config.PanelDir(home), "bin", "stridal")
 }
 
 // AppPath is the launcher app.
@@ -262,7 +244,7 @@ func renderPlist(s plistSpec) []byte {
 	return []byte(b.String())
 }
 
-// InstallOptions configures `clauductor panel install`.
+// InstallOptions configures `stridal panel install`.
 type InstallOptions struct {
 	Home    string
 	Project string
@@ -302,7 +284,7 @@ func CheckEnabled(exec func(argv ...string) ([]byte, error)) error {
 		exec = execCombined
 	}
 	if out, err := exec("/bin/launchctl", "print-disabled", guiDomain()); err == nil && labelDisabled(out, LaunchdLabel) {
-		return fmt.Errorf("launchd holds %s as disabled (launchctl print-disabled %s), so loading it would fail with error 5: run `launchctl enable %s/%s`, then `clauductor panel install` again",
+		return fmt.Errorf("launchd holds %s as disabled (launchctl print-disabled %s), so loading it would fail with error 5: run `launchctl enable %s/%s`, then `stridal panel install` again",
 			LaunchdLabel, guiDomain(), guiDomain(), LaunchdLabel)
 	}
 	return nil
@@ -375,7 +357,7 @@ func Install(o InstallOptions) error {
 		}
 		d := reg.DefaultEntry()
 		if d == nil {
-			return fmt.Errorf("no project registered: `clauductor panel add --project <path>` first, or pass --project")
+			return fmt.Errorf("no project registered: `stridal panel add --project <path>` first, or pass --project")
 		}
 		if _, err := config.LoadConfig(d.ConfigPath()); err != nil {
 			return err
@@ -410,9 +392,6 @@ func Install(o InstallOptions) error {
 	}
 	// Every install rotates the token, so reinstalling is also how to revoke it.
 	if _, err := RotateToken(o.Home); err != nil {
-		return err
-	}
-	if err := removeLegacyAgents(o.Home, brand.Names(), o.Exec); err != nil {
 		return err
 	}
 	plist := PlistPath(o.Home)
@@ -457,7 +436,7 @@ func Install(o InstallOptions) error {
 		if err := installApp(o, bin); err != nil {
 			return err
 		}
-		fmt.Fprintf(o.Out, "Created %s (runs `clauductor panel open`)\n", AppPath(o.Home))
+		fmt.Fprintf(o.Out, "Created %s (runs `stridal panel open`)\n", AppPath(o.Home))
 	}
 	return nil
 }
@@ -479,7 +458,7 @@ func installApp(o InstallOptions, bin string) error {
 	app := AppPath(o.Home)
 	if _, err := os.Stat(app); err == nil {
 		if _, err := os.Stat(filepath.Join(app, "Contents", "Resources", appMarker)); err != nil {
-			return fmt.Errorf("%s exists and was not made by clauductor; not replacing it", app)
+			return fmt.Errorf("%s exists and was not made by stridal; not replacing it", app)
 		}
 		if err := os.RemoveAll(app); err != nil {
 			return err
@@ -491,7 +470,7 @@ func installApp(o InstallOptions, bin string) error {
 	if out, err := o.Exec("/usr/bin/osacompile", "-o", app, "-e", appScript(bin)); err != nil {
 		return fmt.Errorf("osacompile: %v: %s", err, strings.TrimSpace(string(out)))
 	}
-	return os.WriteFile(filepath.Join(app, "Contents", "Resources", appMarker), []byte("made by clauductor panel install --app\n"), 0o644)
+	return os.WriteFile(filepath.Join(app, "Contents", "Resources", appMarker), []byte("made by stridal panel install --app\n"), 0o644)
 }
 
 // Uninstall unloads and removes the login agent, the launcher app (only if it made
@@ -506,9 +485,6 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 	}
 	if b, err := run("/bin/launchctl", "bootout", guiDomain()+"/"+LaunchdLabel); err != nil {
 		fmt.Fprintf(out, "launchctl bootout: %s (fine if it was not loaded)\n", strings.TrimSpace(string(b)))
-	}
-	if err := removeLegacyAgents(home, brand.Names(), run); err != nil {
-		return err
 	}
 	dir := config.PanelDir(home)
 	// Everything the agent owns goes. port, pid, owner.json and the command socket
@@ -554,7 +530,7 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 		}
 		fmt.Fprintf(out, "Removed %s\n", app)
 	}
-	fmt.Fprintf(out, "Removed login agent %s. Panel hooks stay in %s; `clauductor panel --uninstall-hooks` removes them.\n", LaunchdLabel, SettingsPath(home))
+	fmt.Fprintf(out, "Removed login agent %s. Panel hooks stay in %s; `stridal panel --uninstall-hooks` removes them.\n", LaunchdLabel, SettingsPath(home))
 	return nil
 }
 
@@ -562,10 +538,10 @@ func Uninstall(home string, out io.Writer, run func(argv ...string) ([]byte, err
 func OpenURL(ctx context.Context, home string, port int) (string, error) {
 	b, err := os.ReadFile(TokenPath(home))
 	if err != nil {
-		return "", fmt.Errorf("no token at %s: the panel is not installed as a login agent (`clauductor panel install --project <path>`); a panel started by hand prints its own URL", TokenPath(home))
+		return "", fmt.Errorf("no token at %s: the panel is not installed as a login agent (`stridal panel install --project <path>`); a panel started by hand prints its own URL", TokenPath(home))
 	}
 	token := strings.TrimSpace(string(b))
-	// Both loopbacks the browser may use for clauductor.localhost must answer as
+	// Both loopbacks the browser may use for stridal.localhost must answer as
 	// THIS panel (the PID beside its marker) before the token is sent (open.go).
 	return openURLChecked(ctx, home, port, token)
 }

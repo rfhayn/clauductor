@@ -13,9 +13,9 @@
 
 input=$(cat)
 
-# THE PANEL SNIPPET (clauductor docs/panel.md, "The status line"). The local panel reads a copy
+# THE PANEL SNIPPET (stridal docs/panel.md, "The status line"). The local panel reads a copy
 # of this stdin: it carries the 5-hour and 7-day quota and the context %, which no hook payload
-# does. It posts ONLY while ~/.clauductor/panel/pid names a live process: a panel killed with
+# does. It posts ONLY while ~/.stridal/panel/pid names a live process: a panel killed with
 # SIGKILL leaves `port` behind, and another program may hold that port by now. The pid must be
 # digits and not start with 0, because `kill -0 -1` and `kill -0 0` succeed whatever runs. The
 # port must be digits too, since it goes into a URL. Backgrounded with its output discarded, so
@@ -32,7 +32,7 @@ case "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" in
   *) post=$(printf '%s' "$input" | jq -c --argjson w "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
        '. + {auto_compact_window: $w}' 2>/dev/null) && [ -n "$post" ] || post=$input ;;
 esac
-panel="$HOME/.clauductor/panel"
+panel="$HOME/.stridal/panel"
 panel_port=$(cat "$panel/port" 2>/dev/null)
 panel_pid=$(cat "$panel/pid" 2>/dev/null)
 case "$panel_port" in '' | *[!0-9]*) panel_port="" ;; esac
@@ -51,7 +51,7 @@ ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/conf.sh"
 
-# THE QUOTA READING (OPS-67). The same stdin's rate_limits go to ~/.clauductor/quota-reading.json
+# THE QUOTA READING (OPS-67). The same stdin's rate_limits go to ~/.stridal/quota-reading.json
 # on every refresh that carries them, panel or no panel, for the quota health line and the lane guard,
 # .claude/quota-gate.sh (lib/quota.sh: the file, and the reader that never reports a window past its
 # reset). Backgrounded

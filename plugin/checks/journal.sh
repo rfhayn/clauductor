@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Journal session numbers: the collision rule pr-merge-guard applies at merge
 # (.claude/hooks/lib/journal-sessions.sh), in both directions; and the project's journal carries
 # no duplicate number, and every session heading added since adoption has the configured shape
@@ -7,9 +7,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # reformatted (.claude/lib/records.sh). Falsified on fixtures shaped like an adopting project's
 # journal: legacy headings with no author and with date ranges, then current ones.
 . "$(dirname "$0")/lib.sh"
-. "$CLAUDUCTOR_FW/hooks/lib/journal-sessions.sh"
-. "$CLAUDUCTOR_FW/lib/records.sh"
-. "$CLAUDUCTOR_FW/lib/fragments.sh"
+. "$STRIDAL_FW/hooks/lib/journal-sessions.sh"
+. "$STRIDAL_FW/lib/records.sh"
+. "$STRIDAL_FW/lib/fragments.sh"
 
 if [ -z "${JOURNAL_SELFTEST:-}" ]; then
 h() { printf '## Session %s — 2026-01-0%s — a — x\n' "$@"; }
@@ -45,8 +45,8 @@ $(h 1 1)"
 # ── Self-test: the project-journal judgement, on fixtures ────────────────────────────────────────
 mkj() {  # mkj NAME: a fixture project whose journal has three legacy and two current headings
   F="$(scratch)/j-$1"; mkdir -p "$F/.claude/checks" "$F/.claude/hooks" "$F/docs"
-  cp -R "$CLAUDUCTOR_FW/lib" "$F/.claude/"; cp -R "$CLAUDUCTOR_FW/hooks/lib" "$F/.claude/hooks/"
-  cp "$CLAUDUCTOR_FW/checks/lib.sh" "$CLAUDUCTOR_FW/checks/journal.sh" "$F/.claude/checks/"
+  cp -R "$STRIDAL_FW/lib" "$F/.claude/"; cp -R "$STRIDAL_FW/hooks/lib" "$F/.claude/hooks/"
+  cp "$STRIDAL_FW/checks/lib.sh" "$STRIDAL_FW/checks/journal.sh" "$F/.claude/checks/"
   cat > "$F/docs/development-journal.md" <<'J'
 # Development journal
 

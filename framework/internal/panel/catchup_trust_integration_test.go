@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // OPS-118 group 2 (D1): a panel.json the panel's own fast-forward brings is trusted on
@@ -53,7 +53,7 @@ type trustWorld struct {
 }
 
 // newTrustWorld is a project serving panelJSON, with catch-up on, its config trusted
-// by the owner's hand (`clauductor panel trust`) when trusted.
+// by the owner's hand (`stridal panel trust`) when trusted.
 func newTrustWorld(t *testing.T, panelJSON string, trusted bool) *trustWorld {
 	t.Helper()
 	w := &trustWorld{cuWorld: newCUWorld(t, panelJSON), cards: map[string]int{}}
@@ -241,7 +241,7 @@ func TestCatchUpDoesNotTrustAConfigItDidNotStartFrom(t *testing.T) {
 	if len(ns) != 1 {
 		t.Fatalf("catch-up sent %d notices, want 1: %+v\n%s", len(ns), ns, log.String())
 	}
-	noticeSays(t, ns[0], "clauductor panel", w.root, "the loaded config was not the file the fast-forward started from", "waits for the owner")
+	noticeSays(t, ns[0], "stridal panel", w.root, "the loaded config was not the file the fast-forward started from", "waits for the owner")
 }
 
 // [CATCHUP-3-S3] A config untrusted before stays untrusted: the owner's #7 changing it is
@@ -263,7 +263,7 @@ func TestCatchUpKeepsAnUntrustedConfigUntrusted(t *testing.T) {
 	if len(ns) != 1 {
 		t.Fatalf("catch-up sent %d notices, want 1: %+v", len(ns), ns)
 	}
-	noticeSays(t, ns[0], "clauductor panel", w.root, "the config was not trusted before", "waits for the owner")
+	noticeSays(t, ns[0], "stridal panel", w.root, "the config was not trusted before", "waits for the owner")
 }
 
 // [CATCHUP-3-S4] With alerts.notify false in the loaded config and in #7's: HEAD is #7's
@@ -321,7 +321,7 @@ func TestCatchUpKeepsTheLoadedConfigWhenTheNewOneDoesNotLoad(t *testing.T) {
 			if len(ns) != 1 {
 				t.Fatalf("catch-up sent %d notices, want 1: %+v", len(ns), ns)
 			}
-			noticeSays(t, ns[0], "clauductor panel", w.root, "does not load", perr.Error())
+			noticeSays(t, ns[0], "stridal panel", w.root, "does not load", perr.Error())
 		})
 	}
 }
@@ -399,7 +399,7 @@ func lsTreeFails(w *trustWorld) func(*Options) {
 
 // The owner's #7 changes panel.json, and catch-up cannot read the file's blobs: the
 // runtime is not started again, its trust is as before, the new bytes are not recorded,
-// and one notice, titled "clauductor panel" and sent whatever the loaded config's
+// and one notice, titled "stridal panel" and sent whatever the loaded config's
 // alerts.notify says, says the config was not judged, that the panel keeps serving the
 // one it loaded, and why.
 //
@@ -430,7 +430,7 @@ func TestCatchUpSaysItCouldNotReadTheConfig(t *testing.T) {
 			if len(ns) != 1 {
 				t.Fatalf("catch-up sent %d notices, want 1: %+v\n%s", len(ns), ns, log.String())
 			}
-			noticeSays(t, ns[0], "clauductor panel", w.root, "#7", "could not read its "+config.DefaultConfigRel,
+			noticeSays(t, ns[0], "stridal panel", w.root, "#7", "could not read its "+config.DefaultConfigRel,
 				"trusted nothing on arrival", "keeps serving the config it had loaded", "not a tree object")
 		})
 	}
@@ -476,14 +476,14 @@ func TestCatchUpChecksAConfigItCouldNotReadBeforeARebuild(t *testing.T) {
 				if len(ns) != 1 {
 					t.Fatalf("catch-up sent %d notices, want 1: %+v", len(ns), ns)
 				}
-				noticeSays(t, ns[0], "clauductor panel", w.root, "trusted nothing on arrival", "the rebuilt panel serves the file as it is on disk")
+				noticeSays(t, ns[0], "stridal panel", w.root, "trusted nothing on arrival", "the rebuilt panel serves the file as it is on disk")
 				return
 			}
 			if len(ns) != 2 {
 				t.Fatalf("catch-up sent %d notices, want the rebuild's and the config's: %+v", len(ns), ns)
 			}
-			noticeSays(t, ns[0], "clauductor panel", w.root, "did not rebuild", "panel config-check printed no name")
-			noticeSays(t, ns[1], "clauductor panel", w.root, "trusted nothing on arrival", "keeps serving the config it had loaded")
+			noticeSays(t, ns[0], "stridal panel", w.root, "did not rebuild", "panel config-check printed no name")
+			noticeSays(t, ns[1], "stridal panel", w.root, "trusted nothing on arrival", "keeps serving the config it had loaded")
 		})
 	}
 }
@@ -491,7 +491,7 @@ func TestCatchUpChecksAConfigItCouldNotReadBeforeARebuild(t *testing.T) {
 // The owner's #7 is trusted on arrival, and the file no longer loads when the panel
 // serves it (here the trust notice's sender rewrites it, between the judgement and the
 // reload): the runtime keeps serving the config it had loaded, and a second notice,
-// titled "clauductor panel", says the new config no longer loads, and why.
+// titled "stridal panel", says the new config no longer loads, and why.
 func TestCatchUpSaysWhenTheNewConfigNoLongerLoads(t *testing.T) {
 	_, sock := throwawaySocket(t)
 	_, perr := config.ParseConfig([]byte(badCfg))
@@ -534,7 +534,7 @@ func TestCatchUpSaysWhenTheNewConfigNoLongerLoads(t *testing.T) {
 		t.Fatalf("catch-up sent %d notices, want the trust notice and the reload's: %+v\n%s", len(ns), ns, log.String())
 	}
 	noticeSays(t, ns[0], "T", "#7", "owner")
-	noticeSays(t, ns[1], "clauductor panel", w.root, "#7", "no longer loads", "keeps serving the config it had loaded", perr.Error())
+	noticeSays(t, ns[1], "stridal panel", w.root, "#7", "no longer loads", "keeps serving the config it had loaded", perr.Error())
 }
 
 // standInRebuild stands in for the panel's rebuild of itself (Options.selfUpdate, D4):
@@ -585,7 +585,7 @@ func newBinary(t *testing.T, cfgPath, answer string) string {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "answer.json")
 	writeFile(t, out, answer)
-	bin := filepath.Join(dir, "clauductor.new")
+	bin := filepath.Join(dir, "stridal.new")
 	testbin.Write(t, bin, `#!/bin/sh
 [ "$1 $2 $3 $4" = "panel config-check --config `+cfgPath+`" ] || { echo "unexpected: $*" >&2; exit 2; }
 cat '`+out+`'
@@ -654,8 +654,8 @@ func TestCatchUpTrustsWhatTheNewBinaryReads(t *testing.T) {
 		if len(ns) != 2 {
 			t.Fatalf("catch-up sent %d notices, want the build's and the load's: %+v", len(ns), ns)
 		}
-		noticeSays(t, ns[0], "clauductor panel", w.root, "syntax error")
-		noticeSays(t, ns[1], "clauductor panel", w.root, "does not load", perr.Error())
+		noticeSays(t, ns[0], "stridal panel", w.root, "syntax error")
+		noticeSays(t, ns[1], "stridal panel", w.root, "does not load", perr.Error())
 	})
 }
 
@@ -717,7 +717,7 @@ func TestCatchUpStoppedBeforeTheSwapWithdrawsTheTrust(t *testing.T) {
 	if len(ns) != 2 {
 		t.Fatalf("catch-up sent %d notices, want the trust's and the stop's: %+v", len(ns), ns)
 	}
-	noticeSays(t, ns[1], "clauductor panel", w.root, "#7", "was stopped before it put the build in place",
+	noticeSays(t, ns[1], "stridal panel", w.root, "#7", "was stopped before it put the build in place",
 		"The trust it recorded on arrival for the new "+config.DefaultConfigRel, "is withdrawn", "Its next start runs the binary it ran",
 		"catch-up's next fast-forward rebuilds it")
 }
@@ -833,7 +833,7 @@ func TestCatchUpDoesNotTrustAConfigThatSilencesItself(t *testing.T) {
 	if len(ns) != 1 {
 		t.Fatalf("catch-up sent %d notices, want 1: %+v", len(ns), ns)
 	}
-	noticeSays(t, ns[0], "clauductor panel", w.root, "turns notices off", "waits for the owner")
+	noticeSays(t, ns[0], "stridal panel", w.root, "turns notices off", "waits for the owner")
 }
 
 // [CATCHUP-3-S10] The owner's #7 adds a card the running binary reads, and its
@@ -872,9 +872,9 @@ func TestCatchUpFailedBuildServesTheConfigUntrusted(t *testing.T) {
 			if len(ns) != want {
 				t.Fatalf("catch-up sent %d notices, want %d: %+v", len(ns), want, ns)
 			}
-			noticeSays(t, ns[0], "clauductor panel", w.root, "syntax error")
+			noticeSays(t, ns[0], "stridal panel", w.root, "syntax error")
 			if notify {
-				noticeSays(t, ns[1], "clauductor panel", w.root, "the panel's rebuild failed", "waits for the owner")
+				noticeSays(t, ns[1], "stridal panel", w.root, "the panel's rebuild failed", "waits for the owner")
 			}
 		})
 	}
@@ -894,7 +894,7 @@ func TestConfigCheckReadsTheNewBinarysAnswer(t *testing.T) {
 			t.Errorf("the answer %s judged nothing, and was taken", answer)
 		}
 	}
-	bin := filepath.Join(t.TempDir(), "clauductor.new")
+	bin := filepath.Join(t.TempDir(), "stridal.new")
 	testbin.Write(t, bin, "#!/bin/sh\necho 'panel config: version 999 is not supported' >&2\nexit 1\n")
 	if _, err := configCheck(context.Background(), bin, cfg); err == nil || !strings.Contains(err.Error(), "version 999") {
 		t.Fatalf("a binary that cannot load the config: %v, want its error", err)

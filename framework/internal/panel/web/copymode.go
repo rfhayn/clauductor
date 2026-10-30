@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
 	"github.com/coder/websocket"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
 )
 
 // PANEL-6: the wheel scrolls a lane's history by putting its pane in tmux's copy

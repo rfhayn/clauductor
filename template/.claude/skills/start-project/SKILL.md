@@ -30,11 +30,11 @@ If those lines show as literal text, run the commands yourself.
    project's own `.claude/local/approval-guarded.txt`) lists, or one `/propose` step 3a keeps for them (money, legal, outward, irreversible, an ADR),
    which the owner still approves. It holds only once merged to
    `MAIN_BRANCH`. The choice is the owner's: set it only on their word, never by default.
-2. **The panel config** (`.clauductor/panel.json`): set `name` to `PROJECT_NAME` and
+2. **The panel config** (`.stridal/panel.json`): set `name` to `PROJECT_NAME` and
    `tmux_socket` to `PROJECT_SLUG`; make `lanes` and each template's `branch_pattern` use the
-   `BRANCH_*` prefixes and `MAIN_BRANCH` (`clauductor install` writes them so when it creates the
+   `BRANCH_*` prefixes and `MAIN_BRANCH` (`stridal install` writes them so when it creates the
    file; `sh .claude/checks/run.sh branch-prefixes` names any that disagree), and `base`
-   `origin/<MAIN_BRANCH>`. Then tell the user to run `clauductor panel trust` themselves
+   `origin/<MAIN_BRANCH>`. Then tell the user to run `stridal panel trust` themselves
    (a config's commands run only once its owner has trusted it; never trust on their behalf).
 3. **The gate** (`scripts/ci/steps.sh`): ask for the lint, typecheck and test commands, and any
    slow suite for the full gate only; write each as a `step`. Keep the "process checks" step.
@@ -49,9 +49,9 @@ If those lines show as literal text, run the commands yourself.
    `sh scripts/ci/lease-conformance/run.sh <impl>`.
    Then run `scripts/ci/gate.sh --quick` and show the result.
 4. **The formatter** (`FORMAT_CMD`, `FORMAT_EXT`), if the project has one.
-4b. **Least privilege** (`.claude/settings.json`, kept current by `clauductor install`): Claude may
+4b. **Least privilege** (`.claude/settings.json`, kept current by `stridal install`): Claude may
    not read `.env` files, keys, `~/.ssh` or `~/.aws`, force-push, or kill a tmux server, and Bash
-   runs in the sandbox with a network allowlist (git, gh, tmux, clauductor, docker and the gate run
+   runs in the sandbox with a network allowlist (git, gh, tmux, stridal, docker and the gate run
    outside it). Tell the user. If one of the project's tools fails in the sandbox, or needs a host,
    loosen it in **`.claude/settings.local.json`** (`sandbox.excludedCommands`,
    `sandbox.network.allowedDomains`: these lists merge with the project's, and an install never
@@ -84,7 +84,7 @@ If those lines show as literal text, run the commands yourself.
    `MODULES` (`.claude/modules/README.md` lists them). What the project adds of its own
    (an extra guard rule, a context section, a health line, a skill step, a conflict row) goes in
    `.claude/local/` (its README has each contract), never in a framework file the next
-   `clauductor update` overwrites. `sh .claude/extensions.sh list` shows what is on.
+   `stridal update` overwrites. `sh .claude/extensions.sh list` shows what is on.
 10. **Verify**: `sh .claude/checks/run.sh` must pass. Then commit, open the PR, and land it with
     `merge-pr` (the gate must pass in full first: `scripts/ci/gate.sh`).
 

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
 )
 
 // serveUnix serves h on a fresh Unix socket (a short path: sun_path is small) until the

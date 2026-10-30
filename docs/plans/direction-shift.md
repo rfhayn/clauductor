@@ -6,7 +6,7 @@ which old rows became which new ones. Nothing was built to write it.
 
 ## What prompted it
 
-The owner considered making Clauductor an open-source project rather than a paid product. Two
+The owner considered making Stridal an open-source project rather than a paid product. Two
 inputs shaped the decision.
 
 **Andrew Baker's Ghostty Dock** (andrewbaker.ninja, 2026-10-21). It is three small, free tools:
@@ -76,7 +76,7 @@ template does not became Phase 4.
 | New lessons keep arriving | (new) | ST-21 |
 | The merge guard judges the argv `gh` receives | `.claude/bin/gh`, PRAC-0041 | OPS-86 weighs it |
 
-Clauductor already has things Standing Tee lacks, and they stay: the cd guard, the catch-up guard,
+Stridal already has things Standing Tee lacks, and they stay: the cd guard, the catch-up guard,
 no-silent-wait, each row's records in its own fragment, the review cap read from a change's Risk,
 and delegated approval.
 
@@ -90,7 +90,7 @@ and delegated approval.
 | ST-7, ST-6 | Standing Tee served through the browser panel | cancelled |
 | o.4 | PANEL-45's outcome check | cancelled |
 | PANEL-25, PANEL-33, PANEL-34, PANEL-50 | engine rows waiting on PANEL-46 | kept, no longer waiting on it |
-| OPS-92b | `clauductor install --profile lite` | lite through the plugin |
+| OPS-92b | `stridal install --profile lite` | lite through the plugin |
 | OPS-113 | the launch safeguards M1–M5 | M1 and M2 only (the subscription's terms) |
 | OPS-115 | a local Mac release script | possibly a GitHub Actions release, once the repository is public |
 | OPS-117 | a site with pricing and checkout | a docs site only |
@@ -102,7 +102,7 @@ Phases are now:
 
 | Phase | Name |
 |---|---|
-| 1 | Clauductor runs its own operating model |
+| 1 | Stridal runs its own operating model |
 | 2 | The panel |
 | 3 | Measuring the model |
 | 4 | Learn from Standing Tee |

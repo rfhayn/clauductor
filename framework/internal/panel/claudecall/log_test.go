@@ -16,11 +16,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // otherHolder starts a process that is not the panel's, to stand as a lock's holder.
@@ -330,7 +330,7 @@ func TestWatchLoop(t *testing.T) {
 func TestLogLivesInThePanelDirAndIsPrivate(t *testing.T) {
 	home := t.TempDir()
 	l := NewLog(home)
-	if want := filepath.Join(home, ".clauductor", "panel", "login-lock.jsonl"); l.Path != want {
+	if want := filepath.Join(home, ".stridal", "panel", "login-lock.jsonl"); l.Path != want {
 		t.Errorf("path %q, want %q", l.Path, want)
 	}
 	if err := l.Append(map[string]int{"a": 1}); err != nil {

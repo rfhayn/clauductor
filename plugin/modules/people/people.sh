@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # people.sh: the people module's one reader of the people registry (PEOPLE, docs/people.json by
 # default), and the who-is-on-what block built from it. Nothing else parses the registry: the
 # context sections, the roadmap owner rule and the checks all call this.
@@ -33,9 +33,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plug
 # THE REGISTRY FAILS LOUDLY rather than reading as a shorter list: a person dropped here would
 # vanish from who-is-on-what and every row they own would refuse as an unknown owner, so the loud
 # failure is the one that points at the cause. Needs jq (as every check does).
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 PEOPLE=${PEOPLE:-docs/people.json}
 
 mode=""; people=""; state=""; rows=""; roadmap=""

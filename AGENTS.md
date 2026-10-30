@@ -93,7 +93,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A project's history is never reformatted; records since adoption meet the format | `RECORDS_BASELINE`, `CHANGES_LEGACY` (`lib/records.sh`); **`checks/journal.sh`**, **`adr-numbering.sh`**, **`changes.sh`** |
 | An ADR or PRAC number is never taken twice (one space); each is indexed and names its enforcement | **`checks/adr-numbering.sh`**; `new-adr` numbers from `origin/main` and open PRs |
 | A skill's context script and every `.claude/` path a skill or agent names exists | **`checks/skills.sh`** |
-| The repo works without clauductor: nothing needs the binary or the panel | **`checks/run.sh`** runs the checks with `clauductor` off `PATH`; **`checks/no-clauductor.sh`** asserts it and runs the gate there; weekly, **`checks-double-pass.yml`** (`local:double-pass`) |
+| The repo works without stridal: nothing needs the binary or the panel | **`checks/run.sh`** runs the checks with `stridal` off `PATH`; **`checks/no-stridal.sh`** asserts it and runs the gate there; weekly, **`checks-double-pass.yml`** (`local:double-pass`) |
 | A branch is named by its `BRANCH_*` key, never a literal prefix | **`checks/branch-prefixes.sh`**: the model's files and `panel.json` |
 | Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | A script's temporary file lands in `$TMPDIR`: every `mktemp` line holds a `${TMPDIR:-` template or says why not | **`checks/mktemp-in-tmpdir.sh`** over every tracked shell script |
@@ -101,6 +101,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | The owner's roadmap tracker matches `docs/roadmap.md` | **`.claude/local/roadmap-tracker.sh`** via the session-start and session-close steps; the STALE line in session-start's context; **`local:roadmap-tracker`** |
 | A team-queue issue is listed as facts, approved only by an `approved` label after its last edit, bound to its content, worked only through its row; `new-row` proposes one | **`.claude/local/context.d/session-start/team-queue.sh`** (the states); **`local:team-queue`**; the handling steps: **Nothing. You.** |
 | The gate runs every check of both sets, and a shared one once only while the framework matches the template | **`scripts/ci/steps.sh`** (`CHECKS_ONCE`, `CHECKS_SKIP`); **`checks/check-sets.sh`** |
+| No tracked file holds the earlier name; split only in its two named files | **`checks/name-residue.sh`** |
 | **This file stays a budget, not an archive** | **`.claude/checks/agents-md-budget.sh`** |
 | **Everything else in this file and `docs/conventions.md`** | **Nothing. You.** Including all four rules above. |
 
@@ -132,7 +133,7 @@ models: `.claude/model-roles.json`.
   imperative. **No `Co-Authored-By`**, no provenance trailers (`model-roles.json`, ADR-0008).
 - **The gate** is `GATE_RUN` in `.claude/project.conf`; agents run it through `GATE`.
 - **`template/` is the product.** A template edit ships to every project: rebuild the plugin
-  (`scripts/build-plugin.sh`), and sync this repo's own copy with `clauductor update`.
+  (`scripts/build-plugin.sh`), and sync this repo's own copy with `stridal update`.
 - **Never kill a tmux server or another session's process from a script** (ADR-0005).
 - **Reuse before you write.** Grep for the concept before adding a function, a query or a
   dependency.

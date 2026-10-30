@@ -15,32 +15,19 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/brand"
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/brand"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // hookTag is the query parameter that marks a hook entry as the panel's own. Claude
 // Code's hook schema documents no free-form key for ownership, so the tag lives in the
 // URL, which Claude Code passes through untouched.
 var hookTag = brand.HookTag(brand.Name)
-
-// hookTags are the tags a panel hook entry may carry: hookTag, then a legacy name's
-// (brand.Names), so an entry an earlier install wrote is still found, replaced and
-// uninstalled.
-func hookTags(names []string) []string {
-	tags := make([]string, len(names))
-	for i, n := range names {
-		tags[i] = brand.HookTag(n)
-	}
-	return tags
-}
 
 // hookURL is the URL the panel's hooks post to.
 func hookURL(port int) string { return taggedURL(port, hookTag) }
@@ -74,21 +61,11 @@ func hookEntry(port int) map[string]any {
 }
 
 // commandPort finds the port and the tag of a panel command hook.
-var commandPort = commandPortRe(hookTags(brand.Names()))
-
-func commandPortRe(tags []string) *regexp.Regexp {
-	alt := make([]string, len(tags))
-	for i, t := range tags {
-		alt[i] = regexp.QuoteMeta(t)
-	}
-	return regexp.MustCompile(`'http://127\.0\.0\.1:(\d+)/hook\?src=(` + strings.Join(alt, "|") + `)'`)
-}
+var commandPort = regexp.MustCompile(`'http://127\.0\.0\.1:(\d+)/hook\?src=(` + regexp.QuoteMeta(hookTag) + `)'`)
 
 // hookTarget returns the panel URL a hook object posts to, or "" when it is not the
 // panel's. It recognises both forms: the current async command hook and the HTTP hook
 // earlier panels installed, so an older entry is still found, replaced and uninstalled.
-// An entry under a legacy name's tag is the panel's too, and its URL is given under
-// hookTag, so driftOf reads it as this panel's in an older form, never as another's.
 //
 // A command hook is the panel's only when its command is EXACTLY hookCommand for the
 // port in it. Install (every 30 s) and uninstall edit the user's global settings, so
@@ -96,12 +73,6 @@ func commandPortRe(tags []string) *regexp.Regexp {
 // claiming it would silently delete it. The cost: if hookCommand ever changes, the
 // previous command must be recognised here too, or old entries stay behind.
 func hookTarget(raw json.RawMessage) string {
-	return hookTargetOf(raw, hookTags(brand.Names()), commandPort)
-}
-
-// hookTargetOf is hookTarget for tags (hookTags), whose first is this panel's own: the tag
-// every URL it returns is given under.
-func hookTargetOf(raw json.RawMessage, tags []string, commandPort *regexp.Regexp) string {
 	var h struct {
 		Type    string `json:"type"`
 		URL     string `json:"url"`
@@ -119,7 +90,7 @@ func hookTargetOf(raw json.RawMessage, tags []string, commandPort *regexp.Regexp
 		if err != nil || h.Command != taggedCommand(port, m[2]) {
 			return ""
 		}
-		return taggedURL(port, tags[0])
+		return taggedURL(port, hookTag)
 	}
 	if h.URL == "" {
 		return ""
@@ -128,35 +99,10 @@ func hookTargetOf(raw json.RawMessage, tags []string, commandPort *regexp.Regexp
 	if err != nil {
 		return ""
 	}
-	q := u.Query()
-	switch src := q.Get("src"); {
-	case src == tags[0]:
+	if u.Query().Get("src") == hookTag {
 		return h.URL
-	case slices.Contains(tags, src):
-		q.Set("src", tags[0])
-		u.RawQuery = q.Encode()
-		return u.String()
 	}
 	return ""
-}
-
-// legacyTagged says whether a hook object of the panel's carries a legacy name's tag rather
-// than hookTag, so driftOf can say why it is outdated.
-func legacyTagged(raw json.RawMessage) bool { return legacyTaggedOf(raw, hookTag, commandPort) }
-
-func legacyTaggedOf(raw json.RawMessage, tag string, commandPort *regexp.Regexp) bool {
-	var h struct {
-		URL     string `json:"url"`
-		Command string `json:"command"`
-	}
-	if json.Unmarshal(raw, &h) != nil {
-		return false
-	}
-	if m := commandPort.FindStringSubmatch(h.Command); m != nil {
-		return m[2] != tag
-	}
-	u, err := url.Parse(h.URL)
-	return h.URL != "" && err == nil && u.Query().Get("src") != tag
 }
 
 // SettingsPath is the user settings file the installer edits.
@@ -341,7 +287,7 @@ func rewriteSettingsOnce(home string, edit func(*orderedObject) error) (bool, er
 	}
 	// The backup is written once and never overwritten, so it keeps the file as it was
 	// before the panel first touched it.
-	if bak := path + ".clauductor-panel.bak"; orig != nil {
+	if bak := path + ".stridal-panel.bak"; orig != nil {
 		if _, err := os.Lstat(bak); os.IsNotExist(err) {
 			if err := os.WriteFile(bak, orig, mode); err != nil {
 				return false, fmt.Errorf("backing up %s: %w", path, err)

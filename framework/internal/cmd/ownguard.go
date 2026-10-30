@@ -9,49 +9,44 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/brand"
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/brand"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
 // A repository can run its own operating model — skills, hooks and scripts with the same names as
 // the template's, grown in place. `install` overwrites the template's framework tier and `update`
 // adds whatever is missing, so run in such a repo either one would replace or scatter files the
-// project owns. Both therefore act only on a repository clauductor put its model into (the marker,
+// project owns. Both therefore act only on a repository stridal put its model into (the marker,
 // or an old-model install), and otherwise refuse unless --force, naming what they would touch.
 
-// installMarker records that clauductor installed the operating model here, so later installs and
+// installMarker records that stridal installed the operating model here, so later installs and
 // updates may bring its files up to date.
 var installMarker = brand.InstallMarker(brand.Name)
 
-// markerIn is the marker targetDir holds, under the first of names that has one (brand.Names:
-// a repository marked under a legacy name is still recognised), or "" when it holds none.
-func markerIn(targetDir string, marker func(name string) string, names []string) string {
-	for _, n := range names {
-		if m := marker(n); fileExists(filepath.Join(targetDir, m)) {
-			return m
-		}
+// markerIn is marker when targetDir holds it, or "" when it does not.
+func markerIn(targetDir, marker string) string {
+	if fileExists(filepath.Join(targetDir, marker)) {
+		return marker
 	}
 	return ""
 }
 
-// hasInstallMarker says whether targetDir holds the install marker, under any of brand.Names.
-func hasInstallMarker(targetDir string) bool {
-	return markerIn(targetDir, brand.InstallMarker, brand.Names()) != ""
-}
+// hasInstallMarker says whether targetDir holds the install marker.
+func hasInstallMarker(targetDir string) bool { return markerIn(targetDir, installMarker) != "" }
 
-const markerNote = "The operating model in this repository was installed by `clauductor install` or `init`.\n" +
-	"`clauductor install` and `update` may bring its framework files up to date. Delete this file to\n" +
+const markerNote = "The operating model in this repository was installed by `stridal install` or `init`.\n" +
+	"`stridal install` and `update` may bring its framework files up to date. Delete this file to\n" +
 	"make them refuse (unless --force), as they do in a repository that runs its own model.\n"
 
-// ownedByClauductor says whether clauductor installed the model here: the marker, or signs of
-// clauductor's old model (installs made before the marker existed). The signs are read from
+// ownedByStridal says whether stridal installed the model here: the marker, or signs of
+// stridal's old model (installs made before the marker existed). The signs are read from
 // tracked files (template.OldModelSigns): the old model's runtime state, orchestration/config.json,
 // is gitignored, so a fresh clone of an old-model repository looked foreign (OPS-8 rehearsal).
-func ownedByClauductor(targetDir string) bool {
+func ownedByStridal(targetDir string) bool {
 	return hasInstallMarker(targetDir) || len(template.OldModelSigns(targetDir)) > 0
 }
 
-// announceOldModel says why a repository without the marker counts as clauductor's.
+// announceOldModel says why a repository without the marker counts as stridal's.
 func announceOldModel(out io.Writer, targetDir string) {
 	if hasInstallMarker(targetDir) {
 		return
@@ -60,14 +55,14 @@ func announceOldModel(out io.Writer, targetDir string) {
 	if len(signs) == 0 {
 		return
 	}
-	fmt.Fprintln(out, "This repository runs clauductor's old operating model, so it is clauductor's to update:")
+	fmt.Fprintln(out, "This repository runs stridal's old operating model, so it is stridal's to update:")
 	for _, s := range signs {
 		fmt.Fprintf(out, "    · %s\n", s)
 	}
 	fmt.Fprintln(out)
 }
 
-// writeInstallMarker marks targetDir as clauductor's to update.
+// writeInstallMarker marks targetDir as stridal's to update.
 func writeInstallMarker(targetDir string) error {
 	p := filepath.Join(targetDir, installMarker)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -79,7 +74,7 @@ func writeInstallMarker(targetDir string) error {
 // ownModelSigns are the files that show a repository runs an operating model of its own.
 var ownModelSigns = []string{"AGENTS.md", ".claude/skills", ".claude/hooks", ".claude/settings.json"}
 
-// foreignModel lists what an install into targetDir, not clauductor's, would change in a model the
+// foreignModel lists what an install into targetDir, not stridal's, would change in a model the
 // project already has: each framework-tier file that exists with other content ("overwrite"), and,
 // when any sign of an own model is present, each template file that would be added beside it
 // ("add"). Empty means the install cannot clobber anything the project owns.
@@ -155,27 +150,27 @@ func refuseForeign(verb, targetDir string, overwrite, add []string) error {
 			fmt.Fprintf(&b, "\nWARNING: %s\n", w)
 		}
 	}
-	b.WriteString("\nTo see every difference, file by file and key by key: clauductor diff.\n")
-	b.WriteString("\nThe panel needs none of this: `clauductor panel` works in any repository as it is.\n" +
+	b.WriteString("\nTo see every difference, file by file and key by key: stridal diff.\n")
+	b.WriteString("\nThe panel needs none of this: `stridal panel` works in any repository as it is.\n" +
 		"To borrow one piece, copy it from the template by hand. To replace the project's model\n" +
 		"with the template's anyway, run again with --force (commit first: it overwrites).")
 	return fmt.Errorf("%s", b.String())
 }
 
-// pluginMarker is what the clauductor plugin's /clauductor:init writes: the repository runs the
+// pluginMarker is what the stridal plugin's /stridal:init writes: the repository runs the
 // model from the plugin (docs/plugin.md).
 var pluginMarker = brand.PluginMarker(brand.Name)
 
 // refusePluginModel refuses install and update in a repository that runs the model from the
 // plugin. Installing the framework files too would register every hook twice and give each
-// skill two copies that drift apart. A legacy name's marker counts too.
+// skill two copies that drift apart.
 func refusePluginModel(verb, targetDir string) error {
-	marker := markerIn(targetDir, brand.PluginMarker, brand.Names())
+	marker := markerIn(targetDir, pluginMarker)
 	if marker == "" {
 		return nil
 	}
-	return fmt.Errorf("%s refused: %s runs the operating model from the clauductor Claude Code plugin (%s).\n"+
+	return fmt.Errorf("%s refused: %s runs the operating model from the stridal Claude Code plugin (%s).\n"+
 		"Run one or the other, not both (docs/plugin.md, Running both). To switch this repository to\n"+
-		"`clauductor install`, uninstall or disable the plugin here and delete %s, then run again;\n"+
+		"`stridal install`, uninstall or disable the plugin here and delete %s, then run again;\n"+
 		"--force installs anyway", verb, targetDir, marker, marker)
 }

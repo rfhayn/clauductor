@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The premise-check module's merge-guard rule (BLOCKING): a PR on a PREMISE_REQUIRED_ON branch
 # (default fix/) is blocked unless its body carries a premise-check receipt for every issue it
 # fixes. Standing Tee's merge-guard rule 6, moved into a module.
@@ -29,9 +29,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 no() { echo "$1" >&2; exit 2; }
 # Tested, not sourced blind: a `.` of a missing file ends the shell with a status that is not 2.
-[ -f "$CLAUDUCTOR_FW/lib/conf.sh" ] || no "cannot read the project's configuration (lib/conf.sh is missing), so the premise check cannot be evaluated."
+[ -f "$STRIDAL_FW/lib/conf.sh" ] || no "cannot read the project's configuration (lib/conf.sh is missing), so the premise check cannot be evaluated."
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 [ -f "$HERE/lib/receipt.sh" ] || no "cannot find $HERE/lib/receipt.sh, so the premise-check receipt cannot be checked. Restore it."
 # shellcheck disable=SC1091
 . "$HERE/lib/receipt.sh"
@@ -44,7 +44,7 @@ done
 [ -n "$on" ] || exit 0
 
 # The merge's own body is read the way rule 12 reads it (cg_body, hooks/lib/change-guard.sh).
-cg="$CLAUDUCTOR_FW/hooks/lib/change-guard.sh"
+cg="$STRIDAL_FW/hooks/lib/change-guard.sh"
 { [ -f "$cg" ] && sh -n "$cg" 2>/dev/null; } || no "cannot read $cg, so the merge's own body cannot be checked for the issues it closes."
 # shellcheck disable=SC1090
 . "$cg"
@@ -55,7 +55,7 @@ done
 # The PR the merge names, as the guard reads it (#267): a bare number resolves through gh's default
 # repository, which in a fork's checkout is another repo's PR. Read before the cd: with no repo
 # named, the directory resolves it, and the guard checked the merge's against its own, not ROOT.
-[ -n "${GUARD_PR_REF:-}" ] || no "the merge guard did not pass GUARD_PR_REF, so which PR this merge names cannot be read (a guard older than this module: run clauductor update)."
+[ -n "${GUARD_PR_REF:-}" ] || no "the merge guard did not pass GUARD_PR_REF, so which PR this merge names cannot be read (a guard older than this module: run stridal update)."
 pr_json=$(gh pr view "$GUARD_PR_REF" ${GUARD_PR_REPO:+-R "$GUARD_PR_REPO"} --json title,body,closingIssuesReferences 2>/dev/null)
 cd "$ROOT" || exit 2
 repo=${GUARD_REPO:-}

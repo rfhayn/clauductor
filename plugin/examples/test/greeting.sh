@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The example change's test, in the shape any language takes: each test names the scenario it
 # proves ([GREETING-1-S1], [GREETING-1-S2], [FAREWELL-1-S1]), so .claude/scenario-trace.sh can
 # find it. The reviewer then checks that each assertion is the scenario's THEN.

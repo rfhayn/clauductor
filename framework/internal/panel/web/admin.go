@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
 )
 
 // PANEL-22: the project menu adds, trusts and removes projects. These routes change

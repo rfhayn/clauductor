@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # publish-status.sh: DRAW a gate's result on its pull request as a commit status (the ci-status
 # module). When the gate runs locally, a PR shows no checks at all: the evidence (the receipt in
 # .git/ci-receipt) is real, and nothing renders it. A commit status (POST /repos/{o}/{r}/statuses/
@@ -31,12 +31,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # NEVER FAILS ITS CALLER. A cosmetic reporter that can turn a passing gate red is worse than the
 # blank PR it exists to fix, so every path exits 0, and every path PRINTS (to stderr), because a
 # reporter that fails silently is indistinguishable from one that worked.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # Defined before any call: a function used before its definition prints `note: not found` and
 # nothing else, which is how a reporter goes silent.
 note() { echo "publish-status: $1" >&2; }
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh" 2>/dev/null || { note "cannot read .claude/lib/conf.sh; nothing posted"; exit 0; }
+. "$STRIDAL_FW/lib/conf.sh" 2>/dev/null || { note "cannot read .claude/lib/conf.sh; nothing posted"; exit 0; }
 
 MODE=${1:-}
 [ -n "$MODE" ] || { note "no mode given (expected 'local' or 'github'); nothing posted"; exit 0; }

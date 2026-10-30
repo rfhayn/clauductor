@@ -41,7 +41,7 @@ capability, and no edit to an approved design without the owner (it voids the ap
 `openspec list --json` only with the CLI at 1.13 or later, and reads the directory otherwise.
 
 `enable.sh` copies it to `.claude/skills/explore` (Claude Code finds skills only there). After a
-`clauductor update` that changes it, `enable.sh --check` and `checks/run.sh openspec:project` fail
+`stridal update` that changes it, `enable.sh --check` and `checks/run.sh openspec:project` fail
 until `enable.sh` is run again.
 
 ## What changes when it is on
@@ -51,22 +51,22 @@ until `enable.sh` is run again.
 | Validate | `sh .claude/checks/run.sh changes` | the same, **plus** `openspec validate --all --strict` (`checks/openspec.sh`) |
 | Archive (`archive-change`) | apply the deltas, `git mv` to `changes/archive/` | `openspec archive <id> -y` may do both steps, after the same preconditions |
 
-**clauductor's own checks still run, and still decide.** The CLI leaves several things unguarded,
+**stridal's own checks still run, and still decide.** The CLI leaves several things unguarded,
 so `checks/changes.sh`, `archive-change` and `pr-merge-guard` (rules 9–11) hold them whatever
 version is installed (tested on 1.2.0 and 1.13.2):
 
 - `openspec archive -y` archives a change with **no spec delta**, and one with **an unchecked
-  task**, printing only a warning. clauductor refuses both: a change with no delta must say
+  task**, printing only a warning. stridal refuses both: a change with no delta must say
   `skip_specs: true` in `changes/<id>/.openspec.yaml`, which `propose` writes.
-- OpenSpec matches a MODIFIED block's scenarios by their **whole header**, not by ID. clauductor
+- OpenSpec matches a MODIFIED block's scenarios by their **whole header**, not by ID. stridal
   requires the MODIFIED block to copy every current scenario header word for word first.
 - A new capability's delta needs a **`## Purpose` of 50 characters or more**; without one, archive
   writes "TBD", which fails strict validation.
 - Scenario IDs (`[CAP-n-Sn]`), their uniqueness and their tests (`scenario-trace.sh`) are
-  clauductor's; OpenSpec keeps the IDs in the headers through archive.
+  stridal's; OpenSpec keeps the IDs in the headers through archive.
 
 The example change in `.claude/examples/` is validated through these links by
-`checks/openspec.sh` wherever the CLI (1.13+) is installed, and on every push in clauductor's CI.
+`checks/openspec.sh` wherever the CLI (1.13+) is installed, and on every push in stridal's CI.
 
 ## Two silent-failure traps in `openspec/config.yaml`
 

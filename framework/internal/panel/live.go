@@ -10,17 +10,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/web"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/web"
 )
 
 // PANEL-22: the projects a running panel serves follow projects.json. A project added
-// (from the page's "Add a project…", or `clauductor panel add`) starts its runtime at
+// (from the page's "Add a project…", or `stridal panel add`) starts its runtime at
 // once: its sources, its lane manager and its hub, wired into the server, the ingest
 // and the menu. A project removed stops its runtime and waits for every one of its
 // goroutines; its lanes are tmux's and keep running. One reconcile does both, for the

@@ -25,7 +25,7 @@ Read on 2026-10-24, at `24aa88ee`.
 - **E4. Every route but three needs the page's cookie, and every POST needs the page's `Origin`.**
   `Handler` (`web/server.go:163`) refuses a non-loopback peer and a foreign `Host`. It refuses any
   POST whose `Origin` is not `http://<Host>`, except `/hook` and `/status`. `requireAuth`
-  (`server.go:225`) wants the cookie `clauductor_panel_<port>`, holding the per-launch token. That
+  (`server.go:225`) wants the cookie `stridal_panel_<port>`, holding the per-launch token. That
   token is on disk only under launchd (`install.TokenPath`, `install/launchd.go:58`). A panel
   started by hand keeps it in memory (`run.go:319-323`). `/hook` and `/status` carry no token and
   are write-only. They are closed to browsers by refusing any request that has an `Origin` or a
@@ -33,7 +33,7 @@ Read on 2026-10-24, at `24aa88ee`.
 - **E5. The CLI already finds the live panel without trusting a stale file.** `install.RunningPanel`
   (`install/singleton.go:163`) reads the pid file, checks that the process is alive with the start
   time `owner.json` recorded, and returns the `PanelOwner` (pid, port, projects). The panel holds
-  `flock` on `~/.clauductor/panel/lock` for its whole life, and removes its marker files at exit
+  `flock` on `~/.stridal/panel/lock` for its whole life, and removes its marker files at exit
   only while they are still its own (`singleton.go:22-33`). The panel directory is made private by
   `config.EnsurePrivateDir` (`singleton.go:66`). `owner.json` is written once from the value
   `run.go:354` builds, and rewritten from a copy of that value on every live `panel add` or `panel
@@ -52,16 +52,16 @@ Read on 2026-10-24, at `24aa88ee`.
   `signals.ReadWorktrees` lists for any path in the repository, as `mainRoot` itself reads it
   (`candidate.go:138-141`).
 - **E8. Every lane knows its own id.** The panel starts each lane's tmux session with
-  `CLAUDUCTOR_LANE=<id>` in its environment (`lanes/lanes.go:539`), and claude's Bash tool
+  `STRIDAL_LANE=<id>` in its environment (`lanes/lanes.go:539`), and claude's Bash tool
   inherits it.
-- **E9. An agent's `clauductor` runs outside the sandbox and is not pre-allowed.** Both
-  `settings.json` files list `clauductor *` under `sandbox.excludedCommands`
+- **E9. An agent's `stridal` runs outside the sandbox and is not pre-allowed.** Both
+  `settings.json` files list `stridal *` under `sandbox.excludedCommands`
   (`.claude/settings.json:202`, `template/.claude/settings.json:203`), so the command can reach a
-  socket in `~/.clauductor`. Neither has an allow rule for it (`template/.claude/settings.json:156`
+  socket in `~/.stridal`. Neither has an allow rule for it (`template/.claude/settings.json:156`
   lists the gate, the checks and the status line), and lanes start with no permission mode
   (`lanes/lanes.go:440-466`). So in the default mode the owner is asked before an agent runs it.
 - **E10. A Unix socket's path is short.** `sun_path` holds 104 bytes on macOS and 108 on Linux.
-  `/Users/<name>/.clauductor/panel/cli.sock` fits easily. A test's `t.TempDir()` home on macOS
+  `/Users/<name>/.stridal/panel/cli.sock` fits easily. A test's `t.TempDir()` home on macOS
   (`/var/folders/…/T/<TestName><n>/001`) can exceed it.
 - **E11. A lane can read `idle` while its turn's work still runs.** A session whose turn ended on a
   background subagent or workflow reads `idle` on `claude agents`. STALL-1 counts it as
@@ -77,7 +77,7 @@ Read on 2026-10-24, at `24aa88ee`.
 ## Decisions
 
 - **D1. The CLI reaches the panel over a Unix socket that only the owner's user can open.**
-  **Recommended.** The running panel listens on `~/.clauductor/panel/cli.sock`, created with mode
+  **Recommended.** The running panel listens on `~/.stridal/panel/cli.sock`, created with mode
   0600 in the 0700 panel directory, and serves one route there: `POST
   /api/p/{project}/lanes/{id}/close`, the page's path, with the same `CloseRequest` body (D3).
   Any other path or method is 404 or 405. The kernel's file permissions are the credential: no
@@ -92,7 +92,7 @@ Read on 2026-10-24, at `24aa88ee`.
   made), and the machine lock, held until then, means no other panel can have replaced it. When the socket cannot be made (E10's path limit, or a listen error), the panel
   starts anyway, prints why, and leaves `Socket` empty, and the CLI then says so. `Options` takes
   the path, so tests pass a short one.
-  **Beat (b): a second token, over TCP.** The panel would write `~/.clauductor/panel/cli-token`
+  **Beat (b): a second token, over TCP.** The panel would write `~/.stridal/panel/cli-token`
   (0600, per launch), and the CLI would send it as `Authorization: Bearer` to a route that refuses
   any request with an `Origin` or `Sec-Fetch-Site`, as `/hook` does. It reuses the listener, but it
   carves an `Origin` exemption into the guard every other POST meets, and it adds a secret that an
@@ -206,7 +206,7 @@ Read on 2026-10-24, at `24aa88ee`.
   lists every registered lane and every tmux session on the panel's socket (`TermLaneView`,
   `state/model.go:1387`), so a lane it does not list is refused as unknown (LANECLOSE-1-S4). A
   lane started seconds ago may not be listed yet, and refusing it is the safe side. The CLI also
-  refuses an id equal to its own `CLAUDUCTOR_LANE` (E8) before it reads anything or asks the
+  refuses an id equal to its own `STRIDAL_LANE` (E8) before it reads anything or asks the
   panel, and names what does close a lane after its work, in fixed words: the page's Close lane,
   and auto-close where it is on for the lane's type (`AutoCloseOf`; off by default, E3). It reads
   no config to choose them, since a lane type's `auto_close` overrides the project's
@@ -231,7 +231,7 @@ Read on 2026-10-24, at `24aa88ee`.
   early, would end a working turn: a running gate or a build group, its uncommitted work kept but
   its progress lost.
 
-- **D3. The plan first; `--yes` closes.** **Recommended.** `clauductor lane close <id>` sends
+- **D3. The plan first; `--yes` closes.** **Recommended.** `stridal lane close <id>` sends
   `{"dryRun": true}` and prints the plan as the page's confirmation lists it, after a first line
   naming the lane and its branch (`lane <id> on <branch>`): **Removes**, **Keeps** (each with why)
   and the notes. It changes nothing and exits 0. With `--yes` it asks for
@@ -273,7 +273,7 @@ Read on 2026-10-24, at `24aa88ee`.
 
 - **D5. session-close closes a merged lane the panel left open.** **Recommended.**
   `template/.claude/skills/session-close/SKILL.md`'s *Close the lanes* rule gains one sentence.
-  For each lane whose pull request merged and that is still open: run `clauductor lane close
+  For each lane whose pull request merged and that is still open: run `stridal lane close
   <id>` from the repository, then, only when the plan's first line names the merged branch, the
   same with `--yes` under a 10-minute Bash timeout (D4), and put the plan's Keeps lines, if any,
   in the final message. When the call timed out, its outcome is unknown, and the session
@@ -286,7 +286,7 @@ Read on 2026-10-24, at `24aa88ee`.
   first line says so), nothing more is run for it: the final message names the merged branch
   whose lane was not found, and leaves it to the owner. A refusal (D2) is named in the final
   message too, with its reason and the lane it was for. Skip it when
-  `clauductor` is not on `PATH` or no panel runs (the repository works without either:
+  `stridal` is not on `PATH` or no panel runs (the repository works without either:
   ADR-0006). This covers every way auto-close holds back (E3) but the first: with auto-close off,
   the command closes what auto-close would have; with a plan that keeps a dirty worktree, the lane
   stops and the worktree and its branch stay, as the page's Close lane leaves them, named for the
@@ -294,7 +294,7 @@ Read on 2026-10-24, at `24aa88ee`.
   production caller (rule 3), and it stays a skill sentence: **Nothing. You.** executes it, as it
   executes the rule today.
   **Beat: `--yes` only when the plan removes both the worktree and the branch.** That is exactly
-  the set auto-close closes, so in a project with `on_merge` (this one: `.clauductor/panel.json:20`)
+  the set auto-close closes, so in a project with `on_merge` (this one: `.stridal/panel.json:20`)
   it adds nothing, and the row's case, "auto-close holds back", stays with the owner's click.
   **Beat: the command and `docs/panel.md` only.** That ships a capability whose only caller is
   an agent that happens to read the panel's docs, which rule 3 calls not shipped.
@@ -304,16 +304,16 @@ Read on 2026-10-24, at `24aa88ee`.
   trust and by what is in a build's way (NEWLANE-4). That is a command of its own, with its own
   design. No row asks for it and no session has needed it. If the owner wants it, it becomes its
   own roadmap row in this proposal's PR.
-  **Beat: `clauductor lane start` in this change.** It would double the change's write surfaces
+  **Beat: `stridal lane start` in this change.** It would double the change's write surfaces
   and its review, and put two decisions about trust (who may start a lane, with which template) in
   a row sized for one.
 
 - **D7. The template allows the command without asking.** **Recommended.**
-  `template/.claude/settings.json`'s `permissions.allow` gains `Bash(clauductor lane close *)`, and
-  this repository's copy follows through `clauductor update`. session-close runs hands-off, and
+  `template/.claude/settings.json`'s `permissions.allow` gains `Bash(stridal lane close *)`, and
+  this repository's copy follows through `stridal update`. session-close runs hands-off, and
   without the rule each lane costs two permission prompts in the default mode (E9), which leaves
   the session waiting on the owner it was meant to spare. The rule is narrow: `close` alone, whose
-  every effect is D2's and Close lane's guards; no other `clauductor` subcommand is allowed. Under
+  every effect is D2's and Close lane's guards; no other `stridal` subcommand is allowed. Under
   D2 an agent can close only a lane whose work has ended and whose branch merged, or whose claude
   has exited (a lane whose tmux session is gone keeps its restore unless its branch merged), and
   only in the project of the directory it runs in (no `--project`); a dirty
@@ -324,24 +324,24 @@ Read on 2026-10-24, at `24aa88ee`.
 ## The command
 
 ```
-clauductor lane close <id> [--yes]
+stridal lane close <id> [--yes]
 ```
 
 - **The panel**, checked first, is the live one `install.RunningPanel` finds (E5), reached at
   `owner.json`'s `Socket` (D1). No live panel, an empty `Socket` (a panel `RunningPanel` found by
   `/healthz` alone has none, `singleton.go:192`), or a socket that does not answer: exit 1, saying
-  which and naming `clauductor panel`.
+  which and naming `stridal panel`.
 - **The project** is the repository of the current directory, and nothing else: the current
   directory is resolved to its main checkout, the first entry of `signals.ReadWorktrees` from
   `git rev-parse --show-toplevel` (E7), and matched in the registry. A lane worktree therefore
   names its project. A directory that is not in a registered project, or one the running panel
-  does not serve (`PanelOwner.Projects`), is refused, naming `clauductor panel list`. There is no
+  does not serve (`PanelOwner.Projects`), is refused, naming `stridal panel list`. There is no
   `--project`: its only caller (D5) runs in the repository it closes in, and with D7 the flag
   would let a session in one project close another project's lane without a prompt.
 - **Output** is lines for people, the page's words: the plan's or the result's lists, each line as
   `close.go` wrote it. No `--json` (rule 3: no caller reads one).
 - **The panel's output** (`Options.Out`) gets one line per close through the socket: `lane <id>
-  (<project>) closed by clauductor lane close: removed …; kept …`. Under launchd that output is the
+  (<project>) closed by stridal lane close: removed …; kept …`. Under launchd that output is the
   panel's log in `install.LogDir`, where its other lines already go.
 - **An unknown id** is answered with the project's lanes from the view, each with its branch:
   `no lane "x"; this project's lanes: a (change/a), b (fix/12-b)`.
@@ -354,11 +354,11 @@ clauductor lane close <id> [--yes]
 | claude runs, but `claude agents` has not read it yet, or its session ended while it still runs (after a `/clear`) | Refused, exit 1: "claude has not been read yet", or "its session ended while claude still runs (a /clear?): close it from the page" (D2). Nothing stops. |
 | claude is idle, but its own session's turn ended on background work still in flight, or the lane holds or waits for a lease (exited or not) | Refused, exit 1, naming the task or the lease (D2). Nothing stops. |
 | claude is idle, or the lane's tmux session is gone, and its branch is not merged or not known | Refused, exit 1: "its branch is not merged: <why>" or "its branch is not known" (D2). Nothing stops; the page's Close lane, or its restore, still can. |
-| The id is the caller's own `CLAUDUCTOR_LANE` | Refused by the CLI before it reads anything, naming the page's Close lane, and auto-close where it is on for the lane's type (D2) |
+| The id is the caller's own `STRIDAL_LANE` | Refused by the CLI before it reads anything, naming the page's Close lane, and auto-close where it is on for the lane's type (D2) |
 | No live panel, or one with no socket | Exit 1, saying which; nothing is written |
-| The current directory is in no project the panel serves | Exit 1, naming `clauductor panel list` |
+| The current directory is in no project the panel serves | Exit 1, naming `stridal panel list` |
 | No such lane in the project | Exit 1, listing the project's lanes, each with its branch |
 | The worktree is dirty, locked, outside `worktree_dir`, or another lane's; or, for a lane whose claude has exited, the branch is unmerged | Not a refusal: the lane stops and those stay, each with why, as on the page (E1) |
 | A request on the socket for anything but the close | 404 or 405; the socket serves nothing else (D1) |
 | `--yes` is interrupted after the panel began the close | The panel finishes it (D4) |
-| `clauductor` is not on `PATH`, or no panel runs, at session close | session-close skips the step (D5) |
+| `stridal` is not on `PATH`, or no panel runs, at session close | session-close skips the step (D5) |

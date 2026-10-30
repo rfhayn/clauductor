@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/template"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testgit"
-	"github.com/clauductor/clauductor/internal/treesnap"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/template"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testgit"
+	"github.com/rfhayn/stridal/internal/treesnap"
 )
 
 // allTools is every tool prereqs.sh lists.
@@ -204,13 +204,13 @@ func TestDoctorTemplateOfAnotherVersionFails(t *testing.T) {
 	fw := t.TempDir()
 	write(t, fw, "template/.claude/lib/conf.sh", "")
 	write(t, fw, "template/.template-version", "99.0.0\n")
-	t.Setenv("CLAUDUCTOR_FRAMEWORK", fw)
+	t.Setenv("STRIDAL_FRAMEWORK", fw)
 	out, err := doctor(t, stubPath(t, allTools...))
 	l := needLine(t, out, "FAIL", "template")
 	if !strings.Contains(l, "99.0.0") {
 		t.Errorf("the template line does not give the template's version: %s", l)
 	}
-	for _, want := range []string{"install the matching release", "CLAUDUCTOR_FRAMEWORK", "--template-dir"} {
+	for _, want := range []string{"install the matching release", "STRIDAL_FRAMEWORK", "--template-dir"} {
 		needLine(t, out, want)
 	}
 	needLine(t, out, "note", "tools", "no template")
@@ -446,7 +446,7 @@ func TestDoctorRunsFromRootWithTemplateDir(t *testing.T) {
 		}
 	})
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("clauductor doctor --template-dir: %v\n%s%s", err, out.String(), errOut.String())
+		t.Fatalf("stridal doctor --template-dir: %v\n%s%s", err, out.String(), errOut.String())
 	}
 	needLine(t, out.String(), "ok", "sentineltool", "/opt/sentinel")
 	needLine(t, out.String(), "template", dir)
@@ -525,7 +525,7 @@ func newRepo(t *testing.T) string {
 	return dir
 }
 
-// installedRepo is a repository `clauductor install` put the model in, with the template the
+// installedRepo is a repository `stridal install` put the model in, with the template the
 // tests use.
 func installedRepo(t *testing.T) string {
 	t.Helper()
@@ -570,7 +570,7 @@ func TestDoctorWithNoGitSaysWhyTheProjectChecksDidNotRun(t *testing.T) {
 	}
 }
 
-// [DOCTOR-2-S2] A repository with no model is a note naming clauductor install, with no drift
+// [DOCTOR-2-S2] A repository with no model is a note naming stridal install, with no drift
 // line; below the toplevel the fix starts with cd, so it works where it is printed (D8).
 func TestDoctorNoModelIsANoteWithInstall(t *testing.T) {
 	tmplDir(t)
@@ -586,7 +586,7 @@ func TestDoctorNoModelIsANoteWithInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	needLine(t, out, "note", "model", "no operating model")
-	needExact(t, out, "fix: clauductor install")
+	needExact(t, out, "fix: stridal install")
 	needLine(t, out, "ok", "repository", top)
 
 	t.Chdir(sub)
@@ -594,8 +594,8 @@ func TestDoctorNoModelIsANoteWithInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	needExact(t, out, "fix: cd "+install.ShellWord(top)+" && clauductor install")
-	if lineWith(out, "fix: clauductor install") != "" {
+	needExact(t, out, "fix: cd "+install.ShellWord(top)+" && stridal install")
+	if lineWith(out, "fix: stridal install") != "" {
 		t.Errorf("a fix that would install into the subdirectory was printed:\n%s", out)
 	}
 	if l := lineWith(out, "drift"); l != "" {
@@ -618,7 +618,7 @@ func TestDoctorOwnOrPluginModelIsNotCheckedForDrift(t *testing.T) {
 	if !strings.Contains(l, "install and update refuse") {
 		t.Errorf("the note does not say install and update refuse it: %s", l)
 	}
-	needExact(t, out, "fix: clauductor diff")
+	needExact(t, out, "fix: stridal diff")
 	if lineWith(out, "drift") != "" {
 		t.Errorf("an own model has a drift line:\n%s", out)
 	}
@@ -631,7 +631,7 @@ func TestDoctorOwnOrPluginModelIsNotCheckedForDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	needLine(t, out, "note", "model", "clauductor plugin", pluginMarker)
+	needLine(t, out, "note", "model", "stridal plugin", pluginMarker)
 	if lineWith(out, "drift") != "" || lineWith(out, "own") != "" {
 		t.Errorf("the plugin's marker did not win, or a drift line ran:\n%s", out)
 	}
@@ -665,8 +665,8 @@ func TestDoctorDriftWarnsWithTheUpdateThatFixesIt(t *testing.T) {
 		}
 	}
 	cd := "cd " + install.ShellWord(top) + " && "
-	needExact(t, out, "fix: "+cd+"clauductor update --dry-run")
-	needExact(t, out, "fix: "+cd+"clauductor update")
+	needExact(t, out, "fix: "+cd+"stridal update --dry-run")
+	needExact(t, out, "fix: "+cd+"stridal update")
 	// The fix works where it is printed: update --dry-run from the toplevel sees the same two files.
 	t.Chdir(top)
 	var dry bytes.Buffer
@@ -724,7 +724,7 @@ func TestDoctorDriftFixCarriesTheTemplateDir(t *testing.T) {
 	if !strings.HasPrefix(flag, " --template-dir '") {
 		t.Fatalf("the test's directory needs quoting: %s", flag)
 	}
-	for _, fix := range []string{"clauductor update --dry-run", "clauductor update"} {
+	for _, fix := range []string{"stridal update --dry-run", "stridal update"} {
 		needExact(t, out, "fix: cd "+install.ShellWord(top)+" && "+fix+flag)
 	}
 }
@@ -758,7 +758,7 @@ func TestDoctorDriftFixResolvesARelativeTemplateDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	flag := " --template-dir " + install.ShellWord(filepath.Join(checkout, "template"))
-	for _, fix := range []string{"clauductor update --dry-run", "clauductor update"} {
+	for _, fix := range []string{"stridal update --dry-run", "stridal update"} {
 		needExact(t, out, "fix: cd "+install.ShellWord(top)+" && "+fix+flag)
 	}
 }
@@ -785,7 +785,7 @@ func TestDoctorNoTemplatePrintsNoRepositoryFix(t *testing.T) {
 		setup func()
 	}{
 		{"a --template-dir that is no template", func() { template.OverrideDir = filepath.Join("..", "not a template") }},
-		{"a template of another version", func() { template.OverrideDir = ""; t.Setenv("CLAUDUCTOR_FRAMEWORK", fw) }},
+		{"a template of another version", func() { template.OverrideDir = ""; t.Setenv("STRIDAL_FRAMEWORK", fw) }},
 	} {
 		c.setup()
 		t.Chdir(sub)
@@ -794,22 +794,22 @@ func TestDoctorNoTemplatePrintsNoRepositoryFix(t *testing.T) {
 			t.Fatalf("%s: the template line did not fail: %v\n%s", c.name, err, out)
 		}
 		needLine(t, out, "FAIL", "template")
-		needLine(t, out, "note", "model", "no operating model", "clauductor install")
-		if l := lineWith(out, "fix:", "clauductor install"); l != "" {
+		needLine(t, out, "note", "model", "no operating model", "stridal install")
+		if l := lineWith(out, "fix:", "stridal install"); l != "" {
 			t.Errorf("%s: an install fix that would refuse was printed: %s\n%s", c.name, l, out)
 		}
 
 		c.setup()
 		t.Chdir(own)
 		out, _ = doctor(t, gitPath(t, allTools...))
-		needLine(t, out, "note", "model", "operating model of its own", "clauductor diff")
-		if l := lineWith(out, "fix:", "clauductor diff"); l != "" {
+		needLine(t, out, "note", "model", "operating model of its own", "stridal diff")
+		if l := lineWith(out, "fix:", "stridal diff"); l != "" {
 			t.Errorf("%s: a diff fix that would refuse was printed: %s\n%s", c.name, l, out)
 		}
 	}
 }
 
-// [DOCTOR-2-S2] Doctor prints `clauductor install` as a fix only when install itself would run
+// [DOCTOR-2-S2] Doctor prints `stridal install` as a fix only when install itself would run
 // (D8): the model line asks install's own checks (prepareInstall). Each state below has no sign of
 // a model doctor reads, yet install refuses: a framework file the template ships, already there
 // with other content (install calls that a model of the project's own), and a project.conf that
@@ -843,15 +843,15 @@ func TestDoctorNoModelPrintsNoInstallFixInstallWouldRefuse(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v\n%s", err, out)
 			}
-			needLine(t, out, "note", "model", "no operating model", "clauductor install", "install refuses here", c.reason)
-			if l := lineWith(out, "fix:", "clauductor install"); l != "" {
+			needLine(t, out, "note", "model", "no operating model", "stridal install", "install refuses here", c.reason)
+			if l := lineWith(out, "fix:", "stridal install"); l != "" {
 				t.Errorf("an install fix that install refuses was printed: %s\n%s", l, out)
 			}
 		})
 	}
 }
 
-// [DOCTOR-2-S3] Doctor prints `clauductor diff` as a fix only when diff itself would run (D8):
+// [DOCTOR-2-S3] Doctor prints `stridal diff` as a fix only when diff itself would run (D8):
 // the model line runs diff's own reading (template.Survey). A template that resolves (its
 // .claude/lib/conf.sh exists) but whose defaults cannot be read makes diff refuse while the
 // template line is ok; the note still names diff and says why.
@@ -885,13 +885,13 @@ func TestDoctorOwnModelPrintsNoDiffFixDiffWouldRefuse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	needLine(t, out, "note", "model", "operating model of its own", "clauductor diff", "diff refuses here", reason)
-	if l := lineWith(out, "fix:", "clauductor diff"); l != "" {
+	needLine(t, out, "note", "model", "operating model of its own", "stridal diff", "diff refuses here", reason)
+	if l := lineWith(out, "fix:", "stridal diff"); l != "" {
 		t.Errorf("a diff fix that diff refuses was printed: %s\n%s", l, out)
 	}
 }
 
-// [DOCTOR-2-S4] Doctor prints `clauductor update` as a fix only when update itself would run (D8):
+// [DOCTOR-2-S4] Doctor prints `stridal update` as a fix only when update itself would run (D8):
 // the drift line asks update's own planning, so every refusal of update is a refusal here. Each
 // state below drifts the framework AND makes update refuse (a settings.json that does not parse,
 // no .claude/skills/); the test runs the printed update first to see it refuse, then asserts the
@@ -932,7 +932,7 @@ func TestDoctorDriftPrintsNoUpdateFixUpdateWouldRefuse(t *testing.T) {
 			if lineWith(out, "update refuses here", c.reason) == "" {
 				t.Errorf("the drift line does not say why update refuses (%q):\n%s", c.reason, out)
 			}
-			if f := lineWith(out, "fix:", "clauductor update"); f != "" {
+			if f := lineWith(out, "fix:", "stridal update"); f != "" {
 				t.Errorf("an update fix that update refuses was printed: %s\n%s", f, out)
 			}
 		})
@@ -952,7 +952,7 @@ func TestDoctorConvergedFrameworkIsOkAndNamesTheChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	needLine(t, out, "ok", "drift", "matches the template", "version "+src.Version)
-	needLine(t, out, "ok", "model", "Clauductor's operating model")
+	needLine(t, out, "ok", "model", "Stridal's operating model")
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if last := lines[len(lines)-1]; last != "Nothing missing or broken. The model's own checks: sh .claude/checks/run.sh" {
 		t.Errorf("the last line is %q, want the nothing-found count naming the model's own checks", last)
@@ -968,7 +968,7 @@ func TestDoctorConvergedFrameworkIsOkAndNamesTheChecks(t *testing.T) {
 	}
 }
 
-// [DOCTOR-3-S2] [DOCTOR-2-S5] In a repository holding Clauductor's model, with one failure and two
+// [DOCTOR-3-S2] [DOCTOR-2-S5] In a repository holding Stridal's model, with one failure and two
 // warnings, the last line is still the count (S2), and it names the model's own checks (S5).
 func TestDoctorModelRepoEndsOnTheCountLine(t *testing.T) {
 	installedRepo(t)
@@ -1025,7 +1025,7 @@ func TestDoctorDriftNotesWhenTheTemplateCannotBeRead(t *testing.T) {
 	fw := t.TempDir()
 	write(t, fw, "template/.claude/lib/conf.sh", "")
 	write(t, fw, "template/.template-version", "99.0.0\n")
-	t.Setenv("CLAUDUCTOR_FRAMEWORK", fw)
+	t.Setenv("STRIDAL_FRAMEWORK", fw)
 	out, _ := doctor(t, gitPath(t, allTools...))
 	needLine(t, out, "note", "drift", "see the template line")
 }

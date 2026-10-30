@@ -3,7 +3,7 @@ package state
 import (
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // Which agent started which (PANEL-11). Verified on Claude Code 2.1.284 with hooks

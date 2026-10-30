@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-// Which template a command copies from used to be a guess: CLAUDUCTOR_FRAMEWORK, else the first of
-// ~/clauductor, ~/Development/clauductor, ... that existed, whatever branch that checkout was on
+// Which template a command copies from used to be a guess: STRIDAL_FRAMEWORK, else the first of
+// ~/stridal, ~/Development/stridal, ... that existed, whatever branch that checkout was on
 // (OPS-8 rehearsal: a binary built from one worktree installed another branch's template, and said
 // nothing). Now the template is found in a fixed order, its version marker must match the binary,
 // and every command that copies from it says which one it used.
 
-// VersionFile sits at the template's root and holds the clauductor version the template belongs
+// VersionFile sits at the template's root and holds the stridal version the template belongs
 // to. It is not a template file: listDir and the plugin packager leave it out, so a project never
 // receives it. TestTemplateVersionMatchesBinary holds it equal to cmd.Version.
 const VersionFile = ".template-version"
@@ -23,7 +23,7 @@ const VersionFile = ".template-version"
 // version check, which only a test that builds no binary does.
 var BinaryVersion string
 
-// OverrideDir is --template-dir: a template directory (or a clauductor checkout or release
+// OverrideDir is --template-dir: a template directory (or a stridal checkout or release
 // directory holding template/) named by the user. It wins over everything, and a version mismatch
 // under it is a warning, not a refusal: the user chose it.
 var OverrideDir string
@@ -50,10 +50,10 @@ func (s *Source) String() string {
 // Resolve finds the template, in this order, and checks its version against the binary's:
 //
 //  1. --template-dir (OverrideDir)
-//  2. $CLAUDUCTOR_FRAMEWORK/template
+//  2. $STRIDAL_FRAMEWORK/template
 //  3. next to the binary: <bin dir>/template (an unpacked release archive), <bin dir>/../template
 //     (a source build in framework/), and the release share,
-//     ${CLAUDUCTOR_SHARE:-~/.local/share/clauductor}/<version>/template (install.sh --release)
+//     ${STRIDAL_SHARE:-~/.local/share/stridal}/<version>/template (install.sh --release)
 //  4. the source checkout the binary was compiled from (a `go build` or `go install` from a clone;
 //     a -trimpath release build has no such path)
 //
@@ -78,18 +78,18 @@ func Resolve() (*Source, error) {
 		}
 		c.Version = readVersion(c.Dir)
 		if msg := versionMismatch(c); msg != "" {
-			return nil, fmt.Errorf("%s.\nRefusing to copy from a template that is not this binary's: install the matching release (it ships its template), point CLAUDUCTOR_FRAMEWORK at a checkout of v%s, or pass --template-dir <dir> to use this one anyway", msg, norm(BinaryVersion))
+			return nil, fmt.Errorf("%s.\nRefusing to copy from a template that is not this binary's: install the matching release (it ships its template), point STRIDAL_FRAMEWORK at a checkout of v%s, or pass --template-dir <dir> to use this one anyway", msg, norm(BinaryVersion))
 		}
 		return c, nil
 	}
-	return nil, fmt.Errorf("could not find the Clauductor template: no template next to the binary, in the release share, or in the source checkout it was built from. " +
-		"Install a release (install.sh unpacks the binary with its template), set CLAUDUCTOR_FRAMEWORK to a clauductor checkout, or pass --template-dir")
+	return nil, fmt.Errorf("could not find the Stridal template: no template next to the binary, in the release share, or in the source checkout it was built from. " +
+		"Install a release (install.sh unpacks the binary with its template), set STRIDAL_FRAMEWORK to a stridal checkout, or pass --template-dir")
 }
 
 func candidates() []*Source {
 	var out []*Source
-	if env := os.Getenv("CLAUDUCTOR_FRAMEWORK"); env != "" {
-		out = append(out, &Source{Dir: filepath.Join(env, "template"), How: "CLAUDUCTOR_FRAMEWORK"})
+	if env := os.Getenv("STRIDAL_FRAMEWORK"); env != "" {
+		out = append(out, &Source{Dir: filepath.Join(env, "template"), How: "STRIDAL_FRAMEWORK"})
 	}
 	if exe, err := os.Executable(); err == nil {
 		if real, err := filepath.EvalSymlinks(exe); err == nil {
@@ -101,10 +101,10 @@ func candidates() []*Source {
 			&Source{Dir: filepath.Join(filepath.Dir(bin), "template"), How: "the checkout the binary sits in"})
 	}
 	if v := norm(BinaryVersion); v != "" {
-		share := os.Getenv("CLAUDUCTOR_SHARE")
+		share := os.Getenv("STRIDAL_SHARE")
 		if share == "" {
 			if home, err := os.UserHomeDir(); err == nil {
-				share = filepath.Join(home, ".local", "share", "clauductor")
+				share = filepath.Join(home, ".local", "share", "stridal")
 			}
 		}
 		if share != "" {
@@ -142,7 +142,7 @@ func templateIn(dir string) (string, error) {
 	if t := filepath.Join(abs, "template"); isTemplate(t) {
 		return t, nil
 	}
-	return "", fmt.Errorf("not a Clauductor template (no .claude/lib/conf.sh there or in its template/)")
+	return "", fmt.Errorf("not a Stridal template (no .claude/lib/conf.sh there or in its template/)")
 }
 
 func isTemplate(dir string) bool {

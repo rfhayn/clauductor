@@ -11,7 +11,7 @@ design.
 
 ## Why
 
-The owner judged the panel's UI to be the weakest part of Clauductor, in both function and look. The rescope of
+The owner judged the panel's UI to be the weakest part of Stridal, in both function and look. The rescope of
 2026-10-14 (`PRD-maps.md`, *Rescope*) moved the investment there. Exploration found four causes:
 
 - **One file.** `framework/internal/panel/web/static/panel.js` is 4,149 lines. It builds the DOM by hand with an

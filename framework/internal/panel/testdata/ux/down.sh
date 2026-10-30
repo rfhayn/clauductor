@@ -7,7 +7,7 @@
 set -uo pipefail
 runid=${1:-}
 [[ "$runid" =~ ^[a-z0-9]{1,16}$ ]] || { echo "usage: down.sh <runid> [--keep]" >&2; exit 2; }
-root=${UX_TMP:-${TMPDIR:-/tmp}/clauductor-ux}
+root=${UX_TMP:-${TMPDIR:-/tmp}/stridal-ux}
 root=$(cd "$root" 2>/dev/null && pwd -P) || { echo "down[$runid]: nothing to do"; exit 0; }
 D="$root/$runid"
 [ -f "$D/.ux-run" ] || { echo "down[$runid]: no run at $D"; exit 0; }
@@ -15,7 +15,7 @@ D="$root/$runid"
 # The panel: only if the pid still runs this run's binary.
 if [ -f "$D/pid" ]; then
   pid=$(cat "$D/pid")
-  if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && ps -p "$pid" -o command= 2>/dev/null | grep -qF "$D/bin/clauductor"; then
+  if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && ps -p "$pid" -o command= 2>/dev/null | grep -qF "$D/bin/stridal"; then
     kill "$pid" 2>/dev/null
     for _ in $(seq 50); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
     kill -9 "$pid" 2>/dev/null

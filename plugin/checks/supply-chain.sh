@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Dependency hygiene (item 11 of the change process):
 #   - a dependency-update config holds each update back until the release has aged: every
 #     Dependabot entry has `cooldown: default-days: N`, or renovate.json has "minimumReleaseAge";

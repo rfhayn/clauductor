@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The artifacts module (.claude/modules/artifacts), tested whether a project turns it on or not:
 # its currency tool, its guard rule through the real pr-merge-guard.sh, its publishing half and its
 # wiring, each against a throwaway repository, never against its own source. Ported from Standing
@@ -9,13 +9,13 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 need git jq
 
-MOD="$CLAUDUCTOR_FW/modules/artifacts"
+MOD="$STRIDAL_FW/modules/artifacts"
 d=$(scratch)
 R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/modules"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
 # The roadmap's rows come through roadmap_queue, which runs the project's parser.
-cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$R/.claude/"
+cp "$STRIDAL_FW/roadmap-queue.sh" "$R/.claude/"
 cp -R "$MOD" "$R/.claude/modules/artifacts"
 CUR="$R/.claude/modules/artifacts/bin/currency.sh"
 cur() { (cd "$R" && sh "$CUR" "$@") 2>&1; }
@@ -183,8 +183,8 @@ cur --stamp docs/page.html go-live --note "refreshed: a" >/dev/null; commit "sta
 # ── the template's own roadmap grammar: rows under no Gate heading, ids like 1.1 and 1.10 ─────
 K="$d/core"; new_repo "$K"
 mkdir -p "$K/.claude/lib" "$K/.claude/modules" "$K/docs"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$K/.claude/lib/"
-cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$K/.claude/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$K/.claude/lib/"
+cp "$STRIDAL_FW/roadmap-queue.sh" "$K/.claude/"
 cp -R "$MOD" "$K/.claude/modules/artifacts"
 kc() { (cd "$K" && sh "$K/.claude/modules/artifacts/bin/currency.sh" "$@") 2>&1; }
 krc() { (cd "$K" && sh "$K/.claude/modules/artifacts/bin/currency.sh" "$@") >/dev/null 2>&1; echo $?; }
@@ -297,10 +297,10 @@ has yes "no docs/artifacts.json at the head" "$o" "guard rule: ...saying so"
 
 # ── the guard rule, through the real pr-merge-guard.sh (Standing Tee's rule 8) ───────────────
 mkdir -p "$R/.claude/hooks/lib" "$d/bin" "$R/docs"
-cp "$CLAUDUCTOR_FW/hooks/pr-merge-guard.sh" "$R/.claude/hooks/"
-cp "$CLAUDUCTOR_FW/hooks/lib/"* "$R/.claude/hooks/lib/"
-cp "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/evals.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/scenario-trace.sh" "$R/.claude/"
+cp "$STRIDAL_FW/hooks/pr-merge-guard.sh" "$R/.claude/hooks/"
+cp "$STRIDAL_FW/hooks/lib/"* "$R/.claude/hooks/lib/"
+cp "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/evals.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/scenario-trace.sh" "$R/.claude/"
 printf 'GATE_DISPLAY_CONTEXTS="ci/local"\nMODULES="artifacts"\n' > "$R/.claude/project.conf"
 commit "the model"
 git init -q --bare "$R/acme/app.git"

@@ -1,8 +1,8 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # roadmap-plan.sh: THE parser of the roadmap's optional `## Session plan` table, which orders the
 # queue's rows into working sessions. The panel's Up next (panel-suggest.sh) and a project's own
-# readers (Clauductor's roadmap tracker) call it, never a second copy of its grammar. The rows
+# readers (Stridal's roadmap tracker) call it, never a second copy of its grammar. The rows
 # themselves, and their states, come from roadmap_queue (lib/conf.sh): this script parses only the
 # plan's own table, whose header is not the queue header, so the queue parser skips it, and asks
 # roadmap_queue for each row's kind (a `(proposal)` belongs to a change row).
@@ -31,9 +31,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # close would wait for ever. That one rule reads each row's kind from the queue, through
 # roadmap_queue (the queue's one parser); an id the queue does not hold is not judged here.
 set -u
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 f=${1:-}
 [ -n "$f" ] || { echo "usage: roadmap-plan.sh FILE" >&2; exit 2; }
 [ -f "$f" ] || { echo "roadmap-plan: $f is missing" >&2; exit 1; }

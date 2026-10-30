@@ -8,12 +8,12 @@ themselves are in `AGENTS.md`; the reasons behind them in `docs/principles.md`.
 
 ## The session, start to close
 
-1. **`/clauductor:session-start`** computes where things stand (the owner queue first, the panel, open PRs
+1. **`/stridal:session-start`** computes where things stand (the owner queue first, the panel, open PRs
    and whose they are, the change queue, the journal, insights, ADRs, health lines) and sets the
    status-line focus.
 2. The session then **runs hands-off**: it starts lanes, builds, reviews, fixes, and merges
-   through `/clauductor:merge-pr`, without asking, until something only the owner can decide comes up.
-3. **`/clauductor:session-close`** lands what is open, archives finished changes, **compounds** the
+   through `/stridal:merge-pr`, without asking, until something only the owner can decide comes up.
+3. **`/stridal:session-close`** lands what is open, archives finished changes, **compounds** the
    insights (each Raw one promoted to a rule, marked an instance, or recorded as not promoted),
    updates the roadmap, insights, owner queue and journal, lands its own `ops/session-<N>-close` PR, quiets the machine
    (`machine-quiet.sh`), and sends one **Done** notification.
@@ -48,15 +48,15 @@ started from the panel's **New lane** (or by hand), on one branch:
 | Lane | Branch | How many | Starts with |
 |---|---|---|---|
 | build | `change/<id>` | one at a time | `/build-change {"change": "<id>"}` on an approved proposal |
-| propose | `change/<id>` | at most one ahead of the build | `/clauductor:propose <id>`, which stops for the owner unless step 3a delegates |
-| fix | `fix/<issue>-<slug>` | any that share no files | the issue, the code as built, the gate, `/clauductor:merge-pr` |
+| propose | `change/<id>` | at most one ahead of the build | `/stridal:propose <id>`, which stops for the owner unless step 3a delegates |
+| fix | `fix/<issue>-<slug>` | any that share no files | the issue, the code as built, the gate, `/stridal:merge-pr` |
 | ops | `ops/<name>` | any that share no files | a tooling, docs or process task |
-| orchestrator | `main` (the main checkout) | one | `/clauductor:session-start` |
+| orchestrator | `main` (the main checkout) | one | `/stridal:session-start` |
 
 - **The prefixes are settings.** `change/`, `fix/` and `ops/` are the defaults of `BRANCH_CHANGE`,
   `BRANCH_FIX` and `BRANCH_OPS` in `.claude/project.conf`; a project changes them there and nowhere
-  else. The skills name branches by these keys (`clauductor-model project-config.sh` prints them),
-  build-change reads its branch at run time, and `clauductor install` writes the panel preset
+  else. The skills name branches by these keys (`stridal-model project-config.sh` prints them),
+  build-change reads its branch at run time, and `stridal install` writes the panel preset
   with them. `checks/branch-prefixes.sh` fails on a literal prefix in the model's files and on a
   `panel.json` that disagrees with the keys.
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
@@ -72,11 +72,11 @@ started from the panel's **New lane** (or by hand), on one branch:
 
   `.git/config` and `.git/hooks` are denied to every sandboxed command.
   - **A lane that is an agent of the main session** brings its own hooks and skills along
-    (`clauductor update`, a rebase, a merge) inside the sandbox. That was seen to work on
-    2026-10-28, though these commands match the `git *` and `clauductor *` entries below; what
-    those entries do is Clauductor's #307.
+    (`stridal update`, a rebase, a merge) inside the sandbox. That was seen to work on
+    2026-10-28, though these commands match the `git *` and `stridal *` entries below; what
+    those entries do is Stridal's #307.
   - **A lane that is its own session** (a panel lane, or a new terminal tab) cannot: the session
-    that opens it syncs them (Clauductor's ST-15). Until that exists, the owner syncs such a lane
+    that opens it syncs them (Stridal's ST-15). Until that exists, the owner syncs such a lane
     by hand.
   - **The main session** creates every lane's worktree. `git worktree add` writes `.git/config`,
     and its checkout writes the agents, so it runs outside the sandbox: a fixed git command, not
@@ -88,13 +88,13 @@ started from the panel's **New lane** (or by hand), on one branch:
   - **What does run outside the sandbox:** a command matching `sandbox.excludedCommands` in
     `settings.json`, and any command run with an approved sandbox bypass. The gate is one, since
     its process checks need `ps`, tmux and loopback, so a lane's gate runs the lane's own checks and
-    tests. The controls are review before the gate and the approval itself (Clauductor's #307).
+    tests. The controls are review before the gate and the approval itself (Stridal's #307).
     An entry matches only the script run alone, so a subagent lane, whose Bash starts in the main
     checkout, runs `scripts/ci/gate.sh -C <worktree>` (and `scripts/ci/gate-wait.sh -C <worktree>`),
     never `cd <worktree> && …` or a pipe: those run sandboxed and fail (`checks/settings.sh`).
     Seen 2026-10-28: a `git` command matching the `git *` entry was still refused `.git/config`,
     and that day's unsandboxed runs each went through an approved bypass, so what the entries do
-    on their own is unverified (Clauductor's #307).
+    on their own is unverified (Stridal's #307).
   - A plugin install takes its hooks, skills and agents from the plugin cache, so their sync does
     not apply there.
 - **A request is priced before it is relayed to a running lane.** The orchestrator tells the owner
@@ -103,25 +103,25 @@ started from the panel's **New lane** (or by hand), on one branch:
 - **One full gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a
   lane's full gate may queue behind another's; the panel shows who holds it. A `--quick` run takes
   no lease and never queues.
-- The panel (`clauductor panel`) shows each lane's focus, context, quota and state. Its preset
-  config is `.clauductor/panel.json`: the lanes above, lane templates whose **Up next** rows come
+- The panel (`stridal panel`) shows each lane's focus, context, quota and state. Its preset
+  config is `.stridal/panel.json`: the lanes above, lane templates whose **Up next** rows come
   from the roadmap (`panel-suggest.sh`), the gate queue, and pinned owner-queue and change-queue
-  cards. Trust it once with `clauductor panel trust`.
-- **Nothing needs the panel or the `clauductor` binary.** The skills, hooks, checks, the gate and
+  cards. Trust it once with `stridal panel trust`.
+- **Nothing needs the panel or the `stridal` binary.** The skills, hooks, checks, the gate and
   its lease (`lease.sh` when there is no binary), the merge guard and the records all run in Claude
   Code alone; a panel that is not running is a normal state. A whole-set `checks/run.sh` holds
   this: it runs every check once (the modules' and `.claude/local/checks` included) with
-  `clauductor` off `PATH`, a fresh `HOME` and `CI` empty, and `checks/no-clauductor.sh`, inside that
+  `stridal` off `PATH`, a fresh `HOME` and `CI` empty, and `checks/no-stridal.sh`, inside that
   run, asserts it is there and runs the gate, a skill context script and the status line the same
   way, failing on anything that errors or asks for the binary or the panel. So a check that needs
   your gh login, ssh keys, git signing or `CI=true` sets them up in its own scratch.
   `CHECKS_DOUBLE_PASS=1` switches back to the double pass (every check in your own environment, then
-  `no-clauductor.sh` running this directory's checks again without `clauductor`), as a stopgap
+  `no-stridal.sh` running this directory's checks again without `stridal`), as a stopgap
   while you fix such a check. A gate calls `model_step_checks` (`scripts/ci/lib/steps.sh`).
-  `model_step_no_clauductor` is only for a gate that cannot run the whole set: it runs neither the
+  `model_step_no_stridal` is only for a gate that cannot run the whole set: it runs neither the
   modules' checks nor `.claude/local/checks`, and calling both pays for the double pass again.
 - **The current quota is read from one file, panel or no panel.** On every refresh that carries
-  Claude Code's `rate_limits`, the status line saves them to `~/.clauductor/quota-reading.json`
+  Claude Code's `rate_limits`, the status line saves them to `~/.stridal/quota-reading.json`
   (per machine, mode 0600, replaced atomically; a subset of the panel's `quota.json` fields, in its
   units: `windows[].{key, pct, resetsAt}` and `at` in milliseconds, with no `expired` flag). Read it
   with `${CLAUDE_PLUGIN_ROOT}/lib/quota.sh`: `quota_read` lists each window, `quota_pct five_hour` prints one,
@@ -136,7 +136,7 @@ started from the panel's **New lane** (or by hand), on one branch:
   there is none. build-change's preflight is the one caller that enforces it: it stops a new run and
   notifies (`overrideQuota: true` is the owner's way past; a resume only warns). session-start's
   orchestrator rule asks the session to run it before other lanes, which nothing checks; a panel
-  lane and `/clauductor:apply-change` do not run it. The panel's own `quota_guard` holds the five-hour window on
+  lane and `/stridal:apply-change` do not run it. The panel's own `quota_guard` holds the five-hour window on
   its **New lane**.
   `checks/quota-reading.sh` holds the file and both readers.
 
@@ -174,7 +174,7 @@ inside the sandbox, and there `gh` must read `~/.config/gh/` to find its account
 Without one, `gh` writes the token into `hosts.yml` in plain text, where an agent could read it.
 
 Add whatever else your gate's steps call. **The panel is macOS-only and optional**: it runs on
-tmux, launchd and Terminal.app. Nothing needs it (`checks/no-clauductor.sh`): lanes are plain git
+tmux, launchd and Terminal.app. Nothing needs it (`checks/no-stridal.sh`): lanes are plain git
 worktrees under `.claude/worktrees/`, and the gate lease falls back to `scripts/ci/lease.sh`.
 
 **Windows: work inside WSL2.** Claude Code's sandbox runs on macOS, Linux and WSL2; on native
@@ -230,7 +230,7 @@ EOF
 ## The change lifecycle
 
 ```
-roadmap row ──► /clauductor:propose (just in time) ──► approval ────────► proposal lands on main
+roadmap row ──► /stridal:propose (just in time) ──► approval ────────► proposal lands on main
      ▲                                                              │
      │                                                              ▼
   archive ◄── merge-pr ◄── full gate receipt ◄── /build-change, one task group at a time
@@ -238,26 +238,26 @@ roadmap row ──► /clauductor:propose (just in time) ──► approval ─�
 ```
 
 0. **The fast path.** A diff that fits in one sentence (a typo, a bump, a one-line fix) gets no
-   proposal: it goes to a `fix/` or `ops/` lane, the gate and `/clauductor:merge-pr`. Everything below is for
+   proposal: it goes to a `fix/` or `ops/` lane, the gate and `/stridal:merge-pr`. Everything below is for
    a change to what a user can do.
 1. **A roadmap row** (`docs/roadmap.md`) is the scoping unit until its turn. Capturing an idea for
    later is a row, not a change directory. A row may carry a cost appetite, `Budget: $N`.
-2. **Propose just in time, at most one ahead** of the change being built: `/clauductor:propose` checks for
+2. **Propose just in time, at most one ahead** of the change being built: `/stridal:propose` checks for
    another proposal (in the tree and on branches), reads the specs the change touches, and drafts
    `changes/<id>/{proposal,design,tasks}.md` (`changes/README.md`): a risk tier, the budget, how
    we'll know it worked, and scenarios with IDs (`[CAP-n-Sn]`) the tests will cite.
 3. **The owner approves** the proposal, every design decision and the risk tier: in the PR by
    default, or on a claude.ai review page (the optional module). With `APPROVAL_DELEGATED="1"`,
-   Claude approves one on their behalf (`change-approval.sh --delegate`, `/clauductor:propose` step 3a) and
+   Claude approves one on their behalf (`change-approval.sh --delegate`, `/stridal:propose` step 3a) and
    pushes them one line, except a change on a guarded path or one step 3a keeps for the owner. The approval is recorded in
    `proposal.md` with a hash of the design (`change-approval.sh`), so a later edit to `design.md`
    voids it until the owner approves it again (`--delegate` refuses a change approved before). The proposal lands on `main` alone.
-4. **Build per task group** (`/build-change`, or `/clauductor:apply-change` by hand): the loop below.
-5. **Verify** (`/clauductor:verify-change`): every task ticked, every scenario the change adds or modifies
+4. **Build per task group** (`/build-change`, or `/stridal:apply-change` by hand): the loop below.
+5. **Verify** (`/stridal:verify-change`): every task ticked, every scenario the change adds or modifies
    cited by a test (or escaped with a reason), and the diff touching what `tasks.md` claims.
-6. **Merge** through `/clauductor:merge-pr`: gate evidence for the head commit, converged review, a squash
+6. **Merge** through `/stridal:merge-pr`: gate evidence for the head commit, converged review, a squash
    body carrying the provenance trailers (`Change:`, `Agent-Role:`, `Model:`, `Session:`).
-7. **Archive** (`/clauductor:archive-change`): spec deltas promoted into `specs/`, the actual cost recorded,
+7. **Archive** (`/stridal:archive-change`): spec deltas promoted into `specs/`, the actual cost recorded,
    the outcome check queued for the day the proposal named, the directory moved to
    `changes/archive/`. The row is marked `✅ merged (#N)` by the daily close's fold, from the row's
    fragment.
@@ -285,7 +285,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 - **Models follow the risk tier** the owner approved: a role with a variant for it in
   `.claude/model-roles.json` runs on it (the builder on sonnet for low risk, opus/xhigh for high;
   the reviewer on opus/xhigh for high). In **economy mode** (the panel writes
-  `~/.clauductor/panel/economy.json` past its quota threshold) the roles in `.economy.roles` drop a
+  `~/.stridal/panel/economy.json` past its quota threshold) the roles in `.economy.roles` drop a
   tier; the reviewer and the planner never do.
 - **The budget**: after each committed group it reads `${CLAUDE_PLUGIN_ROOT}/change-cost.sh` and stops once the
   change's spend passes the proposal's `**Budget:**`; a `**Budget:** $N, soft` is reported in the
@@ -314,7 +314,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 | agent returned nothing | new agent types register at session start | restart Claude Code, re-run with `resume` |
 | receipt | the full gate failed on HEAD | fix, re-run the full gate |
 | budget | the change's spend passed its budget | raise the budget (the roadmap row on main first, then the proposal) or cut scope, then re-run |
-| verify | a task open, a scenario uncited, the approval void, or a task's paths untouched | fix what it names; `/clauductor:verify-change <id>` |
+| verify | a task open, a scenario uncited, the approval void, or a task's paths untouched | fix what it names; `/stridal:verify-change <id>` |
 
 ## Three layers of agents
 
@@ -470,18 +470,18 @@ Haiku for the reviewer or the planner: economy mode never drops them either.
 <!-- skills-table begin -->
 | Skill | When | Role |
 |---|---|---|
-| `/clauductor:session-start` | every session, first | orient |
-| `/clauductor:session-close` | every session, last | scribe |
-| `/clauductor:propose` | the next roadmap row, just in time | planner |
-| `/clauductor:apply-change` | build a change by hand, group by group | thinker |
-| `/clauductor:archive-change` | after a change's PR merges | scribe |
-| `/clauductor:verify-change` | before a change merges: tasks, scenarios, diff | mechanic |
-| `/clauductor:merge-pr` | land a PR: evidence, converged review, squash | scribe |
-| `/clauductor:dev-journal` | the session's narrative (session-close runs it) | scribe |
-| `/clauductor:log-insight` | a non-obvious lesson, now | scribe |
-| `/clauductor:new-adr` | promote a decision (ADR) or a practice (PRAC); asks which | planner |
-| `/clauductor:init` | scaffold this repository's own files from the plugin (`/clauductor:init`) | thinker |
-| `/clauductor:start-project` | first-time setup of this model | thinker |
+| `/stridal:session-start` | every session, first | orient |
+| `/stridal:session-close` | every session, last | scribe |
+| `/stridal:propose` | the next roadmap row, just in time | planner |
+| `/stridal:apply-change` | build a change by hand, group by group | thinker |
+| `/stridal:archive-change` | after a change's PR merges | scribe |
+| `/stridal:verify-change` | before a change merges: tasks, scenarios, diff | mechanic |
+| `/stridal:merge-pr` | land a PR: evidence, converged review, squash | scribe |
+| `/stridal:dev-journal` | the session's narrative (session-close runs it) | scribe |
+| `/stridal:log-insight` | a non-obvious lesson, now | scribe |
+| `/stridal:new-adr` | promote a decision (ADR) or a practice (PRAC); asks which | planner |
+| `/stridal:init` | scaffold this repository's own files from the plugin (`/stridal:init`) | thinker |
+| `/stridal:start-project` | first-time setup of this model | thinker |
 | `/architecture-audit` | check the project's architecture rules | thinker |
 | `/release-prep` | take main to an environment (owner's go) | thinker |
 <!-- skills-table end -->
@@ -511,7 +511,7 @@ With `MODULES="artifacts"`, every page or walkthrough the project shares is regi
 `docs/artifacts.json` with the sources it describes (`authorities`: globs, roadmap rows, the
 registry itself) and a review stamp. session-start's health line names each one whose sources
 moved since its stamp (`STALE — <key> is BEHIND`); session-close refreshes each, or stamps it
-`reviewed, no change: <why>` with `clauductor-model modules/artifacts/bin/currency.sh --stamp <key> --note "…"`;
+`reviewed, no change: <why>` with `stridal-model modules/artifacts/bin/currency.sh --stamp <key> --note "…"`;
 and the module's guard rule refuses the close's PR while any is BEHIND at its head. Only the close
 is held: a build PR moves a source and the page follows at the close. With
 `ARTIFACT_PUBLISH="claude.ai"` the `docs/*.html` pages also have claude.ai copies: session-start
@@ -524,7 +524,7 @@ The artifacts module says when a page's sources moved; `living-visuals` (on top 
 what the page states is still true. A registry entry that declares `refresh` (the skill that
 refreshes it, or `"edit"`) is a living page, and the gate's `living-visuals:pages` holds it: each
 `<!-- generated:<name>:begin … -->` block equals its declared command's output (never hand-edited:
-`clauductor-model modules/living-visuals/bin/living.sh --regen` writes it), each `data-claim="<name>"`
+`stridal-model modules/living-visuals/bin/living.sh --regen` writes it), each `data-claim="<name>"`
 value equals its declared command's, no elapsed duration is typed (`data-days-since` counts it on
 load), and the page's scripts parse. session-close regenerates and refreshes before the artifacts
 step stamps; merge-pr names the living pages a merge moved. `${CLAUDE_PLUGIN_ROOT}/modules/living-visuals/README.md`.
@@ -553,7 +553,7 @@ data that already exists. Nothing new is recorded to feed them.
 | cost by role, model, change and project | this machine's Claude Code transcripts at the list prices in `model-roles.json` |
 
 - **`${CLAUDE_PLUGIN_ROOT}/metrics.sh`** prints them as the panel's metrics JSON for 7, 30 and 90 days: the
-  panel's **Metrics** view and **Flow** card draw it (`metrics` in `.clauductor/panel.json`,
+  panel's **Metrics** view and **Flow** card draw it (`metrics` in `.stridal/panel.json`,
   panel config version 4). A source it cannot read (no `gh`, offline, no transcripts) leaves its
   figures empty with a note saying why; it never prints a zero for "unknown".
   `checks/metrics.sh` holds it to the panel's contract.
@@ -565,14 +565,14 @@ data that already exists. Nothing new is recorded to feed them.
 
 ## Keeping the model current
 
-`clauductor update` (or `install` again) brings the framework files up to date and merges
+`stridal update` (or `install` again) brings the framework files up to date and merges
 `.claude/settings.json`; the template it reads is printed first, and must be the binary's version.
 It never overwrites a project-owned file, but it offers what the template added to them: new files
 (created only if missing), new `model-roles.json` keys (no value changes), and the AGENTS.md table
 rows the template gained (printed as a suggestion, never applied). Nothing a project configures
 lives in a framework file: branch prefixes and paths are `project.conf`'s, attribution and
-provenance are `model-roles.json`'s, so an edited framework file in `clauductor diff` is a real
-divergence. A repository that ran clauductor's old model gets its replaced files listed, and
+provenance are `model-roles.json`'s, so an edited framework file in `stridal diff` is a real
+divergence. A repository that ran stridal's old model gets its replaced files listed, and
 removed with `--prune`.
 
 ## The record

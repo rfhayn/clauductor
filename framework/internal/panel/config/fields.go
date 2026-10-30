@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/brand"
+	"github.com/rfhayn/stridal/internal/brand"
 )
 
 // Config versions. A config declares the version it is written for, and may use
@@ -33,10 +33,10 @@ const (
 )
 
 // SchemaURL is the published JSON Schema of panel.json (docs/panel.schema.json);
-// `clauductor panel init` writes it as "$schema" so editors validate the file.
+// `stridal panel init` writes it as "$schema" so editors validate the file.
 // The repository has no release tags yet, so it names main: the schema of the
 // newest panel. Pin it to a tag's path once releases are tagged.
-const SchemaURL = "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json"
+const SchemaURL = "https://raw.githubusercontent.com/rfhayn/stridal/main/docs/panel.schema.json"
 
 // Field documents one key of panel.json. Fields is the ONE table of them: the version
 // gate, the JSON Schema (docs/panel.schema.json) and the reference table in
@@ -156,7 +156,7 @@ var Fields = []Field{
 	{Path: "queues[].title", Version: 2, Type: "string",
 		Doc: "Shown on the queue card."},
 	{Path: "queues[].lock", Version: 2, Type: "string", Required: true,
-		Doc:    "The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `\"clauductor/gate.lock\"`. No `..`, not absolute.",
+		Doc:    "The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `\"stridal/gate.lock\"`. No `..`, not absolute.",
 		Schema: map[string]any{"pattern": lockPathRe.String(), "not": map[string]any{"pattern": `\.\.`}}},
 	{Path: "queues[].command", Version: 2, Type: "array of strings",
 		Doc:    "Optional argv that **Run in `<lane>`** (a lane's Gate tab) starts through `lock-run` in that lane's worktree. It runs only when you press it.",
@@ -193,7 +193,7 @@ var Fields = []Field{
 	{Path: "quota_economy.five_hour_pct", Version: 4, Type: "number",
 		Doc: "At or above this 5-hour quota the panel writes `~/" + brand.Dir(brand.Name) + "/panel/economy.json` with `\"economy\": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off.", Schema: map[string]any{"minimum": 0, "maximum": 100}},
 	{Path: "lanes_auto_close", Version: 5, Type: "string: \"off\" or \"on_merge\"", Default: AutoCloseOff,
-		Doc:    "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; every reason in `clauductor lane close`'s table of reasons but its last two (the branch and a cancelled request) holds it too, such as background work (a shell, a monitor, a teammate), a wakeup, a lease, and after a panel restart an idle lane until it ends a turn; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
+		Doc:    "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; every reason in `stridal lane close`'s table of reasons but its last two (the branch and a cancelled request) holds it too, such as background work (a shell, a monitor, a teammate), a wakeup, a lease, and after a panel restart an idle lane until it ends a turn; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
 		Schema: map[string]any{"enum": []string{AutoCloseOff, AutoCloseOnMerge}}},
 	{Path: "quota_auto_resume", Version: 5, Type: "boolean", Default: false,
 		Doc: "Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*)."},
@@ -202,13 +202,13 @@ var Fields = []Field{
 	{Path: "worktree_setup", Version: 5, Type: "object",
 		Doc: "A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*)."},
 	{Path: "worktree_setup.command", Version: 5, Type: "array of strings", Required: true,
-		Doc: "argv, run **without a shell** in the worktree, only while the config is trusted, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set. 5-minute timeout.", Schema: map[string]any{"minItems": 1}},
+		Doc: "argv, run **without a shell** in the worktree, only while the config is trusted, with `STRIDAL_LANE` and `STRIDAL_PORT` set. 5-minute timeout.", Schema: map[string]any{"minItems": 1}},
 	{Path: "worktree_teardown", Version: 5, Type: "object",
 		Doc: "A command run in a lane's worktree before **Close lane** removes it."},
 	{Path: "worktree_teardown.command", Version: 5, Type: "array of strings", Required: true,
 		Doc: "argv, as `worktree_setup.command`. If it fails, or leaves the worktree changed, the worktree stays.", Schema: map[string]any{"minItems": 1}},
 	{Path: "ports", Version: 5, Type: "object",
-		Doc: "Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `CLAUDUCTOR_PORT` and shown in its header."},
+		Doc: "Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `STRIDAL_PORT` and shown in its header."},
 	{Path: "ports.base", Version: 5, Type: "integer", Required: true,
 		Doc: "The first lane's port, 1024 to 65000.", Schema: map[string]any{"minimum": 1024, "maximum": 65000}},
 	{Path: "ports.per_lane", Version: 5, Type: "integer", Required: true,

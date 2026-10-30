@@ -12,11 +12,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
-// The plugin and `clauductor install`/`update` must agree on what is the framework's: a file the
+// The plugin and `stridal install`/`update` must agree on what is the framework's: a file the
 // plugin ships as a component but install treats as the project's is never updated by update
 // (what happened to metrics.sh and usage-report.sh), and the reverse would overwrite a project's
 // file. Two differences are deliberate: install keeps a project's edited agents, and the plugin
@@ -52,7 +52,7 @@ func TestResolverFetchesPinnedPluginInCI(t *testing.T) {
 	home := t.TempDir()
 	e := env(t, home)
 
-	origin := filepath.Join(t.TempDir(), "clauductor")
+	origin := filepath.Join(t.TempDir(), "stridal")
 	os.MkdirAll(filepath.Join(origin, "plugin", ".claude-plugin"), 0o755)
 	os.WriteFile(filepath.Join(origin, "plugin", ".claude-plugin", "plugin.json"), []byte("{}\n"), 0o644)
 	os.WriteFile(filepath.Join(origin, "plugin", "hello.sh"), []byte("echo \"hello $1\"\n"), 0o644)
@@ -65,16 +65,16 @@ func TestResolverFetchesPinnedPluginInCI(t *testing.T) {
 	if out, code := run(t, p, e, "", "sh", filepath.Join(plug, "scaffold.sh")); code != 0 {
 		t.Fatal(out)
 	}
-	ce := append(e, "CI=true", "CLAUDUCTOR_REPO_URL=file://"+origin, "CLAUDUCTOR_CACHE="+filepath.Join(home, "cache"))
-	if out, code := run(t, p, ce, "", "sh", "scripts/ci/clauductor-model.sh", "hello.sh", "ci"); code != 0 || !strings.Contains(out, "hello ci") {
+	ce := append(e, "CI=true", "STRIDAL_REPO_URL=file://"+origin, "STRIDAL_CACHE="+filepath.Join(home, "cache"))
+	if out, code := run(t, p, ce, "", "sh", "scripts/ci/stridal-model.sh", "hello.sh", "ci"); code != 0 || !strings.Contains(out, "hello ci") {
 		t.Fatalf("CI fetch: exit %d\n%s", code, out)
 	}
 	os.RemoveAll(origin) // the second run is served from the cache
-	if out, code := run(t, p, ce, "", "sh", "scripts/ci/clauductor-model.sh", "hello.sh", "again"); code != 0 || !strings.Contains(out, "hello again") {
+	if out, code := run(t, p, ce, "", "sh", "scripts/ci/stridal-model.sh", "hello.sh", "again"); code != 0 || !strings.Contains(out, "hello again") {
 		t.Fatalf("cached run: exit %d\n%s", code, out)
 	}
-	bad := append(append([]string{}, ce...), "CLAUDUCTOR_REF=v0-no-such-tag")
-	if out, code := run(t, p, bad, "", "sh", "scripts/ci/clauductor-model.sh", "hello.sh"); code == 0 || !strings.Contains(out, "FAIL") {
+	bad := append(append([]string{}, ce...), "STRIDAL_REF=v0-no-such-tag")
+	if out, code := run(t, p, bad, "", "sh", "scripts/ci/stridal-model.sh", "hello.sh"); code == 0 || !strings.Contains(out, "FAIL") {
 		t.Fatalf("a ref that cannot be cloned must fail (exit %d)\n%s", code, out)
 	}
 }
@@ -83,7 +83,7 @@ func TestResolverFetchesPinnedPluginInCI(t *testing.T) {
 // config the panel accepts, at the latest config version, as the template's ([STALL-1-S29]).
 func TestScaffoldPanelConfigLoads(t *testing.T) {
 	out, _ := build(t)
-	raw, err := os.ReadFile(filepath.Join(out, ScaffoldDir, ".clauductor", "panel.json"))
+	raw, err := os.ReadFile(filepath.Join(out, ScaffoldDir, ".stridal", "panel.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestBuildPlacesEveryTemplateFile(t *testing.T) {
 			return nil
 		})
 	}
-	for _, dir := range []string{"docs", "changes", "specs", ".clauductor"} {
+	for _, dir := range []string{"docs", "changes", "specs", ".stridal"} {
 		if exists(filepath.Join(out, dir)) {
 			t.Errorf("project directory %s/ is in the plugin outside scaffold/", dir)
 		}
@@ -301,12 +301,12 @@ func TestNoProjectPathsLeft(t *testing.T) {
 
 // A script a check writes into its scratch project runs there: its project is the directory above
 // it and its model is the copy the check put there, so the builder must not point it at the
-// plugin's model (CLAUDUCTOR_FW) when the template did not. OPS-169: the builder rewrote a fixture
-// caller's ROOT and sources to CLAUDUCTOR_FW, and 34 cases read the real project. A check writes a
+// plugin's model (STRIDAL_FW) when the template did not. OPS-169: the builder rewrote a fixture
+// caller's ROOT and sources to STRIDAL_FW, and 34 cases read the real project. A check writes a
 // script as a quoted heredoc's body or a printf format whose output reaches a file; writtenScripts
 // (shscan_test.go) reads both as the shell does, and reports what it cannot read rather than skip
 // it. Unquoted heredocs are not read, by design. Other rewrites stay allowed: a contract script expects the plugin's agent
-// names, as the plugin's workflow spells them, and roadmap.sh's plant3 gains CLAUDUCTOR_FW
+// names, as the plugin's workflow spells them, and roadmap.sh's plant3 gains STRIDAL_FW
 // harmlessly, since the bypass reader it feeds (roadmap.sh's strip) cuts both spellings.
 func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 	out, _ := build(t)
@@ -377,7 +377,7 @@ func TestCheckHeredocsKeepTheirProject(t *testing.T) {
 // line runs from the plugin root.
 func TestComponentPathsExist(t *testing.T) {
 	out, _ := build(t)
-	ref := regexp.MustCompile(`(?:\$\{CLAUDE_PLUGIN_ROOT\}/|clauductor-model )([A-Za-z0-9_./*-]+\.(?:sh|js|awk|json|md))`)
+	ref := regexp.MustCompile(`(?:\$\{CLAUDE_PLUGIN_ROOT\}/|stridal-model )([A-Za-z0-9_./*-]+\.(?:sh|js|awk|json|md))`)
 	ctx := regexp.MustCompile("!`sh ([^`]+)`")
 	files, _ := filepath.Glob(filepath.Join(out, "skills", "*", "SKILL.md"))
 	more, _ := filepath.Glob(filepath.Join(out, "agents", "*.md"))
@@ -391,7 +391,7 @@ func TestComponentPathsExist(t *testing.T) {
 	frag, err := os.ReadFile(filepath.Join(out, "modules", "artifacts", "skills", "session-close", "artifacts.md"))
 	if err != nil {
 		t.Errorf("the plugin does not ship the artifacts module's session-close fragment: %v", err)
-	} else if !strings.Contains(string(frag), "clauductor-model modules/artifacts/bin/currency.sh --worktree") || strings.Contains(string(frag), "sh .claude/") {
+	} else if !strings.Contains(string(frag), "stridal-model modules/artifacts/bin/currency.sh --worktree") || strings.Contains(string(frag), "sh .claude/") {
 		t.Errorf("the artifacts module's session-close fragment is not rewritten for the plugin:\n%s", frag)
 	}
 	for _, f := range append(files, more...) {
@@ -429,7 +429,7 @@ func TestSettingsScaffold(t *testing.T) {
 	if en, _ := s["enabledPlugins"].(map[string]any); en[Name+"@"+Marketplace] != true {
 		t.Error("scaffold settings.json does not enable the plugin")
 	}
-	if !strings.Contains(string(raw), "clauductor-model checks/run.sh") || strings.Contains(string(raw), "sh .claude/") {
+	if !strings.Contains(string(raw), "stridal-model checks/run.sh") || strings.Contains(string(raw), "sh .claude/") {
 		t.Errorf("allow rules not rewritten:\n%s", raw)
 	}
 }
@@ -451,7 +451,7 @@ func env(t *testing.T, home string) []string {
 	var e []string
 	for _, kv := range os.Environ() {
 		k := strings.SplitN(kv, "=", 2)[0]
-		if strings.HasPrefix(k, "CLAUDE") || strings.HasPrefix(k, "GIT_") || k == "HOME" || k == "CI" || k == "ROOT" || k == "XDG_CACHE_HOME" || strings.HasPrefix(k, "CLAUDUCTOR") {
+		if strings.HasPrefix(k, "CLAUDE") || strings.HasPrefix(k, "GIT_") || k == "HOME" || k == "CI" || k == "ROOT" || k == "XDG_CACHE_HOME" || strings.HasPrefix(k, "STRIDAL") {
 			continue
 		}
 		e = append(e, kv)
@@ -513,16 +513,16 @@ func TestScaffoldGuards(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(p, "AGENTS.md")); string(b) != "ours\n" {
 		t.Fatalf("--force overwrote AGENTS.md: %q", b)
 	}
-	if !exists(filepath.Join(p, ".claude", "project.conf")) || !exists(filepath.Join(p, ".claude", "clauductor-plugin")) {
+	if !exists(filepath.Join(p, ".claude", "project.conf")) || !exists(filepath.Join(p, ".claude", "stridal-plugin")) {
 		t.Fatal("--force did not scaffold and mark")
 	}
 
-	// `clauductor install` was here: refused even with --force.
+	// `stridal install` was here: refused even with --force.
 	q := newProject(t, e)
 	os.MkdirAll(filepath.Join(q, ".claude"), 0o755)
-	os.WriteFile(filepath.Join(q, ".claude", "clauductor-template"), []byte("x\n"), 0o644)
-	if out, code := run(t, q, e, "", "sh", scaffold, "--force"); code != 1 || !strings.Contains(out, "clauductor install") {
-		t.Fatalf("installed repo: exit %d, want a refusal naming clauductor install\n%s", code, out)
+	os.WriteFile(filepath.Join(q, ".claude", "stridal-template"), []byte("x\n"), 0o644)
+	if out, code := run(t, q, e, "", "sh", scaffold, "--force"); code != 1 || !strings.Contains(out, "stridal install") {
+		t.Fatalf("installed repo: exit %d, want a refusal naming stridal install\n%s", code, out)
 	}
 }
 
@@ -545,7 +545,7 @@ func TestScaffoldMergesGitattributes(t *testing.T) {
 	}
 	want, _ := os.ReadFile(filepath.Join(plug, ScaffoldDir, ".gitattributes"))
 	if merged, _ := template.MergeGitattributes("*.bat text eol=crlf\n", string(want)); string(got) != merged {
-		t.Errorf("init and `clauductor install` merge differently.\ninit:\n%s\ninstall:\n%s", got, merged)
+		t.Errorf("init and `stridal install` merge differently.\ninit:\n%s\ninstall:\n%s", got, merged)
 	}
 	if out, code := run(t, p, e, "", "git", "check-attr", "eol", "--", "x.sh", "y.bat"); code != 0 ||
 		!strings.Contains(out, "x.sh: eol: lf") || !strings.Contains(out, "y.bat: eol: crlf") {
@@ -572,7 +572,7 @@ func TestScaffoldMergesGitattributes(t *testing.T) {
 	}
 }
 
-// /clauductor:init ends with the prerequisites report, and treats .gitleaks.toml as the
+// /stridal:init ends with the prerequisites report, and treats .gitleaks.toml as the
 // project's: created when missing, kept when the project has its own.
 func TestScaffoldReportsPrereqsAndKeepsGitleaksConfig(t *testing.T) {
 	need(t, "git", "sh")
@@ -626,7 +626,7 @@ func TestHooksOnlyActInPluginProjects(t *testing.T) {
 	if out, code := run(t, p, pe, payload, "sh", hook, "no-blind-source-rewrite.sh"); code != 2 {
 		t.Fatalf("plugin project: exit %d, want 2 (block)\n%s", code, out)
 	}
-	os.WriteFile(filepath.Join(p, ".claude", "clauductor-template"), []byte("x\n"), 0o644)
+	os.WriteFile(filepath.Join(p, ".claude", "stridal-template"), []byte("x\n"), 0o644)
 	if out, code := run(t, p, pe, payload, "sh", hook, "no-blind-source-rewrite.sh"); code != 0 {
 		t.Fatalf("installed-model repo: exit %d, want 0 (its own hooks run)\n%s", code, out)
 	}
@@ -660,11 +660,11 @@ func TestPluginChecksPassInScaffoldedProject(t *testing.T) {
 		t.Fatalf("the plugin's process checks fail in a scaffolded project (exit %d):\n%s", code, out)
 	}
 	// The gate's step reaches the same checks through the resolver.
-	ge := append(e, "CLAUDUCTOR_PLUGIN_ROOT="+plug)
-	if out, code := run(t, p, ge, "", "sh", "scripts/ci/clauductor-model.sh", "checks/run.sh", "roadmap"); code != 0 {
-		t.Fatalf("scripts/ci/clauductor-model.sh: exit %d\n%s", code, out)
+	ge := append(e, "STRIDAL_PLUGIN_ROOT="+plug)
+	if out, code := run(t, p, ge, "", "sh", "scripts/ci/stridal-model.sh", "checks/run.sh", "roadmap"); code != 0 {
+		t.Fatalf("scripts/ci/stridal-model.sh: exit %d\n%s", code, out)
 	}
-	if out, code := run(t, p, e, "", "sh", "scripts/ci/clauductor-model.sh", "checks/run.sh"); code == 0 || !strings.Contains(out, "FAIL") {
+	if out, code := run(t, p, e, "", "sh", "scripts/ci/stridal-model.sh", "checks/run.sh"); code == 0 || !strings.Contains(out, "FAIL") {
 		t.Fatalf("with no plugin to find, the resolver must fail, not skip (exit %d)\n%s", code, out)
 	}
 	// The ideas module's enable.sh, run from the plugin, installs /ideas into the project with the
@@ -675,7 +675,7 @@ func TestPluginChecksPassInScaffoldedProject(t *testing.T) {
 		t.Fatalf("the plugin's ideas enable.sh: exit %d\n%s", code, out)
 	}
 	sk, err := os.ReadFile(filepath.Join(p, ".claude", "skills", "ideas", "SKILL.md"))
-	if err != nil || !strings.Contains(string(sk), "clauductor-model modules/ideas/bin/render.sh --url") || strings.Contains(string(sk), "sh .claude/modules/") {
+	if err != nil || !strings.Contains(string(sk), "stridal-model modules/ideas/bin/render.sh --url") || strings.Contains(string(sk), "sh .claude/modules/") {
 		t.Errorf("the plugin's ideas enable.sh did not install /ideas with the plugin's command (%v):\n%s", err, sk)
 	}
 	if out, code := run(t, p, e, "", "sh", en, "--check"); code != 0 {
@@ -830,10 +830,10 @@ func TestClaudePluginValidate(t *testing.T) {
 
 // Installing through Claude Code's own plugin commands, from the committed marketplace, into a
 // throwaway config (claudeConfig: the user's real ~/.claude is never touched). Opt-in with
-// CLAUDUCTOR_PLUGIN_INSTALL_TEST=1: it runs the claude CLI, which CI runners do not have.
+// STRIDAL_PLUGIN_INSTALL_TEST=1: it runs the claude CLI, which CI runners do not have.
 func TestClaudePluginInstall(t *testing.T) {
-	if os.Getenv("CLAUDUCTOR_PLUGIN_INSTALL_TEST") != "1" {
-		t.Skip("set CLAUDUCTOR_PLUGIN_INSTALL_TEST=1 to install the plugin with the claude CLI into a temporary config")
+	if os.Getenv("STRIDAL_PLUGIN_INSTALL_TEST") != "1" {
+		t.Skip("set STRIDAL_PLUGIN_INSTALL_TEST=1 to install the plugin with the claude CLI into a temporary config")
 	}
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("the claude CLI is not installed")
@@ -861,7 +861,7 @@ func TestClaudePluginInstall(t *testing.T) {
 	}
 }
 
-// /clauductor:init merges an existing settings.json the way `clauductor install` does: the
+// /stridal:init merges an existing settings.json the way `stridal install` does: the
 // project's keys and entries kept, the model's deny list and sandbox entries unioned in, the
 // plugin's status line set, and the gate's paths from the project's GATE_RUN and GATE.
 func TestScaffoldMergesSettings(t *testing.T) {
@@ -922,7 +922,7 @@ func TestScaffoldMergesSettings(t *testing.T) {
 	}
 }
 
-// OPS-14 on the plugin path: /clauductor:init in a repository running clauductor's old model is not
+// OPS-14 on the plugin path: /stridal:init in a repository running stridal's old model is not
 // refused; the old model's files are listed and removed only with --prune; its hook registrations
 // (and any whose script is missing) leave settings.json; and the panel preset follows the
 // project's branch keys.
@@ -938,7 +938,7 @@ func TestScaffoldOverTheOldModel(t *testing.T) {
 	os.MkdirAll(filepath.Join(p, ".claude", "skills", "ours"), 0o755)
 	os.WriteFile(filepath.Join(p, ".claude", "skills", "ours", "SKILL.md"), []byte("ours\n"), 0o644)
 	os.MkdirAll(filepath.Join(p, ".claude", "hooks"), 0o755)
-	os.WriteFile(filepath.Join(p, ".claude", "hooks", "heartbeat.sh"), []byte("#!/bin/sh\nclauductor heartbeat\n"), 0o644)
+	os.WriteFile(filepath.Join(p, ".claude", "hooks", "heartbeat.sh"), []byte("#!/bin/sh\nstridal heartbeat\n"), 0o644)
 	os.WriteFile(filepath.Join(p, ".claude", "hooks", "mine.sh"), []byte("#!/bin/sh\n"), 0o644)
 	os.WriteFile(filepath.Join(p, ".claude", "settings.json"), []byte(`{"hooks": {
   "SessionStart": [{"hooks": [{"type": "command", "command": "bash .claude/hooks/session-register.sh"}]}],
@@ -956,7 +956,7 @@ func TestScaffoldOverTheOldModel(t *testing.T) {
 	if strings.Contains(string(raw), "session-register.sh") || strings.Contains(string(raw), "heartbeat.sh") || !strings.Contains(string(raw), "mine.sh") {
 		t.Errorf("settings.json hooks not pruned right:\n%s", raw)
 	}
-	panel, _ := os.ReadFile(filepath.Join(p, ".clauductor", "panel.json"))
+	panel, _ := os.ReadFile(filepath.Join(p, ".stridal", "panel.json"))
 	if !strings.Contains(string(panel), `"feature/"`) || strings.Contains(string(panel), `"change/`) {
 		t.Errorf("panel.json does not follow BRANCH_CHANGE=feature/:\n%s", panel)
 	}
@@ -973,7 +973,7 @@ func TestScaffoldOverTheOldModel(t *testing.T) {
 	}
 }
 
-// A plugin script sets CLAUDUCTOR_FW in its prologue without exporting it, so a `sh -c '…'` whose
+// A plugin script sets STRIDAL_FW in its prologue without exporting it, so a `sh -c '…'` whose
 // body names it reads an empty variable, unless the builder passes it on that command line
 // (OPS-88: plugin/checks/statusline.sh, run directly, failed its two unwritable-HOME cases).
 func TestShellChildGetsPluginRoot(t *testing.T) {
@@ -1003,35 +1003,35 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 	}
 	for _, c := range []struct{ in, want string }{
 		{`a=$(sh -c '. "$ROOT/.claude/lib/conf.sh"'); b=$(X=1 sh -c '. "$ROOT/.claude/lib/conf.sh"')`,
-			`a=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'); b=$(X=1 CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
-		{`v=$(CLAUDUCTOR_FW="$d/fw" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
-			`v=$(CLAUDUCTOR_FW="$d/fw" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
-		{`v=$(CLAUDUCTOR_FW= sh -c '. "$ROOT/.claude/lib/conf.sh"')`,
-			`v=$(CLAUDUCTOR_FW= sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+			`a=$(STRIDAL_FW="$STRIDAL_FW" sh -c '. "$STRIDAL_FW/lib/conf.sh"'); b=$(X=1 STRIDAL_FW="$STRIDAL_FW" sh -c '. "$STRIDAL_FW/lib/conf.sh"')`},
+		{`v=$(STRIDAL_FW="$d/fw" sh -c '. "$STRIDAL_FW/lib/conf.sh"')`,
+			`v=$(STRIDAL_FW="$d/fw" sh -c '. "$STRIDAL_FW/lib/conf.sh"')`},
+		{`v=$(STRIDAL_FW= sh -c '. "$ROOT/.claude/lib/conf.sh"')`,
+			`v=$(STRIDAL_FW= sh -c '. "$STRIDAL_FW/lib/conf.sh"')`},
 		{`with_timeout 60 sh -c '. "$ROOT/.claude/lib/conf.sh"'`,
-			`with_timeout 60 sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`},
-		{`v=$(sh -ec '. "${CLAUDUCTOR_FW:-$ROOT/.claude}/lib/conf.sh"')`,
-			`v=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -ec '. "${CLAUDUCTOR_FW:-$ROOT/.claude}/lib/conf.sh"')`},
+			`with_timeout 60 sh -c '. "$STRIDAL_FW/lib/conf.sh"'`},
+		{`v=$(sh -ec '. "${STRIDAL_FW:-$ROOT/.claude}/lib/conf.sh"')`,
+			`v=$(STRIDAL_FW="$STRIDAL_FW" sh -ec '. "${STRIDAL_FW:-$ROOT/.claude}/lib/conf.sh"')`},
 		// The class, not the instances (#232): any option spelling with a c, a body over several
 		// lines, and a child inside a double-quoted command substitution.
 		{`v=$(sh -ce '. "$ROOT/.claude/lib/conf.sh"')`,
-			`v=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -ce '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+			`v=$(STRIDAL_FW="$STRIDAL_FW" sh -ce '. "$STRIDAL_FW/lib/conf.sh"')`},
 		{`v=$(sh -e -c '. "$ROOT/.claude/lib/conf.sh"')`,
-			`v=$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -e -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
+			`v=$(STRIDAL_FW="$STRIDAL_FW" sh -e -c '. "$STRIDAL_FW/lib/conf.sh"')`},
 		{"v=$(sh -c '\n  . \"$ROOT/.claude/lib/conf.sh\"\n  echo ok')",
-			"v=$(CLAUDUCTOR_FW=\"$CLAUDUCTOR_FW\" sh -c '\n  . \"$CLAUDUCTOR_FW/lib/conf.sh\"\n  echo ok')"},
+			"v=$(STRIDAL_FW=\"$STRIDAL_FW\" sh -c '\n  . \"$STRIDAL_FW/lib/conf.sh\"\n  echo ok')"},
 		{`x="$(sh -c '. "$ROOT/.claude/lib/conf.sh"')"`,
-			`x="$(CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')"`},
+			`x="$(STRIDAL_FW="$STRIDAL_FW" sh -c '. "$STRIDAL_FW/lib/conf.sh"')"`},
 		{`v=$(sh -e '. "$ROOT/.claude/lib/conf.sh"')`, // no -c: the quoted word is a script path
-			`v=$(sh -e '. "$CLAUDUCTOR_FW/lib/conf.sh"')`},
-		{"# v=$(sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"')",
-			"# v=$(sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"')"},
+			`v=$(sh -e '. "$STRIDAL_FW/lib/conf.sh"')`},
+		{"# v=$(sh -c '. \"$STRIDAL_FW/lib/conf.sh\"')",
+			"# v=$(sh -c '. \"$STRIDAL_FW/lib/conf.sh\"')"},
 	} {
 		if got := rw.shell("checks/x.sh", c.in); got != c.want {
 			t.Errorf("shell(%s)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
-	if got := unpassedChildren(`with_timeout 60 sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`); len(got) != 1 {
+	if got := unpassedChildren(`with_timeout 60 sh -c '. "$STRIDAL_FW/lib/conf.sh"'`); len(got) != 1 {
 		t.Errorf("a child behind a wrapper is not reported: %q", got)
 	}
 	// A quoted value with a blank, a ; and a ( (change-tools.sh writes one) is still one assignment.
@@ -1043,21 +1043,21 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 		t.Errorf("a passed child inside a double-quoted command substitution is reported: %q", got)
 	}
 	for _, l := range []string{
-		`v=$(sh -ce '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
-		`v=$(sh -e -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
-		"v=$(sh -c '\n  . \"$CLAUDUCTOR_FW/lib/conf.sh\"')",
-		`x="$(sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')"`,
+		`v=$(sh -ce '. "$STRIDAL_FW/lib/conf.sh"')`,
+		`v=$(sh -e -c '. "$STRIDAL_FW/lib/conf.sh"')`,
+		"v=$(sh -c '\n  . \"$STRIDAL_FW/lib/conf.sh\"')",
+		`x="$(sh -c '. "$STRIDAL_FW/lib/conf.sh"')"`,
 		// Forms the rewrite does not pass: reported, so a template line using one fails here.
-		`v=$(sh -o errexit -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
-		`v=$(sh +e -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
-		`v=$(sh -c -- '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
-		"x=`sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'`",
-		`v=$(/bin/sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
-		`v=$(bash -c '. "$CLAUDUCTOR_FW/lib/conf.sh"')`,
+		`v=$(sh -o errexit -c '. "$STRIDAL_FW/lib/conf.sh"')`,
+		`v=$(sh +e -c '. "$STRIDAL_FW/lib/conf.sh"')`,
+		`v=$(sh -c -- '. "$STRIDAL_FW/lib/conf.sh"')`,
+		"x=`sh -c '. \"$STRIDAL_FW/lib/conf.sh\"'`",
+		`v=$(/bin/sh -c '. "$STRIDAL_FW/lib/conf.sh"')`,
+		`v=$(bash -c '. "$STRIDAL_FW/lib/conf.sh"')`,
 		// After a "$( … )" closed on the same line, the child is still a command.
-		`x="$(date)"; sh -o errexit -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`,
-		`MSG="$(date)" bash -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`,
-		"x=\"`date`\"; sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'",
+		`x="$(date)"; sh -o errexit -c '. "$STRIDAL_FW/lib/conf.sh"'`,
+		`MSG="$(date)" bash -c '. "$STRIDAL_FW/lib/conf.sh"'`,
+		"x=\"`date`\"; sh -c '. \"$STRIDAL_FW/lib/conf.sh\"'",
 	} {
 		if got := unpassedChildren(l); len(got) != 1 {
 			t.Errorf("an unpassed child is not reported once: %q in %q", got, l)
@@ -1079,8 +1079,8 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 	// leading `(` and on a line of its own, starts a command and closes no substitution, and a
 	// `case` after reserved words is still a case; the words of a value are its outer command's,
 	// whatever quotes and parentheses it nests.
-	pass := `CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`
-	bare := `sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh"'`
+	pass := `STRIDAL_FW="$STRIDAL_FW" sh -c '. "$STRIDAL_FW/lib/conf.sh"'`
+	bare := `sh -c '. "$STRIDAL_FW/lib/conf.sh"'`
 	for _, form := range []string{
 		`REV=$(git rev-parse HEAD) %s`,
 		`case $1 in a) %s ;; esac`,
@@ -1117,13 +1117,13 @@ func TestShellChildGetsPluginRoot(t *testing.T) {
 			t.Errorf("an unpassed child is not reported once: %q in %q", got, l)
 		}
 	}
-	if got := unpassedChildren("# sh -c '. \"$CLAUDUCTOR_FW/lib/conf.sh\"'\nv=$(sh -e '$CLAUDUCTOR_FW/x.sh')"); len(got) != 0 {
+	if got := unpassedChildren("# sh -c '. \"$STRIDAL_FW/lib/conf.sh\"'\nv=$(sh -e '$STRIDAL_FW/x.sh')"); len(got) != 0 {
 		t.Errorf("a comment, or a sh with no -c, is reported: %q", got)
 	}
 }
 
 // unpassedChildren returns each child `<any shell> <arguments, an option with c among them> '<body>'`
-// in the script whose body names CLAUDUCTOR_FW and whose command does not set it among its leading
+// in the script whose body names STRIDAL_FW and whose command does not set it among its leading
 // assignments. Written apart from the rewrite's regex, so the two do not share a mistake: any shell
 // by any path (`/bin/sh`, `bash`), any unquoted arguments (`-o errexit -c`, `+e`, `--`), a body
 // that runs to its closing quote over as many lines as it takes, and the text before the child on
@@ -1170,7 +1170,7 @@ func commandWords(p string) (words []string, isCommand bool) {
 	var splits []int
 	// Each open `(`, `$(` or backtick saves the quote it was read in, where the outer command
 	// started and its splits, and its close restores them: the `"` that closes `"$(date)"` closes
-	// the outer quote, and `REV="$(git rev-parse HEAD)" CLAUDUCTOR_FW=… sh` is still one command of
+	// the outer quote, and `REV="$(git rev-parse HEAD)" STRIDAL_FW=… sh` is still one command of
 	// assignments. After a plain `(`'s close a command starts: only an operator may follow a
 	// subshell, so a word there follows a case pattern's leading `(` (item 3). A frame also counts
 	// the `case`s open in it, whose pattern's `)` closes nothing.

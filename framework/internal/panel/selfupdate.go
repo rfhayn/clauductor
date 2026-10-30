@@ -11,17 +11,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // The panel's rebuild and restart of itself (OPS-118 D4), on catch-up's source after a
 // fast-forward of the repository that is its own source: install.Rebuild decides,
 // builds, checks and swaps; this file sends the notices, judges a changed config with
 // the new binary, and restarts. Every notice of it goes whatever the project's
-// alerts.notify says, titled "clauductor panel" (D6): it is about the panel, and one of
+// alerts.notify says, titled "stridal panel" (D6): it is about the panel, and one of
 // them is the only place the rollback is written.
 
 // ExitRestart is the exit status of a panel that put a rebuilt binary in place: not 0,
@@ -32,7 +32,7 @@ const ExitRestart = 75
 const restartQuiesce = 10 * time.Minute
 
 // RestartError is Run's return after the restart: the run shut down as on SIGTERM, and
-// the process is to exit with Code, which `clauductor panel` does itself, since main
+// the process is to exit with Code, which `stridal panel` does itself, since main
 // turns every returned error into 1.
 type RestartError struct {
 	Code     int
@@ -44,7 +44,7 @@ func (e *RestartError) Error() string {
 }
 
 // rebuildEnv is what the rebuild reads of the panel's process: its build stamp and
-// path, the go command, the clauductor its PATH names, and the build's bound. Run reads
+// path, the go command, the stridal its PATH names, and the build's bound. Run reads
 // production's when a rebuild first needs it; a test stands its own in (Options.rebuild).
 type rebuildEnv struct {
 	self    install.BuildStamp
@@ -56,7 +56,7 @@ type rebuildEnv struct {
 
 func processRebuildEnv() rebuildEnv {
 	exe, _ := os.Executable()
-	p, err := exec.LookPath("clauductor")
+	p, err := exec.LookPath("stridal")
 	if err != nil {
 		p = ""
 	}
@@ -213,7 +213,7 @@ func (s *selfUpdater) swap(ctx context.Context, rb *install.Rebuild, t catchUpTa
 	}
 	// The rollback first, then the install step: the body is cut at catchUpBodyMax, and
 	// these are the two things nothing else says. A stop during the wait (a logout,
-	// `launchctl bootout`, `clauductor panel install`) sends it too: the binary replaced
+	// `launchctl bootout`, `stridal panel install`) sends it too: the binary replaced
 	// itself all the same, and "now running" comes only from a new binary that starts.
 	home := s.home
 	lead, back := fmt.Sprintf("The panel rebuilt itself and restarts now, from %s to %s.", short(plan.Base), short(res.to)), "in 2 minutes"
@@ -228,7 +228,7 @@ func (s *selfUpdater) swap(ctx context.Context, rb *install.Rebuild, t catchUpTa
 		for i, f := range plan.Install {
 			names[i] = strings.TrimPrefix(f, "framework/internal/panel/")
 		}
-		body += fmt.Sprintf(" The update changed what `clauductor panel install` writes (%s): run `clauductor panel install` once.", strings.Join(names, ", "))
+		body += fmt.Sprintf(" The update changed what `stridal panel install` writes (%s): run `stridal panel install` once.", strings.Join(names, ", "))
 	}
 	body += fmt.Sprintf(" Catch-up moved %s to %s (%s).", t.root, short(res.to), prList(res.prs))
 	if pathErr != nil {

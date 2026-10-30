@@ -20,11 +20,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/brand"
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/brand"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // A lane is one interactive `claude` in its own tmux session on the panel's dedicated
@@ -55,27 +55,15 @@ var parentSessionVars = []string{
 // Initial size of a detached lane; the first attached client resizes it.
 const laneCols, laneRows = 200, 50
 
-var tmuxListFormat = listFormat(brand.Names())
-
-// listFormat is the list-panes format: seven fields of the pane, then a lane's type and
-// project options for each name, in brand.Names order, so a lane an earlier name's panel
-// started is still read as its type and project.
-func listFormat(names []string) string {
-	f := "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}"
-	for _, n := range names {
-		f += "\t#{" + brand.TmuxOption(n, "type") + "}\t#{" + brand.TmuxOption(n, "project") + "}"
-	}
-	return f
-}
+// tmuxListFormat is the list-panes format: seven fields of the pane, then a lane's type and
+// project options.
+var tmuxListFormat = "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}" +
+	"\t#{" + brand.TmuxOption(brand.Name, "type") + "}\t#{" + brand.TmuxOption(brand.Name, "project") + "}"
 
 // parseTmuxPanes parses `list-panes -a -F tmuxListFormat`, one lane per session. A
 // session whose name is not a valid lane id was not started by the panel and is
 // ignored.
-func parseTmuxPanes(out []byte) []types.TmuxLane { return parseTmuxPanesOf(out, len(brand.Names())) }
-
-// parseTmuxPanesOf parses a listFormat of names names: the type and project are the
-// first name's whose type is set.
-func parseTmuxPanesOf(out []byte, names int) []types.TmuxLane {
+func parseTmuxPanes(out []byte) []types.TmuxLane {
 	seen := map[string]bool{}
 	var lanes []types.TmuxLane
 	sc := bufio.NewScanner(bytes.NewReader(out))
@@ -95,13 +83,6 @@ func parseTmuxPanesOf(out []byte, names int) []types.TmuxLane {
 			Attached: attached, Dead: f[3] == "1", DeadStatus: f[4]}
 		if len(f) > 8 {
 			l.Project = f[8]
-		}
-		for i := 1; i < names && l.Type == "" && len(f) > 7+2*i; i++ {
-			l.Type = f[7+2*i]
-			l.Project = ""
-			if len(f) > 8+2*i {
-				l.Project = f[8+2*i]
-			}
 		}
 		lanes = append(lanes, l)
 	}
@@ -152,7 +133,7 @@ type LaneManager struct {
 	// UploadDir keeps images dropped on a lane's terminal, one directory per lane
 	// (images.go): in the panel's state directory, never a worktree. "" refuses them.
 	UploadDir string
-	// Project is the project id each lane is tagged with (@clauductor_project,
+	// Project is the project id each lane is tagged with (@stridal_project,
 	// PANEL-16). A session tagged for another project is not this manager's: each
 	// project has its own socket, and the tag guards against two sharing one.
 	Project string
@@ -196,7 +177,7 @@ func (m *LaneManager) ConnectRemote(ctx context.Context, id string) *LaneError {
 		return laneErr(400, "invalid", "invalid lane id")
 	}
 	if m.RemoteControl == nil || !m.RemoteControl() {
-		return laneErr(409, "remote-off", "remote control is not on for the panel's lanes (clauductor panel install --remote-control=lanes)")
+		return laneErr(409, "remote-off", "remote control is not on for the panel's lanes (stridal panel install --remote-control=lanes)")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -507,7 +488,7 @@ func (m *LaneManager) SessionEnv() []string {
 
 // NewSessionArgv is the tmux argv that starts a lane. The chained set-options run in
 // the same server command, before a fast-failing program can exit: remain-on-exit
-// keeps its last output on screen, and @clauductor_type records the lane type.
+// keeps its last output on screen, and @stridal_type records the lane type.
 // window-size latest (tmux's default, set explicitly because ~/.tmux.conf may change
 // it) sizes the lane to whichever client typed or resized last, so the browser's
 // terminal drives the size and a Terminal.app window can still share the lane.
@@ -536,9 +517,9 @@ func (m *LaneManager) laneEnvArgs(id string) []string {
 		args = append(args, "-e", kv)
 	}
 	// A gate script run inside the lane names its lane in the queue (lock-run).
-	args = append(args, "-e", "CLAUDUCTOR_LANE="+id)
+	args = append(args, "-e", "STRIDAL_LANE="+id)
 	if port := m.LanePort(id); port > 0 {
-		args = append(args, "-e", "CLAUDUCTOR_PORT="+strconv.Itoa(port)) // PANEL-20
+		args = append(args, "-e", "STRIDAL_PORT="+strconv.Itoa(port)) // PANEL-20
 	}
 	return args
 }
@@ -1368,7 +1349,7 @@ type StartGate struct {
 // repo-controlled prompts and branch patterns.
 func (g StartGate) templatesOff() *LaneError {
 	if g.Trusted != nil && !g.Trusted() {
-		return laneErr(409, "untrusted-config", "panel.json is not trusted as it is now, so its templates are off; review it and run `clauductor panel trust`")
+		return laneErr(409, "untrusted-config", "panel.json is not trusted as it is now, so its templates are off; review it and run `stridal panel trust`")
 	}
 	return nil
 }

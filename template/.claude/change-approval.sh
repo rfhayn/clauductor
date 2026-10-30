@@ -32,7 +32,7 @@
 # history is never read as this one's. It is firm on origin/<MAIN_BRANCH> in a full clone (a
 # shallow one refuses, its history cut at its depth); the branch's own can be
 # rewritten, so --record, --delegate and --revoke also add a line to the approval log,
-# <git common dir>/clauductor/approvals.log, which no branch carries, and --delegate refuses a change
+# <git common dir>/stridal/approvals.log, which no branch carries, and --delegate refuses a change
 # the log names. A revoke the log cannot take still revokes, and exits 1 to say so. The log keys on
 # the change's id, so a change filed again under a new id is new to it. The log guards the act, not
 # the merge: the check never reads it, since a CI runner has none. It is per clone (every worktree
@@ -61,7 +61,7 @@ ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
 approval_log=""
 if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$ROOT" && pwd -P)" ]; then
   common=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P) \
-    && approval_log="$common/clauductor/approvals.log"
+    && approval_log="$common/stridal/approvals.log"
 fi
 # log_append VERB WHO: add a line for this change, creating the log; fails when it cannot. A log is
 # started only by a start or record line, the owner's word: --delegate refuses until one is there.

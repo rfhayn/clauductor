@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The living-visuals module's check of THIS project, run by checks/run.sh as living-visuals:pages
 # only while the module is on, so in every gate: each living page (a registry entry with `refresh`)
 # is whole, its scripts parse, its generated blocks equal their commands and nothing they carry is
@@ -11,7 +11,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # shellcheck disable=SC1090
 . "${CHECKS_LIB:?run this through checks/run.sh}"
 need jq
-out=$(sh "$CLAUDUCTOR_FW/modules/living-visuals/bin/living.sh" --root "$ROOT" --check 2>&1); rc=$?
+out=$(sh "$STRIDAL_FW/modules/living-visuals/bin/living.sh" --root "$ROOT" --check 2>&1); rc=$?
 printf '%s\n' "$out" | grep -v '^FAIL' | grep '^ok' || true
 bad=$(printf '%s\n' "$out" | grep -v '^ok')
 if [ -n "$bad" ]; then

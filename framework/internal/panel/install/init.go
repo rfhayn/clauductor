@@ -12,20 +12,20 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
-// `clauductor panel init` writes a starter .clauductor/panel.json from what the
+// `stridal panel init` writes a starter .stridal/panel.json from what the
 // repository already says: its root, its default branch, where its worktrees live,
 // the prefixes its branches use, and a gate script it defines. It invents no card,
 // since a card's command runs by itself on every refresh; the only command it may
 // write of its own is a queue's, which runs only when someone presses RUN, and it
-// prints it. A repository that runs Clauductor's operating model (PANEL-18: the
+// prints it. A repository that runs Stridal's operating model (PANEL-18: the
 // template's queue scripts are there) also gets that model's cards, lane templates
 // and gate, each naming only a script the repository has; every one is printed, and
-// none runs before `clauductor panel trust`.
+// none runs before `stridal panel trust`.
 
 // InitResult is what InitConfig wrote, and a line of explanation per choice.
 type InitResult struct {
@@ -38,9 +38,9 @@ type InitResult struct {
 }
 
 // InitTarget is where a plan goes. Its zero value is `panel init`'s: the
-// repository's own <root>/.clauductor/panel.json.
+// repository's own <root>/.stridal/panel.json.
 type InitTarget struct {
-	// Path is the file the plan is for; "" for <root>/.clauductor/panel.json.
+	// Path is the file the plan is for; "" for <root>/.stridal/panel.json.
 	// PlanInit refuses one that exists (ErrConfigExists).
 	Path string
 	// Sidecar is a config outside the repository (`panel attach`, PANEL-42). Every
@@ -91,9 +91,9 @@ type starterTemplate struct {
 	Suggest       *config.SuggestConfig `json:"suggest,omitempty"`
 }
 
-// The operating model's files (the template `clauductor install` copies), and what
+// The operating model's files (the template `stridal install` copies), and what
 // each brings to the starter config. The cards, templates and gate are those of the
-// template's own preset (template/.clauductor/panel.json).
+// template's own preset (template/.stridal/panel.json).
 const (
 	omOwnerQueue   = ".claude/owner-queue.sh"
 	omRoadmapQueue = ".claude/roadmap-queue.sh"
@@ -102,7 +102,7 @@ const (
 )
 
 // omHint is init's one line for a repository without the operating model.
-const omHint = "cards and lane templates: none; they come with `clauductor install` (Clauductor's operating model), or add them by hand (docs/panel.md, \"Keys\": cards, templates)"
+const omHint = "cards and lane templates: none; they come with `stridal install` (Stridal's operating model), or add them by hand (docs/panel.md, \"Keys\": cards, templates)"
 
 // operatingModel adds the operating model's cards, lane templates and gate to s for
 // the files the repository has, with a note per addition. It reports whether the
@@ -181,7 +181,7 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 	*notes = append(*notes, "templates     build, propose, fix, ops, close: each types its first prompt once claude is ready ("+why+")")
 
 	if has(omRunLocal) {
-		s.Queues = []types.QueueConfig{{ID: "gate", Title: "Full gate (" + omRunLocal + ")", Lock: "clauductor/gate.lock", Command: []string{omRunLocal}}}
+		s.Queues = []types.QueueConfig{{ID: "gate", Title: "Full gate (" + omRunLocal + ")", Lock: "stridal/gate.lock", Command: []string{omRunLocal}}}
 		n := "queues        gate runs `" + omRunLocal + "` (the operating model's full gate is here), and only when you press RUN on the page"
 		if len(gates) > 0 {
 			var alt []string
@@ -195,7 +195,7 @@ func operatingModel(root string, s *starter, gates []gateCandidate, notes *[]str
 	return true
 }
 
-// InitConfig writes <git toplevel of dir>/.clauductor/panel.json. It refuses to
+// InitConfig writes <git toplevel of dir>/.stridal/panel.json. It refuses to
 // overwrite any file already there.
 func InitConfig(ctx context.Context, run signals.Runner, dir string) (InitResult, error) {
 	res, err := PlanInit(ctx, run, dir, InitTarget{})
@@ -295,7 +295,7 @@ func PlanInit(ctx context.Context, run signals.Runner, dir string, target InitTa
 		notes = append(notes, "queues        none: no gate script found in package.json or a Makefile; add one by hand if two lanes must never run it at once")
 	default:
 		g := gates[0]
-		s.Queues = []types.QueueConfig{{ID: "gate", Title: "Gate: " + strings.Join(g.argv, " "), Lock: "clauductor/gate.lock", Command: g.argv}}
+		s.Queues = []types.QueueConfig{{ID: "gate", Title: "Gate: " + strings.Join(g.argv, " "), Lock: "stridal/gate.lock", Command: g.argv}}
 		n := fmt.Sprintf("queues        gate runs `%s` (%s), and only when you press RUN on the page", strings.Join(g.argv, " "), g.from)
 		if len(gates) > 1 {
 			var alt []string

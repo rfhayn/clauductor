@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 func TestConfigTrust(t *testing.T) {
@@ -136,7 +136,7 @@ func TestSidecarOfTheRepositorysCommandsIsTrusted(t *testing.T) {
 	}
 }
 
-// [ATTACH-3-S4] A project whose config is its own .clauductor/panel.json, running
+// [ATTACH-3-S4] A project whose config is its own .stridal/panel.json, running
 // /usr/local/bin/report and sh -c "sh .claude/owner-queue.sh 2>&1": trusting it
 // trusts and records it, as before this change.
 func TestInRepositoryConfigKeepsTodaysTrust(t *testing.T) {

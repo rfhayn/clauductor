@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Status line for Claude Code.
 #
 # Renders:  "<mark> <focus> · <branch> <●|✓> <↑a↓b> · <N>% ctx"
@@ -14,9 +14,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 
 input=$(cat)
 
-# THE PANEL SNIPPET (clauductor docs/panel.md, "The status line"). The local panel reads a copy
+# THE PANEL SNIPPET (stridal docs/panel.md, "The status line"). The local panel reads a copy
 # of this stdin: it carries the 5-hour and 7-day quota and the context %, which no hook payload
-# does. It posts ONLY while ~/.clauductor/panel/pid names a live process: a panel killed with
+# does. It posts ONLY while ~/.stridal/panel/pid names a live process: a panel killed with
 # SIGKILL leaves `port` behind, and another program may hold that port by now. The pid must be
 # digits and not start with 0, because `kill -0 -1` and `kill -0 0` succeed whatever runs. The
 # port must be digits too, since it goes into a URL. Backgrounded with its output discarded, so
@@ -33,7 +33,7 @@ case "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" in
   *) post=$(printf '%s' "$input" | jq -c --argjson w "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
        '. + {auto_compact_window: $w}' 2>/dev/null) && [ -n "$post" ] || post=$input ;;
 esac
-panel="$HOME/.clauductor/panel"
+panel="$HOME/.stridal/panel"
 panel_port=$(cat "$panel/port" 2>/dev/null)
 panel_pid=$(cat "$panel/pid" 2>/dev/null)
 case "$panel_port" in '' | *[!0-9]*) panel_port="" ;; esac
@@ -48,18 +48,18 @@ cwd=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // empty' 2>/
 [ -n "$cwd" ] || cwd=$(pwd)
 
 # This script's own checkout supplies the config (the mark, the slug), whatever the cwd.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 
-# THE QUOTA READING (OPS-67). The same stdin's rate_limits go to ~/.clauductor/quota-reading.json
+# THE QUOTA READING (OPS-67). The same stdin's rate_limits go to ~/.stridal/quota-reading.json
 # on every refresh that carries them, panel or no panel, for the quota health line and the lane guard,
 # .claude/quota-gate.sh (lib/quota.sh: the file, and the reader that never reports a window past its
 # reset). Backgrounded
 # with its output discarded, like the panel post: it never delays or changes the line below, and a
 # failure leaves the old file in place. Checked by .claude/checks/quota-reading.sh.
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/quota.sh"
+. "$STRIDAL_FW/lib/quota.sh"
 { quota_save "$input"; } >/dev/null 2>&1 &
 
 branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null)

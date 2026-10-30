@@ -18,8 +18,8 @@ type rewriter struct {
 	shVarFW   *regexp.Regexp // "$ROOT/.claude/<fw>  and  "$ROOT"/.claude/<fw>
 	shBare    *regexp.Regexp // sh .claude/<fw>   and   in .claude/<fw>
 	shChildFW *regexp.Regexp // sh <options, one with c> '<body>': a child that needs the plugin root passed when its body names it
-	bodyFW    *regexp.Regexp // $CLAUDUCTOR_FW or ${CLAUDUCTOR_FW…} in a child's body
-	assignsFW *regexp.Regexp // CLAUDUCTOR_FW= among a command's assignments
+	bodyFW    *regexp.Regexp // $STRIDAL_FW or ${STRIDAL_FW…} in a child's body
+	assignsFW *regexp.Regexp // STRIDAL_FW= among a command's assignments
 	mdFW      *regexp.Regexp // .claude/<fw> in Markdown
 	mdSh      *regexp.Regexp // sh .claude/<fw> in Markdown
 	mdCtx     *regexp.Regexp // !`sh .claude/<fw> : a skill's context line
@@ -127,8 +127,8 @@ func (r *rewriter) pluginFile(dest string, data []byte) ([]byte, error) {
 		// fragments), so its commands must name the plugin's copies exactly as the skill's own do.
 		return []byte(r.componentMarkdown(dest, s)), nil
 	case strings.HasSuffix(dest, ".js"):
-		// The workflow's prompts tell agents to run the model's scripts: through clauductor-model.
-		s = r.mdSh.ReplaceAllString(s, "clauductor-model $1")
+		// The workflow's prompts tell agents to run the model's scripts: through stridal-model.
+		s = r.mdSh.ReplaceAllString(s, "stridal-model $1")
 		return []byte(r.jsAgent.ReplaceAllString(s, "agentType: '"+Name+":$1'")), nil
 	}
 	return data, nil // READMEs, config.yaml, merge-reader.awk: read by people or by path
@@ -142,7 +142,7 @@ func isModuleFragment(dest string) bool {
 }
 
 // shell rewrites a framework script: the project root comes from git (the script's own location
-// is now the plugin cache), and the model's own files come from CLAUDUCTOR_FW, which an executed
+// is now the plugin cache), and the model's own files come from STRIDAL_FW, which an executed
 // script sets from its own location. A sourced file (no shebang: conf.sh, checks/lib.sh,
 // hooks/lib/*) uses its caller's.
 func (r *rewriter) shell(dest, s string) string {
@@ -177,7 +177,7 @@ func (r *rewriter) shell(dest, s string) string {
 		if depth > 0 {
 			up = strings.TrimSuffix(strings.Repeat("../", depth), "/")
 		}
-		pro := fmt.Sprintf(`%s=$(cd "$(dirname "$0")/%s" && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)`, FWVar, up)
+		pro := fmt.Sprintf(`%s=$(cd "$(dirname "$0")/%s" && pwd) # stridal plugin: the plugin root (framework/internal/plugin)`, FWVar, up)
 		nl := strings.Index(out, "\n")
 		out = out[:nl+1] + pro + "\n" + out[nl+1:]
 	}
@@ -222,18 +222,18 @@ var shellPatches = map[string][]struct{ old, new string }{
 		{`if [ -f "$ROOT/$script" ]; then`, `if [ -f "$script" ]; then`},
 	},
 	// Skills are the plugin's AND the project's (its CONFIGURE FIRST skills): both are mapped. The
-	// playbook names the plugin's as /clauductor:<skill>.
+	// playbook names the plugin's as /stridal:<skill>.
 	"checks/model-roles.sh": {
 		{"sed -nE 's/^\\| `\\/([a-z0-9-]+)` \\|.*\\| ([a-z-]+) \\|$/\\1 \\2/p'", "sed -nE 's/^\\| `\\/(" + Name + ":)?([a-z0-9-]+)` \\|.*\\| ([a-z-]+) \\|$/\\2 \\3/p'"},
 		{`for d in "$` + FWVar + `"/skills/*/; do`, `for d in "$` + FWVar + `"/skills/*/ "$ROOT"/.claude/skills/*/; do`},
 		{`[ -f "$ROOT/.claude/skills/$s/SKILL.md" ] ||`, `[ -f "$` + FWVar + `/skills/$s/SKILL.md" ] || [ -f "$ROOT/.claude/skills/$s/SKILL.md" ] ||`},
 	},
 	// The check reads the model's own files at their template paths; in the plugin they are at the
-	// plugin root, and the workflow runs its scripts through clauductor-model.
+	// plugin root, and the workflow runs its scripts through stridal-model.
 	"checks/change-process.sh": {
 		{`if grep -qF -- "$2" "$ROOT/$1" 2>/dev/null; then`, `_f="$ROOT/$1"; case $1 in .claude/*) [ -e "$_f" ] || _f="$` + FWVar + `/${1#.claude/}" ;; esac
   if grep -qF -- "$2" "$_f" 2>/dev/null; then`},
-		{`'sh .claude/verify-change.sh'`, `'clauductor-model verify-change.sh'`},
+		{`'sh .claude/verify-change.sh'`, `'stridal-model verify-change.sh'`},
 	},
 	// session-close's context runs the compound step from the plugin root.
 	"checks/compound.sh": {
@@ -257,14 +257,14 @@ const rootRef = "$${CLAUDE_PLUGIN_ROOT}"
 // componentMarkdown rewrites a skill or agent body (not its frontmatter, where Claude Code does
 // not substitute ${CLAUDE_PLUGIN_ROOT}) so every framework path names the plugin's copy, and
 // every agent its namespaced name. A context line (!`sh ...`) runs at load, where Claude Code
-// substitutes ${CLAUDE_PLUGIN_ROOT}; a command Claude runs itself goes through clauductor-model
+// substitutes ${CLAUDE_PLUGIN_ROOT}; a command Claude runs itself goes through stridal-model
 // (the plugin's bin/, on the Bash tool's PATH), one stable name the project's allow rules match.
 func (r *rewriter) componentMarkdown(dest, s string) string {
 	front, body := splitFrontmatter(s)
 	// Claude Code does not substitute in frontmatter: a path there is named plugin-relative.
 	front = r.mdFW.ReplaceAllString(front, "$1")
 	body = r.mdCtx.ReplaceAllString(body, "!`sh "+rootRef+"/$1")
-	body = r.mdSh.ReplaceAllString(body, "clauductor-model $1")
+	body = r.mdSh.ReplaceAllString(body, "stridal-model $1")
 	body = r.mdFW.ReplaceAllString(body, rootRef+"/$1")
 	body = r.mdAgent.ReplaceAllString(body, "`"+Name+":$1`$2")
 	body = r.skills(body)
@@ -275,8 +275,8 @@ func (r *rewriter) componentMarkdown(dest, s string) string {
 }
 
 const startProjectNote = `
-> **Installed as the clauductor plugin.** If ` + "`.claude/project.conf`" + ` is missing, run
-> ` + "`/clauductor:init`" + ` first: it scaffolds this repository's own files. The scripts, hooks, skills and
+> **Installed as the stridal plugin.** If ` + "`.claude/project.conf`" + ` is missing, run
+> ` + "`/stridal:init`" + ` first: it scaffolds this repository's own files. The scripts, hooks, skills and
 > agents named below are the plugin's (` + "`${CLAUDE_PLUGIN_ROOT}`" + `, read-only); the files under ` + "`.claude/`" + `
 > that this setup edits (project.conf, model-roles.json, settings.json) are the repository's.
 `
@@ -295,30 +295,30 @@ func splitFrontmatter(s string) (string, string) {
 
 // scaffoldFile adapts a project-owned file for a repository whose model comes from the plugin.
 // Prose keeps its meaning with the framework paths named as the plugin's; a runnable
-// `sh .claude/x` becomes `clauductor-model x`, the command the plugin puts on the Bash tool's
-// PATH. The gate's steps call the process checks through scripts/ci/clauductor-model.sh, which
+// `sh .claude/x` becomes `stridal-model x`, the command the plugin puts on the Bash tool's
+// PATH. The gate's steps call the process checks through scripts/ci/stridal-model.sh, which
 // finds the plugin outside a session too.
 func (r *rewriter) scaffoldFile(rel string, data []byte) []byte {
 	s := string(data)
 	if rel == "docs/playbook.md" {
 		// The playbook's skill table lists every skill with its role (checks/model-roles.sh).
-		s = r.pbStart.ReplaceAllString(s, "| `/init` | scaffold this repository's own files from the plugin (`/clauductor:init`) | $1 |\n$0")
+		s = r.pbStart.ReplaceAllString(s, "| `/init` | scaffold this repository's own files from the plugin (`/stridal:init`) | $1 |\n$0")
 	}
 	switch {
 	case strings.HasSuffix(rel, ".md"):
 		front, body := splitFrontmatter(s)
-		body = r.mdSh.ReplaceAllString(body, "clauductor-model $1")
+		body = r.mdSh.ReplaceAllString(body, "stridal-model $1")
 		body = r.mdFW.ReplaceAllString(body, rootRef+"/$1")
 		body = r.skills(body)
 		if rel == "AGENTS.md" || rel == "docs/playbook.md" {
 			body = dropDroppedHookRows(body)
 		}
 		return []byte(front + body)
-	case rel == ".clauductor/panel.json":
+	case rel == ".stridal/panel.json":
 		// The panel runs these outside any Claude Code session: through the resolver.
-		s = r.panelArg.ReplaceAllString(s, `"sh", "scripts/ci/clauductor-model.sh", "$1`)
+		s = r.panelArg.ReplaceAllString(s, `"sh", "scripts/ci/stridal-model.sh", "$1`)
 		s = r.skills(s)
-		return []byte(r.scaffSh.ReplaceAllString(s, "sh scripts/ci/clauductor-model.sh $1"))
+		return []byte(r.scaffSh.ReplaceAllString(s, "sh scripts/ci/stridal-model.sh $1"))
 	case rel == ".claude/model-roles.json":
 		// The plugin's init skill is a skill like any other: mapped to start-project's role.
 		return []byte(r.initRole.ReplaceAllString(s, "${1}\"init\": \"${2}\",\n${1}\"start-project\": \"${2}\""))
@@ -328,7 +328,7 @@ func (r *rewriter) scaffoldFile(rel string, data []byte) []byte {
 			if strings.HasPrefix(strings.TrimSpace(l), "#") {
 				continue
 			}
-			lines[i] = r.scaffSh.ReplaceAllString(l, "sh scripts/ci/clauductor-model.sh $1")
+			lines[i] = r.scaffSh.ReplaceAllString(l, "sh scripts/ci/stridal-model.sh $1")
 		}
 		return []byte(strings.Join(lines, "\n"))
 	}
@@ -336,7 +336,7 @@ func (r *rewriter) scaffoldFile(rel string, data []byte) []byte {
 }
 
 // skills names each plugin skill by its command in the plugin: /session-start becomes
-// /clauductor:session-start. The project's own skills keep their names.
+// /stridal:session-start. The project's own skills keep their names.
 func (r *rewriter) skills(s string) string {
 	for i := 0; i < 2; i++ { // adjacent names share a delimiter: a second pass takes the rest
 		s = r.skillRef.ReplaceAllString(s, "$1/"+Name+":$2$3")

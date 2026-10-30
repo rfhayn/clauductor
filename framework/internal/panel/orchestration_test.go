@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // v2Runner runs git and plain commands for real and fakes claude and gh. `claude
@@ -71,7 +71,7 @@ func v2Project(t *testing.T, cfg string) (root, home string) {
 	gitRun(t, root, "add", ".")
 	gitRun(t, root, "commit", "-q", "-m", "init")
 	gitRun(t, root, "remote", "add", "origin", filepath.Join(root, "no-such-remote"))
-	// The user reviewed and trusted it (`clauductor panel trust`).
+	// The user reviewed and trusted it (`stridal panel trust`).
 	if _, err := install.TrustConfig(home, root, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestUntrustedConfigRunsNoCommandsOrTemplates(t *testing.T) {
 	}
 	trust := func(p *panelRun) {
 		t.Helper()
-		// `clauductor panel trust` lifts it in the running panel.
+		// `stridal panel trust` lifts it in the running panel.
 		if _, err := install.TrustConfig(home, root, ""); err != nil {
 			t.Fatal(err)
 		}

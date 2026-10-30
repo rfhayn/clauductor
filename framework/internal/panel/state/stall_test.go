@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // PANEL-51: the stall rule (design D1, D3, D4) and its Needs-you row (D11), on a
@@ -197,7 +197,7 @@ func TestStallBusyLaneNever(t *testing.T) {
 	}
 }
 
-const gateQueue = `,"queues":[{"id":"gate","title":"Gate","lock":"clauductor/gate.lock"}]`
+const gateQueue = `,"queues":[{"id":"gate","title":"Gate","lock":"stridal/gate.lock"}]`
 
 func gateHeld(lane string, alive bool) []types.QueueView { return gateRun(lane, "n-"+lane, alive) }
 

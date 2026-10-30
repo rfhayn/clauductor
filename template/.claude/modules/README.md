@@ -43,9 +43,9 @@ contributes nothing, whatever it contains. The two older switches still work:
 the same rules. A module's parts run before the local layer's, in `MODULES` order, and within a
 directory by file name. `sh .claude/extensions.sh list` shows what is on and what each layer adds.
 
-**Where modules live.** The modules here are the framework's: `clauductor update` refreshes them.
+**Where modules live.** The modules here are the framework's: `stridal update` refreshes them.
 A project may vendor its own module in this directory under another name; a shipped module of the
-same name wins. Every module must work without clauductor (D10), and one that needs a claude.ai
+same name wins. Every module must work without stridal (D10), and one that needs a claude.ai
 tool says `CANNOT CHECK — no Artifact tool` rather than erroring.
 
 ## Shipped

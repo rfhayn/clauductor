@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # AGENTS.md is a budget, not an archive: every session and subagent loads it at startup, so each
 # byte is paid for on every agent start. This holds the file to a byte ceiling and each row of
 # its "What executes each rule" table to a length ceiling, so a lesson that belongs in the

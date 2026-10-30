@@ -18,7 +18,7 @@
 # `subject` says what the run tested: `commit` (a clean-room run of HEAD, GATE_CLEAN_ROOM=archive)
 # or `worktree` (the checkout as it stood, the default), and `tree` identifies that worktree.
 #
-# THE RUN LOG, one per repository, beside the gate lease: <git common dir>/clauductor/gate-runs.log
+# THE RUN LOG, one per repository, beside the gate lease: <git common dir>/stridal/gate-runs.log
 # One tab-separated line per finished run, appended by the run as it ends:
 #   <finished, UTC ISO-8601>  <lane>  <branch>  <head sha>  <full|quick|docs>  <pass|fail>  <exit code|signal>  <run s>  <queued s>  <steps>
 # `run s` is the run under the lease; `queued s` the wait for it. `steps` (OPS-89) is each step that
@@ -33,7 +33,7 @@ gate_state_file() { _gs_gd=$(git rev-parse --absolute-git-dir 2>/dev/null) && pr
 gate_runs_file() {
   _gs_cd=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
   case $_gs_cd in /*) ;; *) _gs_cd="$PWD/$_gs_cd" ;; esac
-  printf '%s/clauductor/gate-runs.log\n' "$_gs_cd"
+  printf '%s/stridal/gate-runs.log\n' "$_gs_cd"
 }
 
 # gate_state_tree: the working tree's identity, READ-ONLY (it writes no object and no index, so a
@@ -56,11 +56,11 @@ gate_state_tree() {
 gate_state_field() { printf '%s\n' "$1" | tr ' ' '\n' | sed -n "s/^$2=//p" | head -n 1; }
 
 # gate_state_start SCRIPT [GATE ARGS...]: write the started line, unless this run's line is already
-# written (the same script re-run under the lease: CLAUDUCTOR_GATE_STATE names this file). Exports
-# CLAUDUCTOR_GATE_STATE and CLAUDUCTOR_GATE_STATE_PID for the run that ends it.
+# written (the same script re-run under the lease: STRIDAL_GATE_STATE names this file). Exports
+# STRIDAL_GATE_STATE and STRIDAL_GATE_STATE_PID for the run that ends it.
 gate_state_start() {
   _gs_file=$(gate_state_file) || return 0
-  [ "${CLAUDUCTOR_GATE_STATE:-}" = "$_gs_file" ] && return 0
+  [ "${STRIDAL_GATE_STATE:-}" = "$_gs_file" ] && return 0
   _gs_script=$(basename "$1"); shift
   _gs_mode=full _gs_dirty=0
   for _gs_a in "$@"; do
@@ -79,8 +79,8 @@ gate_state_start() {
   printf 'started pid=%s at=%s mode=%s subject=%s head=%s tree=%s script=%s\n' "$$" "$(date +%s)" \
     "$_gs_mode" "$_gs_subject" "$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)" \
     "$(gate_state_tree)" "$_gs_script" > "$_gs_file" 2>/dev/null || return 0
-  CLAUDUCTOR_GATE_STATE=$_gs_file CLAUDUCTOR_GATE_STATE_PID=$$
-  export CLAUDUCTOR_GATE_STATE CLAUDUCTOR_GATE_STATE_PID
+  STRIDAL_GATE_STATE=$_gs_file STRIDAL_GATE_STATE_PID=$$
+  export STRIDAL_GATE_STATE STRIDAL_GATE_STATE_PID
 }
 
 # gate_state_end CODE MODE SHA RUN_STARTED LANE [STEPS]: the run's end. Appends the exit line (while
@@ -89,11 +89,11 @@ gate_state_end() {
   _gs_code=$1 _gs_mode=$2 _gs_sha=$3 _gs_began=$4 _gs_lane=$5
   _gs_steps=$(printf '%s' "${6:-}" | tr '\t\n' '  '); [ -n "$_gs_steps" ] || _gs_steps=-
   _gs_now=$(date +%s) _gs_queued_at=$4
-  _gs_file=${CLAUDUCTOR_GATE_STATE:-}
+  _gs_file=${STRIDAL_GATE_STATE:-}
   if [ -n "$_gs_file" ] && [ -f "$_gs_file" ]; then
     _gs_first=$(head -n 1 "$_gs_file" 2>/dev/null)
-    if [ "$(gate_state_field "$_gs_first" pid)" = "${CLAUDUCTOR_GATE_STATE_PID:-}" ]; then
-      printf 'exit pid=%s code=%s at=%s\n' "$CLAUDUCTOR_GATE_STATE_PID" "$_gs_code" "$_gs_now" >> "$_gs_file" 2>/dev/null
+    if [ "$(gate_state_field "$_gs_first" pid)" = "${STRIDAL_GATE_STATE_PID:-}" ]; then
+      printf 'exit pid=%s code=%s at=%s\n' "$STRIDAL_GATE_STATE_PID" "$_gs_code" "$_gs_now" >> "$_gs_file" 2>/dev/null
       _gs_queued_at=$(gate_state_field "$_gs_first" at)
     fi
   fi

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The write-surfaces module's own check, run by checks/run.sh only while the module is on: this
 # project says what a write surface is (WRITE_SURFACE_GLOBS, which has no default that fits every
 # project), each pattern matches at least one file in the tree (a pattern that matches nothing

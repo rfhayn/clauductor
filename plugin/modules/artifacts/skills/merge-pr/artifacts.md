@@ -5,11 +5,11 @@ after the merge would notice, so it happens here, in whichever session merged. T
 the merge commit, never from memory:
 
 ```bash
-clauductor-model modules/artifacts/bin/publish.sh --recorded-in "$(gh pr view <n> --json mergeCommit --jq .mergeCommit.oid)"
+stridal-model modules/artifacts/bin/publish.sh --recorded-in "$(gh pr view <n> --json mergeCommit --jq .mergeCommit.oid)"
 ```
 
 No lines: nothing to publish. For each `<page> <url>` line, apply the ownership test (the module's
-session-start step), then `clauductor-model modules/artifacts/bin/publish.sh <page> --ref origin/main`
+session-start step), then `stridal-model modules/artifacts/bin/publish.sh <page> --ref origin/main`
 for the prepared copy, Artifact `action: "read"` on the URL, **Read in full** both copies, and
 publish with `url`, no `icon`, no `capabilities`; then `ArtifactComments` `watch` `on: false`. Skip
 a page this session's start already published, when the `now` hash it printed equals the recorded

@@ -5,7 +5,7 @@
 // how long it may take before the test gives up. On a machine running several gates at
 // once (or a slow CI runner) a deadline that is ample on an idle laptop expires while the
 // condition is still on its way: the test fails, and nothing was wrong. So every deadline
-// goes through Scale, which multiplies it by CLAUDUCTOR_TEST_SLOW (a factor, default 1;
+// goes through Scale, which multiplies it by STRIDAL_TEST_SLOW (a factor, default 1;
 // CI sets it). A passing test never waits for a deadline, so a larger one costs nothing.
 package testwait
 
@@ -18,9 +18,9 @@ import (
 	"time"
 )
 
-// Env names the variable that scales every test deadline: CLAUDUCTOR_TEST_SLOW=2 doubles
+// Env names the variable that scales every test deadline: STRIDAL_TEST_SLOW=2 doubles
 // them. Unset, unparsable, infinite or below 1, the factor is 1.
-const Env = "CLAUDUCTOR_TEST_SLOW"
+const Env = "STRIDAL_TEST_SLOW"
 
 var factor = sync.OnceValue(func() float64 { return parse(os.Getenv(Env)) })
 

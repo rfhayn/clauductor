@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/clauductor/clauductor/internal/leakcheck"
+	"github.com/rfhayn/stridal/internal/leakcheck"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,16 +17,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/web"
-	"github.com/clauductor/clauductor/internal/testgit"
-	"github.com/clauductor/clauductor/internal/testwait"
 	"github.com/coder/websocket"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/web"
+	"github.com/rfhayn/stridal/internal/testgit"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // These tests drive real tmux, git and a PTY, with `sh` standing in for claude, on a
@@ -99,7 +99,7 @@ func startPanelWith(t *testing.T, root, home, sock string, tweak func(*Options))
 		pu, _ := url.Parse(u)
 		port, _ := strconv.Atoi(pu.Port())
 		p := &panelRun{home: home, base: "http://" + pu.Host, origin: "http://" + pu.Host,
-			cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, pu.Query().Get("t")), cancel: cancel, done: done, polls: polls}
+			cookie: fmt.Sprintf("stridal_panel_%d=%s", port, pu.Query().Get("t")), cancel: cancel, done: done, polls: polls}
 		t.Cleanup(p.stop)
 		return p
 	case err := <-done:
@@ -551,7 +551,7 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 	}
 	bu, _ := url.Parse(p.base)
 	port := bu.Port()
-	fresh := liveClient{base: p.base, cookie: "clauductor_panel_" + port + "=" + newTok}
+	fresh := liveClient{base: p.base, cookie: "stridal_panel_" + port + "=" + newTok}
 	if v := fresh.state(t); v.Name != "T" {
 		t.Fatalf("new token: %+v", v.Name)
 	}

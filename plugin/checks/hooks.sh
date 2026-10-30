@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The PreToolUse and UserPromptSubmit hooks, as payload → exit-code tables, in BOTH directions.
 # A guard falsified only in the blocking direction can block legitimate work; one falsified only
 # in the allowing direction can block nothing and still look correct. Every row runs the real
@@ -8,7 +8,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 need git jq
 
-H="$CLAUDUCTOR_FW/hooks"
+H="$STRIDAL_FW/hooks"
 d=$(scratch)
 
 # ── syntax first: a hook that does not parse exits non-zero, which READS AS "blocked" and so
@@ -308,7 +308,7 @@ nbg 0 "without jq: a subagent call naming no gate" "$(bgp a1 "git status" true)"
 # SESSION's, so a subagent stop lists the main session's shell too; a task's output file sits in
 # <dirname scratchpad_dir>/tasks and ends "[exited with code N]" or "[killed]".
 W="$d/wait"; new_repo "$W"; S="$d/sess"; mkdir -p "$S/scratchpad" "$S/tasks"
-WS="$W/.git/clauductor-wait"
+WS="$W/.git/stridal-wait"
 swp() {  # swp EVENT SESSION AGENT [JSON to merge]: a payload for no-silent-wait
   _x=${4:-}; [ -n "$_x" ] || _x='{}'
   jq -cn --arg e "$1" --arg s "$2" --arg a "$3" --arg sp "$S/scratchpad" --argjson x "$_x" \
@@ -455,7 +455,7 @@ nsw 0 "without jq: a PostToolUse" "$(swp PostToolUse s1 a1 "$bash_bg")" "$d/nojq
 C="$d/cdg"; new_repo "$C"; git -C "$C" commit -q --allow-empty -m seed
 git -C "$C" worktree add -q -b build "$d/cdg-wt" 2>/dev/null; CW=$(cd "$d/cdg-wt" && pwd -P); mkdir -p "$CW/sub"
 CS="$d/cdg-sess"; mkdir -p "$CS/scratchpad"
-CH="$C/.git/clauductor-cd-guard"
+CH="$C/.git/stridal-cd-guard"
 # The payloads and the state file below have the shapes Claude Code 2.1.306 sent and wrote in the
 # OPS-82 probe (2026-10-21): every payload carries transcript_path, and a run's state file is
 # <transcript_path minus .jsonl>/workflows/<runId>.json, written only as the run ends.
@@ -605,13 +605,13 @@ cdg 0 "once the held worktree is gone" "$(cdb "cd /")"
 # update-ref, ...) aimed there is refused: from the main checkout, a subdirectory of it, or a lane
 # that aims there by -C, cd, chdir, eval, sh -c, GIT_DIR or an alias, through any wrapper or
 # spelling. A lane's own catch-up merge (after a cd into it, too), a mention, merge-pr's
-# squash-merge and a pull with catch-up off are not. A stand-in clauductor answers `panel catch-up` from a state file, and only for the
+# squash-merge and a pull with catch-up off are not. A stand-in stridal answers `panel catch-up` from a state file, and only for the
 # project the file names, so a row passes only if the hook asks about the main checkout.
 M="$d/cug"; new_repo "$M"; git -C "$M" commit -q --allow-empty -m seed; mkdir -p "$M/sub" "$M/.claude/worktrees"
 git -C "$M" worktree add -q -b lane "$M/.claude/worktrees/lane" 2>/dev/null; ML="$M/.claude/worktrees/lane"
 git -C "$M" config alias.up 'pull --ff-only'; git -C "$M" config alias.st status
 mkdir -p "$d/cug-bin"
-cat > "$d/cug-bin/clauductor" <<EOF
+cat > "$d/cug-bin/stridal" <<EOF
 #!/bin/sh
 # panel catch-up --project P: the state file's word when P is the project it names, else off
 [ "\$1 \$2 \$3" = "panel catch-up --project" ] || exit 3
@@ -619,15 +619,15 @@ read -r want state code < "$d/cug-state"
 [ "\$4" = "\$want" ] || { echo off; exit 0; }
 echo "\$state"; exit "\${code:-0}"
 EOF
-chmod +x "$d/cug-bin/clauductor"
+chmod +x "$d/cug-bin/stridal"
 cu() { printf '%s %s %s\n' "$1" "$2" "${3:-0}" > "$d/cug-state"; }  # cu PROJECT WORD [EXIT]
-# PATHs with no real clauductor: tools only (cug-noc), and the same less jq beside the stand-in.
+# PATHs with no real stridal: tools only (cug-noc), and the same less jq beside the stand-in.
 mkdir -p "$d/cug-noc" "$d/cug-nojq"
 for t in sh cat git awk sed grep tr sort cut head tail pwd printf dirname basename jq; do
   p=$(command -v "$t" 2>/dev/null) || continue
   ln -sf "$p" "$d/cug-noc/$t"; [ "$t" = jq ] || ln -sf "$p" "$d/cug-nojq/$t"
 done
-ln -sf "$d/cug-bin/clauductor" "$d/cug-nojq/clauductor"
+ln -sf "$d/cug-bin/stridal" "$d/cug-nojq/stridal"
 cug() {  # cug WANT LABEL COMMAND CWD [PATH]
   rc=0; cug_out=$(payload "$3" "$4" | (cd "$4" && PATH="${5:-$d/cug-bin:$PATH}" sh "$H/catch-up-guard.sh") 2>&1) || rc=$?
   [ "$1" = 2 ] && [ "$rc" = 2 ] && case $cug_out in *"BLOCKED by catch-up-guard"*) ;; *) rc="2 without its refusal text";; esac
@@ -741,15 +741,15 @@ cug 0 "a pull in the main checkout with catch-up off (merge-pr step 5)" "git pul
 case $cug_out in *"catch-up-guard: catch-up is off for $M"*) ok "catch-up-guard says why it allowed a pull in the main checkout" ;; *) fail "catch-up-guard allowed a main-checkout pull without saying catch-up is off: $cug_out" ;; esac
 cu "$M" on 1
 cug 0 "a catch-up answer of on with a non-zero exit (counts as off)" "git pull" "$M"
-cug 0 "no clauductor on PATH (catch-up counts as off)" "git pull --ff-only origin main" "$M" "$d/cug-noc"
-case $cug_out in *"no clauductor on PATH"*) ok "catch-up-guard says it allowed with no clauductor to ask" ;; *) fail "catch-up-guard allowed with no clauductor and did not say so: $cug_out" ;; esac
+cug 0 "no stridal on PATH (catch-up counts as off)" "git pull --ff-only origin main" "$M" "$d/cug-noc"
+case $cug_out in *"no stridal on PATH"*) ok "catch-up-guard says it allowed with no stridal to ask" ;; *) fail "catch-up-guard allowed with no stridal and did not say so: $cug_out" ;; esac
 
 # ── worktree-hook-drift ─────────────────────────────────────────────────────────────────
 git init -q --bare "$d/origin.git"
 A="$d/main"; new_repo "$A"
 mkdir -p "$A/.claude/hooks" "$A/.claude/lib"
 cp "$H/worktree-hook-drift.sh" "$A/.claude/hooks/"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$A/.claude/lib/"
+cp "$STRIDAL_FW/lib/conf.sh" "$A/.claude/lib/"
 echo '{}' > "$A/.claude/settings.json"
 git -C "$A" add .claude && git -C "$A" commit -qm hooks
 git -C "$A" remote add origin "$d/origin.git"
@@ -785,7 +785,7 @@ case "$out" in *additionalContext*) ok "worktree-hook-drift: ...with a note on t
 FH="$d/home"; mkdir -p "$FH"
 fs() { (cd "$R" && HOME="$FH" sh "$H/focus-staleness.sh" </dev/null); }
 case "$(fs)" in *"focus may be stale"*) ok "focus-staleness nudges when no focus is set" ;; *) fail "focus-staleness: no nudge with no focus file" ;; esac
-(cd "$R" && HOME="$FH" sh "$CLAUDUCTOR_FW/status-write.sh" "fresh focus" >/dev/null)
+(cd "$R" && HOME="$FH" sh "$STRIDAL_FW/status-write.sh" "fresh focus" >/dev/null)
 case "$(fs)" in "") ok "focus-staleness is silent right after status-write" ;; *) fail "focus-staleness nudged on a fresh focus: $(fs)" ;; esac
 case "$(cd "$R" && HOME="$FH" FOCUS_STALE_SECONDS=-1 sh "$H/focus-staleness.sh" </dev/null)" in *"stale"*) ok "focus-staleness nudges past the age limit" ;; *) fail "focus-staleness: no nudge past the age limit" ;; esac
 
@@ -923,18 +923,18 @@ bad=$(while IFS= read -r cmd; do relative "$cmd"; done < "$d/cmds" | sort -u)
 
 TAB=$(printf '\t')
 # Installed as a plugin, the model's own hooks are registered by the plugin (its hooks/hooks.json,
-# which clauductor's packager generates from the template's settings.json and tests): this
+# which stridal's packager generates from the template's settings.json and tests): this
 # project's settings.json then registers only the project's own hooks, held to their local rows.
 plugin=""
-[ -n "${CLAUDUCTOR_FW:-}" ] && [ -f "$CLAUDUCTOR_FW/hooks/hooks.json" ] && plugin=1
+[ -n "${STRIDAL_FW:-}" ] && [ -f "$STRIDAL_FW/hooks/hooks.json" ] && plugin=1
 cat > "$d/core.tsv" <<'EOF'
 pr-merge-guard.sh	2	out:BLOCKED by pr-merge-guard: '--auto' merges before checks settle	{"tool_name":"Bash","tool_input":{"command":"gh pr merge 1 --auto"}}	rule 1 refuses --auto before it asks GitHub anything
 no-blind-source-rewrite.sh	2	out:BLOCKED by no-blind-source-rewrite	{"tool_name":"Bash","tool_input":{"command":"sed -i '' 's/a/b/' @TRACKED@"}}	an in-place sed on a tracked file
 no-background-gate.sh	2	out:BLOCKED by no-background-gate: a subagent started the gate with run_in_background	{"tool_name":"Bash","agent_id":"check","tool_input":{"command":"@GATE_WAIT@","run_in_background":true}}	a subagent's gate wait in the background
-no-silent-wait.sh	0	file:@REPO@/.git/clauductor-wait/hooks-check/tasks/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","agent_id":"check","tool_name":"Bash","tool_response":{"backgroundTaskId":"b1"}}	a subagent's backgrounded command is recorded for its stop to read
+no-silent-wait.sh	0	file:@REPO@/.git/stridal-wait/hooks-check/tasks/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","agent_id":"check","tool_name":"Bash","tool_response":{"backgroundTaskId":"b1"}}	a subagent's backgrounded command is recorded for its stop to read
 worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so
-cd-guard.sh	0	file:@REPO@/.git/clauductor-cd-guard/hooks-check/holds/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{"taskId":"check"}}	a build-change run is recorded as holding the worktree it started in
-catch-up-guard.sh	0	out:catch-up-guard: (no clauductor on PATH|catch-up is off)	{"tool_name":"Bash","tool_input":{"command":"git pull --ff-only origin main"}}	a pull in the main checkout, catch-up off or unaskable: allowed, and says so
+cd-guard.sh	0	file:@REPO@/.git/stridal-cd-guard/hooks-check/holds/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{"taskId":"check"}}	a build-change run is recorded as holding the worktree it started in
+catch-up-guard.sh	0	out:catch-up-guard: (no stridal on PATH|catch-up is off)	{"tool_name":"Bash","tool_input":{"command":"git pull --ff-only origin main"}}	a pull in the main checkout, catch-up off or unaskable: allowed, and says so
 read-by-range.sh	2	out:BLOCKED by read-by-range:	{"tool_name":"Read","tool_input":{"file_path":"@REPO@/big.txt"}}	a whole Read of a file over 400 lines
 no-worktree-force-remove.sh	2	out:BLOCKED by no-worktree-force-remove:	{"tool_name":"Bash","tool_input":{"command":"git worktree remove --force x"}}	a forced worktree removal
 no-pattern-kill.sh	2	out:BLOCKED by no-pattern-kill:	{"tool_name":"Bash","tool_input":{"command":"/usr/bin/pkill -f sleep"}}	a path to pkill, which skips the wrapper
@@ -963,7 +963,7 @@ printf '#!/bin/sh\ntouch "%s/formatted.stamp"\n' "$P" > "$P/fmt.sh"
 # Every registered command that runs a script file, wherever it lives and whatever its language.
 launching=$(printf '%s\n' "$regs" | while IFS="$(printf '\t')" read -r ev cmd; do [ -n "$(scripts "$cmd")" ] && printf '%s\t%s\n' "$ev" "$cmd"; done)
 n=$(printf '%s\n' "$launching" | grep -c . || true)
-if [ -n "$plugin" ]; then ok "the model's hooks are the plugin's ($(jq '[.hooks[][].hooks[]] | length' "$CLAUDUCTOR_FW/hooks/hooks.json") in its hooks.json); settings.json registers $n of this project's own"
+if [ -n "$plugin" ]; then ok "the model's hooks are the plugin's ($(jq '[.hooks[][].hooks[]] | length' "$STRIDAL_FW/hooks/hooks.json") in its hooks.json); settings.json registers $n of this project's own"
 else [ "$n" -ge 3 ] && ok "settings.json registers $n hook command(s) (non-vacuity)" || fail "settings.json registers only $n hook command(s): the table below would pass vacuously"; fi
 script_of() { scripts "$1" | head -1 | sed 's|.*/||'; }
 printf '%s\n' "$launching" | while IFS="$TAB" read -r ev cmd; do [ -n "$cmd" ] && script_of "$cmd"; done | sort -u > "$d/registered"

@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json",
+  "$id": "https://raw.githubusercontent.com/rfhayn/stridal/main/docs/panel.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "allOf": [
@@ -237,7 +237,7 @@
   "description": "Generated from the Go config types by `go generate ./internal/panel/config`; do not edit. The reference is docs/panel.md.",
   "properties": {
     "$schema": {
-      "description": "The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it.",
+      "description": "The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/stridal/main/docs/panel.schema.json`. The panel ignores it. `stridal panel init` writes it.",
       "type": "string"
     },
     "alerts": {
@@ -349,7 +349,7 @@
       "type": "array"
     },
     "host_names": {
-      "description": "Extra names the panel answers to, each `<label>.localhost` in lower case (for example `\"myproject.localhost\"`). `clauductor.localhost` always works. No wildcards.",
+      "description": "Extra names the panel answers to, each `<label>.localhost` in lower case (for example `\"myproject.localhost\"`). `stridal.localhost` always works. No wildcards.",
       "items": {
         "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.localhost$",
         "type": "string"
@@ -414,7 +414,7 @@
     },
     "lanes_auto_close": {
       "default": "off",
-      "description": "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; every reason in `clauductor lane close`'s table of reasons but its last two (the branch and a cancelled request) holds it too, such as background work (a shell, a monitor, a teammate), a wakeup, a lease, and after a panel restart an idle lane until it ends a turn; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
+      "description": "`\"on_merge\"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; every reason in `stridal lane close`'s table of reasons but its last two (the branch and a cancelled request) holds it too, such as background work (a shell, a monitor, a teammate), a wakeup, a lease, and after a panel restart an idle lane until it ends a turn; otherwise Needs you asks \"PR merged: close lane?\" (see *Close a lane when its PR merges*).",
       "enum": [
         "off",
         "on_merge"
@@ -473,7 +473,7 @@
     },
     "ports": {
       "additionalProperties": false,
-      "description": "Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `CLAUDUCTOR_PORT` and shown in its header.",
+      "description": "Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `STRIDAL_PORT` and shown in its header.",
       "properties": {
         "base": {
           "description": "The first lane's port, 1024 to 65000.",
@@ -513,7 +513,7 @@
             "type": "string"
           },
           "lock": {
-            "description": "The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `\"clauductor/gate.lock\"`. No `..`, not absolute.",
+            "description": "The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `\"stridal/gate.lock\"`. No `..`, not absolute.",
             "not": {
               "pattern": "\\.\\."
             },
@@ -543,7 +543,7 @@
       "description": "Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's.",
       "properties": {
         "five_hour_pct": {
-          "description": "At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `\"economy\": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off.",
+          "description": "At or above this 5-hour quota the panel writes `~/.stridal/panel/economy.json` with `\"economy\": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off.",
           "maximum": 100,
           "minimum": 0,
           "type": "number"
@@ -644,7 +644,7 @@
       "type": "array"
     },
     "tmux_socket": {
-      "default": "clauductor",
+      "default": "stridal",
       "description": "The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions.",
       "pattern": "^[A-Za-z0-9_-]{1,64}$",
       "type": "string"
@@ -672,7 +672,7 @@
       "description": "A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*).",
       "properties": {
         "command": {
-          "description": "argv, run **without a shell** in the worktree, only while the config is trusted, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set. 5-minute timeout.",
+          "description": "argv, run **without a shell** in the worktree, only while the config is trusted, with `STRIDAL_LANE` and `STRIDAL_PORT` set. 5-minute timeout.",
           "items": {
             "type": "string"
           },
@@ -707,6 +707,6 @@
   "required": [
     "name"
   ],
-  "title": "clauductor panel config (.clauductor/panel.json)",
+  "title": "stridal panel config (.stridal/panel.json)",
   "type": "object"
 }

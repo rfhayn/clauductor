@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # enable.sh: switch the ideas module on. Makes what the module needs in the project, never
 # overwriting the project's own:
 #   - .claude/skills/ideas/SKILL.md, the /ideas skill, from this module's skill/SKILL.md (a copy, not
@@ -14,21 +14,21 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plug
 #   sh .claude/modules/ideas/enable.sh --check  only report, each one; exit 1 if any is missing
 #
 # Then publish the page once (its README), register its url, and add ideas to MODULES.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 CHECK=""; [ "${1:-}" = --check ] && CHECK=1
 rc=0
 page=${IDEAS_PAGE:-docs/ideas.html}
 f=${IDEAS_FILE:-docs/ideas.md}
-mod="$CLAUDUCTOR_FW/modules/ideas"
+mod="$STRIDAL_FW/modules/ideas"
 
 # How a project runs the module's tools: the template's path, or, from the plugin, its command.
-case ${CLAUDUCTOR_FW:-} in '' | */.claude) plugin="" ;; *) plugin=1 ;; esac
+case ${STRIDAL_FW:-} in '' | */.claude) plugin="" ;; *) plugin=1 ;; esac
 # The two spellings of the tool. Held in variables on purpose: the plugin build rewrites a literal
 # `sh .claude/...` in a script to the plugin's copy, which would rewrite these patterns too.
 tpl=".claude/modules/ideas/bin/render.sh"
-plg="clauductor-model modules/ideas/bin/render.sh"
+plg="stridal-model modules/ideas/bin/render.sh"
 # skill_body FILE: FILE without its frontmatter's model: and effort: lines, the tool spelt the
 # template's way (so a plugin project's copy compares equal to the module's).
 skill_body() {
@@ -46,7 +46,7 @@ elif [ -f "$dst" ] && ! grep -qF "$mark" "$dst"; then
   # A project's own /ideas skill (no module marker) is never overwritten: it is theirs.
   echo "FAIL .claude/skills/ideas/SKILL.md exists and is not the ideas module's (it lacks the \"$mark\" line): rename or remove the project's own skill, then run this again"; rc=1
 elif [ -n "$CHECK" ]; then
-  echo "FAIL .claude/skills/ideas $( [ -f "$dst" ] && echo 'differs from' || echo 'is not installed from') .claude/modules/ideas/skill (run sh "$CLAUDUCTOR_FW"/modules/ideas/enable.sh)"; rc=1
+  echo "FAIL .claude/skills/ideas $( [ -f "$dst" ] && echo 'differs from' || echo 'is not installed from') .claude/modules/ideas/skill (run sh "$STRIDAL_FW"/modules/ideas/enable.sh)"; rc=1
 else
   keep=""; [ -f "$dst" ] && keep=$(awk 'NR>1 && $0=="---" { exit } NR>1 && /^(model|effort):/' "$dst")
   mkdir -p "$(dirname "$dst")" &&

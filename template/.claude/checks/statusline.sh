@@ -1,5 +1,5 @@
 #!/bin/sh
-# The status line posts its stdin to the panel ONLY while ~/.clauductor/panel/pid names a live
+# The status line posts its stdin to the panel ONLY while ~/.stridal/panel/pid names a live
 # process (a positive integer), and otherwise makes no call; in every case it prints its line and
 # exits 0. The post is observed with a curl stand-in on PATH that records its arguments, so no
 # server or network is needed. Also: status-write.sh writes the file the status line reads, and
@@ -41,7 +41,7 @@ sh -c 'exit 0' & dead=$!; wait "$dead" 2>/dev/null
 # OPS-73). The status line runs holding fd 3, the write end of a pipe, and everything it starts
 # inherits it (the post's `>/dev/null 2>&1` leaves fd 3 alone), so the reader sees end-of-file
 # only after the last of them exits: a post that was made has landed, and a "no post" case has
-# none still on its way. The deadline (10s, times CLAUDUCTOR_TEST_SLOW) only keeps a stray holder
+# none still on its way. The deadline (10s, times STRIDAL_TEST_SLOW) only keeps a stray holder
 # of fd 3 from hanging the check, and reaching it fails the case. So that it also frees the
 # check's caller, the case runs with its output and errors both on /dev/null: run.sh reads a check
 # through `$(sh "$f" 2>&1)`, and a holder that kept the check's stderr would keep the gate waiting
@@ -49,9 +49,9 @@ sh -c 'exit 0' & dead=$!; wait "$dead" 2>/dev/null
 # writes into its own case's files, never the next one's.
 ticks=$(( $(slow 10) * 10 ))
 run() {  # run PID_CONTENT (or "-" for no pid file): prints "<exit> <posts> <case dir> <line>"
-  c=$(mktemp -d "$d/case.XXXXXX"); home="$c/home"; mkdir -p "$home/.clauductor/panel"  # mktemp-in-tmpdir: under $d, the scratch directory made in $TMPDIR
-  echo 4999 > "$home/.clauductor/panel/port"
-  [ "$1" = "-" ] || printf '%s\n' "$1" > "$home/.clauductor/panel/pid"
+  c=$(mktemp -d "$d/case.XXXXXX"); home="$c/home"; mkdir -p "$home/.stridal/panel"  # mktemp-in-tmpdir: under $d, the scratch directory made in $TMPDIR
+  echo 4999 > "$home/.stridal/panel/port"
+  [ "$1" = "-" ] || printf '%s\n' "$1" > "$home/.stridal/panel/pid"
   ( printf '%s' "$input" | { HOME="$home" PATH="$d/bin:$PATH" sh "$sl" 3>&1 > "$c/line"; echo $? > "$c/rc"; } \
       | cat > /dev/null; : > "$c/eof" ) > /dev/null 2>&1 &
   i=0; while [ ! -f "$c/eof" ] && [ "$i" -lt "$ticks" ]; do sleep 0.1; i=$((i + 1)); done
@@ -96,7 +96,7 @@ for c in "-:unset" "abc:not a number" "200k:digits and letters" "0200000:a leadi
 done
 
 # The deadline frees the check's caller, not only the check (review of #147). The post is held
-# past a one-second deadline until $d/hold goes, twenty seconds on (times CLAUDUCTOR_TEST_SLOW), and
+# past a one-second deadline until $d/hold goes, twenty seconds on (times STRIDAL_TEST_SLOW), and
 # the case is read the way run.sh reads a check, `$(… 2>&1)`: that read must come back at the
 # deadline, well before the release. With the case's errors left on the check's stderr, it came
 # back only at the release. The bound is the release, less the two seconds it may have started

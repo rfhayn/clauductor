@@ -1,4 +1,4 @@
-# Clauductor
+# Stridal
 
 An operating model for [Claude Code](https://claude.ai/code), and a local panel that runs it. The model is a set of skills, hooks, checks, agents and records a repository carries; the panel is one local web page for the lanes (Claude Code sessions in git worktrees) of every project on your machine.
 
@@ -6,7 +6,7 @@ An operating model for [Claude Code](https://claude.ai/code), and a local panel 
 
 Claude Code is powerful, but scaling beyond one session is chaos. Run two agents on the same repo and they step on each other's work. Run three and you lose track of who is doing what, what was approved, and what is safe to merge.
 
-Clauductor answers that with a process the repository enforces on itself (a roadmap queue, approved proposals, review per task group, a merge guard, a gate) and a panel that shows every lane and what it needs from you.
+Stridal answers that with a process the repository enforces on itself (a roadmap queue, approved proposals, review per task group, a merge guard, a gate) and a panel that shows every lane and what it needs from you.
 
 ## What You Need
 
@@ -18,33 +18,33 @@ Clauductor answers that with a process the repository enforces on itself (a road
 ## Quick Start
 
 ```bash
-# Install Clauductor
-git clone https://github.com/rfhayn/clauductor.git ~/clauductor
-cd ~/clauductor && ./install.sh
+# Install Stridal
+git clone https://github.com/rfhayn/stridal.git ~/stridal
+cd ~/stridal && ./install.sh
 
 # Create a new project
-clauductor init ~/Development/my-app
+stridal init ~/Development/my-app
 cd ~/Development/my-app
 claude
 /session-start
 
 # Or install into an existing project
 cd ~/Development/existing-project
-clauductor install
+stridal install
 ```
 
 Or, with Claude Code alone, as a plugin (one way per repository; see [docs/plugin.md](docs/plugin.md)):
 
 ```
-/plugin marketplace add rfhayn/clauductor
-/plugin install clauductor@clauductor
-/clauductor:init
+/plugin marketplace add rfhayn/stridal
+/plugin install stridal@stridal
+/stridal:init
 ```
 
 ## Architecture
 
 ```
-clauductor/                     ← This repo (framework source)
+stridal/                     ← This repo (framework source)
 ├── framework/                  ← Go source (the CLI and the panel)
 ├── template/                   ← What projects receive
 │   ├── AGENTS.md, CLAUDE.md    ← Project-level instructions
@@ -62,30 +62,30 @@ Projects get only the `template/` contents — no Go source, no framework code. 
 
 | Command | What it does |
 |---------|-------------|
-| `clauductor init <path>` | Create new project |
-| `clauductor install` | Add to existing project |
-| `clauductor install --dry-run` | Preview install changes |
-| `clauductor update` | Upgrade the operating model to the latest template |
-| `clauductor diff` | Compare this repository with the template, file by file and key by key |
-| `clauductor doctor` | Check this machine's tools, the template, `gh`, the project and (on macOS) the panel, changing nothing; each problem comes with the command that fixes it |
-| `clauductor plugin build` / `check` | Package the operating model as a Claude Code plugin, or check the committed one is current |
-| `clauductor lock-run` | Run a command while holding the shared gate lease ([docs](docs/panel.md)) |
-| `clauductor panel` | Local read-only web dashboard of a project's Claude sessions; standalone, needs no install ([docs](docs/panel.md)) |
-| `clauductor panel init` | Write a starter `.clauductor/panel.json` for the project, from what the repository already says |
-| `clauductor panel --uninstall-hooks` | Remove the panel's hooks from `~/.claude/settings.json` |
-| `clauductor lane close <id> [--yes]` | Close a finished lane of the running panel from the project's checkout: the plan first, the close with `--yes`; a lane still working is refused, and so is one on unmerged work unless its claude has exited (that lane closes and keeps its branch) ([docs](docs/panel.md#close-a-lane-from-the-command-line)) |
+| `stridal init <path>` | Create new project |
+| `stridal install` | Add to existing project |
+| `stridal install --dry-run` | Preview install changes |
+| `stridal update` | Upgrade the operating model to the latest template |
+| `stridal diff` | Compare this repository with the template, file by file and key by key |
+| `stridal doctor` | Check this machine's tools, the template, `gh`, the project and (on macOS) the panel, changing nothing; each problem comes with the command that fixes it |
+| `stridal plugin build` / `check` | Package the operating model as a Claude Code plugin, or check the committed one is current |
+| `stridal lock-run` | Run a command while holding the shared gate lease ([docs](docs/panel.md)) |
+| `stridal panel` | Local read-only web dashboard of a project's Claude sessions; standalone, needs no install ([docs](docs/panel.md)) |
+| `stridal panel init` | Write a starter `.stridal/panel.json` for the project, from what the repository already says |
+| `stridal panel --uninstall-hooks` | Remove the panel's hooks from `~/.claude/settings.json` |
+| `stridal lane close <id> [--yes]` | Close a finished lane of the running panel from the project's checkout: the plan first, the close with `--yes`; a lane still working is refused, and so is one on unmerged work unless its claude has exited (that lane closes and keeps its branch) ([docs](docs/panel.md#close-a-lane-from-the-command-line)) |
 
 ## Documentation
 
 - **[Quickstart Guide](docs/QUICKSTART.md)** — Installation and first project setup
 - **[Using the web panel](docs/guide.md)** — a short how-to for the panel's page: lanes, the terminal, stop vs close, restore, a second repository
-- **[Web panel](docs/panel.md)** — `clauductor panel`: quick start, configuration reference and JSON Schema, the gate lock protocol, security model
-- **[Claude Code plugin](docs/plugin.md)** — the operating model as a plugin: install, what it carries, what stays in the repository, running it beside `clauductor install`
+- **[Web panel](docs/panel.md)** — `stridal panel`: quick start, configuration reference and JSON Schema, the gate lock protocol, security model
+- **[Claude Code plugin](docs/plugin.md)** — the operating model as a plugin: install, what it carries, what stays in the repository, running it beside `stridal install`
 - **[PRD](docs/prds/active/PRD-orchestration-framework.md)** — Full product requirements and architecture
 
 ## Origin
 
-Built over 87+ sessions and 274+ hours developing [forager](https://github.com/rfhayn/forager), an iOS app. The framework evolved from real pain — naming drift, lost context, coordination chaos. Clauductor extends it from single-session methodology to many lanes at once.
+Built over 87+ sessions and 274+ hours developing [forager](https://github.com/rfhayn/forager), an iOS app. The framework evolved from real pain — naming drift, lost context, coordination chaos. Stridal extends it from single-session methodology to many lanes at once.
 
 ## License
 

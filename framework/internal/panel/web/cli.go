@@ -8,13 +8,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
-// CLIHandler serves `clauductor lane close` (PANEL-57 D1, D4): one route, POST
+// CLIHandler serves `stridal lane close` (PANEL-57 D1, D4): one route, POST
 // /api/p/{project}/lanes/{id}/close, and nothing else, for the panel's command socket.
 // It checks no cookie and no Origin: the socket's file mode is the credential, so the
 // route set is kept to the one verb rather than the page's whole API behind it.
@@ -123,7 +123,7 @@ func (s *Server) cliClose(ctx context.Context, w http.ResponseWriter, r *http.Re
 		writeLaneErr(w, lerr)
 		return
 	}
-	logf(fmt.Sprintf("lane %s (%s) closed by clauductor lane close: removed %s; kept %s", id, p.ID, listOrNothing(res.Removed), listOrNothing(res.Kept)))
+	logf(fmt.Sprintf("lane %s (%s) closed by stridal lane close: removed %s; kept %s", id, p.ID, listOrNothing(res.Removed), listOrNothing(res.Kept)))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res})
 }
 

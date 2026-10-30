@@ -116,7 +116,7 @@ func SetCatchUp(home, root string, on bool) error {
 // (OPS-118 D1 (e), (f)): its name (the trust notice's title), its alerts.notify, its
 // run list (the notice's + and − lines), and its tmux_socket as written ("" when it
 // names none), which the running panel checks against every other project it serves,
-// as canStart does. It is what `clauductor panel config-check` prints as JSON, so that
+// as canStart does. It is what `stridal panel config-check` prints as JSON, so that
 // when a merge also rebuilds the panel, the new binary judges a config the running one
 // may not read (a raised version); the running binary takes the same from its own load
 // (CheckOf).

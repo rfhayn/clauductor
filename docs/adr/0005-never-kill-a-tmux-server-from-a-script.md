@@ -1,4 +1,4 @@
-# ADR 0005: No script kills a tmux server, or a claude or clauductor process
+# ADR 0005: No script kills a tmux server, or a claude or stridal process
 
 - **Status**: Accepted
 - **Date**: 2026-09-30
@@ -13,7 +13,7 @@ named `.claude/worktrees/`. The panel's daemonized tmux server matches exactly: 
 command lines will eventually match the one process every lane lives in.
 
 ## Decision
-- No script in the model kills a tmux server or client, a `claude` process or a `clauductor`
+- No script in the model kills a tmux server or client, a `claude` process or a `stridal`
   process, whatever its argv or parent says. machine-quiet kills only orphans of a KNOWN leak shape
   (`MQ_ORPHAN_SHAPES`), never "anything under `.claude/worktrees/`".
 - Agents and tests use throwaway tmux sockets (`tmux -L <tmp>`), a temp HOME and `:0` ports, and
@@ -28,7 +28,7 @@ command lines will eventually match the one process every lane lives in.
   and the owner can end it by hand.
 
 ## Enforcement
-`template/.claude/machine-quiet.sh` excludes tmux, claude and clauductor by argv[0] whatever the
+`template/.claude/machine-quiet.sh` excludes tmux, claude and stridal by argv[0] whatever the
 shapes list; `checks/machine-quiet.sh` starts an orphaned tmux-shaped process whose argv names a
 worktree and fails if a dry run would kill it (falsified beside a hook-shaped orphan that IS
 listed). The panel's tests fail if they leave a tmux server behind (`TestMain`). AGENTS.md

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # compound.sh: the insights still waiting for a decision, and how long they have waited (the
 # "compound" step, borrowed from Compound Engineering: every lesson is fed back into the rules
 # deliberately, or deliberately not).
@@ -19,8 +19,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # (default `## Log`), up to the next heading of the same or a higher level. No such heading, or no
 # such table under it, is CANNOT CHECK, never "no Raw insight": reading zero rows from a log whose
 # table sits somewhere else would report a backlog of Raw rows as healthy.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+. "$STRIDAL_FW/lib/conf.sh"
 
 check=""; [ "${1:-}" = --check ] && check=1
 max=${COMPOUND_MAX_SESSIONS:-3}

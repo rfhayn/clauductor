@@ -452,7 +452,7 @@ func TestSidecarRefusalsOfAConfig(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`{"name":"x","lanes":{"main":"orchestrator","change/":"build"},
 		"cards":[{"id":"ok","title":"OK","command":["sh",".claude/x.sh"],"refresh":"interval:60"},
 		         {"id":"bad","title":"Bad","command":["sh","-c","make gate"],"refresh":"interval:60"}],
-		"queues":[{"id":"q","lock":"clauductor/gate.lock","command":["npx","tool"]}],
+		"queues":[{"id":"q","lock":"stridal/gate.lock","command":["npx","tool"]}],
 		"templates":[{"id":"t","title":"T","lane_type":"build","branch_pattern":"change/{name}","first_prompt":"run $HOME; rm -rf ~",
 		              "suggest":{"command":["eval","x"],"refresh":"interval:60"}}],
 		"metrics":{"command":["/usr/bin/report"]},

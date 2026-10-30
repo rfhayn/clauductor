@@ -7,17 +7,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
-// tmplDir is this checkout's template, which install reads through CLAUDUCTOR_FRAMEWORK.
+// tmplDir is this checkout's template, which install reads through STRIDAL_FRAMEWORK.
 func tmplDir(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CLAUDUCTOR_FRAMEWORK", root)
+	t.Setenv("STRIDAL_FRAMEWORK", root)
 	return filepath.Join(root, "template")
 }
 
@@ -92,21 +92,21 @@ func TestForeignModelNamesOverwritesAndAdds(t *testing.T) {
 	}
 }
 
-func TestOwnedByClauductor(t *testing.T) {
+func TestOwnedByStridal(t *testing.T) {
 	dir := t.TempDir()
-	if ownedByClauductor(dir) {
-		t.Fatal("a bare repo is not clauductor's")
+	if ownedByStridal(dir) {
+		t.Fatal("a bare repo is not stridal's")
 	}
 	write(t, dir, "orchestration/config.json", "{}")
-	if !ownedByClauductor(dir) {
-		t.Fatal("an old-model install (orchestration/config.json) is clauductor's")
+	if !ownedByStridal(dir) {
+		t.Fatal("an old-model install (orchestration/config.json) is stridal's")
 	}
 	dir2 := t.TempDir()
 	if err := writeInstallMarker(dir2); err != nil {
 		t.Fatal(err)
 	}
-	if !ownedByClauductor(dir2) {
-		t.Fatal("the marker makes a repo clauductor's")
+	if !ownedByStridal(dir2) {
+		t.Fatal("the marker makes a repo stridal's")
 	}
 }
 

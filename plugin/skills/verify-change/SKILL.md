@@ -13,13 +13,13 @@ One script does the work; this skill runs it and reports what it says, word for 
 commit).
 
 ```bash
-clauductor-model verify-change.sh <id>
+stridal-model verify-change.sh <id>
 ```
 
 - **Exit 0**: report the last line. The change may go on to `merge-pr`.
 - **Exit 1**: report every `FAIL` line and **stop**. Each one names what to fix:
   - *approval*: `design.md` or the Risk line changed after the owner approved. The owner approves
-    again (`clauductor-model change-approval.sh <id> --revoke`, then `--record` on their word). Never
+    again (`stridal-model change-approval.sh <id> --revoke`, then `--record` on their word). Never
     re-record an approval yourself.
   - *tasks still open*: finish them, or name the change or row that owns each (AGENTS.md rule 1)
     and tick it with that note. Never tick a task that was not done.

@@ -12,7 +12,7 @@ description: "Orient at the start of a working session: the owner queue, the pan
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
 
 If the line above shows as literal text instead of output, this harness does not pre-execute it:
-run `clauductor-model skills/session-start/context.sh` yourself and read the result before step 1.
+run `stridal-model skills/session-start/context.sh` yourself and read the result before step 1.
 
 ## Steps
 1. **Summarize in 3–5 lines**: what the last session did (the journal), what is in flight (open
@@ -24,14 +24,14 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
    not a pass), a queue `ERROR` (the queue is then UNKNOWN: stop treating it as known), the main
    checkout not on `main`. One sentence each, even when the session is about something else. A
    panel that is not running is a normal state, not an unhealthy line (the repository works
-   without clauductor: `checks/no-clauductor.sh`).
+   without stridal: `checks/no-stridal.sh`).
 3. **Other people's work.** Name every `★` PR in one line. An `OVERLAP` line means their open PR
    changes a file your branch changes: read their diff before touching that file, and do not build
    on anything it removes. Never merge another person's PR.
-4. **Set the focus**: `clauductor-model status-write.sh "[<branch>] <short focus>"`. The panel shows it
+4. **Set the focus**: `stridal-model status-write.sh "[<branch>] <short focus>"`. The panel shows it
    on the lane's card.
    **A row's session** (one roadmap row, in its own worktree on the row's branch) then marks its
-   start: `clauductor-model skills/session-start/marker.sh [<row id> [S<n>]]`. With no arguments it finds
+   start: `stridal-model skills/session-start/marker.sh [<row id> [S<n>]]`. With no arguments it finds
    the row whose branch this is and its session in the plan (on a branch no row names, it says so
    and does nothing), which is how the panel's row templates run it. It opens the row's PR as a draft whose body starts
    `session-start: S<n> <YYYY-MM-DD HH:MM ET> row <id>` and the session-start cost, which the row's
@@ -60,7 +60,7 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
   returns: a workflow agent takes the session's cwd when it starts); at most one proposal ahead;
   fix and ops lanes (`BRANCH_FIX`, `BRANCH_OPS`) in their own worktrees when they share no files. Take summaries from
   lanes rather than reading their files. When a lane frees up, offer the next queue row. Before
-  starting any lane, run `clauductor-model quota-gate.sh`: on a non-zero exit start none and tell the
+  starting any lane, run `stridal-model quota-gate.sh`: on a non-zero exit start none and tell the
   owner its line (build-change's preflight runs it too); a "no reading" line goes on, said aloud.
   Resuming a stopped build (`{resume: <group>}`) is not a new lane: the gate only warns there.
 - **Price a request before you relay it to a running lane.** Before passing an owner request to a
@@ -68,7 +68,7 @@ run `clauductor-model skills/session-start/context.sh` yourself and read the res
   (tokens or time, extra review rounds), what it displaces or delays, and whether it lands in a
   control (AGENTS.md's *What executes* column). Offer a cheaper option when there is one; the
   owner chooses. Pricing is not declining. A skill step: nothing checks it.
-- **Research-only work goes to the `clauductor:researcher` agent**, not a fork (a fork inherits every tool).
+- **Research-only work goes to the `stridal:researcher` agent**, not a fork (a fork inherits every tool).
 - Read, don't assume: the repo's records are the source of truth for "where we were". Keep the
   orientation short; this is a launchpad, not a report.
 

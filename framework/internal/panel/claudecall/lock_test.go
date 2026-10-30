@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/leakcheck"
+	"github.com/rfhayn/stridal/internal/leakcheck"
 )
 
 func TestMain(m *testing.M) { os.Exit(leakcheck.Main(m)) }

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // hangupRun is the panel's run in the hangup test's helper: it sends its own process
@@ -35,7 +35,7 @@ func hangupRun(ctx context.Context, window time.Duration) error {
 }
 
 // #162: the production wiring (panel.go's signal.NotifyContext over
-// panelStopSignals(signal.Ignored)), run as `clauductor panel` itself with its run
+// panelStopSignals(signal.Ignored)), run as `stridal panel` itself with its run
 // stubbed. From a terminal the hangup stops the run through its shutdown; under nohup,
 // which leaves the hangup ignored for the process it starts, it does not, and SIGTERM
 // still does. Under nohup the window is short: a wiring that took the hangup would
@@ -50,8 +50,8 @@ func TestPanelHangupWiringFromATerminalAndUnderNohup(t *testing.T) {
 			argv = append([]string{"nohup"}, argv...)
 		}
 		c := exec.Command(argv[0], argv[1:]...)
-		c.Env = append(gitFreeEnv(), "CLAUDUCTOR_CMD_HELPER_ARGS="+string(b), "HOME="+t.TempDir(), "CLAUDUCTOR_LANE=",
-			quickExit(), "CLAUDUCTOR_CMD_HELPER_HANGUP="+window.String())
+		c.Env = append(gitFreeEnv(), "STRIDAL_CMD_HELPER_ARGS="+string(b), "HOME="+t.TempDir(), "STRIDAL_LANE=",
+			quickExit(), "STRIDAL_CMD_HELPER_HANGUP="+window.String())
 		var stdout, stderr strings.Builder
 		c.Stdout, c.Stderr = &stdout, &stderr
 		err := c.Run()

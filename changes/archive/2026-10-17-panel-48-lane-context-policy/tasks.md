@@ -139,15 +139,15 @@
   - **Why:** group 2's S2 test already proves every launch path reaches `LaneCommand`, and its
     fake tmux is the `lanes` package's own test code. The raw JSON is read so that a misspelt
     key cannot pass as an absent one. Without the starter's `launch`, the test fails (run).
-- 2026-10-17, group 3: **`clauductor update` was run as `--dry-run --template-dir` this
+- 2026-10-17, group 3: **`stridal update` was run as `--dry-run --template-dir` this
   worktree's `template/`, and not applied.**
-  - **The alternative:** the plain `framework/clauductor update` that 3.2 names.
+  - **The alternative:** the plain `framework/stridal update` that 3.2 names.
   - **Why:**
-    - Plain, it read the MAIN checkout's template (`CLAUDUCTOR_FRAMEWORK`), not this branch's.
+    - Plain, it read the MAIN checkout's template (`STRIDAL_FRAMEWORK`), not this branch's.
     - Against this branch's template it reports every skill, hook and template up to date. Its
       only offers are `docs/practices/` and a `model-roles.json` key, which are missing on
       `origin/main` too, so they predate this change and are not group 3's.
-    - It does not manage `.clauductor/panel.json`, which 3.2 edits by hand.
+    - It does not manage `.stridal/panel.json`, which 3.2 edits by hand.
     - Applying it writes `.claude/settings.json`, which the sandbox refuses.
 - 2026-10-17, group 4: **The window is read at each status post, from the lane record holding
   the post's session id, and the session keeps the window its figure was measured against.**
@@ -206,8 +206,8 @@
   - **Why:** JSON forbids a leading zero, so `--argjson` would refuse one; splicing breaks on an
     empty object. jq is already the template status line's dependency.
 - 2026-10-17, group 4 (4.4): **`.claude/statusline.sh` and `.claude/checks/statusline.sh` were
-  copied from `template/` by hand, not by applying `clauductor update`.**
-  - **The alternative:** `clauductor update --template-dir template`, applied.
+  copied from `template/` by hand, not by applying `stridal update`.**
+  - **The alternative:** `stridal update --template-dir template`, applied.
   - **Why:** as in group 3, applying it also adds `docs/practices/` and a `model-roles.json` key
     that predate this change, and writes `.claude/settings.json`, which the sandbox refuses. Its
     dry run, before the copy, named exactly these two files as modified; after it, none.
@@ -253,9 +253,9 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
 - [x] 3.1 `framework/internal/panel/install/init.go`'s starter writes `"launch": {"context_window": 200000, "claudeai_connectors": false}` and version 6.
   - Tested in `framework/internal/panel/install/attach_test.go`, citing [LANECTX-3-S1].
   - `install/init_test.go`'s expected configs and ATTACH-1-S2's test still pass.
-- [x] 3.2 Add the same `launch` object, and version 6, to `.clauductor/panel.json` and `template/.clauductor/panel.json`.
+- [x] 3.2 Add the same `launch` object, and version 6, to `.stridal/panel.json` and `template/.stridal/panel.json`.
   - Rebuild the plugin with `scripts/build-plugin.sh`.
-  - Run `framework/clauductor update` from the repository root with the checkout's binary.
+  - Run `framework/stridal update` from the repository root with the checkout's binary.
 
 ## 4. The bar and the alert (D7)
 - [x] 4.1 `framework/internal/panel/state/model.go` computes a lane's context against its recorded window: `current_usage`'s input, cache creation and cache read tokens over the window.
@@ -281,7 +281,7 @@ records the results in `changes/panel-48-lane-context-policy/evidence/README.md`
   - The limits: managed settings win; a repository's own `ENABLE_CLAUDEAI_MCP_SERVERS=true` does not turn the connectors back on, as observed on Claude Code 2.1.302 (P3); a Claude Code release that changes the 33k buffer moves compaction and not the tick (D7); a small window loses money, 150k by $31.73 a week in the simulation (D4); and an attached lane with no status line shows no bar until PANEL-49.
 - [x] 4.4 The session reports its own window, and the folder fallback goes (D7, amended 2026-10-17 with P6).
   - The status line posts the window: `template/.claude/statusline.sh` adds `"auto_compact_window": <n>` at the top level of the JSON it posts when `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is digits, and posts the stdin unchanged otherwise. The line it prints does not change.
-    - Bring this repository's `.claude/statusline.sh` along with `framework/clauductor update`, and rebuild `plugin/` with `scripts/build-plugin.sh`.
+    - Bring this repository's `.claude/statusline.sh` along with `framework/stridal update`, and rebuild `plugin/` with `scripts/build-plugin.sh`.
     - `docs/panel.md`'s status-line snippet (between `<!-- statusline begin -->` and its end marker) and its prose say what the field is and why a repository's own status line should post it.
     - A case in `template/.claude/checks/statusline.sh` (and its plugin copy, through the rebuild): the curl stand-in records the posted body. With the variable set to 200000 the body holds `auto_compact_window` 200000; unset, and set to a non-number, it holds no such key.
   - `signals.StatusPayload` (`framework/internal/panel/signals/hooks.go`) reads `auto_compact_window`.

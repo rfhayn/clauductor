@@ -10,18 +10,18 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // panel.json lives in the repository and names argv the panel runs (cards, queue
 // commands) and prompts it types into lanes (templates). A pull can change it. This
 // is the panel's equivalent of workspace trust: the config's SHA-256 is recorded
 // when you first run it, and a DIFFERENT config runs none of its commands or
-// templates until you trust it again (`clauductor panel trust`, or --trust-config).
+// templates until you trust it again (`stridal panel trust`, or --trust-config).
 // Lanes, terminals and every read-only source keep working meanwhile.
 //
-// Trusted hashes live in ~/.clauductor/panel/<project hash>/trusted-config.json,
+// Trusted hashes live in ~/.stridal/panel/<project hash>/trusted-config.json,
 // keyed by the config's absolute path.
 
 type trustFile struct {
@@ -80,7 +80,7 @@ func writeTrust(path string, t trustFile) error {
 // CheckTrust decides whether a config may run its commands. Only a config whose
 // exact bytes were trusted may: one never seen before is not (a clone, or a pull
 // that adds panel.json, names commands nobody reviewed), nor is a changed one. Either
-// becomes trusted only when trustNow is set (`clauductor panel trust`,
+// becomes trusted only when trustNow is set (`stridal panel trust`,
 // --trust-config, `panel install`), which records it.
 //
 // A config outside its repository (a sidecar, design.md D5) is also judged by the
@@ -193,7 +193,7 @@ func UntrustArrived(home, project, cfgPath, hash, note, prev string) (bool, erro
 	return true, nil
 }
 
-// TrustConfig records the config at cfgPath as trusted (`clauductor panel trust`).
+// TrustConfig records the config at cfgPath as trusted (`stridal panel trust`).
 func TrustConfig(home, project, cfgPath string) (string, error) {
 	h, _, err := TrustConfigReport(home, project, cfgPath)
 	return h, err

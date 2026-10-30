@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # SessionStart: put .claude/bin first on PATH, and drop any alias or function named pkill or
 # killall, so those names run the refusing wrappers (ST-14). Claude Code runs CLAUDE_ENV_FILE in
 # each Bash command's own shell, after the snapshot, which is the last word on how a name resolves.

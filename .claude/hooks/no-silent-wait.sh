@@ -45,7 +45,7 @@
 # SubagentStart adds one, an allowed SubagentStop removes it, TeammateIdle adds a teammate.
 #
 # THE RECORD lives in the git common dir (every worktree shares it), per session:
-# <common dir>/clauductor-wait/<session_id>/{agents,tasks,refusals,ended}/<agent_id>; outside a git
+# <common dir>/stridal-wait/<session_id>/{agents,tasks,refusals,ended}/<agent_id>; outside a git
 # repository, under TMPDIR. Another session's records untouched for two days are pruned. ended/ is
 # written by an allowed SubagentStop: what a launcher waiting on that agent waits for.
 #
@@ -138,7 +138,7 @@ fi
 
 common=$(git -C "${CLAUDE_PROJECT_DIR:-.}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
   || common="${TMPDIR:-/tmp}"
-BASE="$common/clauductor-wait"
+BASE="$common/stridal-wait"
 STATE="$BASE/$sid"
 MAX=${NO_SILENT_WAIT_MAX_REFUSALS:-20}
 case $MAX in ''|*[!0-9]*) MAX=20 ;; esac

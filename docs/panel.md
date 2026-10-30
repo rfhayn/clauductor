@@ -1,6 +1,6 @@
-# `clauductor panel` — a local web panel over your Claude sessions
+# `stridal panel` — a local web panel over your Claude sessions
 
-`clauductor panel` serves a live dashboard of every Claude Code session working in your projects:
+`stridal panel` serves a live dashboard of every Claude Code session working in your projects:
 which lanes (worktrees) have a session, whether each is busy, waiting or idle, its context %,
 its running subagents, what needs you, the account quota, open PRs, and any cards the project
 defines. One panel serves every project you register (PANEL-16); the project's name at the top
@@ -12,7 +12,7 @@ browser, and a launchd login agent keeps the panel running with no terminal open
 from the browser alone. On top of lanes it offers lane templates, a queue for a shared gate,
 alerts with macOS notifications, a quota guard, and restoring every lane after a reboot.
 
-It is **standalone**. It does not need `clauductor install`, the template, the skills or file
+It is **standalone**. It does not need `stridal install`, the template, the skills or file
 locks. It reads only Claude Code's own signals, plus git and `gh`:
 
 | Source | How | Gives |
@@ -69,20 +69,20 @@ the keyboard shortcuts.
 
 ## Quick start
 
-1. **Install** the `clauductor` binary: run `./install.sh` in the clauductor repository.
-2. **Init** the project: in its checkout, `clauductor panel init` writes a starter
-   `.clauductor/panel.json` from what the repository already says, and prints why it chose each
+1. **Install** the `stridal` binary: run `./install.sh` in the stridal repository.
+2. **Init** the project: in its checkout, `stridal panel init` writes a starter
+   `.stridal/panel.json` from what the repository already says, and prints why it chose each
    value (see [`panel init`](#panel-init)). Review it and commit it.
-3. **Trust** it: after reviewing it, run `clauductor panel trust`. Until then the panel starts but
+3. **Trust** it: after reviewing it, run `stridal panel trust`. Until then the panel starts but
    runs none of its commands or templates, and it asks again whenever the file changes (a pull,
    say). See [Config trust](#config-trust).
-4. **Open** it: `clauductor panel` starts the panel and opens the browser. To keep it running
-   with no terminal, `clauductor panel install --project <path> --app` installs a login agent;
-   then `clauductor panel open` (or the app) opens the page.
+4. **Open** it: `stridal panel` starts the panel and opens the browser. To keep it running
+   with no terminal, `stridal panel install --project <path> --app` installs a login agent;
+   then `stridal panel open` (or the app) opens the page.
 5. **More projects**: **+ Add a project…** at the foot of the page's project menu checks the
    path, offers what `panel init` would write, shows what the config runs and adds it, trusted or
-   not, with no restart. In a terminal, `clauductor panel init`, review, `clauductor panel trust`,
-   then `clauductor panel add` does the same, and a running panel takes it within a second. See
+   not, with no restart. In a terminal, `stridal panel init`, review, `stridal panel trust`,
+   then `stridal panel add` does the same, and a running panel takes it within a second. See
    [Projects](#projects).
 6. Optional: send the panel a copy of your status line ([The status line](#the-status-line)) for
    context % and quota, and put your gate script through the queue
@@ -91,25 +91,25 @@ the keyboard shortcuts.
 Every command:
 
 ```bash
-clauductor panel init [--project p]           # write a starter .clauductor/panel.json (never overwrites)
-clauductor panel                              # serve every project; this repository is added if it is not, and opened on
-clauductor panel --project ~/Development/app  # or name it
-clauductor panel --project p --only           # serve that one project alone
-clauductor panel --config /tmp/panel.json     # use a config outside the repo
-clauductor panel --port 4393 --no-open        # print the URL instead of opening a browser
-clauductor panel --uninstall-hooks            # remove the panel's hooks and exit
-clauductor panel --trust-config               # trust panel.json as it is now, then run
-clauductor panel trust [--project p]          # trust panel.json as it is now (a running panel follows)
-clauductor panel add [--project p] [--config f] [--id x] [--default]   # register a project (untrusted until `trust`); a running panel serves it at once
-clauductor panel attach [<repo>] [--id x] [--default]   # serve a repository from a config outside it, writing nothing into it
-clauductor panel remove <id|path> [--force]   # unregister one; its lanes keep running; a running panel stops serving it at once
-clauductor panel list                         # id, name, root, socket, trust and lanes of each
-clauductor lock-run [--lane id] [--ttl 10m] <lockdir> -- <cmd…>   # run a command through a queue
+stridal panel init [--project p]           # write a starter .stridal/panel.json (never overwrites)
+stridal panel                              # serve every project; this repository is added if it is not, and opened on
+stridal panel --project ~/Development/app  # or name it
+stridal panel --project p --only           # serve that one project alone
+stridal panel --config /tmp/panel.json     # use a config outside the repo
+stridal panel --port 4393 --no-open        # print the URL instead of opening a browser
+stridal panel --uninstall-hooks            # remove the panel's hooks and exit
+stridal panel --trust-config               # trust panel.json as it is now, then run
+stridal panel trust [--project p]          # trust panel.json as it is now (a running panel follows)
+stridal panel add [--project p] [--config f] [--id x] [--default]   # register a project (untrusted until `trust`); a running panel serves it at once
+stridal panel attach [<repo>] [--id x] [--default]   # serve a repository from a config outside it, writing nothing into it
+stridal panel remove <id|path> [--force]   # unregister one; its lanes keep running; a running panel stops serving it at once
+stridal panel list                         # id, name, root, socket, trust and lanes of each
+stridal lock-run [--lane id] [--ttl 10m] <lockdir> -- <cmd…>   # run a command through a queue
 
-clauductor panel install [--project ~/Development/app] [--config <file>] [--port 4393] [--app] [--remote-control=all|lanes|off]
-clauductor panel open [--project id]          # open the installed panel in the browser (on that project)
-clauductor panel rotate-token                 # replace the installed panel's token
-clauductor panel uninstall                    # stop and remove the login agent
+stridal panel install [--project ~/Development/app] [--config <file>] [--port 4393] [--app] [--remote-control=all|lanes|off]
+stridal panel open [--project id]          # open the installed panel in the browser (on that project)
+stridal panel rotate-token                 # replace the installed panel's token
+stridal panel uninstall                    # stop and remove the login agent
 ```
 
 One panel serves every registered project. Stop a hand-started panel with Ctrl-C or `SIGTERM`.
@@ -120,29 +120,29 @@ lane: lanes belong to tmux.
 
 ### Attach a repository without writing to it
 
-PANEL-42. `panel init` writes `.clauductor/panel.json` into the repository, for you to commit. For
+PANEL-42. `panel init` writes `.stridal/panel.json` into the repository, for you to commit. For
 a repository you would rather not change (one that runs an operating model of its own, say),
 attach it instead:
 
 ```bash
-clauductor panel attach [<repo>]          # write its config outside it, and register it
-clauductor panel trust --project <repo>   # after reviewing that config
+stridal panel attach [<repo>]          # write its config outside it, and register it
+stridal panel trust --project <repo>   # after reviewing that config
 ```
 
 - **What it writes.** `attach` reads the repository as `panel init` does (see
-  [`panel init`](#panel-init)) and writes the result to `~/.clauductor/projects/<id>/panel.json`,
+  [`panel init`](#panel-init)) and writes the result to `~/.stridal/projects/<id>/panel.json`,
   the **sidecar** (folder 0700, file 0600, created with `O_EXCL`, never over a file). Then it
   registers the repository in `projects.json` with that file as its config. It prints the file,
   init's reason for each value, and the `panel trust` line. `<repo>` defaults to the current
   directory's git toplevel, and `--id` and `--default` work as in `panel add`. The file is yours to
   edit. What attach refuses is under [Projects](#projects).
 - **Adding is not trusting.** As after `panel add`, its cards, queue commands and templates stay
-  off until `clauductor panel trust --project <repo>`. A sidecar is held to a stricter rule than a
+  off until `stridal panel trust --project <repo>`. A sidecar is held to a stricter rule than a
   config in the repository: argv only, no shell text, nothing outside the repository (see
   [A config outside its repository](#a-config-outside-its-repository)). The commands attach writes
   pass it.
 - **What attaching and serving never write.** Attaching writes the sidecar and `projects.json`,
-  both under `~/.clauductor/`, and nothing under the repository, `.git` included. It refuses, before
+  both under `~/.stridal/`, and nothing under the repository, `.git` included. It refuses, before
   it writes, a home that would put either file inside the repository. Serving reads git with
   `--no-optional-locks` and an empty `core.fsmonitor`, so a poll never rewrites `.git/index`,
   starts git's fsmonitor daemon or runs a repository's fsmonitor hook (see
@@ -159,20 +159,20 @@ clauductor panel trust --project <repo>   # after reviewing that config
   stderr is not added. Only a text card gets the stderr lines, within its 200-line limit. A
   queue's RUN log already holds both streams. Suggest and metrics commands, and every card of a
   config in the repository, keep stdout alone, as before.
-- **Claude Code's plugin.** A repository with an operating model of its own may want Clauductor's
+- **Claude Code's plugin.** A repository with an operating model of its own may want Stridal's
   plugin kept out too: see [At user scope](plugin.md#at-user-scope) for the per-repository
   opt-out.
 
 ### Projects
 
-The projects a panel serves are listed in `~/.clauductor/panel/projects.json` (0600, written
+The projects a panel serves are listed in `~/.stridal/panel/projects.json` (0600, written
 atomically). It is the machine's file, not a repository's: nothing in a repository can add a
 project, choose its socket, or make it the default.
 
 ```json
 { "version": 1, "default": "standing-tee",
   "projects": [ { "id": "standing-tee", "root": "/Users/me/Development/standingtee",
-                  "config": "", "tmux_socket": "clauductor", "added": 1790000000 } ] }
+                  "config": "", "tmux_socket": "stridal", "added": 1790000000 } ] }
 ```
 
 - **A project is one repository**, named by its main worktree. `panel add` refuses a linked
@@ -181,13 +181,13 @@ project, choose its socket, or make it the default.
   `--id`; it names the project in routes and in the page. The files of a project stay where they
   were, keyed by a hash of its path (the lane registry, trust, notifications).
 - **Adding is not trusting.** `panel add` loads and checks the config, and prints whether it is
-  trusted; its cards, queue commands and templates stay off until `clauductor panel trust`.
+  trusted; its cards, queue commands and templates stay off until `stridal panel trust`.
 - **Each project has its own tmux server.** A project's socket is its config's `tmux_socket`,
-  else the one recorded when it was added: the first project gets the historical `clauductor`,
-  so lanes started before PANEL-16 carry on, and each project after it gets `clauductor-<id>`.
+  else the one recorded when it was added: the first project gets the historical `stridal`,
+  so lanes started before PANEL-16 carry on, and each project after it gets `stridal-<id>`.
   Two projects on one socket are refused at `add`, and a project whose socket another has is not
   loaded. `panel list` names each project's socket. Each lane is tagged with its project
-  (`@clauductor_project`); a session tagged for another project is never shown as a stray, and one
+  (`@stridal_project`); a session tagged for another project is never shown as a stray, and one
   with no tag (started before PANEL-16) belongs to the socket's project.
 - **The default project** is the one a page with no `?p=` opens on, and the one the routes before
   PANEL-16 reach. `panel --project p` (the login agent's plist from before PANEL-16 does this) and
@@ -197,7 +197,7 @@ project, choose its socket, or make it the default.
   the project again brings its lanes back; while lanes are registered it needs `--force`. For a
   project whose config is outside its repository (an attached one's sidecar), the file and its
   folder stay too, and `remove` says where they are and prints the line that serves the project
-  again from that file, its paths shell-quoted: `clauductor panel add --project <repo> --config
+  again from that file, its paths shell-quoted: `stridal panel add --project <repo> --config
   <file>`. Adding the repository by its path alone would not find the file. Trust is kept by the
   file's path and hash, so a sidecar unchanged since it was trusted is served trusted again.
 - **`attach`** (PANEL-42) registers a repository with a sidecar it writes, as in
@@ -211,7 +211,7 @@ project, choose its socket, or make it the default.
     project's;
   - **a registered repository:** "registered already as <id>, reading <path>". Run `panel remove`
     first, or `panel add --config` to switch its config on purpose. The one exception is a
-    project whose registry entry names no config and that has no `.clauductor/panel.json`, so it
+    project whose registry entry names no config and that has no `.stridal/panel.json`, so it
     cannot load. It is **attached in place**: its entry's `config` is set, and it keeps its id,
     tmux socket and lane registry (an `--id` other than its own is refused there);
   - **an id that is not valid, or taken** (pass `--id`), and a home that would put the sidecar or
@@ -219,15 +219,15 @@ project, choose its socket, or make it the default.
   - **a socket another project has, or any failed registration:** the sidecar and the folders
     attach made are removed, so a refused attach leaves no file and no entry.
 
-  A repository with its own `.clauductor/panel.json` is attached anyway. The output says the
+  A repository with its own `.stridal/panel.json` is attached anyway. The output says the
   panel will read the sidecar, not that file.
 - **The registry's config wins** (PANEL-42). For a project the registry holds, `panel trust` and a
   bare `panel` or `panel --project` without `--config` read the config its entry names;
-  `<root>/.clauductor/panel.json` is read only for a project the registry does not hold, or one
-  whose entry names no config. A pull that adds a `.clauductor/panel.json` to an attached
+  `<root>/.stridal/panel.json` is read only for a project the registry does not hold, or one
+  whose entry names no config. A pull that adds a `.stridal/panel.json` to an attached
   repository therefore changes nothing the panel reads. `panel list` prints each project's
   `config <path>`, marks one that resolves outside its repository `(outside the repository)`, and
-  then, when the repository's own `.clauductor/panel.json` exists, says it is not read. The
+  then, when the repository's own `.stridal/panel.json` exists, says it is not read. The
   project menu's row says the same: `reads <path>, outside the repository`.
 - **No restart** (PANEL-22). A running panel follows `projects.json`: it looks at the file every
   second, and a project added there is served at once (its sources, its lane manager and its hub
@@ -264,20 +264,20 @@ root, git's common dir, the id and the tmux socket it would get, or why not:
 | registered already | the same root (also through a symlink, or a path inside it), or the same git common dir |
 | its socket is taken | its config's `tmux_socket` (or the one it would get) is another project's |
 
-A path inside a repository adds the repository. A repository with **no `.clauductor/panel.json`**
-shows what `clauductor panel init` would write, with each reason `init` prints
+A path inside a repository adds the repository. A repository with **no `.stridal/panel.json`**
+shows what `stridal panel init` would write, with each reason `init` prints
 (`/api/projects/init-preview` writes nothing); **Create this config** writes it
 (`/api/projects/init`), never over an existing file. A config that **does not load** says why, and
 cannot be added until it does.
 
 **Add a project…** does not attach yet: that is PANEL-43. It reads only
-`<root>/.clauductor/panel.json`, so for a repository without one it offers only **Create this
+`<root>/.stridal/panel.json`, so for a repository without one it offers only **Create this
 config**, which writes into the repository. To serve a repository without writing to it, run
-`clauductor panel attach` (see
+`stridal panel attach` (see
 [Attach a repository without writing to it](#attach-a-repository-without-writing-to-it)). The page
 then serves, trusts (**Trust config…**) and removes the attached project like any other.
 
-A repository with a config shows its **trust report**, what `clauductor panel trust` prints: the
+A repository with a config shows its **trust report**, what `stridal panel trust` prints: the
 SHA-256 of its exact bytes and every card command, queue command, template prompt, suggest
 command, metrics command, worktree hook and resume line it names. Nothing runs to make the report:
 it renders the file. Then:
@@ -308,7 +308,7 @@ stops a lane). Removing the default project makes the next project the panel ser
 registry's order) the default, and the confirmation says which. For a project whose config is
 outside its repository (an attached one's sidecar), "adding it again brings it all back" would be
 false, since **Add a project…** would not find that file. So the confirmation says instead that
-its config stays too, names the file, and gives the line that serves it again: `clauductor panel
+its config stays too, names the file, and gives the line that serves it again: `stridal panel
 add --project <repo> --config <file>`, its paths shell-quoted. The project menu's row for such a
 project says `reads <file>, outside the repository`. A page showing a project that is removed (here, in another page, or
 by `panel remove`) moves to the default. The panel always serves one project, so the last one
@@ -325,15 +325,15 @@ quota, and the quota alert notifies once, not once per project (against the defa
 
 ## Configuration reference
 
-The project keeps its config at `<project>/.clauductor/panel.json` (or pass `--config`), unless
+The project keeps its config at `<project>/.stridal/panel.json` (or pass `--config`), unless
 the registry names another for it: an attached project reads its sidecar,
-`~/.clauductor/projects/<id>/panel.json` (see
+`~/.stridal/projects/<id>/panel.json` (see
 [Attach a repository without writing to it](#attach-a-repository-without-writing-to-it)). Unknown
 keys are an error, so a misspelt key fails loudly.
 
 ### `panel init`
 
-`clauductor panel init [--project <path>]` writes `<git toplevel>/.clauductor/panel.json`. It
+`stridal panel init [--project <path>]` writes `<git toplevel>/.stridal/panel.json`. It
 **refuses to overwrite** anything already at that path, a dangling symlink included. What it
 writes, it reads from the repository:
 
@@ -351,7 +351,7 @@ It invents **no card** (a card's command runs by itself on every refresh) and no
 only command it writes of its own is the gate queue's, which runs only when you press **RUN**, and
 it prints it. JSON has no comments, so `init` prints the reason for each value instead.
 
-**A repository that runs Clauductor's operating model** (PANEL-18: the template `clauductor
+**A repository that runs Stridal's operating model** (PANEL-18: the template `stridal
 install` copies, recognised by `.claude/owner-queue.sh` or `.claude/roadmap-queue.sh`) also gets
 that model's own panel setup, the same as the template's preset, for the files it has:
 
@@ -364,13 +364,13 @@ that model's own panel setup, the same as the template's preset, for the files i
 | `scripts/ci/run-local.sh` | the `gate` queue on it, instead of a gate found in `package.json` or a `Makefile` (those are printed as "also found") |
 
 Each addition is printed with its reason, like every other value, and none of them runs before
-`clauductor panel trust`. Without those files, `init` prints one line more: cards and lane
-templates come with `clauductor install` (the operating model), or can be added by hand (see
+`stridal panel trust`. Without those files, `init` prints one line more: cards and lane
+templates come with `stridal install` (the operating model), or can be added by hand (see
 [Keys](#keys), [Pinned cards](#pinned-cards) and [Lane templates](#lane-templates)).
 
 **`panel attach` uses the same reading** (PANEL-42), with three differences. The file goes to
-`~/.clauductor/projects/<id>/panel.json`, outside the repository. A repository's own
-`.clauductor/panel.json` does not refuse it: a `config` note says the panel will not read that
+`~/.stridal/projects/<id>/panel.json`, outside the repository. A repository's own
+`.stridal/panel.json` does not refuse it: a `config` note says the panel will not read that
 file. And every command is an argv list with no shell, so that it passes the rule for a config
 outside its repository (see [A config outside its repository](#a-config-outside-its-repository)).
 The two cards become `["sh", ".claude/owner-queue.sh"]` and `["sh", ".claude/roadmap-queue.sh",
@@ -383,10 +383,10 @@ other commands are argv already: `["sh", ".claude/panel-suggest.sh", "<template>
 For a repository with a `pnpm` project whose `Makefile` has a `ci` target, it prints:
 
 ```text
-Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
+Wrote /Users/me/Development/acme-web/.stridal/panel.json:
 
 {
-  "$schema": "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json",
+  "$schema": "https://raw.githubusercontent.com/rfhayn/stridal/main/docs/panel.schema.json",
   "name": "acme-web",
   "version": 2,
   "lanes": {
@@ -400,7 +400,7 @@ Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
     {
       "id": "gate",
       "title": "Gate: make ci",
-      "lock": "clauductor/gate.lock",
+      "lock": "stridal/gate.lock",
       "command": [
         "make",
         "ci"
@@ -414,7 +414,7 @@ Wrote /Users/me/Development/acme-web/.clauductor/panel.json:
   lanes         feature/ → feature, fix/ → fix, main → orchestrator (from the prefixes of your local branches)
   worktree_dir  .worktrees (where your 1 linked worktree(s) already are)
   queues        gate runs `make ci` (Makefile target "ci"), and only when you press RUN on the page; also found `pnpm run check`, `pnpm run test`
-  cards and lane templates: none; they come with `clauductor install` (Clauductor's operating model), or add them by hand (docs/panel.md, "Keys": cards, templates)
+  cards and lane templates: none; they come with `stridal install` (Stridal's operating model), or add them by hand (docs/panel.md, "Keys": cards, templates)
 ```
 
 ### Versions
@@ -460,7 +460,7 @@ when a config key has no entry (so no version) in `Fields`.
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json",
+  "$schema": "https://raw.githubusercontent.com/rfhayn/stridal/main/docs/panel.schema.json",
   "name": "My Project",
   "version": 2,
   "lanes": { "feature/": "build", "fix/": "fix", "ops/": "ops", "main": "orchestrator" },
@@ -478,7 +478,7 @@ when a config key has no entry (so no version) in `Fields`.
       "first_prompt": "Fix GitHub issue {issue}. Start from the code as built." }
   ],
   "queues": [
-    { "id": "gate", "title": "Full gate", "lock": "clauductor/gate.lock", "command": ["make", "ci"] }
+    { "id": "gate", "title": "Full gate", "lock": "stridal/gate.lock", "command": ["make", "ci"] }
   ],
   "alerts": { "idle_minutes": 20, "context_pct": 80, "five_hour_pct": 90, "waiting_seconds": 120 },
   "quota_guard": { "five_hour_pct": 95 }
@@ -492,7 +492,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 <!-- config-reference begin: generated by `go generate ./internal/panel/config`; do not edit -->
 | Key | Type | Default | Since | Meaning |
 |---|---|---|---|---|
-| `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json`. The panel ignores it. `clauductor panel init` writes it. |
+| `$schema` | string |  | 1 | The JSON Schema the file follows, for editors: `https://raw.githubusercontent.com/rfhayn/stridal/main/docs/panel.schema.json`. The panel ignores it. `stridal panel init` writes it. |
 | `version` | integer: 1 to 7 |  | 1 | The config version the file is written for. It may use only the keys of that version or an earlier one; a key from a later version is an error that names the key and the version it needs. Without it the file is read as the latest version, and the panel says so once at start. |
 | `name` | string, **required** |  | 1 | Shown in the status bar and in notification titles. One line of plain text, at most 80 characters, not blank and not starting with `-`. Matches `^ *[^ \t\n\f\r\v-]`. |
 | `lanes` | object: branch rule → lane type |  | 1 | A rule ending in `/` is a prefix (`"feature/"` matches `feature/add-x`, shown as `add-x`). A rule ending in `*` is a prefix without the star (`"feature/spike-*"`). Any other rule matches one branch exactly (`"main"`). The longest matching rule wins. An unmatched branch is `other`; a detached HEAD is `detached`. |
@@ -502,7 +502,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `cards[].command` | array of strings, **required** |  | 1 | argv, run in the project root **without a shell**. Use `["sh", "-c", "..."]` if you want one. 30-second timeout. |
 | `cards[].refresh` | string, **required** |  | 1 | `"watch:<relpath>"`: re-run when that file (or a direct entry of that directory) changes; the path must stay inside the project. `"interval:<seconds>"`: re-run on a timer (minimum 5 s). Every card also runs at start and on ↻ REFRESH. Matches `^(watch:.+|interval:0*[1-9][0-9]*)$`. |
 | `cards[].pin` | boolean | `false` | 3 | Also show the card in the side panel, as a tab of the pinned cards' box: below the selected lane's details, or alone while no lane is selected. Each output line is a title that opens to the rest of the line (see *Pinned cards*). |
-| `tmux_socket` | string | `"clauductor"` | 1 | The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions. Matches `^[A-Za-z0-9_-]{1,64}$`. |
+| `tmux_socket` | string | `"stridal"` | 1 | The panel's own tmux server (`tmux -L <name>`). Lanes never mix with your own tmux sessions. Matches `^[A-Za-z0-9_-]{1,64}$`. |
 | `worktree_dir` | string | `".claude/worktrees"` | 1 | Where a new lane's worktree is created: relative to the project root and inside it, or absolute. |
 | `base` | string | `"origin/main"` | 1 | What a new lane's branch starts from. `git fetch` runs first; if it fails, the lane still starts and the page says so. Matches `^[A-Za-z0-9][A-Za-z0-9._/@{}^~-]{0,199}$`. |
 | `lane_types` | object: lane type → options |  | 1 | Launch options per lane type, passed as `claude --model <m> --effort <e>`, and the lane type's part of the context policy (see `launch`). |
@@ -528,7 +528,7 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `queues` | array |  | 2 | Shared resources held as a lease on disk (see *Queue and the gate lock protocol*). |
 | `queues[].id` | string, **required** |  | 2 | Unique among the queues. Matches `^[a-z0-9][a-z0-9_-]{0,63}$`. |
 | `queues[].title` | string |  | 2 | Shown on the queue card. |
-| `queues[].lock` | string, **required** |  | 2 | The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `"clauductor/gate.lock"`. No `..`, not absolute. |
+| `queues[].lock` | string, **required** |  | 2 | The lease directory, relative to the **git common dir** (so every worktree agrees), e.g. `"stridal/gate.lock"`. No `..`, not absolute. |
 | `queues[].command` | array of strings |  | 2 | Optional argv that **Run in `<lane>`** (a lane's Gate tab) starts through `lock-run` in that lane's worktree. It runs only when you press it. |
 | `alerts` | object |  | 2 | Alert thresholds (see *Alerts*). A missing key takes the default; `0` turns that alert off. |
 | `alerts.idle_minutes` | number | `30` | 2 | A live session idle longer than this raises an idle alert. |
@@ -542,17 +542,17 @@ A smaller one is in `framework/internal/panel/config/testdata/panel.json`.
 | `alerts.stall_minutes` | number | `30` | 7 | A lane is stalled when one of its sessions has waited on you this long since it asked, or when it has open work (a pull request, a gate that passed with nothing after it, a turn that ended on background work) and nothing in it has moved for this long; a stall notifies once (see *Alerts*). An attached project sets it in its sidecar. `0` turns stalls off. |
 | `quota_guard` | object |  | 2 | Refuses to start or restore a lane at or above a 5-hour quota (see *Quota guard*). |
 | `quota_guard.five_hour_pct` | number | `95` | 2 | Refuse at or above this 5-hour quota, unless the dialog's override is ticked. `0` turns it off. |
-| `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `clauductor.localhost` always works. No wildcards. |
+| `host_names` | array of strings |  | 2 | Extra names the panel answers to, each `<label>.localhost` in lower case (for example `"myproject.localhost"`). `stridal.localhost` always works. No wildcards. |
 | `quota_economy` | object |  | 4 | Economy mode (see *Economy mode*): off unless set. Read from the default project's config, since the quota is the machine's. |
-| `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.clauductor/panel/economy.json` with `"economy": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off. |
-| `lanes_auto_close` | string: "off" or "on_merge" | `"off"` | 5 | `"on_merge"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; every reason in `clauductor lane close`'s table of reasons but its last two (the branch and a cancelled request) holds it too, such as background work (a shell, a monitor, a teammate), a wakeup, a lease, and after a panel restart an idle lane until it ends a turn; otherwise Needs you asks "PR merged: close lane?" (see *Close a lane when its PR merges*). |
+| `quota_economy.five_hour_pct` | number |  | 4 | At or above this 5-hour quota the panel writes `~/.stridal/panel/economy.json` with `"economy": true` and shows **Economy: on** by the quota; it turns off once the quota is 3 points below. `0` is off. |
+| `lanes_auto_close` | string: "off" or "on_merge" | `"off"` | 5 | `"on_merge"` closes a lane once its branch's pull request merges, as **Close lane** would, and only when claude is idle, the worktree clean and the pull request merged at the branch's tip; every reason in `stridal lane close`'s table of reasons but its last two (the branch and a cancelled request) holds it too, such as background work (a shell, a monitor, a teammate), a wakeup, a lease, and after a panel restart an idle lane until it ends a turn; otherwise Needs you asks "PR merged: close lane?" (see *Close a lane when its PR merges*). |
 | `quota_auto_resume` | boolean | `false` | 5 | Once the 5-hour window resets, type `quota_resume_line` into each lane the usage limit stopped, once per reset, only while claude is idle and waits on no permission (see *Resume after the 5-hour reset*). |
 | `quota_resume_line` | string | `"continue"` | 5 | The line `quota_auto_resume` types. One line of plain text, at most 200 characters. |
 | `worktree_setup` | object |  | 5 | A command run in a new lane's new worktree before claude starts (see *Worktree setup, teardown and ports*). |
-| `worktree_setup.command` | array of strings, **required** |  | 5 | argv, run **without a shell** in the worktree, only while the config is trusted, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set. 5-minute timeout. |
+| `worktree_setup.command` | array of strings, **required** |  | 5 | argv, run **without a shell** in the worktree, only while the config is trusted, with `STRIDAL_LANE` and `STRIDAL_PORT` set. 5-minute timeout. |
 | `worktree_teardown` | object |  | 5 | A command run in a lane's worktree before **Close lane** removes it. |
 | `worktree_teardown.command` | array of strings, **required** |  | 5 | argv, as `worktree_setup.command`. If it fails, or leaves the worktree changed, the worktree stays. |
-| `ports` | object |  | 5 | Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `CLAUDUCTOR_PORT` and shown in its header. |
+| `ports` | object |  | 5 | Gives each lane a stable port of its own: `base`, `base + per_lane`, … kept in the lane registry, exported to the lane as `STRIDAL_PORT` and shown in its header. |
 | `ports.base` | integer, **required** |  | 5 | The first lane's port, 1024 to 65000. |
 | `ports.per_lane` | integer, **required** |  | 5 | The step between two lanes' ports, 1 to 100 (a lane may use the ports up to the next one). |
 | `metrics` | object |  | 4 | The project's metrics for the **Metrics** view and the Flow card (see *Metrics*). Without it the panel still shows what it computes itself: merge frequency and PR cycle time from `gh`, and spend from the status line. |
@@ -588,7 +588,7 @@ So a card that prints one item per line, with a short lead, reads best. A JSON c
 in the drawer.
 
 A project with **no card at all** shows one line in the box's place instead of nothing (PANEL-18):
-"No cards yet. Add them in .clauductor/panel.json.", with **How cards work**, a link to the
+"No cards yet. Add them in .stridal/panel.json.", with **How cards work**, a link to the
 guide's [Cards](guide.md#cards) section (opened in a new tab, from the same address as the Help
 dialog's guide link). A project whose cards are all unpinned shows nothing there: its cards are in
 **Activity**.
@@ -647,7 +647,7 @@ value just changed.
     **7-day**), each with its reset countdown, and the plan named on the first ("5-hour quota
     (Max)"). On the burn window's bar a magenta mark shows where it lands at its reset at the
     current burn rate. The quota comes only with a status-line post, from any session on the
-    machine, and the panel keeps the last one across a restart (`~/.clauductor/panel/quota.json`),
+    machine, and the panel keeps the last one across a restart (`~/.stridal/panel/quota.json`),
     so a reading older than 10 minutes says "as of … ago"; with none, hovering says where one
     comes from. What stands here depends on the account: see *The account and its quota*.
   - **Burn rate**: the shortest window's change per hour over the last 30 minutes, when there are
@@ -958,7 +958,7 @@ Lanes still start only on a subscription login (*Subscription only*).
 ## Lanes
 
 A **lane** is one interactive `claude` in its own tmux session, on the panel's own tmux server
-(`tmux -L clauductor`, `clauductor-<id>`, or `tmux_socket`: one per project, see [Projects](#projects)). tmux owns the process, not the panel, so:
+(`tmux -L stridal`, `stridal-<id>`, or `tmux_socket`: one per project, see [Projects](#projects)). tmux owns the process, not the panel, so:
 
 - closing the browser, or restarting or upgrading the panel, leaves every lane running;
 - several viewers can share a lane: browser tabs, and a Terminal.app window.
@@ -1133,10 +1133,10 @@ gitignored files, its dependencies and a port of its own before claude starts in
   files or 200 MB; the start says how many it copied.
 - **`worktree_setup.command`** runs in the new worktree after that and before claude starts;
   **`worktree_teardown.command`** runs in a lane's worktree when **Close lane** is about to
-  remove it. Both are argv run without a shell, with `CLAUDUCTOR_LANE` and `CLAUDUCTOR_PORT` set
+  remove it. Both are argv run without a shell, with `STRIDAL_LANE` and `STRIDAL_PORT` set
   (through `/usr/bin/env`), a 5-minute timeout, and only while the config is trusted: `trust`
   and `install` print them. A failed setup is a note on the start, and the lane starts anyway.
-  The teardown's `CLAUDUCTOR_PORT` is the port the lane's record held when Close began (Close
+  The teardown's `STRIDAL_PORT` is the port the lane's record held when Close began (Close
   forgets the record before the teardown runs), so auto-close on merge passes it too.
   A failed teardown, or one that leaves the worktree changed (the clean check runs again after
   it), keeps the worktree, and Close says why; the confirmation says the teardown runs first.
@@ -1145,7 +1145,7 @@ gitignored files, its dependencies and a port of its own before claude starts in
 - **`ports: {base, per_lane}`** gives each lane a port of its own: `base`, `base + per_lane`,
   and so on, the lowest one no other registered lane holds. It is kept in the lane's registry
   record (so a restart or a restore keeps it, and Forget frees it), exported to the lane's tmux
-  session as `CLAUDUCTOR_PORT`, and shown as **Port** in the lane's header. The panel does not
+  session as `STRIDAL_PORT`, and shown as **Port** in the lane's header. The panel does not
   check that nothing else listens there.
 
 ### Lane templates
@@ -1219,7 +1219,7 @@ the lane name from the branch (and the issue, for a pattern with `{issue}`), and
 When two templates share a pattern (a build and a propose template both naming `change/{name}`),
 the one whose **Up next** lists the name wins, else the first in the config's order. A branch no
 template names opens with no template. **While `panel.json` is untrusted, New lane here opens a
-plain lane** on the worktree, with no template selected. Templates are off until `clauductor panel
+plain lane** on the worktree, with no template selected. Templates are off until `stridal panel
 trust`, and Start would refuse one.
 
 **The approval warning.** A build template (one whose first prompt starts with `/build-change`)
@@ -1261,7 +1261,7 @@ click away rather than a trip to the roadmap.
 
 ### The lane registry
 
-`~/.clauductor/panel/<hash of the project path>/lanes.json` (0600, in a 0700 directory) records
+`~/.stridal/panel/<hash of the project path>/lanes.json` (0600, in a 0700 directory) records
 each lane: its id, session id, directory, type, branch, and its last action. The intent is
 written **before** each action and marked done after it, so a panel that crashes mid-action
 finds the half-done action when it restarts. The file is written atomically.
@@ -1360,7 +1360,7 @@ The conversation is never removed: `claude --resume <session id>` still opens it
 PANEL-57: an agent, or you, can close a finished lane without the page:
 
 ```
-clauductor lane close <id> [--yes]
+stridal lane close <id> [--yes]
 ```
 
 Run it from the project's checkout: the main one, a lane's worktree or any directory below
@@ -1389,7 +1389,7 @@ the panel decides with Close lane's own plan and guards.
   its claude has exited (the program ended; its tmux pane still shows it). A lane whose tmux
   session is gone closes only on a merged branch, so the page keeps its restore. The rest stay
   the owner's, closed from the page.
-- **A lane does not close itself.** An id equal to `$CLAUDUCTOR_LANE` is refused before
+- **A lane does not close itself.** An id equal to `$STRIDAL_LANE` is refused before
   anything is read, naming what does close it: the page's Close lane, or auto-close where it is
   on for the lane's type.
 - **An interrupted `--yes` still finishes.** Once the panel begins the close it runs it under
@@ -1403,12 +1403,12 @@ the panel decides with Close lane's own plan and guards.
   cue to try another id only on a first call, never on a retry. A retry that times out too
   leaves the outcome unknown.
 - **Where its line goes.** Each close through the socket writes one line to the panel's output:
-  `lane <id> (<project>) closed by clauductor lane close: removed …; kept …`, after the close
-  returns. Under launchd that is the panel's log in `~/.clauductor/panel/logs/`, with its other
+  `lane <id> (<project>) closed by stridal lane close: removed …; kept …`, after the close
+  returns. Under launchd that is the panel's log in `~/.stridal/panel/logs/`, with its other
   lines.
 
 `session-close` calls it for each lane whose pull request merged while the lane stayed open,
-and the template allows `Bash(clauductor lane close *)` (and no other `clauductor` subcommand)
+and the template allows `Bash(stridal lane close *)` (and no other `stridal` subcommand)
 so that runs without a prompt.
 
 A refused close exits 1 with `lane <id> is not closed: <reason>`, and nothing stops. Auto-close
@@ -1439,9 +1439,9 @@ The other refusals:
 
 | Situation | What happens |
 |---|---|
-| The id is `$CLAUDUCTOR_LANE` | Exit 1 before anything is read: `… a lane does not close itself …`. |
-| No live panel, or one with no command socket | Exit 1, saying which and naming `clauductor panel`. Nothing is asked. |
-| The current directory is in no project the panel serves | Exit 1, naming `clauductor panel list`. Nothing is asked. |
+| The id is `$STRIDAL_LANE` | Exit 1 before anything is read: `… a lane does not close itself …`. |
+| No live panel, or one with no command socket | Exit 1, saying which and naming `stridal panel`. Nothing is asked. |
+| The current directory is in no project the panel serves | Exit 1, naming `stridal panel list`. Nothing is asked. |
 | No such lane | Exit 1: `no lane "<id>"; this project's lanes: a (change/a), b (fix/12-b)`. |
 
 ### Close a lane when its PR merges
@@ -1455,7 +1455,7 @@ base, or a merged pull request whose head is the branch's tip), and claude is id
 gone (a current `claude agents` reading; an approximate one does not count). Nothing is forced.
 The close goes in the lane's **Activity** ("Lane closed: PR #12 merged; …").
 
-It reads the same verdict as `clauductor lane close` (PANEL-57), so every reason in that
+It reads the same verdict as `stridal lane close` (PANEL-57), so every reason in that
 command's table of reasons but its last two (the branch and a cancelled request) holds it back
 too (see *Close a lane from the command line*): among
 them background work its session's last `Stop` lists (a shell, a monitor, a teammate; a
@@ -1578,10 +1578,10 @@ is there, and continue.
 Two lanes that both run a full gate that binds a fixed port (a dev server, a test database)
 collide. A queue serialises them. The lease lives entirely on disk, so it survives a panel
 restart, and it works when the panel is not running at all: the gate script takes it itself,
-through `clauductor lock-run`.
+through `stridal lock-run`.
 
 macOS has no `flock(1)`, so the lock is a **directory**, because `mkdir` is atomic everywhere.
-The protocol is plain files, so a shell script can honour it with no clauductor at all
+The protocol is plain files, so a shell script can honour it with no stridal at all
 ([below](#the-protocol-in-plain-shell)), and a [conformance suite](#the-conformance-suite) checks
 any implementation.
 
@@ -1622,7 +1622,7 @@ Only a stale holder may be removed.
   `lock-run` killed with `SIGKILL` leaves its gate running, and the gate still holds the lease.
 - **Another host, or no `pid`:** its processes mean nothing here, so the TTL applies: stale once
   `renewed + ttl` has passed. `lock-run` and `lease.sh` renew `renewed` every ttl/3 (default
-  ttl 10 min; `lease.sh` reads `CLAUDUCTOR_LEASE_TTL`). A record with `ttl: 0` (an older shell
+  ttl 10 min; `lease.sh` reads `STRIDAL_LEASE_TTL`). A record with `ttl: 0` (an older shell
   holder's) never expires.
 - **Where there is no `ps`,** liveness is `kill -0` (an `EPERM` answer still means alive) and the
   start time is `proc:` + field 22 of `/proc/<pid>/stat`.
@@ -1660,7 +1660,7 @@ it.
   (when `lock-run` is in the foreground), the command's group becomes the terminal's foreground
   group, so it can use the terminal (`stty`, a prompt) and a Ctrl-C reaches it once, straight
   from the terminal. `lock-run` takes the terminal back when the command ends.
-- **Re-entry.** The command runs with `CLAUDUCTOR_LOCK_HELD=<lock>`. A `lock-run` on the same
+- **Re-entry.** The command runs with `STRIDAL_LOCK_HELD=<lock>`. A `lock-run` on the same
   lock inside it runs the command directly, so a script can wrap itself.
 - **Defence in depth.** It holds `flock(2)` on the lease directory while it runs. The flock
   **never decides liveness**: that is the holder's and the command's pid and start time, the same
@@ -1678,13 +1678,13 @@ stderr while it waits, so an agent reading the output knows why the gate is slow
 The page shows each queue: the holder (lane, pid, age, TTL, and "stale" if it is), then the
 waiters in order, each with **Cancel wait** (the drawer lists every queue; a lane's Gate tab shows where that lane stands). **Run in `<lane>`** (the lane's Gate tab) starts the queue's `command` through
 `lock-run` in that lane's worktree, detached, with its output in
-`~/.clauductor/panel/<project hash>/queue-logs/`.
+`~/.stridal/panel/<project hash>/queue-logs/`.
 
 ### In a project's gate script
 
 Put this at the top of the gate script (here `gate.sh`). It needs git 2.5 or later (worktrees)
 and no `--path-format` (git 2.31). It re-runs the script through the queue with
-`clauductor lock-run` when clauductor is installed, and otherwise uses the plain-shell
+`stridal lock-run` when stridal is installed, and otherwise uses the plain-shell
 implementation below (paste it into the script, or keep it beside it as `lease.sh`). A failure
 to find the git directory runs the gate unqueued with a note, rather than aborting under
 `set -e`:
@@ -1696,27 +1696,27 @@ set -euo pipefail
 lock=""
 if common=$(git rev-parse --git-common-dir 2>/dev/null); then
   case $common in /*) ;; *) common="$PWD/$common" ;; esac
-  lock="$common/clauductor/gate.lock"
+  lock="$common/stridal/gate.lock"
 fi
-lane="${CLAUDUCTOR_LANE:-$(basename "$PWD")}"
+lane="${STRIDAL_LANE:-$(basename "$PWD")}"
 if [ -z "$lock" ]; then
   echo "gate: not in a git checkout; running without the gate queue" >&2
-elif [ "${CLAUDUCTOR_LOCK_HELD:-}" != "$lock" ]; then
-  if command -v clauductor >/dev/null 2>&1; then
-    # TERM=dumb skips a terminal query at clauductor's startup (up to 5 s on a
+elif [ "${STRIDAL_LOCK_HELD:-}" != "$lock" ]; then
+  if command -v stridal >/dev/null 2>&1; then
+    # TERM=dumb skips a terminal query at stridal's startup (up to 5 s on a
     # pty that does not answer); lock-run gives the gate the real TERM back, or
     # leaves it unset if it was unset. Ask the environment, not the shell: bash
     # sets an unexported TERM=dumb of its own when TERM is unset.
     term_set="" term_val=""
     if printenv TERM >/dev/null 2>&1; then term_set=1 term_val=$(printenv TERM); fi
-    CLAUDUCTOR_TERM="$term_val" CLAUDUCTOR_TERM_SET="$term_set" TERM=dumb \
-      exec clauductor lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
+    STRIDAL_TERM="$term_val" STRIDAL_TERM_SET="$term_set" TERM=dumb \
+      exec stridal lock-run --lane "$lane" "$lock" -- bash "$0" "$@"
   fi
   if [ -f "$(dirname "$0")/lease.sh" ]; then
     . "$(dirname "$0")/lease.sh"        # the plain-shell protocol below
     lease_run "$lock" "$lane" bash "$0" "$@" && exit 0 || exit $?
   fi
-  echo "gate: neither clauductor nor lease.sh found; running without the gate queue" >&2
+  echo "gate: neither stridal nor lease.sh found; running without the gate queue" >&2
 fi
 # ...the gate itself...
 ```
@@ -1726,7 +1726,7 @@ fi
 `lease.sh` interoperates with `lock-run` in both directions: a test extracts this block from this
 page and runs it against `lock-run`, and through the conformance suite. It sets an `EXIT` trap
 while it waits and while it holds the lease. While it holds, a background loop renews the record
-every ttl/3, and the command runs with `CLAUDUCTOR_LEASE_NONCE`; `lease_verify <lock> <pid>` then
+every ttl/3, and the command runs with `STRIDAL_LEASE_NONCE`; `lease_verify <lock> <pid>` then
 answers whether the lease is still that command's (by the nonce, or, under `lock-run`, by the
 holder's pid among the asker's ancestors). The template's `run-local.sh` asks before it writes a
 receipt, so a gate that lost its lease never records a pass. Losing the lease while the command
@@ -1737,19 +1737,19 @@ Where this machine cannot inspect processes (a sandbox that makes `ps` error and
 falls back to `kill -0`; a waiter never judges its own record; a holder whose start time cannot be
 read here is held to its heartbeat (stale once `renewed + ttl` has passed, `ttl: 0` never); every
 30 s the wait prints the holder's lane, pid, host, start, renewal and ttl; and after
-`CLAUDUCTOR_LEASE_MAX_WAIT` seconds (default 7200; 0 = none) it gives up with exit 124 and says how
+`STRIDAL_LEASE_MAX_WAIT` seconds (default 7200; 0 = none) it gives up with exit 124 and says how
 to remove the lock by hand. (The heartbeat fallback is the shell's: `lock-run` reads processes
 itself and waits.)
 
 <!-- lease.sh begin -->
 ```sh
-# clauductor lease protocol v1 in plain POSIX shell: interoperates with
-# `clauductor lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
+# stridal lease protocol v1 in plain POSIX shell: interoperates with
+# `stridal lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
 # Exit status: the command's; 75 if the wait was cancelled from the panel; 70
 # if the lease was taken away while the command ran. The holder writes a TTL
-# (CLAUDUCTOR_LEASE_TTL, default 600 s) and renews it every TTL/3; the command
-# gets CLAUDUCTOR_LEASE_NONCE, and `lease_verify` says whether it still holds.
-# 124 if the wait outlasted CLAUDUCTOR_LEASE_MAX_WAIT (default 7200 s; 0 = none).
+# (STRIDAL_LEASE_TTL, default 600 s) and renews it every TTL/3; the command
+# gets STRIDAL_LEASE_NONCE, and `lease_verify` says whether it still holds.
+# 124 if the wait outlasted STRIDAL_LEASE_MAX_WAIT (default 7200 s; 0 = none).
 # Liveness and start time need ps; without it, or where ps errors (a sandbox), kill -0 (EPERM still means alive)
 # and /proc/<pid>/stat field 22. A start time from one source is never compared
 # with one from the other, and an alive pid that cannot be verified is live. A zombie
@@ -1851,12 +1851,12 @@ lease_renew() {
   done
 }
 # lease_verify LOCK HOLDER_PID: 0 (true) when LOCK is still held for the command asking: owner.json
-# carries CLAUDUCTOR_LEASE_NONCE (lease_run exports it to its command), or, from a holder that
+# carries STRIDAL_LEASE_NONCE (lease_run exports it to its command), or, from a holder that
 # exports none (lock-run), names HOLDER_PID or one of its ancestors as pid or child_pid. A gate
 # asks before it records a pass: a run that lost its lease may have run beside another.
 lease_verify() {
   lease_valid "$1/owner.json" || return 1
-  if [ -n "${CLAUDUCTOR_LEASE_NONCE:-}" ]; then [ "$(lease_get "$1/owner.json" nonce)" = "$CLAUDUCTOR_LEASE_NONCE" ]; return; fi
+  if [ -n "${STRIDAL_LEASE_NONCE:-}" ]; then [ "$(lease_get "$1/owner.json" nonce)" = "$STRIDAL_LEASE_NONCE" ]; return; fi
   _vp=$(lease_get "$1/owner.json" pid) _vc=$(lease_get "$1/owner.json" child_pid) _va=${2:-} _vn=0
   while [ -n "$_va" ] && [ "$_va" != 0 ] && [ "$_vn" -lt 12 ]; do
     { [ "$_va" = "$_vp" ] || [ "$_va" = "$_vc" ]; } && return 0
@@ -1871,15 +1871,15 @@ lease_run() {
   _cmd=$(printf %s "$1" | tr -d '"\\')
   _w="$_lock.waiters" _nonce=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
   # The holder's TTL (default 600 s, lock-run's); renewed every TTL/3 while the command runs.
-  _ttl=${CLAUDUCTOR_LEASE_TTL:-600}; case $_ttl in '' | *[!0-9]*) _ttl=600 ;; esac
+  _ttl=${STRIDAL_LEASE_TTL:-600}; case $_ttl in '' | *[!0-9]*) _ttl=600 ;; esac
   mkdir -p "$_w"
   _rec="{\"v\":1,\"nonce\":\"$_nonce\",\"pid\":$$,\"pstart\":\"$(lease_pstart $$)\",\"host\":\"$(hostname)\",\"lane\":\"$_lane\",\"cmd\":\"$_cmd\",\"started\":$(date +%s),\"renewed\":$(date +%s),\"ttl\":$_ttl}"
   _me="$_w/$(date +%s)000000000-$_nonce.json"
   printf '%s\n' "$_rec" > "$_me.tmp" && mv "$_me.tmp" "$_me"
   trap 'rm -f "$_me" "$_w/$_nonce.cancel"' EXIT
-  # A wait is bounded (CLAUDUCTOR_LEASE_MAX_WAIT seconds, default 7200; 0 = none)
+  # A wait is bounded (STRIDAL_LEASE_MAX_WAIT seconds, default 7200; 0 = none)
   # and says every 30 s whom it waits for, so no wait is ever silent or endless.
-  _max=${CLAUDUCTOR_LEASE_MAX_WAIT:-7200}; case $_max in '' | *[!0-9]*) _max=7200 ;; esac
+  _max=${STRIDAL_LEASE_MAX_WAIT:-7200}; case $_max in '' | *[!0-9]*) _max=7200 ;; esac
   _said="" _t0=$(date +%s)
   while :; do
     if [ -e "$_w/$_nonce.cancel" ]; then echo "lease: wait cancelled from the panel" >&2; return 75; fi
@@ -1898,7 +1898,7 @@ lease_run() {
       lease_renew "$_lock" "$_nonce" "$_ttl" $$ </dev/null >/dev/null 2>&1 &
       _renewer=$!
       trap 'kill "$_renewer" 2>/dev/null || :; if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi' EXIT
-      CLAUDUCTOR_LOCK_HELD=$_lock CLAUDUCTOR_LEASE_NONCE=$_nonce "$@" && _rc=0 || _rc=$?
+      STRIDAL_LOCK_HELD=$_lock STRIDAL_LEASE_NONCE=$_nonce "$@" && _rc=0 || _rc=$?
       kill "$_renewer" 2>/dev/null || :; wait "$_renewer" 2>/dev/null || :
       if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"
       else echo "lease: LOST $_lock while the command ran (another may have run beside it)" >&2; _rc=70; fi
@@ -1922,7 +1922,7 @@ lease_run() {
       echo "lease: still waiting (${_el}s) for $_lock: held by lane $(lease_get "$_o" lane), pid $(lease_get "$_o" pid) on $(lease_get "$_o" host), started $(lease_get "$_o" started), renewed $(lease_get "$_o" renewed), ttl $(lease_get "$_o" ttl)" >&2
     fi
     if [ "$_max" -gt 0 ] && [ "$_el" -ge "$_max" ]; then
-      echo "lease: gave up after ${_el}s (CLAUDUCTOR_LEASE_MAX_WAIT=$_max) waiting for $_lock, held by pid $(lease_get "$_lock/owner.json" pid) on $(lease_get "$_lock/owner.json" host). If that holder is gone and this machine cannot inspect it, remove the lock by hand: rm -rf '$_lock'" >&2
+      echo "lease: gave up after ${_el}s (STRIDAL_LEASE_MAX_WAIT=$_max) waiting for $_lock, held by pid $(lease_get "$_lock/owner.json" pid) on $(lease_get "$_lock/owner.json" host). If that holder is gone and this machine cannot inspect it, remove the lock by hand: rm -rf '$_lock'" >&2
       return 124
     fi
     sleep 1
@@ -1940,12 +1940,12 @@ suite they must all pass: golden `owner.json` and waiter records (`cases/<case>/
 driver, `conformance.sh`, which prints TAP and exits 1 on a failure.
 
 **The kit.** The template ships the suite as it is tested here, so a project with a lease
-implementation of its own runs it from its repository, with no clauductor installed:
+implementation of its own runs it from its repository, with no stridal installed:
 `sh scripts/ci/lease-conformance/run.sh [--lock-env VAR] <impl> [args...]` (no arguments: the
 template's `lease.sh`). `run.sh` first checks the files against the sha256 in the kit's `VERSION`
 and refuses an edited suite: a case is fixed here, never in a project. After any change to the
 suite, `run.sh --sha` prints the new value for `VERSION` (`TestLeaseConformanceKitVersion` fails
-until it is there), and `clauductor update` brings it to every project.
+until it is there), and `stridal update` brings it to every project.
 
 **The interface.** An implementation waits its turn for a lease, runs a command holding it,
 releases it, and exits with the command's status (75 if its wait was cancelled). The driver hands
@@ -1955,7 +1955,7 @@ it the lock one of two ways:
 conformance.sh <impl> [impl-args...]
 #   runs  <impl> [impl-args...] <lockdir> <lane> <command> [args...]
 conformance.sh --lock-env VAR <impl> [impl-args...]
-#   runs  VAR=<lockdir> CLAUDUCTOR_LANE=<lane> <impl> [impl-args...] <command> [args...]
+#   runs  VAR=<lockdir> STRIDAL_LANE=<lane> <impl> [impl-args...] <command> [args...]
 CASES="dead-pid cancel" conformance.sh …     # some cases;  conformance.sh --list  names them all
 CONFORMANCE_WAIT=3 CONFORMANCE_TIMEOUT=20    # how long a waiter must wait, and a runnable one may take
 ```
@@ -1964,7 +1964,7 @@ The first form needs a two-line adapter (the driver's header has the ones for `l
 `lease.sh`). The second needs none: a project's own gate wrapper, whose lock is normally
 `<git common dir>/…`, runs the suite as it is once that path can be overridden by `VAR`.
 
-The command must see `CLAUDUCTOR_LOCK_HELD` equal to the lock path **exactly as it was given**:
+The command must see `STRIDAL_LOCK_HELD` equal to the lock path **exactly as it was given**:
 cleaned, never symlink-resolved. A gate script compares the two to detect re-entry, and on a
 path through a symlink (macOS's `/tmp` is one, and a git common dir can be) a resolved value never
 matches, so the script would queue behind itself. `symlinked-lock` checks it.
@@ -1995,8 +1995,8 @@ exit status, and the files left behind.
 | `malformed-waiters` | give invalid waiter files no place in the queue, and never remove them |
 | `cancel` | give up on `<nonce>.cancel`: exit 75, run nothing, remove its files, leave the holder |
 | `reclaim-race` | with three waiters meeting one dead holder, run each command exactly once, never two at a time |
-| `owner-record` | write every field of `owner.json` while it holds, with `pstart` as `ps` prints it; set `CLAUDUCTOR_LOCK_HELD`; exit with the command's status and release |
-| `symlinked-lock` | set `CLAUDUCTOR_LOCK_HELD` to a lock path through a symlink exactly as given |
+| `owner-record` | write every field of `owner.json` while it holds, with `pstart` as `ps` prints it; set `STRIDAL_LOCK_HELD`; exit with the command's status and release |
+| `symlinked-lock` | set `STRIDAL_LOCK_HELD` to a lock path through a symlink exactly as given |
 
 `TestLeaseConformance` runs it against `lock-run` and against the `lease.sh` block extracted from
 this page. The suite is falsified in the same run: two controls, one that ignores the lease and
@@ -2081,7 +2081,7 @@ current reading, and when it begins across a restart, until the panel has watche
 time: the first reading of each source after a start is a baseline that can miss a change made
 while the panel was down.
 
-**Across a restart.** `~/.clauductor/panel/<project hash>/stall.json` (0600, beside
+**Across a restart.** `~/.stridal/panel/<project hash>/stall.json` (0600, beside
 `notifier.json`) keeps each lane's and each live session's last movement and whether it was
 stalled, each waiting session's ask time, each live session's kept `Stop` fields (with each
 one-shot's resolved fire time) and the `agent_id`s of its last 64 `SubagentStop`s. It is written
@@ -2136,7 +2136,7 @@ project shows them, and the machine notifies a blocking one once.
 While a lock is live the panel starts no `claude` of its own (the gate's pause, above). A card or
 suggest command that runs `claude` shares the gate's one slot and its pause.
 
-**The log.** Every lock the panel sees is a line in `~/.clauductor/panel/login-lock.jsonl`
+**The log.** Every lock the panel sees is a line in `~/.stridal/panel/login-lock.jsonl`
 (capped at 1 MB), written when the lock goes: its path, its holder's pid and command, whether the
 holder is the panel's own `claude` call and which, when it was first seen and last modified, and
 how it ended. A holder is the panel's own only when its pid matches a call of the panel's whose
@@ -2184,7 +2184,7 @@ notification goes out for a new `block` alert (waiting, rate_limit, quota at 100
 alert marked approximate. A notification goes out:
 
 - once per stretch: an alert that clears and comes back notifies again. What was notified, and
-  when each lane last was, is saved in `~/.clauductor/panel/<project hash>/notifier.json`, so a
+  when each lane last was, is saved in `~/.stridal/panel/<project hash>/notifier.json`, so a
   panel restart never re-notifies an alert that is still active, and the daily count survives it.
   Beside it, `stall.json` keeps the stalls' clocks across a restart (*Stalled lanes*);
 - grouped: the new alerts of one lane make one notification;
@@ -2216,13 +2216,13 @@ panel run, as a macOS notification and through the push command below, with none
 rules above (no grouping, rate limit or focus). They go whatever `alerts.notify` says, but for the
 one that says a config waits for you, which the page's **Config untrusted** banner says too: no
 config in a repository may silence the notice that a merge left the checkout behind, or how to
-roll back a binary that replaced itself. Each is titled "clauductor panel" with the checkout's
+roll back a binary that replaced itself. Each is titled "stridal panel" with the checkout's
 path in its body, but for the trust notice, titled with the `name` of the config it trusted. The
 body keeps its lines (a trust notice's `+` and `−` command lines) and is cut at 600 characters;
 the push's title, at 80.
 
 **The push command (stalls and catch-up).** A Mac notification reaches nobody who is away from the
-Mac, which is when a stall matters. `~/.clauductor/panel/push.json` names a command of yours that
+Mac, which is when a stall matters. `~/.stridal/panel/push.json` names a command of yours that
 reaches your phone:
 
 ```json
@@ -2237,25 +2237,25 @@ writable by you alone, as `push.json` is) does it with `curl`:
 
 ```sh
 #!/bin/sh
-# ~/.clauductor/panel/push-ntfy.sh <title> <body>
+# ~/.stridal/panel/push-ntfy.sh <title> <body>
 exec /usr/bin/curl -fsS -H "Title: $1" -d "$2" https://ntfy.sh/my-private-topic
 ```
 
 ```json
-{"argv": ["/Users/me/.clauductor/panel/push-ntfy.sh"]}
+{"argv": ["/Users/me/.stridal/panel/push-ntfy.sh"]}
 ```
 
 and for Pushover:
 
 ```sh
 #!/bin/sh
-# ~/.clauductor/panel/push-pushover.sh <title> <body>
+# ~/.stridal/panel/push-pushover.sh <title> <body>
 exec /usr/bin/curl -fsS --form-string "token=APP_TOKEN" --form-string "user=USER_KEY" \
   --form-string "title=$1" --form-string "message=$2" https://api.pushover.net/1/messages.json
 ```
 
 ```json
-{"argv": ["/Users/me/.clauductor/panel/push-pushover.sh"]}
+{"argv": ["/Users/me/.stridal/panel/push-pushover.sh"]}
 ```
 
 - **What it sends:** the title is the notification's (`<project> · <lane>`), the body how long the
@@ -2281,7 +2281,7 @@ PANEL-19. How the work flows, what it costs, how good it is, and whether it did 
 to. The figures come from two places, and the page marks every one with which:
 
 - **The project's metrics command** (`metrics.command`, config version 4): a project command,
-  like a card's, whose stdout is the JSON below. Clauductor's operating model ships one
+  like a card's, whose stdout is the JSON below. Stridal's operating model ships one
   (`.claude/metrics.sh`, OPS-9); any project can write its own.
 - **The panel's own** (built in), for any repository, with or without the command: merge
   frequency and PR cycle time from merged pull requests (`gh`), spend from the status line's
@@ -2432,7 +2432,7 @@ the quota is the machine's). While the account's 5-hour quota is at or above it,
 economy mode, and it leaves only once the quota is **3 points below** (so a quota hovering at the
 line does not flap). A reset window, or no reading, keeps the mode as it is.
 
-**The contract: `~/.clauductor/panel/economy.json`** (0600, written atomically, and only when
+**The contract: `~/.stridal/panel/economy.json`** (0600, written atomically, and only when
 the mode switches):
 
 ```json
@@ -2441,7 +2441,7 @@ the mode switches):
 
 `since` is the unix time of the switch; `reason` the reading that switched it (off reads
 `"5-hour quota 81% < 82% (on at 85%)"`). A missing file means off. With `quota_economy` unset
-the panel writes nothing, except to turn a file an earlier run left on to off. Clauductor's
+the panel writes nothing, except to turn a file an earlier run left on to off. Stridal's
 operating model's `build-change` reads it and moves the roles that are not critical down one
 tier; which roles, and to what, is the project's `.claude/model-roles.json`:
 
@@ -2591,8 +2591,8 @@ project, the session's transcript (*Transcripts: an attached project's lanes*). 
 only from a status line, in every project: a transcript carries none. A project that wants quota,
 context % and est. $ on the panel adds this to its status-line script.
 
-`~/.clauductor/panel/port` holds the port and nothing else, because scripts read it as digits.
-The panel's PID is in `~/.clauductor/panel/pid` beside it, and `owner.json` records its start
+`~/.stridal/panel/port` holds the port and nothing else, because scripts read it as digits.
+The panel's PID is in `~/.stridal/panel/pid` beside it, and `owner.json` records its start
 time, project and port. All three are removed on a clean stop, but only while `pid` still names
 that panel: a panel never deletes another panel's files. A `pid` naming a process that is not
 running (or one with another start time) means the panel was killed and the files are stale.
@@ -2620,7 +2620,7 @@ case "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" in ''|0*|*[!0-9]*) ;; *)
   post=$(printf '%s' "$input" | jq -c --argjson w "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" \
     '. + {auto_compact_window: $w}' 2>/dev/null) && [ -n "$post" ] || post=$input ;;
 esac
-panel="$HOME/.clauductor/panel"
+panel="$HOME/.stridal/panel"
 pid=$(cat "$panel/pid" 2>/dev/null)
 case "$pid" in ''|0*|*[!0-9]*) pid= ;; esac   # digits only, not 0: kill -0 -1 and kill -0 0 always succeed
 if [ -f "$panel/port" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
@@ -2633,7 +2633,7 @@ fi
 <!-- statusline end -->
 
 `kill -0` is the cheap check a status line can afford on every refresh. The full one also compares
-the process's start time with `owner.json`'s, which is what `clauductor panel open` does before it
+the process's start time with `owner.json`'s, which is what `stridal panel open` does before it
 sends the token (see [The launchd agent](#the-launchd-agent)).
 
 ### Hooks
@@ -2643,7 +2643,7 @@ event into the **running user's** `~/.claude/settings.json`, and nowhere else:
 
 ```json
 { "type": "command", "async": true, "timeout": 10,
-  "command": "curl -s --connect-timeout 1 -m 3 -X POST -H 'Content-Type: application/json' --data-binary @- 'http://127.0.0.1:4393/hook?src=clauductor-panel' >/dev/null 2>&1; exit 0" }
+  "command": "curl -s --connect-timeout 1 -m 3 -X POST -H 'Content-Type: application/json' --data-binary @- 'http://127.0.0.1:4393/hook?src=stridal-panel' >/dev/null 2>&1; exit 0" }
 ```
 
 Why a command hook and not an HTTP hook (PANEL-23): these hooks run in **every** Claude Code
@@ -2668,7 +2668,7 @@ agent started which](#which-agent-started-which)); it answers them 204, no decis
 `SessionStart` is left out because HTTP hooks do not fire for it (Claude Code 2.1.284); new
 sessions are found through `claude agents --json`.
 
-- The panel's entries are recognised by the `src=clauductor-panel` query parameter, because Claude
+- The panel's entries are recognised by the `src=stridal-panel` query parameter, because Claude
   Code documents no free-form key for ownership. A command hook is the panel's only when its
   command is exactly the panel's command for the port in it, so a user's own hook that merely
   contains the URL is never claimed or deleted. The older HTTP form is recognised by its `url`.
@@ -2678,7 +2678,7 @@ sessions are found through `claude agents --json`.
 - The install is idempotent: a start that would change nothing does not rewrite the file.
 - A file that is not exactly one JSON object (invalid, or with trailing data) is refused and not
   touched.
-- Before the first write, the file is copied to `settings.json.clauductor-panel.bak`. That backup
+- Before the first write, the file is copied to `settings.json.stridal-panel.bak`. That backup
   is never overwritten, so it keeps the file as it was before the panel first touched it. Writes
   are atomic (temp file + rename, in the same directory). The install re-reads the file
   immediately before its rename, and redoes the edit if another writer changed it meanwhile (up
@@ -2696,7 +2696,7 @@ sessions are found through `claude agents --json`.
   valid JSON), the panel still serves, shows a red banner with the error, and retries after 1 s,
   doubling up to 30 s. Under launchd a fatal error would restart the panel every 30 s instead.
 - The hooks stay installed when the panel stops. While it is down, the connection is refused
-  at once and the session is never blocked. `clauductor panel --uninstall-hooks` removes them.
+  at once and the session is never blocked. `stridal panel --uninstall-hooks` removes them.
 
 ### How signals are read
 
@@ -2774,7 +2774,7 @@ sessions are found through `claude agents --json`.
   (`tool_response.agentId`); when a `SubagentStart` announced that same agent (`agent_id`),
   before or up to 10 s after, it is a confirmation. Three confirmations verify the version: the
   warning goes, the lists stop saying "approximate", the panel logs it, and
-  `~/.clauductor/panel/verified.json` keeps it across restarts. Until then the warning says how
+  `~/.stridal/panel/verified.json` keeps it across restarts. Until then the warning says how
   many of three it has. Two agents a `PostToolUse` names but no `SubagentStart` announces, or
   three `PostToolUse` that name no agent and no confirmation, mean the shape changed: the warning
   says what broke and the lists stay approximate until the panel is updated. It checks the
@@ -2876,27 +2876,27 @@ send requests to `127.0.0.1`.
 - **Loopback only.** The server binds `127.0.0.1:<port>` and `[::1]:<port>` (one server, one
   state) and refuses to run if either bound address is not loopback. If the port is taken on
   either address, it **exits with an error** and never falls back to another port (the hooks
-  post to a fixed URL, and `clauductor.localhost` would reach whatever holds `[::1]`). A machine
+  post to a fixed URL, and `stridal.localhost` would reach whatever holds `[::1]`). A machine
   with no IPv6 loopback at all is served on `127.0.0.1` only, and the log says so. A refused
   start (port taken, or another live panel on the machine) does not touch `settings.json` or the
   marker.
-- **The address is `http://clauductor.localhost:<port>`.** macOS and every current browser
+- **The address is `http://stridal.localhost:<port>`.** macOS and every current browser
   resolve `*.localhost` to loopback with no system change (no `/etc/hosts` entry, no port 80).
   Cookies are per host, so the token exchange happens at that name.
 - **Per-launch token.** Each start makes 32 random bytes and opens
-  `http://clauductor.localhost:<port>/?t=<token>`. The server swaps the token for an `HttpOnly;
+  `http://stridal.localhost:<port>/?t=<token>`. The server swaps the token for an `HttpOnly;
   SameSite=Strict` cookie and redirects to `/`, so the token leaves the address bar. Every route
   except `/hook`, `/status` and `/healthz` needs the cookie (401 otherwise). `/healthz` answers
   only `ok` and the panel's PID. Under launchd, the token persists in a 0600 file instead (see
   [The launchd agent](#the-launchd-agent)).
 - **DNS rebinding and cross-site requests.** `Host` must be exactly one of `127.0.0.1:<port>`,
-  `localhost:<port>`, `[::1]:<port>` and `clauductor.localhost:<port>`, plus any name in the
+  `localhost:<port>`, `[::1]:<port>` and `stridal.localhost:<port>`, plus any name in the
   config's `host_names` (each one lower-case label followed by `.localhost`), on every route. There
-  are no wildcards: `evil.localhost` and `clauductor.localhost.evil.com` are refused. Names compare
-  case-insensitively (RFC 9110), so `CLAUDUCTOR.localhost` is accepted. A `*.localhost` name
+  are no wildcards: `evil.localhost` and `stridal.localhost.evil.com` are refused. Names compare
+  case-insensitively (RFC 9110), so `STRIDAL.localhost` is accepted. A `*.localhost` name
   cannot be an attacker's DNS name, because browsers never ask DNS for it. Every state-changing
   request (every `POST`) must carry an `Origin` equal to `http://` + the `Host` of that same
-  request, so a page on `localhost` cannot drive the panel at `clauductor.localhost`, or the
+  request, so a page on `localhost` cannot drive the panel at `stridal.localhost`, or the
   reverse. No CORS headers are sent. The page is served with
   `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
 - **Content Security Policy: this origin only.** `script-src 'self'`, `font-src 'self'`,
@@ -2950,11 +2950,11 @@ send requests to `127.0.0.1`.
     minute. A terminal that hears nothing for 5 minutes (the page is hidden, asleep or gone) is
     closed with code 4000. When the page is back in view it reopens each terminal with a fresh
     ticket.
-  - **Token rotation.** `clauductor panel rotate-token` writes a new token file; `install`
+  - **Token rotation.** `stridal panel rotate-token` writes a new token file; `install`
     does too. The running agent notices within 2 s. At once, every cookie for the old token
     gets 401, every terminal closes with code 4001, every event stream ends, and every ticket
     not yet used is dropped. A terminal whose upgrade passed the cookie check just before the
-    rotation is closed the moment it registers. Then `clauductor panel open` opens the page with
+    rotation is closed the moment it registers. Then `stridal panel open` opens the page with
     the new token.
 - **Terminal output is untrusted.** xterm.js renders it to its own DOM, and the page never passes
   it to `innerHTML`. A link that a lane prints opens only on ⌘-click (Ctrl-click off a Mac), and
@@ -2971,7 +2971,7 @@ send requests to `127.0.0.1`.
   JPEG, GIF or WebP by their magic numbers; the name and `Content-Type` are ignored), and it is
   refused over 20 MB. The name the page sends only names the file: letters, digits, `_` and `-`,
   60 characters at most, with the extension the bytes are. The file is written 0600 to
-  `~/.clauductor/panel/<project hash>/uploads/<lane>/<ms>-<name>` (directories 0700), **never
+  `~/.stridal/panel/<project hash>/uploads/<lane>/<ms>-<name>` (directories 0700), **never
   into the worktree**, where it would dirty git. Its path is typed with `tmux set-buffer` and
   `paste-buffer -p` (bracketed when claude asked for it), then a space; no Enter. A lane's images
   are removed when it is stopped or forgotten, and any image older than 24 hours when the next
@@ -2987,7 +2987,7 @@ send requests to `127.0.0.1`.
   offered to remove. It carries no path, no branch name and no command; the worktree and branch
   are the lane's own, from the registry and `git worktree list`, and each is removed only if a
   check made at that moment allows it (see [Close lane](#close-lane)). Nothing is forced.
-- **The command socket** (`~/.clauductor/panel/cli.sock`, PANEL-57) is how `clauductor lane
+- **The command socket** (`~/.stridal/panel/cli.sock`, PANEL-57) is how `stridal lane
   close` reaches the panel. It is a Unix socket made with mode 0600 in the 0700 panel directory,
   so the kernel's file permissions are the credential: only your user can open it, no token is
   written, read or sent, and no browser can open a Unix socket. It serves **one route**, `POST
@@ -3025,7 +3025,7 @@ send requests to `127.0.0.1`.
   the report and the click is refused). The one trust with no click is catch-up's trust on
   arrival, only for a project you turned catch-up on for (*Catch-up*, below). **Add without
   trusting** adds a project whose commands
-  stay off, as `panel add` does. `init` creates `.clauductor/panel.json` with `O_EXCL` and never
+  stay off, as `panel add` does. `init` creates `.stridal/panel.json` with `O_EXCL` and never
   overwrites a file, a dangling symlink included. A project added or made the default live adds
   its Host names to the allow-list only once it is trusted (only the default the panel started
   with counts untrusted, as before PANEL-22). Removing never stops a lane or deletes a file, and is refused while the
@@ -3073,7 +3073,7 @@ send requests to `127.0.0.1`.
 - **Attaching and serving write nothing into the repository** (PANEL-42): see
   [Attach a repository without writing to it](#attach-a-repository-without-writing-to-it).
 - **The push command runs only from a file only you can change** (PANEL-51; *Notifications*).
-  `~/.clauductor/panel/push.json` names a program the panel runs with no shell, so it is refused,
+  `~/.stridal/panel/push.json` names a program the panel runs with no shell, so it is refused,
   never run, and a warning bar names it and why, when it is not owned by you, is writable by group
   or others, sits in a folder that is (the folder of its path and, where the file's own path is a
   symbolic link, the folder of each link's target in turn, followed one hop at a time, at most 8;
@@ -3086,8 +3086,8 @@ send requests to `127.0.0.1`.
   work), and a failed push's error keeps only the last line it printed, never its arguments.
 - **Catch-up writes your main checkout, trusts on arrival and replaces the panel's binaries, only
   where you turn it on** (OPS-118; [Catch up after a merge](#catch-up-after-a-merge)). It is off
-  for every project until `clauductor panel catch-up --project <root> on`, and its switch lives in
-  `~/.clauductor/panel/catch-up.json`, never in `panel.json`, so a repository cannot grant itself
+  for every project until `stridal panel catch-up --project <root> on`, and its switch lives in
+  `~/.stridal/panel/catch-up.json`, never in `panel.json`, so a repository cannot grant itself
   any of it; an attached project never catches up, and the switch is refused for one. With it on,
   the panel runs `git fetch` and `git merge --ff-only` in the main checkout, only to a commit
   whose every first-parent commit since HEAD is the merge commit of a pull request merged into the
@@ -3095,40 +3095,40 @@ send requests to `127.0.0.1`.
   trusted on arrival, with no click, and its new commands run before you read them: the notice
   lists them after. For the panel's own source, under launchd, it builds itself with the `go` on
   its PATH, replaces its installed binary and, when that one's build information names the same
-  module and a commit of the repository, the `clauductor` on its PATH, then restarts. The
+  module and a commit of the repository, the `stridal` on its PATH, then restarts. The
   boundary is your GitHub account, not you in person: whatever that account merges arrives
   trusted. The conditions, and what each refusal leaves, are in *Catch up after a merge*.
 - **What the panel writes to disk:**
-  - the marker `~/.clauductor/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
+  - the marker `~/.stridal/panel/port`, `pid` and `owner.json`, removed on SIGINT/SIGTERM
     while they are still its own;
-  - the command socket `~/.clauductor/panel/cli.sock` (0600, PANEL-57), removed at exit;
+  - the command socket `~/.stridal/panel/cli.sock` (0600, PANEL-57), removed at exit;
   - the hook install;
   - the lane registry;
   - the trusted config hash (with the note "trusted on arrival from #N" when catch-up trusted
     it), and the logs of queue RUNs;
-  - `catch-up.json`, only when `clauductor panel catch-up` turns a project on or off, or
+  - `catch-up.json`, only when `stridal panel catch-up` turns a project on or off, or
     `panel remove` clears the project's root (OPS-118);
   - with catch-up on, the main checkout: what git writes for `git fetch <remote> <branch>` and
     `git merge --ff-only` to the commit the panel checked (objects, refs, `FETCH_HEAD`,
     `ORIG_HEAD`, the reflog, the index, and the tracked files the merge changes), and nothing
     else in the repository;
-  - when catch-up rebuilds the panel: `~/.clauductor/panel/bin/clauductor.new` (removed when the
-    build or its checks fail), then the old binary renamed to `clauductor.prev` and the new one
-    to `clauductor`; the `clauductor` on the panel's PATH, outside `~/.clauductor`, replaced the
+  - when catch-up rebuilds the panel: `~/.stridal/panel/bin/stridal.new` (removed when the
+    build or its checks fail), then the old binary renamed to `stridal.prev` and the new one
+    to `stridal`; the `stridal` on the panel's PATH, outside `~/.stridal`, replaced the
     same way, with its own `.new` and `.prev` beside it, only when its build information names
     the same module and a commit of the repository; Go's own build and module caches, as any
-    `go build` writes them; and the marker `~/.clauductor/panel/restarted`, which the next
+    `go build` writes them; and the marker `~/.stridal/panel/restarted`, which the next
     start reads and removes;
-  - the spend ledger, `~/.clauductor/panel/<project hash>/spend.json` (0600, PANEL-19): dollars
+  - the spend ledger, `~/.stridal/panel/<project hash>/spend.json` (0600, PANEL-19): dollars
     a day by lane type, model and branch for 120 days, and each session's last total for 14 days;
   - images dropped on a lane's terminal, for at most 24 hours (`uploads/`, above);
   - `projects.json`, when a project is added (`panel add`, `panel attach`, `install --project`, a panel
     started on a project it does not list, or the page's Add a project…) or removed (`panel
     remove`, or Remove from panel…); a refused start writes nothing;
-  - a project's `.clauductor/panel.json`, only when the page's **Create this config** is pressed,
+  - a project's `.stridal/panel.json`, only when the page's **Create this config** is pressed,
     and never over a file (PANEL-22); and the trusted-config record when the page trusts one;
-  - a sidecar, `~/.clauductor/projects/<id>/panel.json` (0600, its folder 0700), only when
-    `clauductor panel attach` is run, and never over a file (PANEL-42);
+  - a sidecar, `~/.stridal/projects/<id>/panel.json` (0600, its folder 0700), only when
+    `stridal panel attach` is run, and never over a file (PANEL-42);
   - `owner.json`'s list of projects, again whenever the projects served change (PANEL-22);
   - `economy.json`, economy mode's switch, only when `quota_economy` is set (see *Economy mode*);
   - the last quota (`quota.json`, with a one-way hash of the account's organisation id, never
@@ -3179,13 +3179,13 @@ send requests to `127.0.0.1`.
 metrics command) and
 prompts it types (templates). Anyone who can change the repository can change them, so the panel
 runs them only for the exact bytes you trusted. Trusting records the file's SHA-256 under
-`~/.clauductor/panel/<project hash>/trusted-config.json`, and the panel logs the hash at every
+`~/.stridal/panel/<project hash>/trusted-config.json`, and the panel logs the hash at every
 start. A config the panel has never seen (a fresh clone, or the file `panel init` just wrote) is
 **not** trusted by running it, and neither is one that changed (a pull, say): the panel still
 starts, but its cards, queue RUN, metrics command and templates stay **off**, under a red **Config untrusted**
 banner that names the hash (and the trusted one it replaces), until you review the file and run
-`clauductor panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
-`clauductor panel install` trusts the config it installs. Both commands print the hash they
+`stridal panel trust` (a running panel follows within 5 s) or start with `--trust-config`.
+`stridal panel install` trusts the config it installs. Both commands print the hash they
 record and everything it trusts: each card's command, each queue's RUN command, each
 template's first prompt, and the metrics command.
 
@@ -3374,12 +3374,12 @@ time on a machine claude asks, in the terminal, to confirm Remote Control.
 ### One panel per machine
 
 **One panel per machine, enforced.** The hook URL in `~/.claude/settings.json`, the files in
-`~/.clauductor/panel/` (`port`, `pid`, `owner.json`, `token`) and the launchd label are all
+`~/.stridal/panel/` (`port`, `pid`, `owner.json`, `token`) and the launchd label are all
 per-machine, so a second panel (say `--port 4394` for another project) would re-point every
 session's hooks at itself. A running panel therefore holds `flock(2)` on
-`~/.clauductor/panel/lock` for its whole life; the kernel releases it on any exit, `SIGKILL`
+`~/.stridal/panel/lock` for its whole life; the kernel releases it on any exit, `SIGKILL`
 included, so it can never go stale. A panel refuses to start, and exits non-zero, while another
-process holds that lock, or while `~/.clauductor/panel/pid` names another **live** panel from
+process holds that lock, or while `~/.stridal/panel/pid` names another **live** panel from
 before the lock. Of two panels started at the same instant, exactly one runs. The message names
 the running panel's project, pid and port. Live means: the pid is running, and its start time
 equals the one recorded in `owner.json` (a different start time is a reused pid, so the old record
@@ -3388,15 +3388,15 @@ answers `/healthz` as that pid. The login agent is not refused: when a hand-star
 the machine, it logs "waiting for the running panel to exit" once, blocks on the lock, and takes
 over as soon as that panel stops. (Only a live panel from before the lock, which it cannot wait
 on, makes it log why and exit 0; start it again with `launchctl kickstart
-gui/<uid>/com.clauductor.panel` once that panel has stopped.) A panel started by hand is still
+gui/<uid>/com.stridal.panel` once that panel has stopped.) A panel started by hand is still
 refused at once. One panel serves every project (see [Projects](#projects)), so there is no
 reason for a second.
 
 ### The launchd agent
 
 ```bash
-clauductor panel install --project ~/Development/app          # add --app for a Dock/Spotlight launcher
-clauductor panel install                                      # once projects.json holds a project
+stridal panel install --project ~/Development/app          # add --app for a Dock/Spotlight launcher
+stridal panel install                                      # once projects.json holds a project
 ```
 
 `install`:
@@ -3404,21 +3404,21 @@ clauductor panel install                                      # once projects.js
 1. With `--project`, adds the project (if it is not) as the default, and trusts its config as it
    is now. Without it, `projects.json` must hold a project. Either way it loads the default
    project's config and refuses if it is missing or invalid, rather than crash-looping later.
-2. Copies the running binary to `~/.clauductor/panel/bin/clauductor`. The agent never runs from
+2. Copies the running binary to `~/.stridal/panel/bin/stridal`. The agent never runs from
    a build directory or a worktree that may disappear. Re-run `install` after upgrading
-   clauductor, unless the panel rebuilt itself after a merge (see
+   stridal, unless the panel rebuilt itself after a merge (see
    [Catch up after a merge](#catch-up-after-a-merge)): its notice says when a merge changed what
    `install` writes.
-3. Writes a new persistent token to `~/.clauductor/panel/token` (0600, directory 0700). Every
+3. Writes a new persistent token to `~/.stridal/panel/token` (0600, directory 0700). Every
    install rotates it, so reinstalling also revokes the old one.
-4. Writes `~/Library/LaunchAgents/com.clauductor.panel.plist` and checks it with `plutil -lint`.
+4. Writes `~/Library/LaunchAgents/com.stridal.panel.plist` and checks it with `plutil -lint`.
    The plist sets:
    - `RunAtLoad`;
    - `KeepAlive` with `SuccessfulExit = false`, so a crash, or the exit status 75 of a panel
      that has rebuilt itself, restarts the panel, throttled to once every 30 s, and
      `launchctl bootout` stops it for good;
    - `LimitLoadToSessionType = Aqua`;
-   - logs in `~/.clauductor/panel/logs/`;
+   - logs in `~/.stridal/panel/logs/`;
    - `LANG=en_US.UTF-8`;
    - a PATH made of `/opt/homebrew/bin`, `~/.local/bin`, the directories where `claude`,
      `tmux`, `git`, `gh`, `node`, `jq` and `go` were found at install time, and the system
@@ -3428,9 +3428,9 @@ clauductor panel install                                      # once projects.js
 5. Replaces any loaded copy (`launchctl bootout`), then runs `launchctl bootstrap gui/$UID`.
 
 Before step 1 it reads `launchctl print-disabled gui/$UID`. When launchd holds
-`com.clauductor.panel` as disabled (an old uninstall or `launchctl disable` can leave it so),
+`com.stridal.panel` as disabled (an old uninstall or `launchctl disable` can leave it so),
 every bootstrap would fail with error 5, so `install` stops there, having changed nothing, and
-names the `launchctl enable gui/$UID/com.clauductor.panel` to run before installing again. It
+names the `launchctl enable gui/$UID/com.stridal.panel` to run before installing again. It
 never runs that command itself.
 
 Then it settles **remote control** (PANEL-19, see [Remote control](#remote-control)):
@@ -3446,15 +3446,15 @@ Choose 1, 2 or 3 [3]:
 ```
 
 `--remote-control=all|lanes|off` answers without asking; with no terminal and no flag it is
-off, unasked. The answer is kept in `~/.clauductor/panel/remote-control.json` (0600), so a
+off, unasked. The answer is kept in `~/.stridal/panel/remote-control.json` (0600), so a
 later `install` does not ask again (the flag changes it). **all** merges that one key into
 `settings.json` through the same read-merge-atomic-write the hooks use (every other key keeps
 its value and place; a backup from before the panel's first change is
-`settings.json.clauductor-panel.bak`), and prints the change and how to undo it. **lanes** leaves
+`settings.json.stridal-panel.bak`), and prints the change and how to undo it. **lanes** leaves
 `settings.json` alone: every lane the panel starts or restarts runs `claude --remote-control`.
 `panel list` names the mode.
 
-Since PANEL-16 the plist runs `clauductor panel --port <port> --launchd`, from your home
+Since PANEL-16 the plist runs `stridal panel --port <port> --launchd`, from your home
 directory: the agent serves `projects.json` as it is. A plist written before names `--project
 <path>`; it keeps working, and at its first start the panel adds that project (if it is not) and
 makes it the default. Re-run `install` to write the new form.
@@ -3468,23 +3468,23 @@ Under launchd, the panel runs with `--launchd`:
   not open it again, so a crash loop cannot fill the browser with tabs.
 - Only here does the panel rebuild itself after a merge (OPS-118, see
   [Catch up after a merge](#catch-up-after-a-merge)). It swaps the new binary into
-  `~/.clauductor/panel/bin/clauductor`, keeps the one it replaced as
-  `~/.clauductor/panel/bin/clauductor.prev`, and exits with status 75, which `KeepAlive` reads as
+  `~/.stridal/panel/bin/stridal`, keeps the one it replaced as
+  `~/.stridal/panel/bin/stridal.prev`, and exits with status 75, which `KeepAlive` reads as
   a failure and restarts it from the new binary. The token file is left as it is, so the page's
-  token still works. Rolling back is moving `clauductor.prev` back over `clauductor`, then
-  `launchctl kickstart -k gui/$(id -u)/com.clauductor.panel`; the restart's notice names both.
+  token still works. Rolling back is moving `stridal.prev` back over `stridal`, then
+  `launchctl kickstart -k gui/$(id -u)/com.stridal.panel`; the restart's notice names both.
 
-`--app` also builds `~/Applications/Clauductor Panel.app`, an AppleScript applet made by
-`osacompile` that runs `clauductor panel open`. Put it in the Dock, or find it with Spotlight.
+`--app` also builds `~/Applications/Stridal Panel.app`, an AppleScript applet made by
+`osacompile` that runs `stridal panel open`. Put it in the Dock, or find it with Spotlight.
 
 ```bash
-clauductor panel open         # checks /healthz on both loopbacks, then opens http://clauductor.localhost:4393/?t=<token>
-clauductor panel uninstall    # bootout, then remove everything the agent owns
+stridal panel open         # checks /healthz on both loopbacks, then opens http://stridal.localhost:4393/?t=<token>
+stridal panel uninstall    # bootout, then remove everything the agent owns
 ```
 
 `open` sends the token only to the panel it expects. `/healthz` answers `ok pid=<pid>`, and
-`open` compares that with `~/.clauductor/panel/pid` on **both** `127.0.0.1` and `[::1]`, because
-the browser resolves `clauductor.localhost` to `::1` first. On a mismatch at either address it
+`open` compares that with `~/.stridal/panel/pid` on **both** `127.0.0.1` and `[::1]`, because
+the browser resolves `stridal.localhost` to `::1` first. On a mismatch at either address it
 refuses rather than hand the token to whatever holds the port. If nothing listens on `[::1]`, it
 opens `http://127.0.0.1:<port>/` instead.
 
@@ -3496,12 +3496,12 @@ the panel's own source. With catch-up on for a project, the panel does all three
 merge of a pull request from your own GitHub account, and says what it could not do.
 
 ```bash
-clauductor panel catch-up --project ~/Development/app on    # off turns it off
-clauductor panel catch-up --project ~/Development/app       # prints on or off
+stridal panel catch-up --project ~/Development/app on    # off turns it off
+stridal panel catch-up --project ~/Development/app       # prints on or off
 ```
 
 **The switch** is this machine's, per project, and off until you turn it on. It is kept in
-`~/.clauductor/panel/catch-up.json` (`{"roots": [...]}`, the projects' repository roots), never in
+`~/.stridal/panel/catch-up.json` (`{"roots": [...]}`, the projects' repository roots), never in
 `panel.json`: a repository must not be able to grant itself writes to your checkout and trust on
 arrival, and a `catch_up` key there fails the config's load. A running panel reads the file at
 each trigger, so turning it on or off takes effect with no restart; an unreadable file reads as off
@@ -3543,7 +3543,7 @@ and 6 minutes after the first such refusal, then waits for the next trigger; eve
 (the checkout's state, a commit that fails the check, git's own refusal) waits for the next trigger.
 
 **Trust on arrival.** When the fast-forward from A to B changed the project's in-repository
-`.clauductor/panel.json`, the panel trusts the new bytes itself, the second way a config is
+`.stridal/panel.json`, the panel trusts the new bytes itself, the second way a config is
 trusted (*Config trust*), when all of these hold:
 
 - the config it had loaded was trusted, and its bytes are the file's blob at A;
@@ -3597,15 +3597,15 @@ update it:
 - `git status --porcelain` in the main checkout prints nothing, untracked files included, since
   Go would stamp the new build modified and the next merge could not rebuild it.
 
-It runs `go build -o ~/.clauductor/panel/bin/clauductor.new ./cmd/clauductor` in
+It runs `go build -o ~/.stridal/panel/bin/stridal.new ./cmd/stridal` in
 `<root>/framework`, with `go` from its PATH and a 5-minute limit; the build writes nothing in the
 repository. The new binary must then name the same module, `vcs.revision` B and `vcs.modified`
 false; its `version` and `panel list` must exit 0; and, when the merge changed `panel.json`, its
 `panel config-check --config <file>` must load the file. Then the installed binary is renamed to
-`clauductor.prev` and the new one renamed into its place. The `clauductor` on the panel's PATH is
+`stridal.prev` and the new one renamed into its place. The `stridal` on the panel's PATH is
 replaced the same way, keeping its own `.prev`, only when its build information names the same
 module and a commit of the repository. The token, the plist and the hooks are not touched: the
-panel does not run `clauductor panel install`, which would rotate the token and sign every open
+panel does not run `stridal panel install`, which would rotate the token and sign every open
 page out. A failed build or check leaves the running binary and no `.new` file, and one notice
 names the error.
 
@@ -3613,12 +3613,12 @@ names the error.
 pass, then sends the notice naming the old and new commits and the rollback:
 
 ```bash
-mv ~/.clauductor/panel/bin/clauductor.prev ~/.clauductor/panel/bin/clauductor
-launchctl kickstart -k gui/$(id -u)/com.clauductor.panel
+mv ~/.stridal/panel/bin/stridal.prev ~/.stridal/panel/bin/stridal
+launchctl kickstart -k gui/$(id -u)/com.stridal.panel
 ```
 
 When `R..B` changed `install/launchd.go` or `install/hooks.go` (what `panel install` writes
-besides the binary), the notice also says to run `clauductor panel install` once. The panel records
+besides the binary), the notice also says to run `stridal panel install` once. The panel records
 a browser open, so the restart opens no tab, and exits with status 75; launchd starts the new
 binary (*The launchd agent*), whose first start sends "The panel is now running <commit>". The
 panel does not roll back on its own: the binary that would judge the new one is the one replaced.
@@ -3628,12 +3628,12 @@ and its notice says so.
 
 **The notices.** Every catch-up notice goes as a macOS notification and through your push command
 (*Notifications*), whatever `alerts.notify` says, but for the one that says a config waits for
-you. Each is titled "clauductor panel" and names the checkout's path, but for the trust notice,
+you. Each is titled "stridal panel" and names the checkout's path, but for the trust notice,
 titled with the config's `name`.
 
 ### Uninstall
 
-`clauductor panel uninstall` removes:
+`stridal panel uninstall` removes:
 
 - the plist, the token and the copied binary;
 - the logs, `pid`, `port`, `owner.json` and the browser-opened stamp;
@@ -3642,7 +3642,7 @@ titled with the config's `name`.
 
 A registry that still lists lanes is kept, and `uninstall` says so: those lanes may still run in
 tmux, and Resume needs their session ids. It never touches lanes. The panel's hooks stay in
-`~/.claude/settings.json`; `clauductor panel --uninstall-hooks` removes them.
+`~/.claude/settings.json`; `stridal panel --uninstall-hooks` removes them.
 
 ### Dependencies
 
@@ -3659,7 +3659,7 @@ To update a vendored file, download it with `npm pack <package>@<version>`, copy
 
 ## Troubleshooting
 
-**Run `clauductor doctor` first**, from the project's checkout (a lane's worktree reads the main
+**Run `stridal doctor` first**, from the project's checkout (a lane's worktree reads the main
 checkout). On macOS it reports whether the panel is installed, running and the build you installed,
 whether the registry lists the project, whether its config loads and whether it is trusted, and
 prints the command that fixes each problem. It changes nothing and runs none of the fixes. The
@@ -3669,13 +3669,13 @@ entries below explain what each problem means.
 
 The lanes are not affected: they run in tmux whether or not the panel is up.
 
-1. `clauductor panel open` tells you whether the panel answers on its port.
-2. Restart it with `launchctl kickstart -k gui/$(id -u)/com.clauductor.panel`. See its state with
-   `launchctl print gui/$(id -u)/com.clauductor.panel`.
-3. Read `~/.clauductor/panel/logs/panel.err.log`. The usual causes are a port another process
+1. `stridal panel open` tells you whether the panel answers on its port.
+2. Restart it with `launchctl kickstart -k gui/$(id -u)/com.stridal.panel`. See its state with
+   `launchctl print gui/$(id -u)/com.stridal.panel`.
+3. Read `~/.stridal/panel/logs/panel.err.log`. The usual causes are a port another process
    holds, or a config that moved. In both cases the log says which.
-4. To reach a lane with no panel, run `tmux -L <socket> ls` (the project's socket: `clauductor
-   panel list` names it; `clauductor` for the first project), then
+4. To reach a lane with no panel, run `tmux -L <socket> ls` (the project's socket: `stridal
+   panel list` names it; `stridal` for the first project), then
    `tmux -L <socket> attach -t '=<lane>'`. Quote the target, because zsh expands a bare
    `=word`. The panel's socket has no prefix key (see [Security model](#security-model)), so close
    the window to detach; the lane keeps running.
@@ -3684,7 +3684,7 @@ The lanes are not affected: they run in tmux whether or not the panel is up.
 
 ### The panel will not start
 
-- **"no panel config at …"**: the project has no `.clauductor/panel.json`; `clauductor panel
+- **"no panel config at …"**: the project has no `.stridal/panel.json`; `stridal panel
   init` writes one.
 - **"unknown field"**: a misspelt or unsupported key. Check it against the [key table](#keys), or
   let an editor check it against `$schema`.
@@ -3698,7 +3698,7 @@ The lanes are not affected: they run in tmux whether or not the panel is up.
 ### Cards, RUN and templates do nothing
 
 The config is not trusted as it is now (never trusted, or changed since): a red **CONFIG
-UNTRUSTED** banner says which. Review it and run `clauductor panel trust` (see
+UNTRUSTED** banner says which. Review it and run `stridal panel trust` (see
 [Config trust](#config-trust)).
 
 ### A lane dies at start
@@ -3716,7 +3716,7 @@ loaded the hooks. Restart it.
 ### The page shows no context % or quota
 
 Only the status line carries the quota, in every project: add the
-[status-line snippet](#the-status-line). It posts nothing while `~/.clauductor/panel/pid` names no
+[status-line snippet](#the-status-line). It posts nothing while `~/.stridal/panel/pid` names no
 live process. Context % comes from a session in the project; the quota from any session on the
 machine. An attached project's lanes are measured from their transcripts instead (*Transcripts: an
 attached project's lanes*). There, a lane launched with a context window shows its context % with
@@ -3729,7 +3729,7 @@ quota*).
 
 ### Never kill the panel's tmux server from a script
 
-Every lane lives in one tmux server per socket (`tmux -L clauductor`). The server outlives the
+Every lane lives in one tmux server per socket (`tmux -L stridal`). The server outlives the
 panel on purpose, as an orphan (its parent is pid 1), and killing it kills every lane at once.
 A cleanup script that kills orphaned processes by what their command line names did exactly
 that: until PANEL-15 the server was started by the first lane's `new-session`, and a tmux server
@@ -3738,7 +3738,7 @@ keeps, for life, the command line of the command that started it, which named th
 <socket> -f /dev/null start-server`, in your home directory, so its command line names no
 worktree (a test checks it). A server started by an older panel keeps its old command line until
 it next starts. Still: never kill tmux servers, or any process whose command line names `tmux`,
-from a script; stop a lane from the page (**Stop lane**), or with `tmux -L clauductor
+from a script; stop a lane from the page (**Stop lane**), or with `tmux -L stridal
 kill-session -t '=<lane>'` for that lane alone.
 
 ### A lease never frees
@@ -3747,7 +3747,7 @@ A waiter that keeps waiting behind a holder is doing its job while the holder li
 shows the holder's lane, pid and age. A holder whose pid was reused and that recorded no start
 time cannot be told from a live one, so nothing removes it by itself. Check the holder with
 `ps -p <pid>`; if it is not the gate, remove the lock directory (`rm -rf <git common
-dir>/clauductor/gate.lock`) and the next waiter goes.
+dir>/stridal/gate.lock`) and the next waiter goes.
 
 ## Testing
 
@@ -3791,7 +3791,7 @@ The rules the suite keeps, and a new test must too:
 - **Wait on the condition, with a generous, scaled deadline.** Every wait goes through
   `internal/testwait` (`For`, `Scale`): a passing test never reaches its deadline, so a long
   one costs nothing, and a short one fails on a loaded machine (several gates at once) where
-  nothing is wrong. `CLAUDUCTOR_TEST_SLOW=<factor>` multiplies every deadline; CI sets 2.
+  nothing is wrong. `STRIDAL_TEST_SLOW=<factor>` multiplies every deadline; CI sets 2.
   A duration the panel itself acts on (`FastExit`) is not a deadline unless the test needs
   the event to happen within it.
 - **Run in parallel.** Every test that has its own temp `HOME`, tmux socket and port (`:0`)

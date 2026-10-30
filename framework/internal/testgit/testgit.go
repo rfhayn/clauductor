@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/treesnap"
+	"github.com/rfhayn/stridal/internal/treesnap"
 )
 
 // Path is git as found when the test binary started, before any test put a stand-in first on

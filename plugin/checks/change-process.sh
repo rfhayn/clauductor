@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The change process's steps are wired where they run, not only described (AGENTS.md rule 4: a
 # delegation target is a named thing). Each line below is a step a skill, a workflow or a lane
 # template must carry; removing it from there fails this check. The steps' own behaviour is
@@ -7,10 +7,10 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 need jq
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/modules.sh" || { fail "cannot read .claude/lib/modules.sh, so merge-pr's fragments cannot be listed"; finish; }
+. "$STRIDAL_FW/lib/modules.sh" || { fail "cannot read .claude/lib/modules.sh, so merge-pr's fragments cannot be listed"; finish; }
 
 has() {  # has FILE FIXED-TEXT WHAT
-  _f="$ROOT/$1"; case $1 in .claude/*) [ -e "$_f" ] || _f="$CLAUDUCTOR_FW/${1#.claude/}" ;; esac
+  _f="$ROOT/$1"; case $1 in .claude/*) [ -e "$_f" ] || _f="$STRIDAL_FW/${1#.claude/}" ;; esac
   if grep -qF -- "$2" "$_f" 2>/dev/null; then ok "$3 ($1)"; else fail "$1 no longer carries: $3 (looked for '$2')"; fi
 }
 
@@ -18,7 +18,7 @@ has() {  # has FILE FIXED-TEXT WHAT
 has .claude/skills/propose/SKILL.md "## The fast path" "propose states the fast path"
 has "$PLAYBOOK" "fast path" "the playbook states the fast path"
 for t in fix ops; do
-  title=$(jq -r --arg t "$t" '.templates[] | select(.id == $t) | .title' "$ROOT/.clauductor/panel.json" 2>/dev/null)
+  title=$(jq -r --arg t "$t" '.templates[] | select(.id == $t) | .title' "$ROOT/.stridal/panel.json" 2>/dev/null)
   case "$title" in *"fast path"*) ok "the $t lane template's title offers the fast path" ;; *) fail "the $t lane template's title does not mention the fast path: '$title'" ;; esac
 done
 
@@ -38,7 +38,7 @@ has .claude/workflows/build-change.js 'QUICK = CFG.quickFlags' "build-change run
 has .claude/agents/builder.md '## Decision log' "the builder agent keeps the Decision log"
 
 # Verify (D7): in build-change and in merge-pr.
-has .claude/workflows/build-change.js 'clauductor-model verify-change.sh' "build-change runs the verify step"
+has .claude/workflows/build-change.js 'stridal-model verify-change.sh' "build-change runs the verify step"
 has .claude/skills/merge-pr/SKILL.md 'verify-change' "merge-pr runs the verify step"
 
 # Approval (D8): recorded with the design's hash.
@@ -76,9 +76,9 @@ step5_allowed() {  # every code span step 5 may name, as "<part> <span>"; parts 
 intro worktree
 intro git worktree list --porcelain
 intro main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
-intro if cu=$(clauductor panel catch-up --project "$main" 2>/dev/null) && [ "$cu" = on ]; then echo on; else echo off; fi
+intro if cu=$(stridal panel catch-up --project "$main" 2>/dev/null) && [ "$cu" = on ]; then echo on; else echo off; fi
 intro on
-intro clauductor
+intro stridal
 intro panel catch-up
 on panel.json
 on git fetch origin main
@@ -93,9 +93,9 @@ owner git pull --ff-only
 report reportTo
 report framework/
 report ./install.sh
-report clauductor panel install
-report .clauductor/panel.json
-report clauductor panel trust
+report stridal panel install
+report .stridal/panel.json
+report stridal panel trust
 EOF
 }
 merge_pr_cmds() {  # the git and gh commands merge-pr may run outside step 5, none of them a pull
@@ -305,8 +305,8 @@ step5() {  # step5 SKILL.md: prints each rule step 5 breaks, one per line; nothi
   [ -n "$_s" ] || { echo "it has no step 5"; return; }
   printf '%s\n' "$_s" | grep -qF 'git worktree list --porcelain' ||
     echo "it no longer finds the main checkout from git worktree list --porcelain"
-  printf '%s\n' "$_s" | grep -qF 'clauductor panel catch-up --project' ||
-    echo "it no longer asks clauductor panel catch-up --project"
+  printf '%s\n' "$_s" | grep -qF 'stridal panel catch-up --project' ||
+    echo "it no longer asks stridal panel catch-up --project"
   printf '%s\n' "$_s" | grep -qF 'exits 0 and prints `on`' ||
     echo "it no longer counts catch-up on only when the command exits 0 and prints on"
   for _b in 'on Catch-up on:' 'main Catch-up off, run from the main checkout itself' \
@@ -361,7 +361,7 @@ step5_fragments() {  # step5_fragments SKILL.md: "<fragment>: <rule>" for each r
     done
   done
 }
-_skill="$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md"
+_skill="$STRIDAL_FW/skills/merge-pr/SKILL.md"
 _why=$(step5 "$_skill")
 if [ -z "$_why" ]; then
   ok "merge-pr pulls the main checkout only in step 5, from the main checkout itself, and only with catch-up off (skills/merge-pr/SKILL.md, read whole)"
@@ -402,7 +402,7 @@ _red() {  # _red WHAT SED-SCRIPT OBJECTION: step5 on the edited copy says OBJECT
 _red "a root not from the porcelain list" 's/git worktree list --porcelain/git worktree list/g' \
   "no longer finds the main checkout"
 _red "a catch-up question without the project" \
-  's/clauductor panel catch-up --project/clauductor panel catch-up/g' "no longer asks clauductor panel"
+  's/stridal panel catch-up --project/stridal panel catch-up/g' "no longer asks stridal panel"
 _red "a looser test of on" 's/exits 0 and prints `on`/prints `on`/' "exits 0 and prints on"
 _red "a branch gone" 's/^- \*\*Catch-up off, from a lane:\*\*/- **From a lane:**/' \
   "has no branch '- **Catch-up off, from a lane:**'"
@@ -439,7 +439,7 @@ _red "a bullet shaped like the owner's pull between the branches" \
 - `git pull --ff-only`, unless step 5 pulled: with catch-up on, run it in the main checkout too.
 ' "between or after the branches names \`git pull --ff-only\`"
 _red "the main-checkout branch again after the owner's list" \
-  '/^- after a change to `\.clauductor\/panel\.json`/a\
+  '/^- after a change to `\.stridal\/panel\.json`/a\
 - **Catch-up off, run from the main checkout itself** again: `git pull --ff-only origin main`.
 ' "owner's step outside its pull bullet names \`git pull --ff-only origin main\`"
 _red "a branch heading twice, naming nothing" '/^\*\*The owner.s step, in your report\.\*\*/i\

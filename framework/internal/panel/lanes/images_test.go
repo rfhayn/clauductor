@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/leakcheck"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/leakcheck"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // PANEL-15b: a dropped file is an image by its bytes, whatever it is called, and its

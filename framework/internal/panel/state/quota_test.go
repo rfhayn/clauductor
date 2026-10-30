@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 func post(sid, cwd string, windows map[string]float64) signals.StatusPayload {

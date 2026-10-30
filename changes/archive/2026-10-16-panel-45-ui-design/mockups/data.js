@@ -2161,7 +2161,7 @@ window.PANEL_DATA = {
         {
           "id": "gate",
           "title": "Gate",
-          "lock": "~/dev/alpha/.git/clauductor/gate.lock",
+          "lock": "~/dev/alpha/.git/stridal/gate.lock",
           "hasCommand": false,
           "held": false,
           "waiters": []
@@ -2220,7 +2220,7 @@ window.PANEL_DATA = {
         "trusted": true,
         "hash": "446fa0f183dd48c70f926c48cce4f6731e0e693a3b66b03e9bebaa4cb91ddc40",
         "prev": "446fa0f183dd48c70f926c48cce4f6731e0e693a3b66b03e9bebaa4cb91ddc40",
-        "path": "~/dev/alpha/.clauductor/panel.json"
+        "path": "~/dev/alpha/.stridal/panel.json"
       },
       "warnings": [],
       "warningItems": [],
@@ -2544,7 +2544,7 @@ window.PANEL_DATA = {
         "trusted": true,
         "hash": "8d9dd59edb701b97860c27773b35ce2cd85a9bedbec0f160ddad975577383296",
         "prev": "8d9dd59edb701b97860c27773b35ce2cd85a9bedbec0f160ddad975577383296",
-        "path": "~/dev/beta/.clauductor/panel.json"
+        "path": "~/dev/beta/.stridal/panel.json"
       },
       "warnings": [],
       "warningItems": [],
@@ -2628,7 +2628,7 @@ window.PANEL_DATA = {
           "source": {
             "ok": false,
             "pending": false,
-            "error": "not run: panel.json changed since you trusted it; run `clauductor panel trust`",
+            "error": "not run: panel.json changed since you trusted it; run `stridal panel trust`",
             "at": 1792064093924
           }
         }
@@ -2636,12 +2636,12 @@ window.PANEL_DATA = {
       "prs": [],
       "feed": [],
       "banners": [
-        "panel.json is not trusted yet (sha256 d6f62641d9f6). Its commands (cards, queue RUN) and templates are off until you review it and run `clauductor panel trust` (or restart with --trust-config)."
+        "panel.json is not trusted yet (sha256 d6f62641d9f6). Its commands (cards, queue RUN) and templates are off until you review it and run `stridal panel trust` (or restart with --trust-config)."
       ],
       "bannerItems": [
         {
           "kind": "untrusted",
-          "text": "panel.json is not trusted yet (sha256 d6f62641d9f6). Its commands (cards, queue RUN) and templates are off until you review it and run `clauductor panel trust` (or restart with --trust-config)."
+          "text": "panel.json is not trusted yet (sha256 d6f62641d9f6). Its commands (cards, queue RUN) and templates are off until you review it and run `stridal panel trust` (or restart with --trust-config)."
         }
       ],
       "agentsReadAt": 1792064139435,
@@ -2748,7 +2748,7 @@ window.PANEL_DATA = {
       "trust": {
         "trusted": false,
         "hash": "d6f62641d9f685271fb5043eb39d1b680b2dd566e7d90a66d32e0edcf6533ff1",
-        "path": "~/dev/zeta/.clauductor/panel.json"
+        "path": "~/dev/zeta/.stridal/panel.json"
       },
       "warnings": [],
       "warningItems": [],

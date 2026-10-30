@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The ci-status module's own check, run by checks/run.sh only while the module is on:
 #   - every context publish-status.sh posts is in GATE_DISPLAY_CONTEXTS, so the merge guard ignores
 #     it both ways (the publisher refuses any other, so a missing one is a status never drawn);

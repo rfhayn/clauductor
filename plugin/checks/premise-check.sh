@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The premise-check module (.claude/modules/premise-check), tested whether it is on or not, in
 # throwaway repositories (no network: an issue fixture and a stub gh). Standing Tee's vitest suite
 # for infra/premise-check.mjs and merge-guard rule 6, ported case for case:
@@ -18,7 +18,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 need git jq
 
-M="$CLAUDUCTOR_FW/modules/premise-check"
+M="$STRIDAL_FW/modules/premise-check"
 S="$M/premise-check.sh"
 d=$(scratch)
 has() {  # has WANT(yes|no) NEEDLE HAYSTACK LABEL
@@ -173,10 +173,10 @@ EOF
 # --- the guard rule, through the real merge guard -------------------------------------------------
 G="$d/app"; new_repo "$G"
 mkdir -p "$G/.claude/hooks/lib" "$G/.claude/lib" "$G/.claude/modules" "$G/docs" "$d/bin"
-cp "$CLAUDUCTOR_FW/hooks/pr-merge-guard.sh" "$G/.claude/hooks/"
-cp "$CLAUDUCTOR_FW/hooks/lib/"* "$G/.claude/hooks/lib/"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/evals.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$G/.claude/lib/"
-cp "$CLAUDUCTOR_FW/scenario-trace.sh" "$G/.claude/"
+cp "$STRIDAL_FW/hooks/pr-merge-guard.sh" "$G/.claude/hooks/"
+cp "$STRIDAL_FW/hooks/lib/"* "$G/.claude/hooks/lib/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/evals.sh" "$STRIDAL_FW/lib/modules.sh" "$G/.claude/lib/"
+cp "$STRIDAL_FW/scenario-trace.sh" "$G/.claude/"
 cp -R "$M" "$G/.claude/modules/premise-check"
 printf 'MODULES="premise-check"\n' > "$G/.claude/project.conf"
 printf '# Journal\n\n## Session 1 — 2026-01-01 — a — start\n' > "$G/docs/development-journal.md"
@@ -379,22 +379,22 @@ printf 'MODULES=""\n' > "$G/.claude/project.conf"
 merge 0 "a fix/ PR with no receipt while the module is OFF (the rule is the module's)" "Fixes the closed card."
 
 # --- enable.sh: the panel's fix lane --------------------------------------------------------------
-E="$d/proj"; new_repo "$E"; mkdir -p "$E/.claude/modules" "$E/.clauductor"
+E="$d/proj"; new_repo "$E"; mkdir -p "$E/.claude/modules" "$E/.stridal"
 cp -R "$M" "$E/.claude/modules/premise-check"
-jq -n '{templates: [{id: "fix", lane_type: "fix", first_prompt: "Fix GitHub issue {issue}."}, {id: "ops", lane_type: "ops", first_prompt: "Ops."}]}' > "$E/.clauductor/panel.json"
+jq -n '{templates: [{id: "fix", lane_type: "fix", first_prompt: "Fix GitHub issue {issue}."}, {id: "ops", lane_type: "ops", first_prompt: "Ops."}]}' > "$E/.stridal/panel.json"
 out=$(cd "$E" && sh .claude/modules/premise-check/enable.sh --check 2>&1); rc=$?
 [ "$rc" = 1 ] && has yes "FAIL the fix lane template(s) fix" "$out" "enable.sh --check: a fix lane without the check fails" || fail "enable.sh --check: a fix lane without the check fails: it passed: $out"
 (cd "$E" && sh .claude/modules/premise-check/enable.sh >/dev/null 2>&1)
-p=$(jq -r '.templates[0].first_prompt' "$E/.clauductor/panel.json")
+p=$(jq -r '.templates[0].first_prompt' "$E/.stridal/panel.json")
 has yes "Fix GitHub issue {issue}. Before fixing, run the premise check, sh $PC {issue}" "$p" "enable.sh: the fix lane's prompt runs the check first, with the command as typed at the root"
-has no "premise" "$(jq -r '.templates[1].first_prompt' "$E/.clauductor/panel.json")" "enable.sh: ...and no other lane's prompt changes"
+has no "premise" "$(jq -r '.templates[1].first_prompt' "$E/.stridal/panel.json")" "enable.sh: ...and no other lane's prompt changes"
 (cd "$E" && sh .claude/modules/premise-check/enable.sh >/dev/null 2>&1)
-[ "$(jq -r '.templates[0].first_prompt' "$E/.clauductor/panel.json")" = "$p" ] && ok "enable.sh: a second run changes nothing" || fail "enable.sh: a second run changes nothing: it added the sentence again"
+[ "$(jq -r '.templates[0].first_prompt' "$E/.stridal/panel.json")" = "$p" ] && ok "enable.sh: a second run changes nothing" || fail "enable.sh: a second run changes nothing: it added the sentence again"
 # Two fix lanes, one already running the check: only the other gains the sentence.
-jq --arg p "$p" '.templates += [{id: "fix2", lane_type: "fix", first_prompt: "Fix {issue} quickly."}]' "$E/.clauductor/panel.json" > "$d/panel2" && mv "$d/panel2" "$E/.clauductor/panel.json"
+jq --arg p "$p" '.templates += [{id: "fix2", lane_type: "fix", first_prompt: "Fix {issue} quickly."}]' "$E/.stridal/panel.json" > "$d/panel2" && mv "$d/panel2" "$E/.stridal/panel.json"
 (cd "$E" && sh .claude/modules/premise-check/enable.sh >/dev/null 2>&1)
-n1=$(jq -r '.templates[0].first_prompt' "$E/.clauductor/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
-n2=$(jq -r '.templates[2].first_prompt' "$E/.clauductor/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
+n1=$(jq -r '.templates[0].first_prompt' "$E/.stridal/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
+n2=$(jq -r '.templates[2].first_prompt' "$E/.stridal/panel.json" | grep -o 'Before fixing' | wc -l | tr -d ' ')
 [ "$n1:$n2" = "1:1" ] && ok "enable.sh: a lane that already runs the check is left alone while another gains it" \
   || fail "enable.sh: a lane that already runs the check is left alone while another gains it: counts $n1:$n2"
 out=$(cd "$E" && sh .claude/modules/premise-check/enable.sh --check 2>&1) && has yes "ok   every fix lane" "$out" "enable.sh --check: passes once the fix lane runs it" || fail "enable.sh --check: passes once the fix lane runs it: it did not: $out"

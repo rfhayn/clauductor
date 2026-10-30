@@ -9,7 +9,7 @@
 
 ## Problem Statement
 
-Today, clauductor workers must explicitly lock files via `/claim` or `clauductor lock` before editing them. In practice, workers often skip this step — they start editing files without locking, creating race conditions when multiple workers are active. The existing `lock-guard.sh` hook only **warns** when a file is already locked by another worker; it doesn't prevent the edit or auto-lock for the current worker.
+Today, stridal workers must explicitly lock files via `/claim` or `stridal lock` before editing them. In practice, workers often skip this step — they start editing files without locking, creating race conditions when multiple workers are active. The existing `lock-guard.sh` hook only **warns** when a file is already locked by another worker; it doesn't prevent the edit or auto-lock for the current worker.
 
 **Joe's law of orchestration**: If a worker CAN edit a file without locking it first, it eventually WILL.
 
@@ -73,7 +73,7 @@ New behavior:
 PreToolUse(Edit/Write) → 
   1. Derive worker ID (git branch + $USER)
   2. Check if worker is registered (skip if not — non-orchestrated session)
-  3. Call `clauductor auto-lock --worker-id <id> --file <path>`
+  3. Call `stridal auto-lock --worker-id <id> --file <path>`
      - File unlocked → lock it, return success
      - File locked by same worker → no-op, return success  
      - File locked by other worker → return BLOCK with error message
@@ -85,7 +85,7 @@ PreToolUse(Edit/Write) →
 FILE_PATH=$(echo "$HOOK_INPUT" | jq -r '.input.file_path // empty')
 ```
 
-### 2. New CLI Command: `clauductor auto-lock`
+### 2. New CLI Command: `stridal auto-lock`
 
 **File**: `framework/internal/cmd/auto_lock.go`
 
@@ -141,12 +141,12 @@ Auto-lock events should be logged but throttled to avoid noise:
 ### 4. Unlock Mechanism
 
 Existing unlock paths remain:
-- `clauductor deregister --worker-id <id>` — releases all locks (existing)
-- `clauductor unlock --worker-id <id>` — releases all locks for worker (existing)
-- `clauductor unlock --file <path>` — releases specific file lock (existing)
+- `stridal deregister --worker-id <id>` — releases all locks (existing)
+- `stridal unlock --worker-id <id>` — releases all locks for worker (existing)
+- `stridal unlock --file <path>` — releases specific file lock (existing)
 - `/release` skill — calls deregister (existing)
 
-**New**: Add `clauductor unlock --auto` flag that releases all auto-acquired locks for the current derived worker ID (convenience for sessions that don't use `/release`).
+**New**: Add `stridal unlock --auto` flag that releases all auto-acquired locks for the current derived worker ID (convenience for sessions that don't use `/release`).
 
 ### 5. Settings.json Hook Registration
 
@@ -181,16 +181,16 @@ This replaces the current `lock-guard.sh` registration (if present).
 
 ## Migration Path
 
-1. Add `auto-lock` command to clauductor binary
+1. Add `auto-lock` command to stridal binary
 2. Replace `lock-guard.sh` with `auto-lock.sh` in template
-3. Run `clauductor update` in existing projects to sync new hook
+3. Run `stridal update` in existing projects to sync new hook
 4. Existing `/claim` workflows continue to work — auto-lock is additive
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `clauductor auto-lock --worker-id X --file Y` acquires lock atomically
+- [ ] `stridal auto-lock --worker-id X --file Y` acquires lock atomically
 - [ ] Same worker re-locking same file is a no-op (exit 0)
 - [ ] Different worker locking same file returns conflict (exit 1) with clear JSON
 - [ ] PreToolUse hook on Edit/Write calls auto-lock before allowing edit
@@ -202,7 +202,7 @@ This replaces the current `lock-guard.sh` registration (if present).
 - [ ] Blocked events always logged
 - [ ] Hook execution < 100ms
 - [ ] Existing `/claim`, `lock`, `unlock`, `deregister` commands unaffected
-- [ ] `clauductor update` syncs new hook to existing projects
+- [ ] `stridal update` syncs new hook to existing projects
 
 ---
 

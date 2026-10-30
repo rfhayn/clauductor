@@ -62,10 +62,10 @@ started from the panel's **New lane** (or by hand), on one branch:
 
   `.git/config` and `.git/hooks` are denied to every sandboxed command.
   - **A lane that is an agent of the main session** brings its own hooks and skills along inside
-    the sandbox: a rebase, a merge, or `CLAUDUCTOR_FRAMEWORK=$PWD framework/clauductor update` with
+    the sandbox: a rebase, a merge, or `STRIDAL_FRAMEWORK=$PWD framework/stridal update` with
     the binary built from the lane's checkout (the owner's shell sets that variable to the MAIN
     checkout, and it outranks the binary's own checkout in the template search). That was seen to
-    work on 2026-10-28, though these commands match the `git *` and `clauductor *` entries below;
+    work on 2026-10-28, though these commands match the `git *` and `stridal *` entries below;
     what those entries do is #307's.
   - **A lane that is its own session** cannot: ST-15's launcher will have the opening session sync
     it. Until that exists, the owner syncs such a lane by hand, as before for a panel lane (the
@@ -78,9 +78,9 @@ started from the panel's **New lane** (or by hand), on one branch:
   - **No sync or agents step runs a lane's files outside the sandbox.** A lane can edit every file
     in its worktree, so an unsandboxed run of a script, a build or a config there runs whatever the
     lane wrote (#304, closed for that). A plain `git rebase` or `git merge`, or the INSTALLED
-    `clauductor update`, runs no file the lane wrote. A binary built from the lane's checkout does,
+    `stridal update`, runs no file the lane wrote. A binary built from the lane's checkout does,
     so it runs only inside the sandbox. The owner, syncing a lane by hand, runs the installed
-    binary from the lane's root as `CLAUDUCTOR_FRAMEWORK=$PWD clauductor update`: without the
+    binary from the lane's root as `STRIDAL_FRAMEWORK=$PWD stridal update`: without the
     prefix it would copy the main checkout's template, not the lane's. That reads the lane's
     template only as data to copy, and runs no lane code.
   - **What does run outside the sandbox:** a command matching `sandbox.excludedCommands` in
@@ -97,25 +97,25 @@ started from the panel's **New lane** (or by hand), on one branch:
 - **One full gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a
   lane's full gate may queue behind another's; the panel shows who holds it. A `--quick` run takes
   no lease and never queues.
-- The panel (`clauductor panel`) shows each lane's focus, context, quota and state. Its preset
-  config is `.clauductor/panel.json`: the lanes above, lane templates whose **Up next** rows come
+- The panel (`stridal panel`) shows each lane's focus, context, quota and state. Its preset
+  config is `.stridal/panel.json`: the lanes above, lane templates whose **Up next** rows come
   from the roadmap (`panel-suggest.sh`), the gate queue, and pinned owner-queue and change-queue
-  cards. Trust it once with `clauductor panel trust`.
-- **Nothing needs the panel or the `clauductor` binary.** The skills, hooks, checks, the gate and
+  cards. Trust it once with `stridal panel trust`.
+- **Nothing needs the panel or the `stridal` binary.** The skills, hooks, checks, the gate and
   its lease (`lease.sh` when there is no binary), the merge guard and the records all run in Claude
   Code alone; a panel that is not running is a normal state. A whole-set `checks/run.sh` holds
   this: it runs every check once (the modules' and `.claude/local/checks` included) with
-  `clauductor` off `PATH`, a fresh `HOME` and `CI` empty, and `checks/no-clauductor.sh`, inside that
+  `stridal` off `PATH`, a fresh `HOME` and `CI` empty, and `checks/no-stridal.sh`, inside that
   run, asserts it is there and runs the gate, a skill context script and the status line the same
   way, failing on anything that errors or asks for the binary or the panel. So a check that needs
   your gh login, ssh keys, git signing or `CI=true` sets them up in its own scratch.
   `CHECKS_DOUBLE_PASS=1` switches back to the double pass (every check in your own environment, then
-  `no-clauductor.sh` running this directory's checks again without `clauductor`), as a stopgap
+  `no-stridal.sh` running this directory's checks again without `stridal`), as a stopgap
   while you fix such a check. A gate calls `model_step_checks` (`scripts/ci/lib/steps.sh`).
-  `model_step_no_clauductor` is only for a gate that cannot run the whole set: it runs neither the
+  `model_step_no_stridal` is only for a gate that cannot run the whole set: it runs neither the
   modules' checks nor `.claude/local/checks`, and calling both pays for the double pass again. In
   this repo, `checks-double-pass.yml` runs the double pass weekly on `main` with a freshly built
-  `clauductor` on `PATH` (`local:double-pass` holds it there).
+  `stridal` on `PATH` (`local:double-pass` holds it there).
 
 ## Several people
 
@@ -186,7 +186,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 - **Models follow the risk tier** the owner approved: a role with a variant for it in
   `.claude/model-roles.json` runs on it (the builder on sonnet for low risk, opus/xhigh for high;
   the reviewer on opus/xhigh for high). In **economy mode** (the panel writes
-  `~/.clauductor/panel/economy.json` past its quota threshold) the roles in `.economy.roles` drop a
+  `~/.stridal/panel/economy.json` past its quota threshold) the roles in `.economy.roles` drop a
   tier; the reviewer and the planner never do.
 - **The budget**: after each committed group it reads `.claude/change-cost.sh` and stops once the
   change's spend passes the proposal's `**Budget:**`; a `**Budget:** $N, soft` is reported in the
@@ -420,7 +420,7 @@ data that already exists. Nothing new is recorded to feed them.
 | cost by role, model, change and project | this machine's Claude Code transcripts at the list prices in `model-roles.json` |
 
 - **`.claude/metrics.sh`** prints them as the panel's metrics JSON for 7, 30 and 90 days: the
-  panel's **Metrics** view and **Flow** card draw it (`metrics` in `.clauductor/panel.json`,
+  panel's **Metrics** view and **Flow** card draw it (`metrics` in `.stridal/panel.json`,
   panel config version 4). A source it cannot read (no `gh`, offline, no transcripts) leaves its
   figures empty with a note saying why; it never prints a zero for "unknown".
   `checks/metrics.sh` holds it to the panel's contract.

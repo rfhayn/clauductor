@@ -3,7 +3,7 @@
 # roadmap so the tracker stays current by mechanism, not by someone remembering to edit it
 # (OPS-83). POSIX sh, git and jq; deterministic and offline (local git only). The tracker's address
 # is never committed (the repository is public): it lives per machine in
-# <git common dir>/clauductor/tracker-url, which `--url` prints (exit 1 when there is none).
+# <git common dir>/stridal/tracker-url, which `--url` prints (exit 1 when there is none).
 #
 #   sh .claude/local/roadmap-tracker.sh DIR [SINCE]   write DIR/roadmap.json and DIR/sessions.json
 #                                                    (SINCE: YYYY-MM-DD, default today)
@@ -35,7 +35,7 @@
 # A row not merged that .claude/local/cloud-lanes.tsv lists (<id> TAB <routine name>) is noted
 # "cloud: <routine name>", so the owner sees which work runs in the cloud.
 #
-# The stamp, <git common dir>/clauductor/tracker-refreshed, holds the roadmap blob of the last
+# The stamp, <git common dir>/stridal/tracker-refreshed, holds the roadmap blob of the last
 # upload; context.d/session-start/roadmap-tracker.sh compares it with today's roadmap.
 ROOT=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd)
 # shellcheck disable=SC1091
@@ -46,7 +46,7 @@ command -v jq >/dev/null 2>&1 || die "jq is not installed"
 
 stamp_path() {
   _c=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
-  printf '%s/clauductor/tracker-refreshed' "$_c"
+  printf '%s/stridal/tracker-refreshed' "$_c"
 }
 
 if [ "${1:-}" = --url ]; then

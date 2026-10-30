@@ -60,7 +60,7 @@ diff is Markdown prose only gets the lighter `reviewer-docs` instead (`review-la
 ## Who decides, and what runs unattended
 
 **The owner decides:** a change's proposal and every `design.md` decision, unless
-`APPROVAL_DELEGATED="1"` delegates them and `/clauductor:propose` step 3a finds nothing that keeps them; ADRs and practice
+`APPROVAL_DELEGATED="1"` delegates them and `/stridal:propose` step 3a finds nothing that keeps them; ADRs and practice
 records; a production deploy and anything else irreversible; anything outward beyond this repo.
 **Everything else runs without asking, merging included:** build, gate, review, fixes, commits, push, PRs, issues and
 comments on this repo, and the squash-merge through `merge-pr`. A session runs `session-start` to

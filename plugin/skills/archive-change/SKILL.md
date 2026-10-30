@@ -26,7 +26,7 @@ behind, and the next proposal reads them as current.
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
 
 1. On an ops branch (`<BRANCH_OPS><name>`), or inside the session-close PR, promote the deltas with
-   **`clauductor-model archive-change.sh <id>`**: it prints the plan and exits 1 on any `STOP`. First list
+   **`stridal-model archive-change.sh <id>`**: it prints the plan and exits 1 on any `STOP`. First list
    every decision this change reversed (what `design.md` records as rejected or superseded, and
    anything a review round changed; the plan prints the design lines that say so) and pass a
    distinctive phrase of each OLD wording as `--superseded '<phrase>'`. A hit in a delta is a STOP:
@@ -45,7 +45,7 @@ behind, and the next proposal reads them as current.
    after this; do not let the CLI promote (it replaces a shorter MODIFIED whole, and syncs a
    held-back capability).
 2. **Record the actual cost** under `## Progress` in `changes/<id>/tasks.md`:
-   `clauductor-model change-cost.sh <id>` prints it, from this machine's transcripts at list price.
+   `stridal-model change-cost.sh <id>` prints it, from this machine's transcripts at list price.
    Write `- <date> archived: actual cost $X of budget $N` (or `(no budget)`), or, when it says
    CANNOT CHECK, `- <date> archived: actual cost unknown (<its reason>)`. Rule 11 requires the line.
 3. **Queue the outcome check.** If `proposal.md` has `## How we'll know`, add a row to the roadmap's
@@ -55,12 +55,12 @@ behind, and the next proposal reads them as current.
    `roadmap-queue.sh --text` lists it as DUE from that date, so session-start raises it. Rule 11
    requires the row.
 4. `git mv changes/<id> changes/archive/<YYYY-MM-DD>-<id>` (today's date).
-5. Compounding (`clauductor-model compound.sh`, then session-close step 3b's three choices) edits the
+5. Compounding (`stridal-model compound.sh`, then session-close step 3b's three choices) edits the
    insights log, so it is the close's: do it here only when this archive rides the close's branch
    (BRANCH_SESSION_CLOSE). Otherwise session-close does it.
 6. Leave the row's Status to the daily close's fold (OPS-108), unless this archive rides the
    close's branch and the fold left it unset; then set `✅ merged (#N)`. Run
-   `clauductor-model roadmap-queue.sh --check` and `clauductor-model checks/run.sh changes scenarios`: the
+   `stridal-model roadmap-queue.sh --check` and `stridal-model checks/run.sh changes scenarios`: the
    promoted scenarios are now living, so the trace holds their tests to them from here on.
 7. Land it through `merge-pr` (or with the session close).
 

@@ -13,14 +13,14 @@
 # And the project's settings: build-change takes its branch prefix, changes directory, gate,
 # attribution trailer and provenance from .claude/project-config.sh at run time, never from a
 # constant a project would have to edit (OPS-8 rehearsal: turning attribution off meant editing
-# this framework file, which `clauductor update` then flagged forever). project-config.sh is run
+# this framework file, which `stridal update` then flagged forever). project-config.sh is run
 # against a project with attribution and provenance off and other branch keys, and its output is
 # fed to the workflow's own projectSettings and trailerBlock.
 # Then the driver (below): the whole script, run with a stubbed agent, for review routing and the
 # main-checkout stop.
 #
 # node runs workflow scripts, so a project using build-change has it; without it this says SKIPPED
-# and why. NODE_REQUIRED=1 makes that a failure (clauductor's CI sets it).
+# and why. NODE_REQUIRED=1 makes that a failure (stridal's CI sets it).
 . "$(dirname "$0")/lib.sh"
 
 wf="$ROOT/.claude/workflows/build-change.js"
@@ -497,7 +497,7 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   r = await run([], { args: { resume: 3 }, budget: { quotaGate: `${STOP}\nexit 1` } })
   t('a resumed run is not stopped by the quota gate: it warns, quoting the STOP, and finishes', r.report.stoppedAt === null && built(r) && warned(r, 'resume', STOP), [r.report.stoppedAt, r.report.warnings])
   t('...and its marker runs', ranMarker(r), r.calls.map((c) => c.opts.label))
-  const NONE = 'quota-gate: no reading — no readable ~/.clauductor/quota-reading.json; the quota is NOT checked, so the lane may start'
+  const NONE = 'quota-gate: no reading — no readable ~/.stridal/quota-reading.json; the quota is NOT checked, so the lane may start'
   r = await run([], { budget: { quotaGate: `${NONE}\nexit 0` } })
   t('no reading fails open and says so in report.warnings', r.report.stoppedAt === null && built(r) && r.report.warnings.includes(NONE), [r.report.stoppedAt, r.report.warnings])
   for (const odd of ['', 'quota-gate: below — 7d 40% under 90% (QUOTA_LANE_STOP_PCT)', 'something else\nexit 0']) {

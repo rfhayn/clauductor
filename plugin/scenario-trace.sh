@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # scenario-trace.sh: which test files cite each scenario ID (D4 of the change process).
 #
 #   sh .claude/scenario-trace.sh                 every open change and the living specs
@@ -36,11 +36,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # A citation is the ID as a whole token: AUTH-2-S1 is not cited by AUTH-2-S10 or XAUTH-2-S1.
 # Grep-level on purpose: it proves a test NAMES the scenario, not that it asserts the THEN. The
 # reviewer agent checks that (`.claude/agents/reviewer.md`).
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
-. "$CLAUDUCTOR_FW/lib/conf.sh"
-. "$CLAUDUCTOR_FW/lib/change.sh"
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+. "$STRIDAL_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/change.sh"
 # shellcheck disable=SC1091
-[ -f "$CLAUDUCTOR_FW/lib/records.sh" ] && . "$CLAUDUCTOR_FW/lib/records.sh"
+[ -f "$STRIDAL_FW/lib/records.sh" ] && . "$STRIDAL_FW/lib/records.sh"
 
 check=""; now=""; rev=""; only_specs=""; changes=""; any_change=""
 while [ $# -gt 0 ]; do

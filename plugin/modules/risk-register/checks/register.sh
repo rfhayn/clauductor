@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The risk-register module's own check, run by checks/run.sh only while the module is on: this
 # project's register (RISK_REGISTER) exists and every `| R<n> |` row is in the grammar the
 # session-start listing reads (the module's README): a unique id, a **bold title** first in the Risk
@@ -10,7 +10,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 
 reg=${RISK_REGISTER:-docs/risk-register.md}
 f="$ROOT/$reg"
-[ -f "$f" ] || { fail "RISK_REGISTER $reg does not exist (sh "$CLAUDUCTOR_FW"/modules/risk-register/enable.sh makes it from the stub)"; finish; }
+[ -f "$f" ] || { fail "RISK_REGISTER $reg does not exist (sh "$STRIDAL_FW"/modules/risk-register/enable.sh makes it from the stub)"; finish; }
 grep -qE '^\|[[:space:]]*#[[:space:]]*\|[[:space:]]*Risk[[:space:]]*\|' "$f" && ok "$reg has the register's header row" \
   || fail "$reg has no '| # | Risk | … | Gate | Issue |' header row"
 bad=$(awk -F'|' '/^\| *R[0-9]+ *\|/ {

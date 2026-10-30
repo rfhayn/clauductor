@@ -1,6 +1,6 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
-# The status line posts its stdin to the panel ONLY while ~/.clauductor/panel/pid names a live
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
+# The status line posts its stdin to the panel ONLY while ~/.stridal/panel/pid names a live
 # process (a positive integer), and otherwise makes no call; in every case it prints its line and
 # exits 0. The post is observed with a curl stand-in on PATH that records its arguments, so no
 # server or network is needed. Also: status-write.sh writes the file the status line reads, and
@@ -30,7 +30,7 @@ new_repo "$d/repo"
 git -C "$d/repo" commit -q --allow-empty -m init
 
 input=$(jq -cn --arg c "$d/repo" '{session_id:"s", cwd:$c, context_window:{used_percentage:42.4}}')
-sl="$CLAUDUCTOR_FW/statusline.sh"
+sl="$STRIDAL_FW/statusline.sh"
 
 # The live panel is this check's own shell: alive for as long as any case runs, where a `sleep 5`
 # was one more guess at how long the case would take.
@@ -42,7 +42,7 @@ sh -c 'exit 0' & dead=$!; wait "$dead" 2>/dev/null
 # OPS-73). The status line runs holding fd 3, the write end of a pipe, and everything it starts
 # inherits it (the post's `>/dev/null 2>&1` leaves fd 3 alone), so the reader sees end-of-file
 # only after the last of them exits: a post that was made has landed, and a "no post" case has
-# none still on its way. The deadline (10s, times CLAUDUCTOR_TEST_SLOW) only keeps a stray holder
+# none still on its way. The deadline (10s, times STRIDAL_TEST_SLOW) only keeps a stray holder
 # of fd 3 from hanging the check, and reaching it fails the case. So that it also frees the
 # check's caller, the case runs with its output and errors both on /dev/null: run.sh reads a check
 # through `$(sh "$f" 2>&1)`, and a holder that kept the check's stderr would keep the gate waiting
@@ -50,9 +50,9 @@ sh -c 'exit 0' & dead=$!; wait "$dead" 2>/dev/null
 # writes into its own case's files, never the next one's.
 ticks=$(( $(slow 10) * 10 ))
 run() {  # run PID_CONTENT (or "-" for no pid file): prints "<exit> <posts> <case dir> <line>"
-  c=$(mktemp -d "$d/case.XXXXXX"); home="$c/home"; mkdir -p "$home/.clauductor/panel"  # mktemp-in-tmpdir: under $d, the scratch directory made in $TMPDIR
-  echo 4999 > "$home/.clauductor/panel/port"
-  [ "$1" = "-" ] || printf '%s\n' "$1" > "$home/.clauductor/panel/pid"
+  c=$(mktemp -d "$d/case.XXXXXX"); home="$c/home"; mkdir -p "$home/.stridal/panel"  # mktemp-in-tmpdir: under $d, the scratch directory made in $TMPDIR
+  echo 4999 > "$home/.stridal/panel/port"
+  [ "$1" = "-" ] || printf '%s\n' "$1" > "$home/.stridal/panel/pid"
   ( printf '%s' "$input" | { HOME="$home" PATH="$d/bin:$PATH" sh "$sl" 3>&1 > "$c/line"; echo $? > "$c/rc"; } \
       | cat > /dev/null; : > "$c/eof" ) > /dev/null 2>&1 &
   i=0; while [ ! -f "$c/eof" ] && [ "$i" -lt "$ticks" ]; do sleep 0.1; i=$((i + 1)); done
@@ -97,7 +97,7 @@ for c in "-:unset" "abc:not a number" "200k:digits and letters" "0200000:a leadi
 done
 
 # The deadline frees the check's caller, not only the check (review of #147). The post is held
-# past a one-second deadline until $d/hold goes, twenty seconds on (times CLAUDUCTOR_TEST_SLOW), and
+# past a one-second deadline until $d/hold goes, twenty seconds on (times STRIDAL_TEST_SLOW), and
 # the case is read the way run.sh reads a check, `$(… 2>&1)`: that read must come back at the
 # deadline, well before the release. With the case's errors left on the check's stderr, it came
 # back only at the release. The bound is the release, less the two seconds it may have started
@@ -121,7 +121,7 @@ line=$(printf '%s' "$input" | HOME="$d/home.-" PATH="$d/bin:$PATH" sh "$sl")
 case "$line" in *"42% ctx"*) ok "renders the context %: $line" ;; *) fail "no context % in: $line" ;; esac
 case "$line" in *"[main]"*) ok "falls back to [branch] with no focus set" ;; *) fail "no [branch] fallback in: $line" ;; esac
 
-( cd "$d/repo" && HOME="$d/home.-" sh "$CLAUDUCTOR_FW/status-write.sh" "doing the thing" >/dev/null )
+( cd "$d/repo" && HOME="$d/home.-" sh "$STRIDAL_FW/status-write.sh" "doing the thing" >/dev/null )
 line=$(printf '%s' "$input" | HOME="$d/home.-" PATH="$d/bin:$PATH" sh "$sl")
 case "$line" in *"doing the thing"*) ok "shows the focus status-write.sh set" ;; *) fail "focus not shown: $line" ;; esac
 
@@ -129,9 +129,9 @@ case "$line" in *"doing the thing"*) ok "shows the focus status-write.sh set" ;;
 # repository and refuses ~/.claude, so a focus kept there was never set from a sandboxed session
 # (OPS-75). A read-only HOME stands in for the sandbox.
 mkdir -p "$d/ro"; chmod 555 "$d/ro"
-( cd "$d/repo" && HOME="$d/ro" sh "$CLAUDUCTOR_FW/status-write.sh" "sandboxed focus" >/dev/null 2>&1 )
+( cd "$d/repo" && HOME="$d/ro" sh "$STRIDAL_FW/status-write.sh" "sandboxed focus" >/dev/null 2>&1 )
 # The file itself, not the exit code: the old script exited 0 whatever happened to its write.
-ff=$(cd "$d/repo" && HOME="$d/ro" ROOT="$ROOT" CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh" && focus_file main')
+ff=$(cd "$d/repo" && HOME="$d/ro" ROOT="$ROOT" STRIDAL_FW="$STRIDAL_FW" sh -c '. "$STRIDAL_FW/lib/conf.sh" && focus_file main')
 case "$ff" in "$d/ro"/*) fail "the focus file is under HOME: $ff" ;; esac
 [ "$(cat "$ff" 2>/dev/null)" = "sandboxed focus" ] && ok "status-write sets the focus with HOME unwritable" || fail "status-write did not write $ff with HOME unwritable"
 line=$(printf '%s' "$input" | HOME="$d/ro" PATH="$d/bin:$PATH" sh "$sl")
@@ -140,9 +140,9 @@ chmod 755 "$d/ro"
 
 # A focus that cannot be written is an error, never "focus set": a plain file where the focus's
 # folder belongs blocks the write.
-fdir=$(cd "$d/repo" && HOME="$d/home.-" ROOT="$ROOT" CLAUDUCTOR_FW="$CLAUDUCTOR_FW" sh -c '. "$CLAUDUCTOR_FW/lib/conf.sh" && dirname "$(focus_file blocked)"')
+fdir=$(cd "$d/repo" && HOME="$d/home.-" ROOT="$ROOT" STRIDAL_FW="$STRIDAL_FW" sh -c '. "$STRIDAL_FW/lib/conf.sh" && dirname "$(focus_file blocked)"')
 rm -rf "$fdir"; mkdir -p "$(dirname "$fdir")"; : > "$fdir"
-rc=0; out=$(cd "$d/repo" && HOME="$d/home.-" sh "$CLAUDUCTOR_FW/status-write.sh" "lost" blocked 2>&1) || rc=$?
+rc=0; out=$(cd "$d/repo" && HOME="$d/home.-" sh "$STRIDAL_FW/status-write.sh" "lost" blocked 2>&1) || rc=$?
 [ "$rc" != 0 ] && ok "status-write exits non-zero when it cannot write" || fail "status-write exited 0 on a failed write: $out"
 case "$out" in *"focus set"*) fail "status-write said 'focus set' on a failed write: $out" ;; *) ok "status-write does not claim a failed write" ;; esac
 rm -f "$fdir"

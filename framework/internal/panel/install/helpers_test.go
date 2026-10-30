@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/clock"
 )
 
 const sid = "0f8fad5b-d9cb-469f-a165-70867728950e"

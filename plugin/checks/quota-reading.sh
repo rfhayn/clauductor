@@ -1,7 +1,7 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The quota reading (OPS-67): the status line saves Claude Code's rate limits to
-# ~/.clauductor/quota-reading.json on every refresh that carries them, with or without the panel,
+# ~/.stridal/quota-reading.json on every refresh that carries them, with or without the panel,
 # and lib/quota.sh reads it back. Each case runs the real status line under a scratch HOME (never
 # the real one) and no panel:
 #   - a status-line JSON with rate_limits writes the file, in the panel's shape (state.Quota);
@@ -17,7 +17,7 @@ need jq
 d=$(scratch)
 new_repo "$d/repo"
 git -C "$d/repo" commit -q --allow-empty -m init
-sl="$CLAUDUCTOR_FW/statusline.sh"
+sl="$STRIDAL_FW/statusline.sh"
 now=$(date +%s)  # wall-clock: the origin of the reset times, a fixture, and the floor of the reading time below
 future=$((now + 3600)); past=$((now - 60)); later=$((now + 7200))
 
@@ -26,7 +26,7 @@ status() {
   out=$(printf '%s' "$2" | HOME="$1" sh "$sl" 2> "$d/err"); rc=$?
   printf '%s %s\n%s\n' "$rc" "$(wc -c < "$d/err" | tr -d ' ')" "$out"
 }
-# settle FILE: wait (up to 30s, times CLAUDUCTOR_TEST_SLOW) for the backgrounded write to land, and
+# settle FILE: wait (up to 30s, times STRIDAL_TEST_SLOW) for the backgrounded write to land, and
 # for no temp file beside it. A write that lands never waits for the deadline.
 landed() { [ -f "$1" ] && [ -z "$(find "$(dirname "$1")" -name '.quota-reading.*' 2>/dev/null)" ]; }
 settle() { wait_for 30 landed "$1"; }
@@ -39,7 +39,7 @@ in_json() {  # in_json RATE_LIMITS_JSON (or "" for none)
 }
 
 # ── 1. A refresh with rate_limits writes the file ───────────────────────────────────────────────
-H="$d/home1"; mkdir -p "$H"; F="$H/.clauductor/quota-reading.json"
+H="$d/home1"; mkdir -p "$H"; F="$H/.stridal/quota-reading.json"
 rl=$(jq -cn --argjson f "$future" --argjson l "$later" \
   '{five_hour:{used_percentage:12.5, resets_at:$f}, seven_day:{used_percentage:40, resets_at:$l}, nimbus:{used_percentage:3, resets_at:null},
     broken:"yes", no_pct:{resets_at:1}, "five-hour":{used_percentage:1}, ("k" * 65):{used_percentage:1},
@@ -47,7 +47,7 @@ rl=$(jq -cn --argjson f "$future" --argjson l "$later" \
 res=$(status "$H" "$(in_json "$rl")")
 [ "$(echo "$res" | head -1)" = "0 0" ] && ok "the status line exits 0, nothing on stderr" || fail "status line: $(echo "$res" | head -1)"
 case "$(echo "$res" | sed -n 2p)" in *"30% ctx"*) ok "...and prints its line" ;; *) fail "no line: $res" ;; esac
-if settle "$F"; then ok "a refresh with rate_limits writes ~/.clauductor/quota-reading.json"
+if settle "$F"; then ok "a refresh with rate_limits writes ~/.stridal/quota-reading.json"
 else fail "no quota reading written at $F"; fi
 got=$(jq -c '[.windows[] | [.key, .pct, .resetsAt]]' "$F" 2>/dev/null)
 want=$(jq -cn --argjson f "$future" --argjson l "$later" '[["five_hour",12.5,$f],["nimbus",3,null],["seven_day",40,$l]]')
@@ -71,7 +71,7 @@ wait_for 30 pct20; settle "$F"
   || fail "the file was rewritten in place, or not at all"
 mode=$(ls -l "$F" | cut -c1-10)
 [ "$mode" = "-rw-------" ] && ok "a replaced file is 0600 again" || fail "the replaced file's mode is $mode"
-[ -z "$(find "$H/.clauductor" -name '.quota-reading.*')" ] && ok "no temp file is left behind" || fail "a temp file was left: $(ls -a "$H/.clauductor")"
+[ -z "$(find "$H/.stridal" -name '.quota-reading.*')" ] && ok "no temp file is left behind" || fail "a temp file was left: $(ls -a "$H/.stridal")"
 got=$(jq -c '[.windows[] | [.key, .pct]]' "$F")
 [ "$got" = '[["five_hour",20],["nimbus",3],["seven_day",40]]' ] && ok "a window the refresh left out is kept (the panel's per-window merge)" || fail "merge: $got"
 
@@ -79,8 +79,8 @@ got=$(jq -c '[.windows[] | [.key, .pct]]' "$F")
 # Its own seeded file, so the case cannot pass on a file that was never there; quota_save itself,
 # in the foreground (the status line's only call), so no late write can slip past a fixed wait.
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/quota.sh"
-H="$d/home-keep"; mkdir -p "$H/.clauductor"; F="$H/.clauductor/quota-reading.json"
+. "$STRIDAL_FW/lib/quota.sh"
+H="$d/home-keep"; mkdir -p "$H/.stridal"; F="$H/.stridal/quota-reading.json"
 printf '{"windows":[{"key":"five_hour","pct":7,"resetsAt":%s}],"at":1}\n' "$future" > "$F"
 before=$(cat "$F"); ino=$(ls -i "$F" | awk '{print $1}')
 for r in "" '{}' '7' '{"five_hour":{"resets_at":1}}'; do
@@ -89,12 +89,12 @@ for r in "" '{}' '7' '{"five_hour":{"resets_at":1}}'; do
     && ok "rate_limits ${r:-absent}: the old file is untouched" || fail "rate_limits ${r:-absent} changed the file: $(cat "$F")"
 done
 # A temp file a killed refresh left is cleared by a later save; a fresh one (a refresh under way) is not.
-touch "$H/.clauductor/.quota-reading.fresh"
-: > "$H/.clauductor/.quota-reading.stale"; touch -t 202001010000 "$H/.clauductor/.quota-reading.stale"
+touch "$H/.stridal/.quota-reading.fresh"
+: > "$H/.stridal/.quota-reading.stale"; touch -t 202001010000 "$H/.stridal/.quota-reading.stale"
 HOME="$H" quota_save "$(in_json "$rl2")"
-[ ! -e "$H/.clauductor/.quota-reading.stale" ] && [ -e "$H/.clauductor/.quota-reading.fresh" ] \
-  && ok "a save clears a temp file older than 5 minutes, and leaves a fresh one" || fail "temp files: $(ls -a "$H/.clauductor")"
-rm -f "$H/.clauductor/.quota-reading.fresh"
+[ ! -e "$H/.stridal/.quota-reading.stale" ] && [ -e "$H/.stridal/.quota-reading.fresh" ] \
+  && ok "a save clears a temp file older than 5 minutes, and leaves a fresh one" || fail "temp files: $(ls -a "$H/.stridal")"
+rm -f "$H/.stridal/.quota-reading.fresh"
 # A reset time written as a whole-number decimal (1700000000.0) fails the panel's *int64 decode:
 # never saved as a decimal a shell `-gt` would choke on. Raw text, so no jq in between rewrites it.
 HOME="$H" quota_save '{"rate_limits":{"dec":{"used_percentage":1,"resets_at":1700000000.0}}}'
@@ -116,14 +116,14 @@ line=$(printf '%s' "$(in_json "$rl")" | HOME="$H" PATH="$d/slowbin:$PATH" sh "$s
 took=$(( $(date +%s) - t0 ))  # wall-clock: asserted below the length of the save, which a line that waited took whole
 case "$line" in *"30% ctx"*) [ "$took" -lt "$save" ] && ok "a ${save}s save does not delay the line (${took}s)" || fail "the line waited ${took}s for the ${save}s save" ;;
   *) fail "slow save: no line: $line" ;; esac
-settle "$H/.clauductor/quota-reading.json" && ok "...and the slow save still lands" || fail "the slow save never landed"
+settle "$H/.stridal/quota-reading.json" && ok "...and the slow save still lands" || fail "the slow save never landed"
 
 # ── 4. A write that cannot happen still prints the line ─────────────────────────────────────────
 for c in file ro; do
   H2="$d/home-$c"; mkdir -p "$H2"
   case $c in
-    file) : > "$H2/.clauductor"; why="~/.clauductor is a file" ;;   # fails even for root
-    ro) mkdir -p "$H2/.clauductor"; echo old > "$H2/.clauductor/quota-reading.json"; chmod 555 "$H2/.clauductor"; why="~/.clauductor is read-only" ;;
+    file) : > "$H2/.stridal"; why="~/.stridal is a file" ;;   # fails even for root
+    ro) mkdir -p "$H2/.stridal"; echo old > "$H2/.stridal/quota-reading.json"; chmod 555 "$H2/.stridal"; why="~/.stridal is read-only" ;;
   esac
   res=$(status "$H2" "$(in_json "$rl")")
   case "$(echo "$res" | head -1) $(echo "$res" | sed -n 2p)" in
@@ -135,20 +135,20 @@ for c in file ro; do
     # itself, in the foreground. Root writes through a read-only mode, so there it is not this
     # case's to show (the rename test in 2 catches an in-place write).
     HOME="$H2" quota_save "$(in_json "$rl")"
-    if [ "$(cat "$H2/.clauductor/quota-reading.json")" = old ]; then ok "...and the old file is left in place"
+    if [ "$(cat "$H2/.stridal/quota-reading.json")" = old ]; then ok "...and the old file is left in place"
     elif [ "$(id -u)" = 0 ]; then ok "...(as root a read-only directory is writable: the file case above holds the line)"
     else fail "$why: the old file changed"; fi
     # The status line's own backgrounded save must be done before the mode is restored, or it
     # could write into scratch after the case is over.
-    settle "$H2/.clauductor/quota-reading.json"
-    chmod 755 "$H2/.clauductor"
+    settle "$H2/.stridal/quota-reading.json"
+    chmod 755 "$H2/.stridal"
   fi
 done
 
 # ── 5. The reader ───────────────────────────────────────────────────────────────────────────────
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/quota.sh"
-H3="$d/home3"; mkdir -p "$H3/.clauductor"; R="$H3/.clauductor/quota-reading.json"
+. "$STRIDAL_FW/lib/quota.sh"
+H3="$d/home3"; mkdir -p "$H3/.stridal"; R="$H3/.stridal/quota-reading.json"
 jq -cn --argjson f "$future" --argjson p "$past" --argjson at "$((now * 1000))" \
   '{windows:[{key:"five_hour",pct:91,resetsAt:$p},{key:"seven_day",pct:40,resetsAt:$f},{key:"seven_day_opus",pct:5}], at:$at}' > "$R"
 out=$(HOME="$H3" quota_read)
@@ -183,13 +183,13 @@ v=$(HOME="$H3" quota_read 2>&1); rc=$?
 # ROOT is passed as well: the plugin's copy of quota-gate.sh takes it from there, the template's
 # from its own path; both land on the fixture.
 P="$d/qproj"; mkdir -p "$P/.claude/lib" "$P/.claude/health"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/quota.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$P/.claude/lib/"
-cp "$CLAUDUCTOR_FW/quota-gate.sh" "$CLAUDUCTOR_FW/extensions.sh" "$P/.claude/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/quota.sh" "$STRIDAL_FW/lib/modules.sh" "$P/.claude/lib/"
+cp "$STRIDAL_FW/quota-gate.sh" "$STRIDAL_FW/extensions.sh" "$P/.claude/"
 has_health=""
 if [ -f "$ROOT/.claude/health/quota.sh" ]; then cp "$ROOT/.claude/health/quota.sh" "$P/.claude/health/"; has_health=1
 else ok "SKIPPED the health line: this project has no .claude/health/quota.sh (deleted; session start shows no quota)"; fi
 QN=1793300400; W5=$((QN + 7200)); W7=1793638800; GONE=$((QN - 60)); AT=$(((QN - 300) * 1000))
-HQ="$d/qhome"; mkdir -p "$HQ/.clauductor"; QF="$HQ/.clauductor/quota-reading.json"
+HQ="$d/qhome"; mkdir -p "$HQ/.stridal"; QF="$HQ/.stridal/quota-reading.json"
 conf() { printf 'TIME_ZONE="America/New_York"\nTIME_ZONE_LABEL="ET"\nQUOTA_LANE_STOP_PCT="%s"\n' "$1" > "$P/.claude/project.conf"; }
 # reading 5H 7D OPUS [OPUS_RESET]: a reading saved at 14:55 ET; OPUS_RESET defaults to past, so its
 # number (any) must never show.
@@ -210,7 +210,7 @@ if [ -n "$has_health" ]; then
   case "$got" in "CANNOT CHECK — no window has a current reading: "*) ok "health: past every window's reset, CANNOT CHECK, not OK" ;; *) fail "health past every reset: $got" ;; esac
   case "$got" in *41%*|*63%*|*77.5*) fail "health: a past-reset number was printed: $got" ;; *) ok "health: ...with no number in it" ;; esac
   rm -f "$QF"; got=$(hl)
-  case "$got" in "CANNOT CHECK — no quota reading at ~/.clauductor/quota-reading.json"*) ok "health: no file is CANNOT CHECK, never silence or OK" ;; *) fail "health with no file: $got" ;; esac
+  case "$got" in "CANNOT CHECK — no quota reading at ~/.stridal/quota-reading.json"*) ok "health: no file is CANNOT CHECK, never silence or OK" ;; *) fail "health with no file: $got" ;; esac
   echo '{"windows":' > "$QF"; got=$(hl)
   case "$got" in "CANNOT CHECK — "*"cannot be read"*) ok "health: a corrupt file is CANNOT CHECK" ;; *) fail "health with a corrupt file: $got" ;; esac
   conf 60; reading 41 63 77.5; got=$(hl)
@@ -268,8 +268,8 @@ done
 
 # Who calls the guard in production (rule 3): build-change's preflight (checks/build-change.sh drives
 # it) and the orchestrating session, whose rule in session-start names it. The patterns leave out the
-# `sh .claude/` before the name, which the plugin's copies spell `clauductor-model `.
-grep -q 'quota-gate\.sh 2>&1; echo "exit \$?"' "$CLAUDUCTOR_FW/workflows/build-change.js" && ok "build-change.js's preflight runs .claude/quota-gate.sh" || fail "build-change.js does not run .claude/quota-gate.sh"
-awk '/^- \*\*Run as an orchestrator of lanes\*\*/ { on = 1 } on && /^- \*\*/ && !/orchestrator of lanes/ { on = 0 } on' "$CLAUDUCTOR_FW/skills/session-start/SKILL.md" | grep -q 'run `[^`]*quota-gate\.sh`' \
+# `sh .claude/` before the name, which the plugin's copies spell `stridal-model `.
+grep -q 'quota-gate\.sh 2>&1; echo "exit \$?"' "$STRIDAL_FW/workflows/build-change.js" && ok "build-change.js's preflight runs .claude/quota-gate.sh" || fail "build-change.js does not run .claude/quota-gate.sh"
+awk '/^- \*\*Run as an orchestrator of lanes\*\*/ { on = 1 } on && /^- \*\*/ && !/orchestrator of lanes/ { on = 0 } on' "$STRIDAL_FW/skills/session-start/SKILL.md" | grep -q 'run `[^`]*quota-gate\.sh`' \
   && ok "session-start's orchestrator rule names sh .claude/quota-gate.sh before a lane starts" || fail "session-start's 'Run as an orchestrator of lanes' rule does not name sh .claude/quota-gate.sh"
 finish

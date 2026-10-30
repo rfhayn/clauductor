@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/testgit"
+	"github.com/rfhayn/stridal/internal/panel"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/testgit"
 )
 
 // catchUpRepo is a repository with one commit and a panel.json of its own named name.
@@ -22,11 +22,11 @@ func catchUpRepo(t *testing.T, name string) string {
 		t.Skip("no git")
 	}
 	root := filepath.Join(t.TempDir(), name)
-	if err := os.MkdirAll(filepath.Join(root, ".clauductor"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".stridal"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	root = signals.ResolvePath(root)
-	if err := os.WriteFile(filepath.Join(root, ".clauductor", "panel.json"), []byte(`{"name":"`+name+`"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".stridal", "panel.json"), []byte(`{"name":"`+name+`"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "-A"}, {"commit", "-q", "-m", "one"}} {
@@ -171,13 +171,13 @@ func TestPanelCatchUpClearedByRemove(t *testing.T) {
 	}
 }
 
-// When the panel's run ends with the rebuild's restart (OPS-118 D4), `clauductor panel
+// When the panel's run ends with the rebuild's restart (OPS-118 D4), `stridal panel
 // --launchd` exits with the restart's status, 75, not the 1 main gives every error: the
 // status is what tells the login agent to start the new binary.
 func TestPanelExitsWithTheRestartsStatus(t *testing.T) {
 	t.Parallel()
 	home := signals.ResolvePath(t.TempDir())
-	r := cliEnv(t, "", home, []string{"CLAUDUCTOR_CMD_HELPER_RESTART=1"}, "panel", "--launchd")
+	r := cliEnv(t, "", home, []string{"STRIDAL_CMD_HELPER_RESTART=1"}, "panel", "--launchd")
 	if panel.ExitRestart != 75 || r.code != 75 {
 		t.Fatalf("exit %d, want 75\nstdout: %s\nstderr: %s", r.code, r.stdout, r.stderr)
 	}

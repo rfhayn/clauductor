@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/leakcheck"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/leakcheck"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 const pngBytes = "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"

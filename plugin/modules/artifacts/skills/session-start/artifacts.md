@@ -24,7 +24,7 @@ and the *artifacts (module artifacts)* section lists every link.
      `(recorded <date>)` was recorded and never published: treat it as STALE.** A URL missing from
      the capped listing is UNKNOWN: settle it with one `action: "read"` (a `writer` header means
      owned), never by absence.
-   - For each STALE page you own: `clauductor-model modules/artifacts/bin/publish.sh <page> --ref origin/main`
+   - For each STALE page you own: `stridal-model modules/artifacts/bin/publish.sh <page> --ref origin/main`
      prints the publish-ready copy's path (report any `warning:`); Artifact `action: "read"` on its
      registry URL; **Read in full** the live version it saved and the prepared file (the tool's
      preconditions; the repo copy replaces the live one); publish with `url` = the registry URL,
@@ -36,5 +36,5 @@ and the *artifacts (module artifacts)* section lists every link.
    - Not an owner: create nothing, publish nothing without `url`; list the stale pages in the
      summary for the owner's next session. Any other refusal: meet the precondition the tool names,
      retry once, then report it.
-   - **Last, open the shared copies**: `clauductor-model modules/artifacts/bin/open.sh 2>&1` (every entry
+   - **Last, open the shared copies**: `stridal-model modules/artifacts/bin/open.sh 2>&1` (every entry
      of every section). A `NOT OPENED` line: say so and give that link by hand.

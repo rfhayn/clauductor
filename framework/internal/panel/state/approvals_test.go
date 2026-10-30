@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-29: the page sees each open change's approval, keyed by change id, from the

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # open.sh: open every shared claude.ai artifact the registry (ARTIFACT_REGISTRY) holds, in the
 # browser. Run by session-start (ARTIFACT_PUBLISH=claude.ai), after it has republished any STALE
 # page copy, so what opens is the current copy.
@@ -17,9 +17,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # One line per artifact, `<section>/<key> → <url>`, so the session can repeat the links. Exit 0 when
 # every url opened; 1 when an opener call failed (the others are still tried); 2 when the registry
 # cannot be read or an entry is malformed. Standing Tee's infra/open-artifacts.mjs, in sh and jq.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 REG=${ARTIFACT_REGISTRY:-docs/artifacts.json}
 die() { echo "open-artifacts: $*" >&2; exit 2; }
 top=$ROOT; opener=""; print=""

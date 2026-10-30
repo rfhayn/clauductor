@@ -65,9 +65,9 @@ Flow, 30 days to 2026-10-30: cycle 1.7h median, lead 3h, 45 merges/wk, change-fa
 
 The attribution lines reached PR bodies again. They are the harness's, not the repo's, and were stripped by hand on #323 and #324. The six older Raw rows and the fold's nine are decided too: seven fixed (five by today's rows), the rest techniques, instances or not promoted, each with its reason.
 
-**Records.** OPS-109 is archived: its one open task, the Slice, was checked by running a `clauductor doctor` built from `main`. Its `doctor` spec is now living, and its outcome check is o.11 (due 2026-11-08). New rows: OPS-173 (#335, the artifacts TERM race), OPS-175 (independent checks in parallel: today's two check phases run about 107 checks one at a time: 13–20 minutes for the process checks before OPS-170, ~9 after; 11–16 for the template checks, in S16's gates), and OPS-176 (the batch script). OPS-113's M2 now reads moot. The owner queue's OPS-98 item is ticked; the lite decision stays open.
+**Records.** OPS-109 is archived: its one open task, the Slice, was checked by running a `stridal doctor` built from `main`. Its `doctor` spec is now living, and its outcome check is o.11 (due 2026-11-08). New rows: OPS-173 (#335, the artifacts TERM race), OPS-175 (independent checks in parallel: today's two check phases run about 107 checks one at a time: 13–20 minutes for the process checks before OPS-170, ~9 after; 11–16 for the template checks, in S16's gates), and OPS-176 (the batch script). OPS-113's M2 now reads moot. The owner queue's OPS-98 item is ticked; the lite decision stays open.
 
-**Left open, each with its owner.** OPS-161's known limit (#331) promised that this close would run `scripts/ci/gate.sh -C <worktree> --quick` from a real subagent lane and record whether its ps checks pass outside the sandbox. That run did not happen, and OPS-176 now runs it first. The first `test.yml` run on `main` after the workflows came back (run 40988066180, on ddf72d7a) failed on both legs: `TestTemplateChecks`' temp-dir cleanup on Ubuntu (`checks/gate.sh`'s mode-555 fixture) and `TestOuterSeesEachChange` on macOS (a `maintenance.lock` that vanished mid-walk). Both are filed as #343, which OPS-98 owns in S18. Billing is fine, since the run executed. This close's own PR then failed a third test on Ubuntu, `TestGateLogsNoSignalItDidNotSend`, a likely Linux race in OPS-159's rewritten test, also on #343. Every red check blocks every merge, so the owner disabled `test.yml` again. OPS-98 makes CI green and re-enables it. The fourteen merged lane branches still on the remote are bundled into `.git/clauductor` and deleted by the orchestrator once this close merges. `ops/ops-98-restore-ci` is kept for S18.
+**Left open, each with its owner.** OPS-161's known limit (#331) promised that this close would run `scripts/ci/gate.sh -C <worktree> --quick` from a real subagent lane and record whether its ps checks pass outside the sandbox. That run did not happen, and OPS-176 now runs it first. The first `test.yml` run on `main` after the workflows came back (run 40988066180, on ddf72d7a) failed on both legs: `TestTemplateChecks`' temp-dir cleanup on Ubuntu (`checks/gate.sh`'s mode-555 fixture) and `TestOuterSeesEachChange` on macOS (a `maintenance.lock` that vanished mid-walk). Both are filed as #343, which OPS-98 owns in S18. Billing is fine, since the run executed. This close's own PR then failed a third test on Ubuntu, `TestGateLogsNoSignalItDidNotSend`, a likely Linux race in OPS-159's rewritten test, also on #343. Every red check blocks every merge, so the owner disabled `test.yml` again. OPS-98 makes CI green and re-enables it. The fourteen merged lane branches still on the remote are bundled into `.git/stridal` and deleted by the orchestrator once this close merges. `ops/ops-98-restore-ci` is kept for S18.
 
 **Next.** S17 is the rename (OPS-104), alone, with a clean tree. S18 takes OPS-98 with its review findings, the two gate-speed rows (OPS-175, OPS-176, the owner 2026-10-29), and the PRDs and Standing Tee practices already planned there.
 
@@ -98,7 +98,7 @@ Each fix has check cases shown red first: `checks/panel-suggest.sh` (one red: th
 #### Surprises
 
 - `awk -v` in macOS's awk refuses a value with a newline ("newline in string"), so the kinds reach the parser's awk through `ENVIRON`.
-- `clauductor update` read the main checkout's template, since `CLAUDUCTOR_FRAMEWORK` was set in the shell; it said so (`Template: … (CLAUDUCTOR_FRAMEWORK …)`) and changed nothing. Pointed at this worktree's template, it synced the seven files.
+- `stridal update` read the main checkout's template, since `STRIDAL_FRAMEWORK` was set in the shell; it said so (`Template: … (STRIDAL_FRAMEWORK …)`) and changed nothing. Pointed at this worktree's template, it synced the seven files.
 
 #### Insights
 
@@ -330,7 +330,7 @@ A `claude` call ran on exec's own output pipes, so `cmd.Wait` returned only once
 
 #### Surprises
 
-- `clauductor update` read the main checkout's template while `CLAUDUCTOR_FRAMEWORK` was set in the lane's environment; `env -u CLAUDUCTOR_FRAMEWORK` was needed for the binary built here to read this checkout's.
+- `stridal update` read the main checkout's template while `STRIDAL_FRAMEWORK` was set in the lane's environment; `env -u STRIDAL_FRAMEWORK` was needed for the binary built here to read this checkout's.
 
 #### Insights
 
@@ -380,7 +380,7 @@ None.
 
 #### What happened
 
-The status line's quota reading (`~/.clauductor/quota-reading.json`, OPS-67) had no production reader once OPS-42 was cancelled. It now has two, both over `lib/quota.sh`. `.claude/health/quota.sh` is a session-start health line. It shows each window's use, its reset on the owner's clock (`TIME_ZONE`) and when the reading was saved. A window past its reset shows no number, and no reading is CANNOT CHECK. It says HIGH when a seven-day window is at `QUOTA_LANE_STOP_PCT` and FAILED when that threshold is not a number. `.claude/quota-gate.sh` exits 1 when any `seven_day*` window with a current reading is at or above the threshold (project.conf, default 90, `0` off). It exits 2 on a bad threshold and 0 below it, or with no reading, which it says. build-change's preflight runs it: a STOP, an ERROR or any non-zero exit stops a new run with notify. The script decides from the gate's words and exit line, not from an agent's verdict. `overrideQuota: true` passes the gate, and a resume only warns. `checks/quota-reading.sh` and the build-change driver hold both readers, and each new case was seen failing first.
+The status line's quota reading (`~/.stridal/quota-reading.json`, OPS-67) had no production reader once OPS-42 was cancelled. It now has two, both over `lib/quota.sh`. `.claude/health/quota.sh` is a session-start health line. It shows each window's use, its reset on the owner's clock (`TIME_ZONE`) and when the reading was saved. A window past its reset shows no number, and no reading is CANNOT CHECK. It says HIGH when a seven-day window is at `QUOTA_LANE_STOP_PCT` and FAILED when that threshold is not a number. `.claude/quota-gate.sh` exits 1 when any `seven_day*` window with a current reading is at or above the threshold (project.conf, default 90, `0` off). It exits 2 on a bad threshold and 0 below it, or with no reading, which it says. build-change's preflight runs it: a STOP, an ERROR or any non-zero exit stops a new run with notify. The script decides from the gate's words and exit line, not from an agent's verdict. `overrideQuota: true` passes the gate, and a resume only warns. `checks/quota-reading.sh` and the build-change driver hold both readers, and each new case was seen failing first.
 
 #### Decisions
 
@@ -392,7 +392,7 @@ The status line's quota reading (`~/.clauductor/quota-reading.json`, OPS-67) had
 
 #### Surprises
 
-- `clauductor update` read the main checkout's template, not this worktree's, because `CLAUDUCTOR_FRAMEWORK` was set in the lane's environment. It needed `env -u CLAUDUCTOR_FRAMEWORK`.
+- `stridal update` read the main checkout's template, not this worktree's, because `STRIDAL_FRAMEWORK` was set in the lane's environment. It needed `env -u STRIDAL_FRAMEWORK`.
 - Adding a preflight step moved the marker from step 10 to step 11, and the prompt's "changing nothing but what step 10 says it may" then pointed at the wrong step. A driver test now reads the number from the prompt and checks that the step it names runs marker.sh.
 
 #### Insights
@@ -410,7 +410,7 @@ The status line's quota reading (`~/.clauductor/quota-reading.json`, OPS-67) had
 
 #### What happened
 
-`living-visuals.sh` failed OPS-99's gate with "the stopped command took 5s" while nine lanes ran: it asserted that a stopped `sleep 5` took at most 4 s, and that a page's commands took at most 3 s. A sweep of the checks found the class in nine places: six asserted bounds that were guesses at a machine's pace (living-visuals twice, gate-wait's 10 s, quota-reading's 2 s, team-queue's 7 s, and statusline's release at 6 s), and three guessed `sleep`s before an assertion (people.sh twice, machine-quiet.sh). Each asserted bound now sits at the least the broken behaviour must cost: a stopped `exec sleep 30` must take under 30 s; 34 commands under 34 s (a waited-for watcher costs each one a second); gate-wait under 60 s (its default is 540 s); the status line's reader under its 20 s release; a line under its 6 s save; the team-queue listing under its fake gh's 30 s. The guessed sleeps became `wait_for` on the condition. `lib.sh` gains `slow` (a deadline times CLAUDUCTOR_TEST_SLOW, as `internal/testwait` scales Go deadlines) and `wait_for`, and statusline's two copies of the factor's awk now go through `slow`. A new check, `wall-clock.sh`, holds every `date +%s` line in a check run.sh runs to a trailing `# wall-clock: <why>`; it has its row in both AGENTS.md files.
+`living-visuals.sh` failed OPS-99's gate with "the stopped command took 5s" while nine lanes ran: it asserted that a stopped `sleep 5` took at most 4 s, and that a page's commands took at most 3 s. A sweep of the checks found the class in nine places: six asserted bounds that were guesses at a machine's pace (living-visuals twice, gate-wait's 10 s, quota-reading's 2 s, team-queue's 7 s, and statusline's release at 6 s), and three guessed `sleep`s before an assertion (people.sh twice, machine-quiet.sh). Each asserted bound now sits at the least the broken behaviour must cost: a stopped `exec sleep 30` must take under 30 s; 34 commands under 34 s (a waited-for watcher costs each one a second); gate-wait under 60 s (its default is 540 s); the status line's reader under its 20 s release; a line under its 6 s save; the team-queue listing under its fake gh's 30 s. The guessed sleeps became `wait_for` on the condition. `lib.sh` gains `slow` (a deadline times STRIDAL_TEST_SLOW, as `internal/testwait` scales Go deadlines) and `wait_for`, and statusline's two copies of the factor's awk now go through `slow`. A new check, `wall-clock.sh`, holds every `date +%s` line in a check run.sh runs to a trailing `# wall-clock: <why>`; it has its row in both AGENTS.md files.
 
 Under load (three copies of the old check beside 20 fork loops and 10 CPU burners, load average up to 125), the old bound failed 3 of 3 (5 s, 6 s, 5 s). The new checks passed 3 of 3 beside three more old copies under the same burners: the stopped case took 4 to 5 s, which fails the old bound, and the speed case 5 to 6 s of its 34. Each changed assertion was shown red on a mutant first: the stop removed (30 s of 30), each command waiting a second (36 s of 34), gate-wait past its bound (65 s), the case's errors left on the check's stderr (22 s of a 20 s release), the save in the foreground (7 s of 6), a deadline that does not stop gh (32 s of 30), a leaked watchdog and 11 orphans injected in people.sh, a hidden pid file in machine-quiet.sh, and wall-clock.sh scanning only its own directory.
 
@@ -418,9 +418,9 @@ Review ran four rounds. Round 1 (two mediums) converted the remaining fixed-coun
 
 #### Decisions
 
-- The gate does not set CLAUDUCTOR_TEST_SLOW from the machine's load. A load reading taken when the gate starts does not see the lanes that start during its 25 minutes, and no asserted bound needs it now: each sits under what the broken behaviour costs, which load does not change. The factor stays for deadlines, where a passing case never waits, and CI already sets it to 2 for `go test`, which runs the template's checks.
+- The gate does not set STRIDAL_TEST_SLOW from the machine's load. A load reading taken when the gate starts does not see the lanes that start during its 25 minutes, and no asserted bound needs it now: each sits under what the broken behaviour costs, which load does not change. The factor stays for deadlines, where a passing case never waits, and CI already sets it to 2 for `go test`, which runs the template's checks.
 - A `# wall-clock:` reason is an allowlist: letters, digits, spaces and `, . ; : ( ) -`, from the marker to the end of the line. Round 2 found that allowing an apostrophe let a marker inside a closed single-quoted string count; round 3 found the same through a closed backtick substitution, with the quote rule back. Listing what may appear closes every string and substitution form at once (PRAC-0010), at the cost of "the sleep of the fake" for "the fake's sleep". The owner chose it at the cap.
-- The guard executes only the clock reads. A fixed-count poll or a guessed `sleep` before an assertion is the same class, and nothing finds one: the AGENTS.md row says **Nothing. You.** for them, and every one in the checks today is converted (round 1 found five polls in gate.sh and no-clauductor.sh, and the guessed `sleep 3` before gate.sh's renewal assertion).
+- The guard executes only the clock reads. A fixed-count poll or a guessed `sleep` before an assertion is the same class, and nothing finds one: the AGENTS.md row says **Nothing. You.** for them, and every one in the checks today is converted (round 1 found five polls in gate.sh and no-stridal.sh, and the guessed `sleep 3` before gate.sh's renewal assertion).
 - `artifacts.sh`'s fake `jq` must end inside `with_timeout`'s TERM-to-KILL window, a race load can lose; the fake cannot see when the TERM reached its parent, so the fix is not small. #335 (OPS-173) owns it, cited in the check.
 
 #### Surprises
@@ -446,12 +446,12 @@ Review ran four rounds. Round 1 (two mediums) converted the remaining fixed-coun
 
 `.claude/health/coauthor-trailers.sh` is a thin caller over `health_coauthor` in `.claude/lib/health.sh`. While `model-roles.json` does not set `attribution.enabled` to true, the line reads every commit on `origin/<main>` after a baseline, second parents included. It prints FAILED for each commit whose message has a `Co-authored-by` trailer, judged as rule 15 judges one: a line whose first word, past blanks, is the key, in any case, then its colon. Each FAILED line names the commit's short sha and title, never the trailer, so no co-author's address reaches the session context. It offers the two fixes that clear it: rewrite the branch (the owner's call), or keep the commits as history by setting `COAUTHOR_HEALTH_SINCE` to main's tip. With attribution on it prints OK, not checked. It prints CANNOT CHECK when the config or `origin/<main>` cannot be read, and in a shallow clone whose depth hides the baseline. Run over this repo's whole history, it finds #289–#291 alone, which are before its baseline. `checks/health-lines.sh` tests it in fixture repositories through a thin caller of its own, and runs the project's copy of the line only when the project keeps one.
 
-Round 4 found that the plugin builder rewrote that fixture caller to the plugin's model, so 34 cases read the real project. The caller is now spelled so the builder leaves it alone. A new Go test, `TestCheckHeredocsKeepTheirProject`, fails when the plugin's copy of a check points a script the check writes at `CLAUDUCTOR_FW` while the template's does not. Its reader grew over rounds 5–12 into a small quote-aware shell lexer, `writtenScripts` (`framework/internal/plugin/shscan_test.go`). It reads quoted heredocs and printf/echo writers whose output reaches a file. The table `TestWrittenScripts` holds it to about 130 rows: what it reads, what it skips on purpose, and what it refuses.
+Round 4 found that the plugin builder rewrote that fixture caller to the plugin's model, so 34 cases read the real project. The caller is now spelled so the builder leaves it alone. A new Go test, `TestCheckHeredocsKeepTheirProject`, fails when the plugin's copy of a check points a script the check writes at `STRIDAL_FW` while the template's does not. Its reader grew over rounds 5–12 into a small quote-aware shell lexer, `writtenScripts` (`framework/internal/plugin/shscan_test.go`). It reads quoted heredocs and printf/echo writers whose output reaches a file. The table `TestWrittenScripts` holds it to about 130 rows: what it reads, what it skips on purpose, and what it refuses.
 
 #### Decisions
 
 - **The baseline is the commit that added the line, read exclusively; `COAUTHOR_HEALTH_SINCE` (a commit, `.claude/project.conf`) moves it.** Because of the default, the trailers the owner kept on #289–#291 (2026-10-28) are not a finding here, and no date needs choosing. A project that adopts the line later starts from its own adoption. The key names a commit rather than a date, so "keep it as history" is one value: main's tip, which every listed commit precedes.
-- **The logic lives in `lib/health.sh`, and the health line is a thin caller**, as with the two GitHub lines. `.claude/health/` belongs to the project, and `clauductor update` never rewrites it, so a fix to logic kept there would never reach a project.
+- **The logic lives in `lib/health.sh`, and the health line is a thin caller**, as with the two GitHub lines. `.claude/health/` belongs to the project, and `stridal update` never rewrites it, so a fix to logic kept there would never reach a project.
 - **The tests are in `checks/health-lines.sh`, not `checks/health.sh`.** `health.sh` is in `steps.sh`'s `CHECKS_ONCE`, which may read only framework files, and a health line is the project's file.
 - **Attribution is read as rule 15 reads it**: on only when `attribution.enabled` is true. A `model-roles.json` that does not parse, or whose attribution is not an object, is CANNOT CHECK, because the line cannot tell whether attribution is off. With no `model-roles.json`, the line is OK and checks nothing, which matches rule 15, also off there.
 - **A revert is not offered as a fix.** It adds a commit, and the trailer's commit stays in the range.
@@ -461,7 +461,7 @@ Round 4 found that the plugin builder rewrote that fixture caller to the plugin'
 
 The rewrite that broke the fixture caller was the plugin builder doing its job: `shRoot` and `shVarFW` rewrite every `ROOT=$(cd "$(dirname "$0")/../.." …)` and `"$ROOT/.claude/<framework dir>"` line, including the lines a check writes into a heredoc for a scratch project. Each attempt to name the scripts a check writes by one spelling missed another (a redirect after the opener, a comment, `printf --`, double quotes, a brace group, `$(…)`, echo), until the reader parsed the shell rather than matching its lines.
 
-The pre-PR pass found one more thing. In the no-clauductor wrap, git prints an xcrun warning to stderr, and three of the line's git calls did not silence stderr. Session-start merges a health line's stderr, so the warning would have reached it as a line with no verdict. Those calls now send stderr to /dev/null, and the check compares the project's copy of the line by stdout alone.
+The pre-PR pass found one more thing. In the no-stridal wrap, git prints an xcrun warning to stderr, and three of the line's git calls did not silence stderr. Session-start merges a health line's stderr, so the warning would have reached it as a line with no verdict. Those calls now send stderr to /dev/null, and the check compares the project's copy of the line by stdout alone.
 
 KNOWN LIMITS:
 - OPS-172 (queued here) owns the same gap for `push-main.sh` and `scheduled-workflows.sh`: `health-lines.sh` copies them from the project's own `.claude/health/`, so a project that deletes them, as the README allows, gets 47 FAILs.
@@ -590,7 +590,7 @@ The test waits, and `markTrusted` keeps its order. A card's output can show for 
 
 #### Surprises
 
-The lane's sandbox refused a loopback bind, and once that was allowed it still could not resolve `clauductor.localhost`, so neither the panel tests nor the gate could run from the lane. The owner ran the evidence scripts by hand. Under that load the natural flake did not show in 50 runs.
+The lane's sandbox refused a loopback bind, and once that was allowed it still could not resolve `stridal.localhost`, so neither the panel tests nor the gate could run from the lane. The owner ran the evidence scripts by hand. Under that load the natural flake did not show in 50 runs.
 
 The measured runs of the fixed binary were SIGKILLed, and the cause was not the fix. Both evidence scripts ran the load suite and the measured run from one prebuilt binary. After its tests, leakcheck lists every process on the machine and SIGKILLs any running its own binary's path, whoever started it (`internal/leakcheck/leakcheck.go:172-177`). That killed each fixed run, and the earlier load copies killed one another. A run from a different path survived its load suite. `go test` gives each run a binary path of its own, so a gate does not hit this. But leakcheck kills, by pattern, processes it never started, the class ADR-0005 forbids. Issue #319 (row OPS-160) owns it.
 
@@ -611,7 +611,7 @@ None.
 
 Every low from PANEL-42's group 5 review (#128) was still on main, at moved lines. The command lines attach's refusals and the `panel trust` hints of attach and `panel add` print are shell-quoted with `install.ShellWord`. A card of exactly 200 lines no longer says "… (truncated)": the marker is added only when a line is cut, from stdout or stderr (`appendCardLines`). `servingGit`'s comment names its two exceptions: `signals.ReadWorktrees`' bare `git worktree list`, and catch-up, which is not serving. `unquoteC` has a `\n`/`\r` row. The misplaced comment in `projects_test.go` moved to `TestListProjectsNamesEachConfig`. `docs/panel.md`'s "What it does not do" sub-list has a heading that fits its items. D5 also refuses fish's `-C`, a cluster holding `C`, `--init-command` and `--init-command=…`.
 
-Closing the class (PRAC-0010): three more printed command lines had the same gap and are quoted too: `clauductor init`'s `cd <dir>`, the self-update rollback's `mv` (`install.Tilde` now returns one shell word, with `~/` left outside the quotes) and a hand-started panel's `go build -o <exe>`. Not changed, because every value is fixed or validated: `launchctl` lines (the GUI domain and the constant label), `clauductor panel remove <id>` (an id matching `ProjectIDRe`, quoted anyway) and leakcheck's `tmux -L <name>` (test support, a name it made).
+Closing the class (PRAC-0010): three more printed command lines had the same gap and are quoted too: `stridal init`'s `cd <dir>`, the self-update rollback's `mv` (`install.Tilde` now returns one shell word, with `~/` left outside the quotes) and a hand-started panel's `go build -o <exe>`. Not changed, because every value is fixed or validated: `launchctl` lines (the GUI domain and the constant label), `stridal panel remove <id>` (an id matching `ProjectIDRe`, quoted anyway) and leakcheck's `tmux -L <name>` (test support, a name it made).
 
 #### Decisions
 
@@ -655,7 +655,7 @@ Flow, 30 days to 2026-10-29: cycle 1.4h median, lead 2.4h, 46.2 merges/wk, chang
 - **The new name has cleared.**
 - **Distribution:** GitHub releases plus the plugin marketplace, with the official directory after launch (OPS-153).
 - **The sandbox stays closed.**
-- **Cleanup.** 185 local and 2 remote branches were bundled in `.git/clauductor/branch-archive-2026-10-28*.bundle` and deleted. The old worktree dirs and the March `orchestration/` databases were removed.
+- **Cleanup.** 185 local and 2 remote branches were bundled in `.git/stridal/branch-archive-2026-10-28*.bundle` and deleted. The old worktree dirs and the March `orchestration/` databases were removed.
 
 **The sandbox, mapped (OPS-150, OPS-151).**
 - **This morning's UNKNOWN queue** was a bare `mktemp` on macOS writing outside `$TMPDIR`. OPS-150 fixed it, and its check holds every `mktemp` to a `$TMPDIR` template.
@@ -757,7 +757,7 @@ The row closed five issues, each with a test shown failing before its fix.
 - The 10 `main_test.go` files added in round 4 shrank to a blank import of `testgit`, and the round-4 `TestMain` edits were reverted. With the strip in `init`, a `TestMain` adds nothing.
 - `testgit.Command` and `testgit.Env` stay. Command gives the 25 fixture sites one helper, with a commit identity and the git found before any test stubs PATH. Env keeps dropping `GIT_` variables, for a test that sets its own as a hook's stand-in (template's `TestTheFixturesGitStaysInTheFixture`).
 - `Outer` excludes one thing from its whole-tree comparison: the `.git` directory's own mtime. `git status` takes `.git/index.lock` to refresh the index and then removes it, which moves only that. It pins `core.untrackedCache` and `core.fsmonitor` off, and builds the repository with no global or system config. Otherwise a machine's global settings make `git status` write the index or start a daemon. `feature.manyFiles` needs no pin of its own: its row passes on the untracked-cache pin alone.
-- #274 left `rewrite.go` unchanged. The rewrite passes no case-arm form, and the detector now reports the new shape, so a template line using it fails the build instead of shipping an empty `CLAUDUCTOR_FW`.
+- #274 left `rewrite.go` unchanged. The rewrite passes no case-arm form, and the detector now reports the new shape, so a template line using it fails the build instead of shipping an empty `STRIDAL_FW`.
 
 #### Surprises
 
@@ -860,7 +860,7 @@ The post-merge review of what OPS-131 (#270) merged after round 12 (`66499ae3..d
 
 - The round-1 fix (`loose`) was itself too narrow: it counted parens inside `<…>` and inside titles, and applied the table rule for `|` to prose. Round 1 found that closing shapes one by one would not converge, so the old reading went back in as a backstop.
 - A comment with an apostrophe inside `marker_plain`'s single-quoted awk program ended the shell quote; every check failed with a syntax error until it was reworded.
-- `clauductor update` prompts per modified file and cancels with no input; piping `y` answers is needed in a lane.
+- `stridal update` prompts per modified file and cancels with no input; piping `y` answers is needed in a lane.
 
 #### Insights
 
@@ -877,7 +877,7 @@ The post-merge review of what OPS-131 (#270) merged after round 12 (`66499ae3..d
 
 #### What happened
 
-S15 opened in the terminal, not the panel or Cursor. The owner went through the owner queue before any build. The session also audited S14, which had run from Cursor. Every S14 commit merged through its PR (#289–#299), and each merged head had one full gate pass in `gate-runs.log`. The squash bodies of #289–#291 carry a `Co-authored-by` line, left on main. This PR records the rulings: 15 owner-queue items are ticked. OPS-42, OPS-123, o.5 and o.6 are cancelled, and OPS-104 can run. OPS-150 to OPS-154 are new, and S15 is re-ordered. `change/ops-42-build` (a9de580b) is bundled in `.git/clauductor/branch-archive-2026-10-28.bundle`.
+S15 opened in the terminal, not the panel or Cursor. The owner went through the owner queue before any build. The session also audited S14, which had run from Cursor. Every S14 commit merged through its PR (#289–#299), and each merged head had one full gate pass in `gate-runs.log`. The squash bodies of #289–#291 carry a `Co-authored-by` line, left on main. This PR records the rulings: 15 owner-queue items are ticked. OPS-42, OPS-123, o.5 and o.6 are cancelled, and OPS-104 can run. OPS-150 to OPS-154 are new, and S15 is re-ordered. `change/ops-42-build` (a9de580b) is bundled in `.git/stridal/branch-archive-2026-10-28.bundle`.
 
 #### Decisions
 
@@ -921,7 +921,7 @@ Three bare `mktemp` calls now take a `"${TMPDIR:-/tmp}/<name>.XXXXXX"` template.
 #### Surprises
 
 - `git worktree add -b` could not write `.git/config` in the sandbox. The branch was made first, then the worktree for it.
-- `clauductor update` read the main checkout's template through `CLAUDUCTOR_FRAMEWORK` until that was pointed at the worktree. It also leaves `.claude/evals` alone, since that directory is the project's, so the eval case's copy was edited by hand.
+- `stridal update` read the main checkout's template through `STRIDAL_FRAMEWORK` until that was pointed at the worktree. It also leaves `.claude/evals` alone, since that directory is the project's, so the eval case's copy was edited by hand.
 - The first check's own `head -20` and `while read … echo` showed the same two traps it hunted: a reader that exits early, and an `echo` that rewrites backslashes.
 - `digests.sh`'s `while (blank) getline` looped forever when only blank lines followed its heading.
 
@@ -963,20 +963,20 @@ No sync or agents step runs a lane's files outside the sandbox. What does run ou
   - the table is split by how the lane was started;
   - the merge-pr note is reverted;
   - the skills that tell a background lane to wait for its agents (merge-pr step 3, apply-change) are #308, owned by ST-16;
-  - CLAUDE.md says `CLAUDUCTOR_FRAMEWORK` wins the template search.
+  - CLAUDE.md says `STRIDAL_FRAMEWORK` wins the template search.
 - **OPS-90's probes (1), (2) and (4) are all on #305, none of them answered.**
   - (4): seen once. A reviewer's hand-back went to the MAIN session after its launcher's turn had ended ("the agent that spawned you is no longer running"; it had no SendMessage). Whether a held launcher receives it is unprobed.
   - (1): wrongly dropped this morning. These lanes are named teammates, an agent team, and each went idle while its reviewer ran, with nothing holding it.
   - (2): needs an interactive session's own AskUserQuestion, which a subagent lane cannot fire.
   - AGENTS.md is unchanged.
-- **#306's round 2 (MEDIUM)**: the playbooks named the gate as the only unsandboxed exception, but `excludedCommands` also lists `git *`, `gh *`, `tmux *`, `clauductor *` and `docker *`. They now name the authority instead, and #307's body covers the whole route. The lead probed that a `git config` matching `git *` was still refused `.git/config`, so the entries' automatic effect is unverified. Three lows: the plugin note now covers skills; an own-session lane is synced by hand until ST-15, panel or not; and the owner queue's 2026-10-26 item is marked superseded.
-- **#306's round 3, the cap (MEDIUM), stopped for the owner.** This repo's playbook said a plain update runs no lane file, but its own `framework/clauductor update` is built from the lane's Go. It now separates the two: plain `git rebase`/`git merge` and the INSTALLED `clauductor update` run no lane file, while a binary built in the lane runs only inside the sandbox, and the owner syncs by hand with the installed one. Three lows: the sync is said to have been seen working in the sandbox despite matching `git *` and `clauductor *`; the template says "Clauductor's #307"; CLAUDE.md is rewrapped. #307 also gained a comment: whether a lane can write `.git/worktrees/<lane>/commondir` or `gitdir` is unprobed.
-- **The owner approved the round-3 fixes** (2026-10-28), with the lead's review of them in place of a 4th round. The lead added one tweak: the owner's by-hand sync is `CLAUDUCTOR_FRAMEWORK=$PWD clauductor update` with the installed binary, which reads the lane's template only as data.
+- **#306's round 2 (MEDIUM)**: the playbooks named the gate as the only unsandboxed exception, but `excludedCommands` also lists `git *`, `gh *`, `tmux *`, `stridal *` and `docker *`. They now name the authority instead, and #307's body covers the whole route. The lead probed that a `git config` matching `git *` was still refused `.git/config`, so the entries' automatic effect is unverified. Three lows: the plugin note now covers skills; an own-session lane is synced by hand until ST-15, panel or not; and the owner queue's 2026-10-26 item is marked superseded.
+- **#306's round 3, the cap (MEDIUM), stopped for the owner.** This repo's playbook said a plain update runs no lane file, but its own `framework/stridal update` is built from the lane's Go. It now separates the two: plain `git rebase`/`git merge` and the INSTALLED `stridal update` run no lane file, while a binary built in the lane runs only inside the sandbox, and the owner syncs by hand with the installed one. Three lows: the sync is said to have been seen working in the sandbox despite matching `git *` and `stridal *`; the template says "Stridal's #307"; CLAUDE.md is rewrapped. #307 also gained a comment: whether a lane can write `.git/worktrees/<lane>/commondir` or `gitdir` is unprobed.
+- **The owner approved the round-3 fixes** (2026-10-28), with the lead's review of them in place of a 4th round. The lead added one tweak: the owner's by-hand sync is `STRIDAL_FRAMEWORK=$PWD stridal update` with the installed binary, which reads the lane's template only as data.
 - **The insight `sandbox/lane-sync` now holds only for lanes of their own session.** An in-session lane can write its hooks and skills. The log is the close's to edit, not this row's.
 
 #### Surprises
 
-- The owner's `~/.zshrc` sets `CLAUDUCTOR_FRAMEWORK` to the main checkout, and it outranks the binary's own checkout in the template search. So a lane's `framework/clauductor update` reads the MAIN checkout's template, and reports nothing to do, unless the lane points the variable at itself.
+- The owner's `~/.zshrc` sets `STRIDAL_FRAMEWORK` to the main checkout, and it outranks the binary's own checkout in the template search. So a lane's `framework/stridal update` reads the MAIN checkout's template, and reports nothing to do, unless the lane points the variable at itself.
 - `git worktree add` from the sandbox created the branch but not the worktree, because `.git/config` is denied.
 - Four reviewer runs from this lane ended without a hand-back reaching it, one of them spawned in the foreground. The lead relayed the reports by hand (#308).
 
@@ -1059,7 +1059,7 @@ None.
 
 #### What happened
 
-`checks/gate.sh`'s lock-run "by pid" case inherited `CLAUDUCTOR_LEASE_NONCE` from an outer `lease_run` (the no-binary path, ADR-0006), so `lease_verify` compared nonces and answered LOST. Every docs or full gate without the binary failed. The case now asserts LOST with a leaked nonce first, then unsets the variable and asserts VERIFIED. The other `lease_verify` cases already run inside `lease_run`, which exports the holder's own nonce.
+`checks/gate.sh`'s lock-run "by pid" case inherited `STRIDAL_LEASE_NONCE` from an outer `lease_run` (the no-binary path, ADR-0006), so `lease_verify` compared nonces and answered LOST. Every docs or full gate without the binary failed. The case now asserts LOST with a leaked nonce first, then unsets the variable and asserts VERIFIED. The other `lease_verify` cases already run inside `lease_run`, which exports the holder's own nonce.
 
 #### Decisions
 
@@ -1084,7 +1084,7 @@ None.
 
 #### What happened
 
-Standing Tee's `session-start/digests.sh` is ported into the template: the change queue, latest journal entry, recent insights, and ADR and practice indexes print as bounded digests from `context.sh` via `roadmap_queue --text` (no node). Clauductor's folded journal uses `#### What happened` or the first lines after the session heading when there is no `**What happened.**` paragraph; missing **What's next** is one explicit line. A new `session-start-digests` process check holds real-doc output under 8000 bytes and fixture cases for journal, Raw count, and NOT ACCEPTED index rows; `context.sh` must call `digests.sh`.
+Standing Tee's `session-start/digests.sh` is ported into the template: the change queue, latest journal entry, recent insights, and ADR and practice indexes print as bounded digests from `context.sh` via `roadmap_queue --text` (no node). Stridal's folded journal uses `#### What happened` or the first lines after the session heading when there is no `**What happened.**` paragraph; missing **What's next** is one explicit line. A new `session-start-digests` process check holds real-doc output under 8000 bytes and fixture cases for journal, Raw count, and NOT ACCEPTED index rows; `context.sh` must call `digests.sh`.
 
 #### Decisions
 
@@ -1123,7 +1123,7 @@ The packager refused a new `.claude/bin/` until `frameworkDirs` named it. A scri
 
 None.
 
-### ST-8 — port usage-report --contributors into Clauductor
+### ST-8 — port usage-report --contributors into Stridal
 
 - **PR**: #293
 - **Session**: S14, started 2026-10-27 15:01 ET
@@ -1190,7 +1190,7 @@ None.
 
 #### What happened
 
-The owner explored taking Clauductor open source, starting from Andrew Baker's Ghostty Dock article (2026-10-21) and a read of Standing Tee's operating model at `e58b085`, then re-planned the roadmap in plan mode. The PR adds ADR-0011 and `docs/plans/direction-shift.md`. On the roadmap it:
+The owner explored taking Stridal open source, starting from Andrew Baker's Ghostty Dock article (2026-10-21) and a read of Standing Tee's operating model at `e58b085`, then re-planned the roadmap in plan mode. The PR adds ADR-0011 and `docs/plans/direction-shift.md`. On the roadmap it:
 - adds Phases 4 (*Learn from Standing Tee*, ST-8 to ST-21), 5 (*The product module*, PROD-1 to PROD-5) and 6 (*The terminal UI*, PANEL-60 to PANEL-65);
 - moves Release to Phase 7 and Standing Tee's attach phase to Phase 8;
 - cancels the browser overhaul (PANEL-46) and the rows built on it, the licensing rows (OPS-112, OPS-116, PANEL-54), and ST-6 and ST-7;
@@ -1217,7 +1217,7 @@ All of them are the owner's, 2026-10-27:
 
 - ADR-0010 was taken: ADRs and practice records share one number space, and PRAC-0010 holds it. The ADR became 0011.
 - The cloud clone was shallow, so the docs gate could not diff against `origin/main` until the clone was unshallowed.
-- Both docs gates failed `gate`'s `lease_verify by pid: LOST`. It looked like a load flake, since the check passes alone, but it is not one. It inherits the outer gate's `CLAUDUCTOR_LEASE_NONCE`, which is set only where there is no `clauductor` binary, and it fails on demand with that variable set. OPS-146 owns the fix. It is a pre-existing bug, not this PR's: on a machine with the binary the gate holds the lease through lock-run, which exports no nonce.
+- Both docs gates failed `gate`'s `lease_verify by pid: LOST`. It looked like a load flake, since the check passes alone, but it is not one. It inherits the outer gate's `STRIDAL_LEASE_NONCE`, which is set only where there is no `stridal` binary, and it fails on demand with that variable set. OPS-146 owns the fix. It is a pre-existing bug, not this PR's: on a machine with the binary the gate holds the lease through lock-run, which exports no nonce.
 - `gh` has no valid token in the cloud container.
 
 #### Insights
@@ -1321,7 +1321,7 @@ The whole day ran in claude.ai cloud sessions. The owner merged each PR from the
 
 **Rows folded.** OPS-109 (#240); OPS-119 (#241); OPS-124 (#247); OPS-126 (#239); OPS-127 (#246); OPS-128 (#256); OPS-130 (#258); OPS-131 (#270); OPS-132 (#268); OPS-134 (#266); OPS-135 (#263); OPS-136 (#264); OPS-137 (#278); OPS-138 (#283); PANEL-57 (#250).
 
-### OPS-109 — `clauductor doctor` checks a machine's setup and a project's
+### OPS-109 — `stridal doctor` checks a machine's setup and a project's
 
 - **PR**: #240
 - **Session**: S12, started 2026-10-24 17:53 ET
@@ -1332,7 +1332,7 @@ The whole day ran in claude.ai cloud sessions. The owner merged each PR from the
 
 #### What happened
 
-`clauductor doctor` is built in three task groups: the command and the machine's tools, gh and
+`stridal doctor` is built in three task groups: the command and the machine's tools, gh and
 template (group 1), the project's model, drift and gate (group 2), and on macOS the panel's
 registry, install, running, build, served project, config and trust lines, plus the prereqs line
 and the docs that send a user to doctor (group 3). Doctor writes nothing, and every `fix:` it prints
@@ -1377,7 +1377,7 @@ stopped at the review cap and were fixed and resumed.
 
 #### What happened
 
-`clauductor update` merges `.claude/model-roles.json` add-only, so it re-added the template's
+`stridal update` merges `.claude/model-roles.json` add-only, so it re-added the template's
 `roles.reviewer.eval.baseline` beside this repo's eval receipt (OPS-97, #170) on every run, and
 `survey` reported the baseline as a key the project lacked. `template.MergeModelRoles` now leaves
 `roles.<role>.eval` whole when either side holds a `receipt`, and both production callers use it
@@ -1390,12 +1390,12 @@ byte for byte.
 #### Decisions
 
 - Which copy drifts: the template's are the source. The baseline was update's own doing, not drift;
-  `orchestration/config.json` already matches the template (`clauductor diff`, 2026-10-24), and
+  `orchestration/config.json` already matches the template (`stridal diff`, 2026-10-24), and
   only `docs/conventions.md` and `docs/playbook.md` differ, which are doc-tier and the project's.
 - The guard checks a receipt on both sides (round 1's finding 6): a project baseline beside a
   template receipt would name a receipt file the project lacks.
 - The close marks two insight rows Fixed by this row (a row's PR never edits the log): 2026-10-19
-  "update follows CLAUDUCTOR_FRAMEWORK" and 2026-10-24 "update/non-interactive".
+  "update follows STRIDAL_FRAMEWORK" and 2026-10-24 "update/non-interactive".
 
 #### Surprises
 
@@ -1457,7 +1457,7 @@ $214.17. PANEL-48's `session-3-close` lane (168 to 86, named after its last bran
 
 #### Surprises
 
-`clauductor update` with no terminal again cancelled its file reviews (insight
+`stridal update` with no terminal again cancelled its file reviews (insight
 `update/non-interactive`). The three changed copies matched the template byte for byte at HEAD, so
 they were copied across.
 
@@ -1526,7 +1526,7 @@ config.
 
 #### Surprises
 
-- `clauductor update` with no terminal cancelled its reviews and rewrote `.claude/model-roles.json`
+- `stridal update` with no terminal cancelled its reviews and rewrote `.claude/model-roles.json`
   again (logged in S11, update/non-interactive); reverted by hand.
 - The sandbox refuses writes under `.claude/workflows/` and `.claude/skills/`, and the default Go
   build cache, so syncing the copies and building the plugin needed an unsandboxed copy and
@@ -1598,7 +1598,7 @@ the positive cases, and branch detection back to the name alone fails the detach
 - **The guard reads what the change does, not only what it says.** Round 1 matched the change's
   prose as substrings; review found that both missed a diff naming no path and blocked a proposal
   that merely mentioned `AGENTS.md`. Task lines and the branch diff replace the prose.
-- **The framework list lives in `lib/`**, so the plugin reads it from `$CLAUDUCTOR_FW` and `update`
+- **The framework list lives in `lib/`**, so the plugin reads it from `$STRIDAL_FW` and `update`
   replaces it; a project's additions go in the local layer, which neither writes. Round 1's
   scaffold placement in `plugin/build.go` is reverted.
 - **This repo's key went on in this PR, on the owner's own word.** The permission classifier
@@ -1616,7 +1616,7 @@ orchestrator flagged it, and the lane reset to `origin/main` before any edit (th
 marker opened had pushed the four stale commits; the push here replaces them).
 
 The race step's plugin run failed two self-test cases the template run passed: a plugin project's
-framework list is the plugin's own (`$CLAUDUCTOR_FW/lib`), so deleting the fixture's list changed
+framework list is the plugin's own (`$STRIDAL_FW/lib`), so deleting the fixture's list changed
 nothing. That is the authority working, not a gap; the two cases now run the fixture's own copy of
 the script, which reads the fixture's list in either layout.
 
@@ -1676,7 +1676,7 @@ covered a diff nobody had read. The merge of `origin/main` conflicted on the S12
 rows, which OPS-130's #257 and this row both edited. The new AGENTS.md row passed
 `agents-md-budget` in both of this repo's sets at 311 characters, then failed in the plugin's
 scaffold at 336: the plugin rewrites `.claude/` to `${CLAUDE_PLUGIN_ROOT}/` and `/propose` to
-`/clauductor:propose`, so only the 12-minute race test sees the row as a plugin project gets it.
+`/stridal:propose`, so only the 12-minute race test sees the row as a plugin project gets it.
 
 #### Insights
 
@@ -1791,7 +1791,7 @@ an `Approval:` marker in any spelling or place, or one its history ever held; a 
 `Approval:` in its Change cell; a Risk the row states in a form the floor cannot read; a
 `**Risk:**` below the row's (a row with none is normal); and a change ever approved before, by a
 standing or revoked line, an Approved line in its history, or an entry in the clone's approval log
-(`<git-common-dir>/clauductor/approvals.log`, which the owner starts with `--start-log`). The row
+(`<git-common-dir>/stridal/approvals.log`, which the owner starts with `--start-log`). The row
 is the one row of `origin/main`'s roadmap table naming the change's id, and the proposal's
 `**Roadmap row:**` must be it. `review-cap.sh` reads a row's Risk the same way and says UNKNOWN for
 one it cannot read. Markers are read as they render (`marker_plain` in `.claude/lib/change.sh`),
@@ -2073,12 +2073,12 @@ machine. Exercising that stand-in by hand first looked like it did not sort: zsh
 Three issues, each shown failing first. (1) #251: the root command sets `SilenceErrors`, and its
 `PersistentPreRun` sets `SilenceUsage` once flags and arguments have passed, so `Main` prints a
 command's error once and only a mistyped command line prints usage; `Main` keeps cobra's
-`Run 'clauductor --help' for usage.` after an unknown command, which `SilenceErrors` also silenced.
+`Run 'stridal --help' for usage.` after an unknown command, which `SilenceErrors` also silenced.
 `TestMain`'s helper now runs `Main` itself instead of a hand copy of it, which is why it could never
 have caught the double print. A test refuses a subcommand's own `PersistentPreRun`, which would
-replace the root's. (2) #202: `clauductor panel install` reads `launchctl print-disabled` before it
+replace the root's. (2) #202: `stridal panel install` reads `launchctl print-disabled` before it
 changes anything and, when launchd holds the panel's label as disabled, stops with an error naming
-the `launchctl enable gui/<uid>/com.clauductor.panel` to run; it never runs it. `docs/panel.md`'s
+the `launchctl enable gui/<uid>/com.stridal.panel` to run; it never runs it. `docs/panel.md`'s
 install steps say so. (3) #255: doctor says git is not on PATH when it is not, rather than "not in a
 git repository"; DOCTOR-1-S5's AND clause is cited by the test that drives it; DOCTOR-1-S7's printed
 fix is proven by `panel install --project`'s own path (a new `panelInstallExec` seam, launchd
@@ -2130,7 +2130,7 @@ The row closes five open bugs in the template's scripts.
   - The refusal says to re-run the wait while the agent runs, and to end the turn once it no
     longer does.
   - A new test covers a launcher whose agent was stopped: its end is allowed.
-- **#232, the plugin's `sh -c` child.** The rewrite passes `CLAUDUCTOR_FW` to `-ce`, `-e -c` and a
+- **#232, the plugin's `sh -c` child.** The rewrite passes `STRIDAL_FW` to `-ce`, `-e -c` and a
   body over several lines, run over the whole script, not line by line. The test's detector reads
   the line before a child as the shell does (`commandWords`). It no longer reports a correct child
   inside `"$( … )"`. It does report any shell by any path with any unquoted options, so a form the
@@ -2156,7 +2156,7 @@ Every new case was run against the old code and failed there.
 
 #### Surprises
 
-`clauductor update` was refused on `.claude/hooks/no-silent-wait.sh` and later on
+`stridal update` was refused on `.claude/hooks/no-silent-wait.sh` and later on
 `.claude/skills/verify-change/SKILL.md`, which the lane's sandbox may not write. The owner copied
 them by hand each time a review round changed them. Until then, the root hooks check tested the new
 hook against the old copy and failed.
@@ -2193,7 +2193,7 @@ it. The notifier now keeps a waiting mark it restored until an agents answer has
 session, the Since of a wait already under way when it first listed the session
 (`View.WaitsCarried`). The notifier takes an alert with that Since as the stretch already
 notified. A prompt a hook raises after the restart has its own Since and notifies (review round 1's
-medium). (2) #162: `clauductor panel --launchd` runs as a
+medium). (2) #162: `stridal panel --launchd` runs as a
 subprocess with its run stubbed, from a terminal and under `nohup`. It catches the wiring in
 `panel.go` either way (always taking the hangup, never taking it); a test run that itself ignores
 the hangup skips the terminal case. `docs/panel.md` says how the panel stops. (3) #160: the quota harness loads `panel.js`'s own `el`, `key`, `pct`, `bullet` and
@@ -2234,14 +2234,14 @@ Three of #249's items; OPS-134 (#266) closed the fourth.
 - **Every merge-pr fragment is read.** `checks/change-process.sh` runs step 5's outside-step-5 rules
   over each fragment `extensions.sh fragments merge-pr` could emit, counting every module enabled.
   It also asserts the list includes each shipped one.
-- **A runtime control, `hooks/catch-up-guard.sh`.** While `clauductor panel catch-up --project
+- **A runtime control, `hooks/catch-up-guard.sh`.** While `stridal panel catch-up --project
   <main>` prints `on`, it refuses a git command that moves the main checkout: run there, aimed there,
   or re-aimed in a way it cannot follow. Refs are shared, so `update-ref` and `fetch -u` count from a
   lane too.
   - It reads commands with `lib/gate-reader.awk` in a new `-v gits=1` mode, which follows a `cd` the
     way the shell would: certain, possible (conditional, piped, backgrounded, in a case arm) or ended
     by a subshell's `)`.
-  - A lane's own catch-up merge runs. Without clauductor, or with catch-up off, it allows the command
+  - A lane's own catch-up merge runs. Without stridal, or with catch-up off, it allows the command
     and says so.
 - **Two false refusals are gone:** prose `cd`, and a plain `cd <subdir>`.
 
@@ -2268,7 +2268,7 @@ each red row failed against the hook before its fix.
 - **Main moved twice under the branch** (OPS-137 and OPS-132's #268). Each rebase ran in a scratch
   worktree and moved here by an index-only reset, because the sandbox cannot write this repo's
   `.claude/hooks/` or `.claude/skills/`. The owner restored those files by hand.
-- **The first `clauductor update` read the wrong template**: origin/main's, through the installed
+- **The first `stridal update` read the wrong template**: origin/main's, through the installed
   binary. The update reads the template beside the binary, so a binary built from this checkout was
   needed.
 
@@ -2276,7 +2276,7 @@ each red row failed against the hook before its fix.
 
 2 row(s), moved to the insights log.
 
-### PANEL-57 — clauductor lane close: an agent closes a finished lane, never a working one
+### PANEL-57 — stridal lane close: an agent closes a finished lane, never a working one
 
 - **PR**: #250
 - **Session**: S12, started 2026-10-24 22:29 ET
@@ -2287,9 +2287,9 @@ each red row failed against the hook before its fix.
 
 #### What happened
 
-`clauductor lane close <id>` asks the running panel to close a lane through Close lane's own plan
+`stridal lane close <id>` asks the running panel to close a lane through Close lane's own plan
 and guards. With no flag it prints the plan and changes nothing; with `--yes` it closes, with the
-plan's offers as consent. The panel serves it on `~/.clauductor/panel/cli.sock` (mode 0600, the one
+plan's offers as consent. The panel serves it on `~/.stridal/panel/cli.sock` (mode 0600, the one
 route, named in `owner.json`), and an interrupted command leaves the close finished. One verdict,
 `closeHeld`, decides whether a lane's work has ended: no gate lease held or waited for, then claude
 exited or gone, or idle with its own session at rest (no subagent, workflow, shell, monitor,
@@ -2297,7 +2297,7 @@ teammate or wakeup in flight). Both the command and auto-close (PANEL-20) read i
 re-reads tmux under the lane lock, so it decides nothing from a value read before the lock. The
 command also needs the branch merged unless claude exited, and refuses the caller's own lane.
 session-close's *Close the lanes* rule is its production caller, and the template allows
-`Bash(clauductor lane close *)` and nothing wider. docs/panel.md lists every refusal word for word,
+`Bash(stridal lane close *)` and nothing wider. docs/panel.md lists every refusal word for word,
 and `TestEveryCloseWordIsDocumented` holds that list to the reasons `closeheld.go` returns.
 
 #### Decisions
@@ -2319,7 +2319,7 @@ and `TestEveryCloseWordIsDocumented` holds that list to the reasons `closeheld.g
   that straddles a `/clear`, a re-listed session that lost its last `Stop`, a lease source not yet
   read, a tmux value read before the lock. The fix that converged was one list of what the verdict
   will not judge without.
-- `clauductor update` run with `!` has no stdin: it merged settings.json, then cancelled the skill's
+- `stridal update` run with `!` has no stdin: it merged settings.json, then cancelled the skill's
   review. The owner copied the template's skill by hand (it matched byte for byte at HEAD).
 - Three tests flaked under gate load and passed alone: #260 owns the two in claudecall,
   `TestGateStoppedCallHoldsTheSlotUntilItExits` and now `TestGateStopsATimedOutClaudeWithSIGTERM`;
@@ -2406,11 +2406,11 @@ most one. panel-58 builds in S13; the others wait behind PANEL-46 and OPS-42's r
 
 `run-local.sh --quick` now reads its flag from argv before the lease block and takes no lease, so
 build-change's quick gate no longer waits out a full gate it cannot disturb. A full run still
-queues. A quick run also clears a `CLAUDUCTOR_LOCK_HELD` it inherits, so `lease_verify` never fails
+queues. A quick run also clears a `STRIDAL_LOCK_HELD` it inherits, so `lease_verify` never fails
 it on a lease it never took. `MODE` is set from argv before the lease, so a quick run that exits
 early is still logged as quick. `gate-runs.log` rotates only on a full run, the one that holds the
 lease. `checks/gate.sh` gains the row's two cases plus three others: a quick run passes beside a
-live holder; a full run queues (exit 124 under `CLAUDUCTOR_LEASE_MAX_WAIT`); a quick run never
+live holder; a full run queues (exit 124 under `STRIDAL_LEASE_MAX_WAIT`); a quick run never
 rotates the log, even one that exits before its flags are read; a quick run under a caller's lease
 passes. Each was shown failing on the code before its fix. The fixture's first step now asserts
 that a full run holds the lease and a quick run holds none. The README, both playbooks and both
@@ -2426,7 +2426,7 @@ time per worktree), not enforced: the state file and `gate.sh`'s log were alread
 
 #### Surprises
 
-`clauductor update`, run without a terminal, cancelled its file reviews and still reformatted
+`stridal update`, run without a terminal, cancelled its file reviews and still reformatted
 `.claude/model-roles.json`, adding an `eval.baseline` field. The edit was reverted and the four
 synced files were copied by hand. A loop of `cp template/$f $f` was blocked by `pr-merge-guard`
 as a merge in a form it cannot read, a false positive on `$f`. The first full gate went red on
@@ -2449,11 +2449,11 @@ test walks the disk, not git.
 
 #### What happened
 
-A whole-set `checks/run.sh` now writes its pid to `run.pid` beside the no-clauductor environment
+A whole-set `checks/run.sh` now writes its pid to `run.pid` beside the no-stridal environment
 just before it `exec`s into it (the `exec` keeps the pid), and the inner run deletes it the moment
 its traps exist. So a `run.pid` that survives belongs to a run that died inside the window, and
 every whole-set run's start removes the scratch of such a run once `kill -0` says "no such
-process". A new fixture in `checks/no-clauductor.sh` signals inside the window with a stub `sh`
+process". A new fixture in `checks/no-stridal.sh` signals inside the window with a stub `sh`
 that only the environment's PATH finds; it TERMs itself with the run's pid before any trap exists.
 It was shown failing first (the environment stayed), and its decoys were shown failing against two
 mutants: a run that keeps its pid past its traps, and a sweep that removes whatever `kill -0`
@@ -2611,11 +2611,11 @@ row's text in `docs/roadmap.md` overstates install. Whether install should accep
 
 #### What happened
 
-A plugin script sets `CLAUDUCTOR_FW` in its prologue without exporting it. A `sh -c '…'` child
+A plugin script sets `STRIDAL_FW` in its prologue without exporting it. A `sh -c '…'` child
 whose body names the variable therefore read it as empty, so `plugin/checks/statusline.sh` failed
 its two unwritable-HOME cases when run directly. Through `checks/run.sh`, which exports the
 variable, those cases passed. The plugin builder (`rewrite.go`, `shChildFW`) now puts
-`CLAUDUCTOR_FW="$CLAUDUCTOR_FW"` among such a child's assignments. Each child is judged on its own,
+`STRIDAL_FW="$STRIDAL_FW"` among such a child's assignments. Each child is judged on its own,
 and a value the template sets on that command is kept. `TestShellChildGetsPluginRoot` walks the
 built plugin with a detector written separately from the rewrite. It fails without the rewrite,
 and it found a third instance the row did not name: `checks/health-lines.sh`'s scheduled-list
@@ -2627,13 +2627,13 @@ compares the line, and a status line that exits 3 now fails every window case.
 The fix is in the builder, not the template line, and the export stays off. `health-lines.sh`
 asserts the prologue does not export the variable, and a check's children point it at fixtures on
 purpose. Passing the variable per child keeps both of those true. This repo's copy of the check
-was synced by copying the file. `clauductor update` was not used because it also rewrote
+was synced by copying the file. `stridal update` was not used because it also rewrote
 `.claude/model-roles.json`, which is out of this row's scope.
 
 #### Surprises
 
 Round 1's medium came from the rewrite's first form, which appended its own assignment after a
-deliberate `CLAUDUCTOR_FW=` and so overrode it. Round 2's medium was that this repo's own copy of
+deliberate `STRIDAL_FW=` and so overrode it. Round 2's medium was that this repo's own copy of
 the check was never synced after the template edit. A gate on such a tree runs every shared check
 twice, because `framework_matches_template` fails.
 
@@ -2702,7 +2702,7 @@ prompt. Review converged in 1 round at peak low; its two lows (no both-ways fixt
 refuses a one-letter command) went to OPS-126 as item (6) and to #223. Gate 1390 s, full, clean.
 Catch-up is on, so the panel re-trusts the merged config with nobody's hands.
 
-`clauductor update`, run to sync this repo's copy of the check, again reflowed
+`stridal update`, run to sync this repo's copy of the check, again reflowed
 `.claude/model-roles.json` and re-added `eval.baseline` with no terminal to ask: OPS-119's
 behaviour exactly, a day before S12 builds it. Reverted by hand, and the check copied from the
 template instead.
@@ -2787,7 +2787,7 @@ draft PR with the `session-start: S<n> <time> row <id>` marker.
   prose under `## Insights` that the fold then dropped, and that Cost and Session start had no
   format check.
 - The first full gate failed on this row's own build-change check in the plugin: the plugin's
-  workflow says `clauductor-model review-cap.sh`, not `sh .claude/review-cap.sh`, and the test's
+  workflow says `stridal-model review-cap.sh`, not `sh .claude/review-cap.sh`, and the test's
   regex named the latter. The template's run of the same check could not see it.
 - The roadmap parser refuses a `|` inside backticks and a Deps cell that is not row ids, so the
   only cell review-cap.sh's fixture can prove it ignores is the Scope.
@@ -2806,7 +2806,7 @@ lanes: a row's session ends at its merge, and nothing starts the daily close; un
 does, the owner asks for it (the `session-close` skill) once a working day.
 
 Catch-up (OPS-118) did its job on #218 with nobody's hands: the panel log fast-forwarded the main
-checkout `6422aab5..6de033cf`, rebuilt the panel and `~/.local/bin/clauductor` because
+checkout `6422aab5..6de033cf`, rebuilt the panel and `~/.local/bin/stridal` because
 `framework/` changed, and restarted into the new build within a minute of the merge. That is
 outcome check o.9's first signal, and the owner-queue item to turn catch-up on is ticked.
 
@@ -2849,7 +2849,7 @@ Started as the panel's propose lane `ops-118-main-catches-up`; the build ran in 
 - **The first gate of #210 ran inside the sandbox** and failed seven checks on `ps` and xcrun, as session 7 logged; the owner's "run it yourself outside the sandbox" let the rerun pass.
 - **A refused `branch -D` in the sandbox left a `.git/config` section** that would have made a reused branch name track `main` (insights, *git/branch-config*).
 - **`change-cost.sh` reads $0 for OPS-118** once both lanes moved branches; the archive records build-change's $200.24 instead (#214, OPS-124).
-- **Two sessions archived the same change.** The build lane opened #215 to archive OPS-118, and filed its lows as #214, while this close did both. The close's review caught the duplicate. This session closed #215 as superseded, but the build lane, unaware, merged it 12 minutes later (its timeline shows the close at 18:35Z and the merge at 18:47Z, with no reopen between), so the close was rebuilt on top of it with its own archive dropped (#215's branch is bundled at `.git/clauductor/branch-archive-2026-10-23-s9-ops118-archive.bundle`, 4ec93442). OPS-124 takes #214's four lows as its source. Who archives a change built in another lane was never said; the build-change report says "on success, push and run merge-pr", and the lane went on to archive too.
+- **Two sessions archived the same change.** The build lane opened #215 to archive OPS-118, and filed its lows as #214, while this close did both. The close's review caught the duplicate. This session closed #215 as superseded, but the build lane, unaware, merged it 12 minutes later (its timeline shows the close at 18:35Z and the merge at 18:47Z, with no reopen between), so the close was rebuilt on top of it with its own archive dropped (#215's branch is bundled at `.git/stridal/branch-archive-2026-10-23-s9-ops118-archive.bundle`, 4ec93442). OPS-124 takes #214's four lows as its source. Who archives a change built in another lane was never said; the build-change report says "on success, push and run merge-pr", and the lane went on to archive too.
 
 ### What surprised us
 - **Review found one class at a time.** Group 3 closed the cancelled context one call site per round until the fix named the class; group 4 did the same with the step-5 guard (insights, *review/class-convergence*, owned by OPS-110).
@@ -2859,7 +2859,7 @@ Started as the panel's propose lane `ops-118-main-catches-up`; the build ran in 
 - **Logged today:** six rows. *gate/worktree-edit* is an instance of AGENTS.md's clean-tree rule; *git/branch-config* and *panel/lane-ids* are Technique; *review/class-convergence* is owned by OPS-110 and *cost/lane-attribution* by OPS-124. *archive/two-lanes* stays Raw for the next close to decide: it wants an owner (who archives a lane's build), and none exists yet.
 
 ### Left in flight (handed off)
-- **The owner's step:** `./install.sh`, `clauductor panel install`, then `clauductor panel catch-up --project … on` (owner queue); o.9's 7 days start then.
+- **The owner's step:** `./install.sh`, `stridal panel install`, then `stridal panel catch-up --project … on` (owner queue); o.9's 7 days start then.
 - **New rows:** OPS-123 (OPS-100's four lows) and OPS-124 (OPS-118's four lows, issue #214, which its PR closes).
 - **`change/ops-42-build` and `change/panel-31-build`** (2026-10-13) stay for their rows' builds to resume.
 - **Team queue:** #178 → OPS-100 merged (#209); #178 is closed.
@@ -2880,7 +2880,7 @@ Started as the panel's propose lane `ops-118-main-catches-up`; the build ran in 
 ### What happened
 
 Started from the panel's **ops** template as the lane `ops-111-panel-runs-the-plan`, with the task typed in (the owner queue's step 9):
-- **OPS-111 merged as #205** at 4:58 PM ET (squash `754a8cdb`). Up next now follows the session plan as `origin/main` has it, through `.claude/roadmap-plan.sh`. The propose template offers the first planned change row with no proposal, and reads waiting proposals from change branches too. The ops template builds the named row through merge. `.clauductor/panel.json` sets `lanes_auto_close: "on_merge"`. Review converged in 4 rounds at peak medium; round 4's three lows went into OPS-120's PR.
+- **OPS-111 merged as #205** at 4:58 PM ET (squash `754a8cdb`). Up next now follows the session plan as `origin/main` has it, through `.claude/roadmap-plan.sh`. The propose template offers the first planned change row with no proposal, and reads waiting proposals from change branches too. The ops template builds the named row through merge. `.stridal/panel.json` sets `lanes_auto_close: "on_merge"`. Review converged in 4 rounds at peak medium; round 4's three lows went into OPS-120's PR.
 - **OPS-120 merged as #206** at 6:07 PM ET (squash `f0768617`). `change-cost.sh` walks each session's `subagents/` tree by `parentAgentId` to a fixpoint, so an agent's own agents count with it. It reads each transcript and meta on its own, so a cut-off line or a vanished file drops nothing after it. OPS-93 now reads **$85.30**, against $64.88 before (and $22.13 when its build checked). Propose's context reads its roadmap, specs and scenario IDs from `origin/main`. Review converged in 4 rounds at peak medium (rounds 1 and 2 medium); the full gate passed on `7892787c`.
 
 ### Decisions the owner made
@@ -2903,7 +2903,7 @@ Started from the panel's **ops** template as the lane `ops-111-panel-runs-the-pl
 - **#206's lows, left as stated in its PR:** one 145-column comment line; transcript lists split on blanks (older than the PR); the cut-off-meta test catches its mutant only in some directory orders; the last-tab split mutant survives (no fixture has a tab in a path).
 - **`change/ops-42-build` and `change/panel-31-build`** (2026-10-13) stay for their rows' builds to resume, as in session 7.
 - **Team queue:** no item was worked; #207 was filed.
-- **The owner's step after #205:** pull the main checkout, then `clauductor panel trust` (owner queue).
+- **The owner's step after #205:** pull the main checkout, then `stridal panel trust` (owner queue).
 
 ### Flow and cost
 - **Flow (30 days, to 10-22):** cycle 1.2h median, lead 2.5h, 30.3 merges a week, change-fail 5.6%, approval wait 4.6h, review rounds 2.4, spend $821.2 a week, 25 in flight (Haiku 5.5 unpriced).
@@ -2940,7 +2940,7 @@ The first row run as one row, one session, and the first started from the panel,
 
 ### Decisions the owner made
 - **OPS-111 to S8 and OPS-118 to S9, ahead of OPS-108**, now S10 (2026-10-22). The lane moved OPS-120 into S8 with OPS-111, so it still lands before OPS-118, the next hard-budget change. That move is the lane's judgment, open to the owner.
-- **Delete `~/spike` and the two leftover remote branches** (`fix/92-daemon-lease-flake`, `ops/ops-96-s6-tidy`). The lane did both after keeping the spike's logs (`.git/clauductor/spike-logs-2026-10-22.tgz`, no clones) and bundling the branches (`.git/clauductor/branches-2026-10-22-s7.bundle`, verified).
+- **Delete `~/spike` and the two leftover remote branches** (`fix/92-daemon-lease-flake`, `ops/ops-96-s6-tidy`). The lane did both after keeping the spike's logs (`.git/stridal/spike-logs-2026-10-22.tgz`, no clones) and bundling the branches (`.git/stridal/branches-2026-10-22-s7.bundle`, verified).
 
 ### What went wrong
 - **The first gate ran inside the Bash sandbox.** It went red after about 16 minutes on seven process checks: git's `xcrun` could not write its cache, and `ps` would not run. The same commit passed in full outside the sandbox. Logged as an insight, with a candidate early probe.
@@ -2948,7 +2948,7 @@ The first row run as one row, one session, and the first started from the panel,
 
 ### What surprised us
 - **Running a second gate cost almost nothing in machine terms.** The case against parallel gates was the tests, not RAM or CPU.
-- **`clauductor panel install` failed with launchctl's error 5 and no explanation**, because launchd held the label disabled. The workaround is `launchctl enable gui/$(id -u)/com.clauductor.panel`. Filed as **#202**.
+- **`stridal panel install` failed with launchctl's error 5 and no explanation**, because launchd held the label disabled. The workaround is `launchctl enable gui/$(id -u)/com.stridal.panel`. Filed as **#202**.
 
 ### Compound
 - **Two rows logged today:** *a lane's gate fails late in the sandbox* (Raw, with a candidate mechanism: the gate probes `ps` and a git write before its first step) and *a pair breaks the tests' waits, not the machine* (deferred to OPS-122).
@@ -2972,7 +2972,7 @@ The first row run as one row, one session, and the first started from the panel,
 
 ### What happened
 
-The session opened on a cleanup at the owner's request. Before it, 17 lane worktrees were left from session 5, nearly all emptied by a sandbox-refused checkout, and seven stale remote branches. All of it was bundled first (`.git/clauductor/branch-archive-2026-10-19.bundle`) and then removed by the owner. Three things then shaped the rest of the session:
+The session opened on a cleanup at the owner's request. Before it, 17 lane worktrees were left from session 5, nearly all emptied by a sandbox-refused checkout, and seven stale remote branches. All of it was bundled first (`.git/stridal/branch-archive-2026-10-19.bundle`) and then removed by the owner. Three things then shaped the rest of the session:
 - **GitHub Actions ran out of minutes** until about 11-01, so every PR check failed on billing. The owner turned CI off for the month: `GATE_PR_CHECKS=""` and both workflows disabled (OPS-96 #166, with **OPS-98** to restore them). A merge has rested on the local gate receipt alone since.
 - **The owner's plan was at 85 to 90% of its week,** so most work ran as **headless `claude -p` lanes on promotional API credit**, plus three claude.ai cloud sessions. One session orchestrated them all: it wrote each lane's prompt into `~/s6-lanes/`, and the owner started each one in a Terminal window.
 - **Interactive Claude Code does not draw on promotional credit; `claude -p` and the Agent SDK do.** The first PANEL-51 lane, interactive on the API key, died at a $0 purchased balance. The credit ran out at 00:20 on 10-21, by which time PANEL-51 had groups 1 to 3 committed.
@@ -2996,7 +2996,7 @@ The session opened on a cleanup at the owner's request. Before it, 17 lane workt
 **The interactive rows, 10-21 to 10-22.** The credit was gone, and three rows edit `.claude/`, which a headless run cannot write. So the last stretch ran as one interactive lead session with teammate lanes:
 - **OPS-82** (**#171**, 6:35 PM). The probe found a real end signal: a workflow's state file, written when it ends, and the `Stop` payload's `background_tasks`. A hold now ends on either. Review stopped at round 5 by the owner's rule, and the cases still open are the hook's KNOWN LIMITS, owned by #195 and #196.
 - **OPS-97** (**#170**, 8:44 PM). The class goes in a schema field of its own (option B), with a passing eval receipt. It merged carrying a follow-up row numbered OPS-106, an id the team had reserved, so **#197** (10:07 PM) renumbered it OPS-110.
-- **OPS-93** (**#199**, 10-22 5:51 AM). Every process check now runs once, inside the no-clauductor environment, with a weekly double pass on `main`. Archived in **#200** (7:23 AM).
+- **OPS-93** (**#199**, 10-22 5:51 AM). Every process check now runs once, inside the no-stridal environment, with a weekly double pass on `main`. Archived in **#200** (7:23 AM).
 - **OPS-89 (a) and (c)** (**#198**, 6:46 AM). It records each gate step's time and runs each shared check in one set only. OPS-89 stays open for (b), the light gate for a docs-only PR, in S9.
 
 **The gate went from about 45 minutes to about 17½.** A full gate took 2694 s on 10-21. With #198 and #199 it took 1048 s, on #198's last head: process checks 810 → 268 s, template checks 894 → 335 s, race 956 → 412 s. The quick gate fell to about 12 minutes. OPS-105's overnight spike, S7, measures against that shorter gate.
@@ -3016,7 +3016,7 @@ The session opened on a cleanup at the owner's request. Before it, 17 lane workt
   - #189 (a): the template's `panel.json` goes to v7;
   - the budget raised from the soft $80 to a $180, then a $310 ceiling.
 - **#168's fix is decided at S10,** on OPS-105's data (the roadmap edit).
-- **OPS-93 `exec`s** (choice A, 2026-10-21, after group 1's round 2): `checks/run.sh` `exec`s itself into the no-clauductor environment and the inner run removes it. A child process would either hold a TERM until the whole set ended (foreground) or never pass a Ctrl-C to the running check (background). The window between the `exec` and the inner run's traps is OPS-121.
+- **OPS-93 `exec`s** (choice A, 2026-10-21, after group 1's round 2): `checks/run.sh` `exec`s itself into the no-stridal environment and the inner run removes it. A child process would either hold a TERM until the whole set ended (foreground) or never pass a Ctrl-C to the running check (background). The window between the `exec` and the inner run's traps is OPS-121.
 - **OPS-97, option B:** a `class` field in the review schema that `findingKey` never reads, rather than a "Class: …" prefix in the finding's text.
 - **OPS-82:** a hold ends on the workflow's state file or a `Stop` that no longer lists it, and review stops at round 5 by the owner's rule, with the rest as known limits (#195, #196). Round 5's own rule was the owner's option A (2026-10-21): each `cd` target is read two ways, shell-logical and kernel-physical, and both must stay inside the held worktree and out of any worktree nested in it; a target that cannot be resolved is refused. There is no round 6. (Added in S7's record PR, from the S6 lead's notes.)
 - **Review caps by risk** (2026-10-21): low 2 rounds, normal 3, high 3. Past the cap, what is left goes to KNOWN LIMITS with an owner. Applied by hand until OPS-108 makes the scripts read it.
@@ -3034,23 +3034,23 @@ The session opened on a cleanup at the owner's request. Before it, 17 lane workt
 - **The panel tests fail when `ANTHROPIC_API_KEY` is set** (#184). Every gate on API credit ran with `env -u ANTHROPIC_API_KEY`.
 - **An exited process can look alive** in more than one way: a zombie answers `ps` and `kill -0` (OPS-53), and a tmux pane can be dead with no exit status (OPS-60).
 - **The auto-mode classifier** blocked the orchestrating session from deletions and from anything that read as a CI bypass: disabling workflows, reading gate logs after the switch, routines. The owner ran those steps. In the sandbox, a Bash `git worktree add` fails partway (`.claude/agents/` is protected), which is how session 5's worktrees were emptied; `EnterWorktree` works.
-- **`clauductor update` follows `CLAUDUCTOR_FRAMEWORK`,** so in a worktree it read the main checkout's template. It also showed `main` lags its own template (`roles.reviewer.eval.baseline`, `orchestration/config.json`), and three lanes hit that separately.
+- **`stridal update` follows `STRIDAL_FRAMEWORK`,** so in a worktree it read the main checkout's template. It also showed `main` lags its own template (`roles.reviewer.eval.baseline`, `orchestration/config.json`), and three lanes hit that separately.
 - **The rising-peak rule was overridden once by the owner's own instruction** (D3's "fix and run one more round"). The lane flagged it, and D4 on followed the rule strictly.
 
 - **The close's own merge of `origin/main` failed partway in the sandbox.** It stopped on `.claude/agents/reviewer.md`, the same protection that emptied session 5's worktrees. Run outside the sandbox, the merge went through.
 
 ### Compound
-- **Decided:** *headless cannot write .claude* → not promoted (a Claude Code limit; `.claude/` rows run interactively); *promo credit is not interactive* → not promoted (billing; the owner queue's cloud-lanes decision); *quick gate outlives an agent's shell* → OPS-89; *exited looks alive* → technique; *worktree add in the sandbox* → technique, with the close's merge as a second instance; *update follows CLAUDUCTOR_FRAMEWORK* → OPS-119; *a large design converges at its seams* → an instance of PRAC-0010; *classifier blocks the orchestrator* → not promoted.
+- **Decided:** *headless cannot write .claude* → not promoted (a Claude Code limit; `.claude/` rows run interactively); *promo credit is not interactive* → not promoted (billing; the owner queue's cloud-lanes decision); *quick gate outlives an agent's shell* → OPS-89; *exited looks alive* → technique; *worktree add in the sandbox* → technique, with the close's merge as a second instance; *update follows STRIDAL_FRAMEWORK* → OPS-119; *a large design converges at its seams* → an instance of PRAC-0010; *classifier blocks the orchestrator* → not promoted.
 - **New today:** seven rows. *nested hand-backs get lost* → PANEL-55 and OPS-108; *change-cost misses nested agents mid-build* → OPS-120; *ids minted in two places collide* → OPS-100; *a class key in prose loops* → fixed in #170; *a wrapper's traps wait for its child* → folded into OPS-93's design; *the gate's time was in the check sets* → shipped in #198 and #199; *archive finds the spec gaps* stays Raw, with a candidate check (a design amendment after approval must touch the spec delta).
 - Nothing reached the 3+ promotion trigger. `checks/compound.sh` passes, with one Raw row.
 
 ### Left in flight (handed off)
 - **S7, OPS-105:** the overnight spike, from a plain Terminal (the owner queue's steps), then the panel brought up so S8 starts from it.
-- **New rows from this close:** OPS-119 (`clauductor update`'s drift, S12), OPS-120 (`change-cost.sh` and nested agents, S10, before S11 builds the next change), OPS-121 (OPS-93's `exec` window, S9). OPS-104 gains R1b's two lows.
+- **New rows from this close:** OPS-119 (`stridal update`'s drift, S12), OPS-120 (`change-cost.sh` and nested agents, S10, before S11 builds the next change), OPS-121 (OPS-93's `exec` window, S9). OPS-104 gains R1b's two lows.
 - **Outcome checks:** o.1 (PANEL-29's lane dialog), due 10-19 and never run because the owner has had no working panel, is re-dated to 10-30, for the first week of panel lanes. o.8 (OPS-93) needs Actions minutes (OPS-98).
 - **Follow-ups owned by issues:** #168 (OPS-105's data decides it at S10), #184 (OPS-89, S9), #187, #190 and #191 (PANEL-46's piece with the stalled state), #195 and #196 (S13).
 - **Remote branches carried over, not this session's:** `change/ops-42-build` and `change/panel-31-build` (WIP, as session 5 left them). The merged leftovers `fix/92-daemon-lease-flake` (#169) and `ops/ops-96-s6-tidy` (#166) still sit on the remote, each at its merged PR's head. The classifier refused this close's delete, so the owner deletes them.
-- **Machine:** the merged local branches of OPS-82, OPS-89, OPS-93 (its build and its archive), PANEL-51 (its build and its archive) and OPS-101's R1b were bundled into `.git/clauductor/branch-archive-2026-10-22.bundle` and verified, then deleted. Their four clean worktrees were removed.
+- **Machine:** the merged local branches of OPS-82, OPS-89, OPS-93 (its build and its archive), PANEL-51 (its build and its archive) and OPS-101's R1b were bundled into `.git/stridal/branch-archive-2026-10-22.bundle` and verified, then deleted. Their four clean worktrees were removed.
 
 ### Flow and cost
 - **Flow (30 days, to 10-22):** cycle 1.3h median, lead 2.6h, 29.2 merges a week, change-fail 5.9%, approval wait 4.6h, review rounds 2.4, spend $808.25 a week, 26 in flight (Haiku 5.5 unpriced).
@@ -3074,7 +3074,7 @@ The session opened on session 4's plan: no silent stalls first. Three cloud lane
 - **OPS-90** (#155, 2:06 PM): an agent's turn is held while work it started still runs, and a blocking question is refused while work runs. Built in the cloud; what the cloud could not probe is on the owner queue, and its three review lows and the teammate-reviewer evidence are #156.
 - **OPS-85** (#154, 3:28 PM): `build-change` honours a soft budget, warning on the overrun where a hard budget stops. PANEL-49's build was its first user.
 - **PANEL-51's proposal** (#157, 4:46 PM): the panel tells the owner when work has stopped moving. Seven review rounds before the owner ended them (below).
-- **OPS-93's proposal** (#158, 5:45 PM): every process check runs once, inside the no-clauductor environment. It came from the owner's handoff; the ADR-0006 amendment it needs is kept for the build.
+- **OPS-93's proposal** (#158, 5:45 PM): every process check runs once, inside the no-stridal environment. It came from the owner's handoff; the ADR-0006 amendment it needs is kept for the build.
 - **PANEL-49** (#159, 7:51 PM, `41dc1d0`; archived in this close): an attached repository's lanes show their context, cost and context alert, read from each lane's own transcript through one reader. It is also OPS-72's proof: the workflow's full gate passed, on `db3e8c6`. Cost $46.95 of a $60 soft budget.
 - **OPS-81** (#161, 8:32 PM, `0a98410`): #143's cause found and fixed. At shutdown the panel SIGKILLed the claude process alone, and a child it had started held the call's pipes open, so the stopped-call line came late or never. Each call now gets its own process group, and the kill is repeated every 50 ms, inside the existing 1 s bound, until every call has ended. Before: 7 of 600 trials under load missed the line. After: 0 of 1200. Its lows are #162.
 - **OPS-95** (#163, `2183248`, during this close): the bot team's team-queue issues listed at session start (below).
@@ -3091,7 +3091,7 @@ The session opened on session 4's plan: no silent stalls first. Three cloud lane
 - **The ScheduleWakeup rule:** D4 amended for one-shot wakeups after group 1's binary reading, and the design re-approved at `1b4626a580ed`. The amendment PR is not opened yet. The owner chose to wait, so it is session 6's.
 - **Re-slot option A** (9:16 PM): OPS-93 and OPS-89's no-second-run item come before the R2 rename, the reverse of the earlier order. R2 becomes its own session, S8, before PANEL-46, at about +0.5 session. The session plan in `docs/roadmap.md` now reads S6 to S16.
 - **The team queue redone as OPS-95**, replacing the OPS-92 proposal.
-- **Standing Tee deferred:** the step that puts it on the new panel (and starts PANEL-48's and PANEL-49's outcome clocks) waits until the Clauductor work is done.
+- **Standing Tee deferred:** the step that puts it on the new panel (and starts PANEL-48's and PANEL-49's outcome clocks) waits until the Stridal work is done.
 
 ### What surprised us
 - **Review loops on problems bounded by construction did not converge** (PANEL-51's 7 rounds, PANEL-49 group 3's 4). What closed a round for good was closing the class: an import allowlist, a package-wide decode allowlist, a reference allowlist, not one more refused form. With #146 and #150 that makes four, so the practice is drafted as **PRAC-0010 (Proposed)** for the owner.
@@ -3160,7 +3160,7 @@ The session ran PANEL-48's build in its worktree and, beside it, a merge lane (m
 **PANEL-48** built groups 1 to 3, then group 4 stuck at medium twice on the folder fallback: a session started by hand in a lane's folder was measured against the lane's window. Probe P6 showed that the status line sees `CLAUDE_CODE_AUTO_COMPACT_WINDOW` before and after `/clear`, so D7 was amended (the posted window, then the record by session id, then none), with LANECTX-2-S8/S9 and task 4.4. The workflow resumed at group 4, which converged in one round (peak low).
 - **Verify stopped once, falsely:** two probe tasks named the throwaway probe repository's `.claude/settings.json` and the `/context` command in backticks, which `verify-change` read as files the change claims. The task lines were reworded.
 - **Merging main** conflicted in `checks/statusline.sh` with OPS-73's per-case directories. merge-train adapted PANEL-48's window cases, and that resolution was reviewed on its own (peak low, deferred to OPS-88). The hold for that review reached merge-train after it had merged on the gate's pass, so the review converged after #151 landed, not before. The outcome stands; the order was wrong.
-- **The archive's gate failed once,** on `no-clauductor`: the new owner-queue item said "then run `clauductor panel …`", which the check reads as session-start telling the user to run clauductor. The item was reworded.
+- **The archive's gate failed once,** on `no-stridal`: the new owner-queue item said "then run `stridal panel …`", which the check reads as session-start telling the user to run stridal. The item was reworded.
 - **Cost:** $280.47 against a $100 soft budget (D10: reported, not stopped), the largest overrun yet. Most of it went on group 4's stalled rounds and two re-approvals. The workflow stopped twice on that soft budget, which OPS-85 fixes.
 
 **PANEL-49** started in the cloud: tasks 1.1 and 1.2 were built and pushed to `change/panel-49-lane-measures` (ae94c11), and review converged (peak medium, then low). The rest builds on the Mac in session 5, after PANEL-48 merges.
@@ -3217,7 +3217,7 @@ The session ran PANEL-48's build in its worktree and, beside it, a merge lane (m
 - **New today, Raw:** eight rows (the shell parser, the unbounded input space, the reviewer that could not run, the `cd` hazard, the lease bottleneck, the resumed agent, the lost message, the classifier).
 
 ### Left in flight (handed off)
-- **The owner's step for PANEL-48:** add the `launch` object and `"version": 6` to Standing Tee's sidecar, then `clauductor panel trust`. The 21 days of its outcome check (o.5) count from that step.
+- **The owner's step for PANEL-48:** add the `launch` object and `"version": 6` to Standing Tee's sidecar, then `stridal panel trust`. The 21 days of its outcome check (o.5) count from that step.
 - **PANEL-49** builds next on the Mac (session 5), from ae94c11, with task 1.3 settling the Sonnet price; its build is also OPS-72's proof that a workflow gate passes. OPS-90 goes first, then OPS-85 (the template's `build-change` still stops on a soft budget, and this session's patch does not carry over), with PANEL-51 (its proposal drafted at the start of S5 for the owner, then built) beside PANEL-49's build; then OPS-81 and OPS-82 if there is room, and OPS-89 later.
 - **OPS-86** waits on the owner's ADR; until it lands the merge guard keeps the limits its header lists.
 
@@ -3238,7 +3238,7 @@ The session ran PANEL-48's build in its worktree and, beside it, a merge lane (m
 
 ### What happened
 
-The session opened on the owner's review of whether Clauductor was worth its cost, set against MAPS. The owner chose **option B** (OPS-71, #127): Clauductor serves Standing Tee through attach mode, porting Standing Tee's practices stops, the Map is cancelled, Pulse stays, and the investment goes into the panel's UI, one lane at a time.
+The session opened on the owner's review of whether Stridal was worth its cost, set against MAPS. The owner chose **option B** (OPS-71, #127): Stridal serves Standing Tee through attach mode, porting Standing Tee's practices stops, the Map is cancelled, Pulse stays, and the investment goes into the panel's UI, one lane at a time.
 
 **Merged, in order:**
 - **OPS-67** (#124): the status line saves its quota reading per machine, and the reader never reports a window past its reset.
@@ -3286,7 +3286,7 @@ The session opened on the owner's review of whether Clauductor was worth its cos
 
 ### What happened
 
-The session started from Pav Rusovs' "AI operating system" video (MAPS: Memory, Agent, Pulse, Screen). The owner wanted its look and its parts built into Clauductor through this repository's own process. That became the MAPS program (PRD-maps, OPS-37): a Map view, routines, a Today column and a skills deck in phase 1, and a clean-room study of the paid source in phase 2. A rollback checkpoint was tagged first (`checkpoint/2026-10-12-pre-maps`). Midway the owner chose **attach mode** over converging Standing Tee into the template (PRD-attach, OPS-49): Standing Tee stays independent, and the panel serves it from a sidecar config.
+The session started from Pav Rusovs' "AI operating system" video (MAPS: Memory, Agent, Pulse, Screen). The owner wanted its look and its parts built into Stridal through this repository's own process. That became the MAPS program (PRD-maps, OPS-37): a Map view, routines, a Today column and a skills deck in phase 1, and a clean-room study of the paid source in phase 2. A rollback checkpoint was tagged first (`checkpoint/2026-10-12-pre-maps`). Midway the owner chose **attach mode** over converging Standing Tee into the template (PRD-attach, OPS-49): Standing Tee stays independent, and the panel serves it from a sidecar config.
 
 **27 PRs merged on 2026-10-12/13.** By theme:
 - **The flaky gate fixed at its causes:**
@@ -3341,23 +3341,23 @@ The session started from Pav Rusovs' "AI operating system" video (MAPS: Memory, 
   - the rest small.
 - The reviewers caught a critical (#121), several highs (OPS-40's proposal, #104, #111) and many mediums for about an eighth of the spend. The Opus reviewer role is earning its cost. OPS-42's group 1 took 3+ rounds and about $100 of lead and builder time; its later groups should split work more finely.
 
-## Session 1 — 2026-09-30 — Rich (Claude, OPS-8 lane) — Clauductor adopts its own operating model
+## Session 1 — 2026-09-30 — Rich (Claude, OPS-8 lane) — Stridal adopts its own operating model
 
 **Row**: OPS-8 · **Branch**: `feature/OPS-8-own-model`
 
 ### What happened
 
 This repo stopped running the old lock-based skills and installed the model it ships, using the
-product itself: a binary built from this checkout, `clauductor install` in the repo root. It is the
+product itself: a binary built from this checkout, `stridal install` in the repo root. It is the
 rehearsal for Standing Tee's convergence, so the friction is the point, and it is recorded below as
 it happened.
 
-1. **The guard refused, and was right to look twice.** `clauductor install --dry-run` said: *"install
-   refused: … runs an operating model of its own (no .claude/clauductor-template). It would
+1. **The guard refused, and was right to look twice.** `stridal install --dry-run` said: *"install
+   refused: … runs an operating model of its own (no .claude/stridal-template). It would
    OVERWRITE 6 file(s) the project has changed: .claude/hooks/README.md, .claude/settings.json,
    .claude/skills/{dev-journal,log-insight,session-start}/SKILL.md, .claude/statusline.sh. It would
    ADD 78 framework file(s) beside the project's own."* This repo IS an old-model install, but
-   `ownedByClauductor` looks for `orchestration/config.json`, which is gitignored runtime state, so
+   `ownedByStridal` looks for `orchestration/config.json`, which is gitignored runtime state, so
    a fresh worktree has none. The refusal list was accurate for what it covered: all six overwrites
    were old-model files we meant to replace. What it did not say: 16 old skills (assign, blocked,
    build, claim, commit, handoff, milestone-complete, new-milestone, pr, prd-audit, release, review,
@@ -3365,8 +3365,8 @@ it happened.
    the list, `install --force` ran: 103 new files, 6 updated, 6 docs kept, CLAUDE.md and .gitignore
    merged. It also created `orchestration/` and its SQLite database, old-model code on the new
    paved road (deleted; OPS-13 removes the code).
-2. **The template path is ambient.** Without `CLAUDUCTOR_FRAMEWORK`, the binary takes its template
-   from `~/Development/clauductor/template`, the main checkout, which was on another branch. Every
+2. **The template path is ambient.** Without `STRIDAL_FRAMEWORK`, the binary takes its template
+   from `~/Development/stridal/template`, the main checkout, which was on another branch. Every
    command here set the variable to this worktree. A user with two checkouts would install the
    wrong template and not know.
 3. **The old model removed by hand**: the 20 files above; the architecture-audit and release-prep
@@ -3379,7 +3379,7 @@ it happened.
    checks, `gofmt -w` as the formatter), model-roles.json with attribution and provenance OFF,
    `scripts/ci/steps.sh` (process checks, gofmt, vet, `go test -short`, the template's checks, the
    plugin freshness check through `go run`, and `go test -race` in the full gate),
-   `.clauductor/panel.json` (not installed into the panel: OPS-15), the roadmap in the queue
+   `.stridal/panel.json` (not installed into the panel: OPS-15), the roadmap in the queue
    grammar with milestone ids as row ids, and ADRs 0001–0008 for this cycle's decisions.
 5. **Two places a project setting lives in a framework file.** Flipping attribution off in
    model-roles.json failed `checks/model-roles.sh` until `build-change.js` was edited too; update
@@ -3387,28 +3387,28 @@ it happened.
    default and panel.json all say `change/`. I first set it to `feature/` to keep the repo's old
    branch names, found the contradiction, and went back to the model's lanes; commits keep the
    `PREFIX-N:` rule, which is what CLAUDE.md actually cared about.
-6. **`clauductor update` hung an agent.** Run with stdin closed to sync the template change, it
+6. **`stridal update` hung an agent.** Run with stdin closed to sync the template change, it
    looped on its prompt and wrote 690 MB in two minutes before I stopped it. Fixed inline: one
    stdin reader for every prompt, end of input cancels, with a test. Piped answers (`y\ny\ns`) now
    work too; before, the first prompt's reader swallowed the rest.
-7. **D10 built** (`template/.claude/checks/no-clauductor.sh`), wired into run.sh by existing as a
+7. **D10 built** (`template/.claude/checks/no-stridal.sh`), wired into run.sh by existing as a
    file, named in AGENTS.md's table and the playbook. Writing it found the session-start
    contradiction (a missing panel reported as unhealthy), fixed in the template. Falsified by hand:
-   a hard `clauductor panel status` step in steps.sh, and a `clauductor version` line in the status
+   a hard `stridal panel status` step in steps.sh, and a `stridal version` line in the status
    line, each failed it.
 8. **The process checks failed on this repo's own choice.** `checks/merge-guard.sh` copied the
    project's model-roles.json into its rule-12 fixture and asserted provenance is on, so turning
    provenance off (a setting the template offers) failed the project's checks. Fixed in the
    template: the fixture forces it on, and the default is asserted only in the template itself.
 9. **The update that followed OPS-9 showed what `update` cannot see.** After rebasing on OPS-9
-   (#26), `clauductor update` listed none of its new top-level scripts: update compared its own
+   (#26), `stridal update` listed none of its new top-level scripts: update compared its own
    hand-typed list of paths, which had drifted from install's classification (and install's list
    of top-level scripts had drifted too). Fixed: update now takes install's classification, and
    every script directly in `.claude/` is framework tier by rule, with a test that enumerates the
    template. Still open (OPS-14): update never adds a new doc-tier file, so `health/flow.sh` was
    copied by hand. P1 (#29) landed the same fix for update's scope (B3) while this PR was open,
    so this PR took P1's version and dropped its own.
-10. **`clauductor diff` (from P1) on the pre-OPS-8 tree and after.** Before: *"framework: 83
+10. **`stridal diff` (from P1) on the pre-OPS-8 tree and after.** Before: *"framework: 83
     missing, 5 differs, 18 extra"*. The 18 extras are exactly the 16 old skills and 2 old hooks
     that install never named, so diff now answers finding 2 (the 2 old agents are doc tier and
     are not listed). *"doc: 26 missing, 6 present"*, and *"settings: .claude/settings.json merge,
@@ -3425,8 +3425,8 @@ it happened.
     which lost the attribution settings again (finding 6). A new test now fails when a directory
     under `template/.claude/` is placed in neither tier.
 12. **B12, from the Standing Tee convergence map**, is the session-start line this PR had already
-    reworded. The no-clauductor check now also scans every script of the model for an
-    echo/printf line that tells the user to run clauductor. It was falsified with the old line,
+    reworded. The no-stridal check now also scans every script of the model for an
+    echo/printf line that tells the user to run stridal. It was falsified with the old line,
     which both the scan and the context run caught.
 
 ### Decisions
@@ -3462,7 +3462,7 @@ Entries from the old lock-based model, in their own format. They are not renumbe
 
 ### What Happened
 
-Built the entire hook infrastructure and lifecycle skills layer for Clauductor in a single session. Started with LIFE-1.1 (hook directory, session-register, heartbeat) and progressed through LIFE-1.2 (lock-guard + check-lock CLI), LIFE-1.3 (journal-check + status-sync hooks), and LIFE-1.4 (start-project, start-work, done, pane skills). Also fixed two HUD bugs as LIFE-1.7a (timestamp display and activity text wrapping).
+Built the entire hook infrastructure and lifecycle skills layer for Stridal in a single session. Started with LIFE-1.1 (hook directory, session-register, heartbeat) and progressed through LIFE-1.2 (lock-guard + check-lock CLI), LIFE-1.3 (journal-check + status-sync hooks), and LIFE-1.4 (start-project, start-work, done, pane skills). Also fixed two HUD bugs as LIFE-1.7a (timestamp display and activity text wrapping).
 
 ### Key Decisions
 

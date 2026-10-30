@@ -4,14 +4,14 @@ stamps, because a stamp taken before a page is refreshed records a review that d
 Context block's *living-visuals (module living-visuals)* section lists each living page's currency
 and every page rule failing on this tree.
 
-1. **Regenerate every generated block**: `clauductor-model modules/living-visuals/bin/living.sh --regen`.
+1. **Regenerate every generated block**: `stridal-model modules/living-visuals/bin/living.sh --regen`.
    A generated block is never edited by hand; its command's output is the page's content there, so
    a roadmap edit that moved a queue row is carried by this step, not by a skill.
 2. **Refresh each living page that is BEHIND.** Its line names how: `/<skill>` (run that skill, which
    ends by stamping) or "editing the page". Read the page against what moved before you write: a
    refresh changes what the page states, never only its date. A page that the moved source does not
    affect is stamped `reviewed, no change: <why>` (the artifacts module's step) instead.
-3. **Hold them true**: `clauductor-model checks/run.sh living-visuals:pages` must pass. A failing claim is
+3. **Hold them true**: `stridal-model checks/run.sh living-visuals:pages` must pass. A failing claim is
    a page stating something its authority does not: fix the page (or, if the authority is wrong,
    fix the authority in its own change). A count added to a page as CURRENT STATE gets a
    `data-claim="<name>"` and a command in its registry entry's `claims`, or it is invisible to

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # living.sh: the living pages, held true. A LIVING PAGE is an artifact in the registry
 # (ARTIFACT_REGISTRY, the artifacts module) whose entry names how it is refreshed:
 #
@@ -37,14 +37,14 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # The registry's commands run with `sh -c` from the project root, each bounded by
 # LIVING_COMMAND_SECONDS: they are the project's own, as GATE_RUN is.
 # Exit: 0 fine; 1 --check found a FAIL (or --list a page not OK); 2 an error, its reason on stderr.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 die() { printf 'living-visuals: %s\n' "$*" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || die "jq is not installed"
 TAB=$(printf '\t')
 # The artifacts module's currency tool, beside this module wherever it is installed.
-CUR="$CLAUDUCTOR_FW/modules/artifacts/bin/currency.sh"
+CUR="$STRIDAL_FW/modules/artifacts/bin/currency.sh"
 
 MODE="" REF="" WT="" PAGES=""
 while [ $# -gt 0 ]; do
@@ -322,7 +322,7 @@ while IFS= read -r p; do
       | if $r == null then "NOREGION" elif ($r | jstrim) == ($out | jstrim) then "SAME" else "DIFF" end' "$W/page" 2>/dev/null)
     case $v in
       SAME) ok "$k: generated block $gn matches its command" ;;
-      DIFF) fail "$k: generated block $gn no longer matches \`$gc\`. Its source is the authority; do NOT hand-edit the page: sh "$CLAUDUCTOR_FW"/modules/living-visuals/bin/living.sh --regen $k" ;;
+      DIFF) fail "$k: generated block $gn no longer matches \`$gc\`. Its source is the authority; do NOT hand-edit the page: sh "$STRIDAL_FW"/modules/living-visuals/bin/living.sh --regen $k" ;;
       *) fail "$k: generated:$gn's begin marker is not a comment followed by a newline, so the block cannot be read" ;;
     esac
     [ -n "$go" ] || continue

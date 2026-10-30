@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/metrics"
+	"github.com/rfhayn/stridal/internal/panel/metrics"
 )
 
 // PANEL-19: the Metrics view is a project's route like the others: the cookie, a

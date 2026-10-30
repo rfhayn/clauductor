@@ -1,6 +1,6 @@
 {
-  "$schema": "https://raw.githubusercontent.com/rfhayn/clauductor/main/docs/panel.schema.json",
-  "name": "Clauductor",
+  "$schema": "https://raw.githubusercontent.com/rfhayn/stridal/main/docs/panel.schema.json",
+  "name": "Stridal",
   "version": 6,
   "lanes": {
     "change/": "build",
@@ -14,7 +14,7 @@
     "ops": { "model": "opus", "effort": "high" },
     "orchestrator": { "model": "opus", "effort": "high" }
   },
-  "tmux_socket": "clauductor",
+  "tmux_socket": "stridal",
   "worktree_dir": ".claude/worktrees",
   "base": "origin/main",
   "lanes_auto_close": "on_merge",
@@ -65,7 +65,7 @@
     {
       "id": "gate",
       "title": "Full gate (scripts/ci/run-local.sh)",
-      "lock": "clauductor/gate.lock",
+      "lock": "stridal/gate.lock",
       "command": ["scripts/ci/run-local.sh"]
     }
   ],

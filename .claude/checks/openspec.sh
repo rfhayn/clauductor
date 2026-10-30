@@ -10,7 +10,7 @@
 #
 # The CLI is optional, so without it (or with one older than 1.13) the two validations say SKIPPED
 # and why, on an `ok` line that names the reason. OPENSPEC_REQUIRED=1 turns that into a failure: the
-# clauductor repository's CI sets it after installing the CLI, so the example is validated there on
+# stridal repository's CI sets it after installing the CLI, so the example is validated there on
 # every push. OPENSPEC_BIN names the binary (default: openspec on PATH). Telemetry is off
 # (DO_NOT_TRACK=1, OPENSPEC_TELEMETRY=0) and HOME is a scratch directory while it runs.
 . "$(dirname "$0")/lib.sh"
@@ -73,12 +73,12 @@ else
   [ "$(fmv name)" = explore ] && ok "the explore skill's frontmatter names it explore" || fail "explore SKILL.md: name is '$(fmv name)'"
   # The shipped frontmatter is the TEMPLATE's thinker role. A project that retunes thinker sets its
   # installed copy to match (checks/model-roles.sh), which enable.sh keeps, so the shipped file is held
-  # only to the template's own model-roles.json, here in clauductor's repository.
+  # only to the template's own model-roles.json, here in stridal's repository.
   roles=""
   if [ -d "$ROOT/../framework/internal/template" ]; then roles="$ROOT/.claude/model-roles.json"
   elif [ -d "$ROOT/framework/internal/template" ]; then roles="$ROOT/template/.claude/model-roles.json"; fi
   if [ -z "$roles" ]; then
-    ok "not clauductor's template: the installed explore skill is held to this project's thinker role by checks/model-roles.sh, not here"
+    ok "not stridal's template: the installed explore skill is held to this project's thinker role by checks/model-roles.sh, not here"
   elif command -v jq >/dev/null 2>&1 && [ -f "$roles" ]; then
     wm=$(jq -r '.roles.thinker.model // empty' "$roles"); we=$(jq -r '.roles.thinker.effort // empty' "$roles")
     [ "$(fmv model)/$(fmv effort)" = "$wm/$we" ] && ok "its model and effort are the template's thinker role ($wm/$we), the role enable.sh tells the project to map it to" \
@@ -91,8 +91,8 @@ else
   for want in '[CAP-n-Sn]' '1.13 or later' 'voids that approval' 'CHANGES_DIR/<id>/'; do
     grep -qF -- "$want" "$SK" && ok "the explore skill states '$want'" || fail "the explore skill does not state '$want'"
   done
-  # The plugin's builder namespaces skill references, so its copy says `/clauductor:propose`.
-  grep -qE '`/(clauductor:)?propose`' "$SK" && ok "the explore skill states '/propose' (or the plugin's '/clauductor:propose')" \
+  # The plugin's builder namespaces skill references, so its copy says `/stridal:propose`.
+  grep -qE '`/(stridal:)?propose`' "$SK" && ok "the explore skill states '/propose' (or the plugin's '/stridal:propose')" \
     || fail "the explore skill does not state '/propose'"
   grep -qE 'openspec/changes/|openspec new change|/opsx:' "$SK" && fail "the explore skill still names OpenSpec's own paths or commands: $(grep -nE 'openspec/changes/|openspec new change|/opsx:' "$SK" | head -2)" \
     || ok "the explore skill names no openspec/changes path and no opsx command"

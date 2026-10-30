@@ -41,4 +41,4 @@ WORKER_NAME="${USER:-unknown}-${MILESTONE}-build"
 touch "$HEARTBEAT_FILE"
 
 # Send heartbeat
-clauductor heartbeat --worker-id "$WORKER_NAME" 2>/dev/null || true
+stridal heartbeat --worker-id "$WORKER_NAME" 2>/dev/null || true

@@ -199,7 +199,7 @@
       "Bash(scripts/ci/gate-wait.sh)",
       "Bash(scripts/ci/gate-wait.sh *)",
       "Bash(sh .claude/status-write.sh *)",
-      "Bash(clauductor lane close *)"
+      "Bash(stridal lane close *)"
     ],
     "deny": [
       "Read(./.env)",
@@ -236,7 +236,7 @@
       "git *",
       "gh *",
       "tmux *",
-      "clauductor *",
+      "stridal *",
       "docker *",
       "scripts/ci/run-local.sh *",
       "scripts/ci/gate.sh",

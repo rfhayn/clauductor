@@ -10,10 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/brand"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
 // doctorRepo is the repository doctor runs in, found once for the project's lines (D6): the files
@@ -87,7 +86,7 @@ func (r *doctorRepo) fixes(subs ...string) []string {
 	}
 	var out []string
 	for _, sub := range subs {
-		c := "clauductor " + sub + r.templateFlag
+		c := "stridal " + sub + r.templateFlag
 		if r.below {
 			c = "cd " + install.ShellWord(r.top) + " && " + c
 		}
@@ -112,26 +111,26 @@ func (r *doctorRepo) onceTemplate() string {
 }
 
 // whoseModel is which operating model a repository runs, in the order install and update decide it
-// (E3): the plugin's marker wins, then Clauductor's marker or the old model's signs, then any sign
+// (E3): the plugin's marker wins, then Stridal's marker or the old model's signs, then any sign
 // of a model of the repository's own.
 type whoseModel int
 
 const (
 	modelNone whoseModel = iota
 	modelPlugin
-	modelClauductor
+	modelStridal
 	modelOwn
 )
 
 func modelOf(top string) (whoseModel, string) {
-	if m := markerIn(top, brand.PluginMarker, brand.Names()); m != "" {
+	if m := markerIn(top, pluginMarker); m != "" {
 		return modelPlugin, m
 	}
 	if hasInstallMarker(top) {
-		return modelClauductor, "installed by clauductor install"
+		return modelStridal, "installed by stridal install"
 	}
 	if signs := template.OldModelSigns(top); len(signs) > 0 {
-		return modelClauductor, "Clauductor's old model: " + signs[0]
+		return modelStridal, "Stridal's old model: " + signs[0]
 	}
 	for _, s := range ownModelSigns {
 		if fileExists(filepath.Join(top, s)) {
@@ -141,7 +140,7 @@ func modelOf(top string) (whoseModel, string) {
 	return modelNone, ""
 }
 
-// checkProject adds the project group: the repository, whose model it runs and, for Clauductor's,
+// checkProject adds the project group: the repository, whose model it runs and, for Stridal's,
 // whether it matches the template. It returns the repository for the panel's lines, nil outside
 // one.
 func checkProject(rep *doctorReport) *doctorRepo {
@@ -160,12 +159,12 @@ func checkProject(rep *doctorReport) *doctorRepo {
 	switch model {
 	case modelPlugin:
 		rep.add(groupProject, doctorLine{level: levelNote, subject: "model",
-			detail: "runs the operating model from the clauductor plugin (" + evidence + "); it is updated with the plugin (docs/plugin.md), and install and update refuse here"})
+			detail: "runs the operating model from the stridal plugin (" + evidence + "); it is updated with the plugin (docs/plugin.md), and install and update refuse here"})
 	case modelOwn:
 		// diff's RunE is template.Survey of the current directory, so Survey here decides whether
 		// the printed diff runs (D8).
 		line := doctorLine{level: levelNote, subject: "model",
-			detail: fmt.Sprintf("runs an operating model of its own (%s, and no %s); install and update refuse it, and clauductor diff compares it with the template%s", evidence, installMarker, r.onceTemplate())}
+			detail: fmt.Sprintf("runs an operating model of its own (%s, and no %s); install and update refuse it, and stridal diff compares it with the template%s", evidence, installMarker, r.onceTemplate())}
 		if r.hasTemplate {
 			if _, err := template.Survey(r.top, ""); err != nil {
 				line.detail += "; " + refusesHere("diff", err)
@@ -179,17 +178,17 @@ func checkProject(rep *doctorReport) *doctorRepo {
 		// already there with other content, or a project.conf install cannot place, refuses it
 		// though none of the signs modelOf reads is present.
 		line := doctorLine{level: levelNote, subject: "model",
-			detail: "has no operating model; clauductor install adopts one" + r.onceTemplate()}
+			detail: "has no operating model; stridal install adopts one" + r.onceTemplate()}
 		if r.hasTemplate {
 			if _, err := prepareInstall(io.Discard, r.top, false); err != nil {
-				line.detail = "has no operating model; clauductor install would adopt one, but " + refusesHere("install", err)
+				line.detail = "has no operating model; stridal install would adopt one, but " + refusesHere("install", err)
 			} else {
 				line.fixes = r.fixes("install")
 			}
 		}
 		rep.add(groupProject, line)
-	case modelClauductor:
-		rep.add(groupProject, doctorLine{level: levelOK, subject: "model", detail: "Clauductor's operating model (" + evidence + ")"})
+	case modelStridal:
+		rep.add(groupProject, doctorLine{level: levelOK, subject: "model", detail: "Stridal's operating model (" + evidence + ")"})
 		checkDrift(rep, r)
 		rep.checks = "sh .claude/checks/run.sh"
 		if r.below {
@@ -199,7 +198,7 @@ func checkProject(rep *doctorReport) *doctorRepo {
 	return r
 }
 
-// checkDrift is the drift line: clauductor diff's verdict, read at the toplevel.
+// checkDrift is the drift line: stridal diff's verdict, read at the toplevel.
 func checkDrift(rep *doctorReport, r *doctorRepo) {
 	sv, err := template.Survey(r.top, "")
 	if err != nil {
