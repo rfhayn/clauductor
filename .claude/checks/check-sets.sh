@@ -23,9 +23,10 @@
 #  5. That no CHECKS_ONCE check reads a CONF_NOT_READ key is CI's to find, not a reading of check
 #     source (OPS-171): test.yml's process-checks step runs this repo's whole set over its own
 #     project.conf. The step is held to that form, each way out of it shown failing; a fixture
-#     shows such a read passing the local gate's form and failing the step's command; and while
-#     GATE_PR_CHECKS does not name the step's job, no merge waits for it (OPS-98), which is a
-#     SKIPPED line under the PASS: until then, Nothing. You.
+#     shows such a read passing the local gate's form and failing the step's command. A merge
+#     waits for it only where GATE_PR_CHECKS names the step's job: while GATE_PR_CHECKS is empty
+#     (until OPS-98) that is a SKIPPED line under the PASS, and Nothing. You.; naming other checks
+#     but not that job fails.
 . "$(dirname "$0")/lib.sh"
 need git jq
 
