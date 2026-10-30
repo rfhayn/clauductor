@@ -54,9 +54,10 @@ func TestProjectDestIsTheLegacyPanelFileTheProjectHolds(t *testing.T) {
 	}
 }
 
-// While the names are one, PanelPath is the path it always was, and so is what is read.
-func TestPanelPathIsUnchangedWhileTheNameIs(t *testing.T) {
-	if PanelPath != ".clauductor/panel.json" || ProjectPanelPath(t.TempDir()) != PanelPath {
+// After the rename (OPS-104), PanelPath is the new name's, and so is what is read when
+// nothing is there.
+func TestPanelPathIsTheNewNames(t *testing.T) {
+	if PanelPath != ".stridal/panel.json" || ProjectPanelPath(t.TempDir()) != PanelPath {
 		t.Fatalf("PanelPath = %q", PanelPath)
 	}
 }

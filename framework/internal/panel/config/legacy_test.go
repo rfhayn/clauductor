@@ -103,8 +103,8 @@ func TestDefaultsAreSpelledFromTheName(t *testing.T) {
 	if got, want := ownConfigPath(root, brand.Names()), filepath.Join(root, filepath.FromSlash(DefaultConfigRel)); got != want {
 		t.Errorf("nothing there: the reader names %s, want DefaultConfigRel's %s", got, want)
 	}
-	if DefaultConfigRel != ".clauductor/panel.json" || DefaultHostName != "clauductor.localhost" {
-		t.Errorf("while the names are one, the values change: %q, %q", DefaultConfigRel, DefaultHostName)
+	if DefaultConfigRel != ".stridal/panel.json" || DefaultHostName != "stridal.localhost" {
+		t.Errorf("after the rename (OPS-104), the values are %q, %q", DefaultConfigRel, DefaultHostName)
 	}
 }
 
@@ -122,12 +122,12 @@ func usesBrandName(e ast.Expr) bool {
 	return found
 }
 
-// While the names are one, each reader is the path it always was.
-func TestReadersAreUnchangedWhileTheNameIs(t *testing.T) {
+// With nothing on disk, each reader names the new name's path (OPS-104).
+func TestReadersNameTheNewNamesPath(t *testing.T) {
 	home := t.TempDir()
 	for _, c := range []struct{ name, got, want string }{
-		{"PanelDir", PanelDir(home), filepath.Join(home, ".clauductor", "panel")},
-		{"SidecarPath", SidecarPath(home, "app"), filepath.Join(home, ".clauductor", "projects", "app", "panel.json")},
+		{"PanelDir", PanelDir(home), filepath.Join(home, ".stridal", "panel")},
+		{"SidecarPath", SidecarPath(home, "app"), filepath.Join(home, ".stridal", "projects", "app", "panel.json")},
 		{"OwnConfigPath", OwnConfigPath(home), filepath.Join(home, DefaultConfigRel)},
 		{"ConfigPath", ProjectEntry{Root: home}.ConfigPath(), filepath.Join(home, DefaultConfigRel)},
 	} {

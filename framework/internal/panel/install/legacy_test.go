@@ -58,9 +58,10 @@ func TestLegacyTaggedTellsTheLegacyTagFromAnOlderForm(t *testing.T) {
 	}
 }
 
-// While the names are one, the hook tag and the label are what they always were.
-func TestHookTagAndLabelAreUnchangedWhileTheNameIs(t *testing.T) {
-	if hookTag != "clauductor-panel" || LaunchdLabel != "com.clauductor.panel" {
+// The hook tag and the label are spelled from the new name (OPS-104), and the new tag is
+// tried first.
+func TestHookTagAndLabelAreTheNewNames(t *testing.T) {
+	if hookTag != "stridal-panel" || LaunchdLabel != "com.stridal.panel" {
 		t.Fatalf("hookTag = %q, LaunchdLabel = %q", hookTag, LaunchdLabel)
 	}
 	if hookTags(brand.Names())[0] != hookTag {

@@ -27,14 +27,14 @@ func TestAllowedHostsHoldTheHostThePanelIsOpenedAt(t *testing.T) {
 	}
 }
 
-// While the names are one, the allow-list holds the panel's host once, as it always did, and
-// it is the host the panel is opened at.
-func TestBrandHostsAreUnchangedWhileTheNameIs(t *testing.T) {
+// After the rename (OPS-104), the allow-list holds the panel's host, then the legacy name's,
+// and the new one is the host the panel is opened at.
+func TestBrandHostsHoldTheNewHostFirst(t *testing.T) {
 	got := brandHosts(brand.Names())
-	if want := []string{config.DefaultHostName}; !slices.Equal(got, want) {
+	if want := []string{config.DefaultHostName, "clauductor.localhost"}; !slices.Equal(got, want) {
 		t.Fatalf("brandHosts = %q, want %q", got, want)
 	}
-	if config.DefaultHostName != "clauductor.localhost" || PanelHost(true) != config.DefaultHostName {
+	if config.DefaultHostName != "stridal.localhost" || PanelHost(true) != config.DefaultHostName {
 		t.Fatalf("DefaultHostName = %q, PanelHost = %q", config.DefaultHostName, PanelHost(true))
 	}
 }

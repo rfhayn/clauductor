@@ -4,9 +4,10 @@ import (
 	"testing"
 )
 
-// While the names are one, the list format is byte for byte the one before the brand package.
-func TestListFormatIsUnchangedWhileTheNameIs(t *testing.T) {
-	const want = "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}\t#{@clauductor_type}\t#{@clauductor_project}"
+// After the rename (OPS-104), the list format reads the new name's options, then the legacy name's.
+func TestListFormatReadsBothNames(t *testing.T) {
+	const want = "#{session_name}\t#{pane_current_path}\t#{session_path}\t#{pane_dead}\t#{pane_dead_status}\t#{session_created}\t#{session_attached}" +
+		"\t#{@stridal_type}\t#{@stridal_project}\t#{@clauductor_type}\t#{@clauductor_project}"
 	if tmuxListFormat != want {
 		t.Fatalf("tmuxListFormat = %q, want %q", tmuxListFormat, want)
 	}

@@ -10,14 +10,10 @@ import (
 	"github.com/rfhayn/stridal/internal/testgit"
 )
 
-// Rename step 3 changes nothing a user sees: the name and the legacy name are one, so every
-// reader has exactly one place to look.
-func TestNamesAreOneWhileTheNameIsUnchanged(t *testing.T) {
-	if Name != LegacyName {
-		t.Skip("the rename has flipped the name (OPS-104)")
-	}
-	if got := Names(); len(got) != 1 || got[0] != "clauductor" {
-		t.Fatalf("Names() = %q, want [clauductor]", got)
+// After the rename (OPS-104) every reader tries the new name, then the legacy one.
+func TestNamesAreTheNewThenTheLegacy(t *testing.T) {
+	if got := Names(); len(got) != 2 || got[0] != "stridal" || got[1] != "clauductor" {
+		t.Fatalf("Names() = %q, want [stridal clauductor]", got)
 	}
 }
 

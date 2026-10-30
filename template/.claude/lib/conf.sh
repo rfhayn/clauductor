@@ -271,7 +271,7 @@ fi
 # and never changes. BRAND_NAMES is the order a reader tries them in: the name, then the legacy
 # one while it differs, so what an earlier name left behind is still found.
 _brand_env() {
-  BRAND_NAME="clauductor"
+  BRAND_NAME="stridal"
   BRAND_LEGACY_NAME="clauductor"
   BRAND_NAMES=$BRAND_NAME
   [ "$BRAND_LEGACY_NAME" = "$BRAND_NAME" ] || BRAND_NAMES="$BRAND_NAME $BRAND_LEGACY_NAME"

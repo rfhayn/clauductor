@@ -29,9 +29,9 @@ func TestMarkerInReadsTheLegacyNamesMarker(t *testing.T) {
 	}
 }
 
-// While the names are one, the markers are the files they always were.
-func TestMarkersAreUnchangedWhileTheNameIs(t *testing.T) {
-	if installMarker != ".claude/clauductor-template" || pluginMarker != ".claude/clauductor-plugin" {
+// After the rename (OPS-104), the markers are spelled from the new name.
+func TestMarkersAreTheNewNames(t *testing.T) {
+	if installMarker != ".claude/stridal-template" || pluginMarker != ".claude/stridal-plugin" {
 		t.Fatalf("installMarker = %q, pluginMarker = %q", installMarker, pluginMarker)
 	}
 }

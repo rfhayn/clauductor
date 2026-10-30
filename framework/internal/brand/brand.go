@@ -14,7 +14,7 @@ import "os"
 
 // Name is the product's name: the CLI, the dot directories, the panel's host name, its
 // hook tag, its launchd label and its tmux options are all spelled from it.
-const Name = "clauductor"
+const Name = "stridal"
 
 // LegacyName is the name an earlier install wrote everything under. It never changes.
 const LegacyName = "clauductor"
