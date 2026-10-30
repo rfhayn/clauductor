@@ -92,8 +92,10 @@ too. `gh pr checks` cannot see a dispatched run; poll `gh run list --workflow <f
   waits for in `GATE_PR_CHECKS` (`.claude/project.conf`; empty = none). The guard blocks until each
   has reported and passed on the head. When the Context block's PR line says `draft`, run
   `gh pr ready <n>` first (where CI skips drafts, that starts it). Then read `gh pr checks <n>`:
-  every required name passed on the head, go on; one pending, `gh pr checks <n> --watch`; none of
-  them there yet, poll until one is, and if none appears within five minutes STOP and compare
+  every required name passed on the head (a bare name skipped beside its matrix job's pass counts,
+  as the guard reads it), go on; one pending, `gh pr checks <n> --watch`; none passed or pending
+  yet (a draft's skipped run leaves the bare name `skipping`: that is not yet, not red), poll
+  until one is, and if none appears within five minutes STOP and compare
   `GATE_PR_CHECKS` with the names gh shows (or CI is not running: billing, disabled workflows).
   If it says gh itself failed, fix gh (`gh auth status`): that is not CI.
 
