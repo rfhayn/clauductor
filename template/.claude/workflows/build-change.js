@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-change',
   description: 'Build an approved change group by group: the builder implements, the quick gate runs, an independent reviewer reviews, fixes repeat until severity converges, then one commit per group, a full gate receipt and the verify step',
-  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: <rounds; default .claude/review-cap.sh\'s cap>, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>", overrideQuota?: true (the owner\'s call: start past a STOP from .claude/quota-gate.sh, with a warning; a resume only warns without it)}. A build lane runs no session-start orientation (its first prompt is this workflow): once its preflight passes, the run runs the row\'s one session-start step itself, sh .claude/skills/session-start/marker.sh (no arguments: it finds the branch\'s row and its session). The changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, write the row\'s fragment, docs/journal.d/<row id>.md (session-close, A row\'s close), check it with sh .claude/checks/run.sh journal, run the full gate on the new head, then push and run /merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
+  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: <rounds; default .claude/review-cap.sh\'s cap>, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>", overrideQuota?: true (the owner\'s call: start past a STOP from .claude/quota-gate.sh, with a warning; a resume only warns without it)}. A build lane runs no session-start orientation (its first prompt is this workflow): once its preflight passes, the run runs the row\'s one session-start step itself, sh .claude/skills/session-start/marker.sh (no arguments: it finds the branch\'s row and its session). The changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, write the row\'s fragment, docs/journal.d/<row id>.md (session-close, A row\'s close), check it with sh .claude/checks/run.sh journal, run the full gate on the new head, then push, put in the PR body what each review fix deleted and what that cost (report.groups[].fixNotes, and the Decision log lines in tasks.md that record a deletion, which survive a stop and resume; PRAC-0014), and run /merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
   phases: [
     { title: 'Preflight', detail: 'branch, clean tree, open task groups, the quota gate' },
     { title: 'Build', detail: 'the builder agent implements one group' },
@@ -261,6 +261,11 @@ const GATE = {
   },
   required: ['passed', 'evidence'],
 }
+// What a review fix may be (ST-12, PRAC-0014). A fix that grows the design beyond what its finding
+// needs is a design change wearing a fix's clothes; and a finding that is the last fix's regression
+// in the same small mechanism says the mechanism is the finding. The fixer's notes carry a deletion's
+// cost to the report (entry.fixNotes), and the meta's success steps put them in the PR body.
+const DELETE_FIRST = 'If fixing a finding would add state or logic beyond what that finding needs, a design no task in this group names, do not add it: return design-issue naming what it needs (a finding marked with a source is still fixed at that source, and a new mechanism a finding does need goes in `notes`). If a finding sits in the same small mechanism as one the previous round found and is a regression of its fix, first ask whether the mechanism can be deleted: when what it buys is an optimization or a nicety, delete it, note it against any ticked task it undoes, and state what the deletion costs in `notes` and in a line under "## Decision log" in the change\'s tasks.md, where a resumed run and the PR body read it; harden it only when deleting it would lose a requirement. Delete directly only a mechanism this build added that neither design.md nor a spec scenario names; any other (one they name, even if this build built it, or code predating the change) is deleted only by returning design-issue that proposes the deletion and its cost.'
 // THE REVIEW, as the reviewer receives it: its prompt, its findings schema, the agent type and the
 // spawn itself. With the reviewer agent's file and its model, this is what the reviewer IS.
 // pr-merge-guard rule 13 hashes the lines between these markers, and between the review-call
@@ -497,7 +502,7 @@ async function gateUntilGreen(g, entry) {
 
 let lastCost = pre.costUsd // the last change-cost.sh reading, for each group's own spend
 for (const g of todo) {
-  const entry = { n: g.n, title: g.title, build: null, gates: [], rounds: [], disputed: [], residual: [], commit: null, changeCostUsd: null, groupUsd: null }
+  const entry = { n: g.n, title: g.title, build: null, gates: [], rounds: [], disputed: [], fixNotes: [], residual: [], commit: null, changeCostUsd: null, groupUsd: null }
   report.groups.push(entry)
   log(`Group ${g.n}: ${g.title} (${g.openTasks} open tasks)`)
 
@@ -522,6 +527,10 @@ for (const g of todo) {
 
   // ── Review until peak severity converges ─────────────────────────────────────────────────────
   let prevPeak = null
+  // The last round's findings, whose fixes this round's review judged: a fresh fixer sees nothing
+  // else, so without them it cannot tell that a finding is the last fix's regression in the same
+  // small mechanism, which is when deleting the mechanism converges (ST-12, PRAC-0014).
+  let prevList = ''
   for (let round = 1; ; round++) {
     // The one place a round's review is taken (rule 13 hashes it with the review-prompt section).
     // <review-call>
@@ -553,7 +562,13 @@ for (const g of todo) {
     if (stuck) {
       entry.residual = rev.findings
       const disputes = entry.disputed.length ? `; builder disputes, which you may need to rule on: ${entry.disputed.join(' | ')}` : ''
-      return stop(`group ${g.n} review`, `${stuck}; grades ${grades(entry)}${disputes}`, 'stuck')
+      // A stuck loop is where one small mechanism regressing under each fix shows (#601's 1 → 1), and
+      // no fixer runs after this stop, so the owner gets the delete option first, inside notify's
+      // 160 characters, and both rounds' findings after it in the full reason.
+      const now = actionable.map((f) => `${f.file}${f.line ? `:${f.line}` : ''}: ${f.summary}`).join(' | ')
+      const hint = prevList ? 'one mechanism regressing per fix? ask whether to delete it (PRAC-0014); ' : ''
+      const both = prevList ? `; previous round: ${prevList.replace(/\n\s*/g, ' ')}; this round: ${now}` : ''
+      return stop(`group ${g.n} review`, `${hint}${stuck}; grades ${grades(entry)}${disputes}${both}`, 'stuck')
     }
     if (round >= MAX_ROUNDS) {
       entry.residual = rev.findings
@@ -571,16 +586,18 @@ for (const g of todo) {
       ? `Findings marked with a source live in code group ${g.n} did not write: fix those at that source anyway, in this uncommitted diff, where this group's review will check the fix; the group boundary does not apply to them. For everything else, stay inside group ${g.n}.`
       : `Stay inside group ${g.n}.`
     const fix = await spawn(
-      `Change "${change}", task group ${g.n} ("${g.title}"). An independent review of your uncommitted work found:\n\n${list}\n\nFix each at its source, or return it in \`disputed\` with the reason and its number in \`disputedItems\`. A finding whose class is "one more" of one already found is a second instance: close the class (allow only what is listed) instead of refusing one more form, and add a line naming the class and the fix to the Decision log in ${CHANGES}/${change}/tasks.md, where the next review reads it; a class you cannot close inside this change is the owner's call, so return design-issue naming it (PRAC-0010). ${scope} Leave the work uncommitted.`,
+      `Change "${change}", task group ${g.n} ("${g.title}"). An independent review of your uncommitted work found:\n\n${list}\n\nFix each at its source, or return it in \`disputed\` with the reason and its number in \`disputedItems\`. A finding whose class is "one more" of one already found is a second instance: close the class (allow only what is listed) instead of refusing one more form, and add a line naming the class and the fix to the Decision log in ${CHANGES}/${change}/tasks.md, where the next review reads it; a class you cannot close inside this change is the owner's call, so return design-issue naming it (PRAC-0010). ${scope}${prevList ? `\n\nThe previous round found these, and this review judged their fixes:\n\n${prevList}\n\n` : ' '}${DELETE_FIRST} Leave the work uncommitted.`,
       { label: `review-fix:${g.n}#${round}`, phase: 'Review', schema: BUILD, ...BUILDER },
     )
     if (!fix) return stop(`group ${g.n} review`, 'builder returned nothing while fixing findings')
+    if (fix.notes) entry.fixNotes.push(`round ${round}: ${fix.notes}`)
     entry.disputed.push(...(fix.disputed || []))
     entry.rounds[entry.rounds.length - 1].disputedKeys = (fix.disputedItems || []).map((i) => actionable[i - 1]).filter(Boolean).map(findingKey)
     if (fix.status !== 'done') return stop(`group ${g.n} review`, `${fix.status}: ${fix.designIssue || fix.summary}`)
     why = await gateUntilGreen(g, entry)
     if (why) return stop(`group ${g.n} gate after review fixes`, why)
     prevPeak = peak
+    prevList = list
   }
 
   // ── Commit (local only, never push) ──────────────────────────────────────────────────────────

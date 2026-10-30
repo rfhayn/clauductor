@@ -337,7 +337,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 | gate still red | two fix attempts failed | read the failure; fix or split the group |
 | severity rose | fixes introduced worse defects than they removed | read the rounds; usually the group is too big: split it |
 | not converged | the review cap (`review-cap.sh`, by risk) without a clean round | rule on the builder's disputes, split the group, or list what is left under KNOWN LIMITS with its owner |
-| stuck (notify says STUCK) | the stuck-loop breaker: a fixed finding came back unchanged, the peak and the count both stopped falling, or a round reviewed a diff already reviewed | read the finding it names; usually a design question or a group too big: decide, or split |
+| stuck (notify says STUCK) | the stuck-loop breaker: a fixed finding came back unchanged, the peak and the count both stopped falling, or a round reviewed a diff already reviewed | read the finding it names; usually a design question or a group too big: decide, or split. If both rounds' findings sit in one small mechanism, each regressing the last fix, ask whether to delete it (PRAC-0014) |
 | agent returned nothing | new agent types register at session start | restart Claude Code, re-run with `resume` |
 | receipt | the full gate failed on HEAD | fix, re-run the full gate |
 | budget | the change's spend passed its budget | raise the budget (the roadmap row on main first, then the proposal) or cut scope, then re-run |

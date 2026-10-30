@@ -41,6 +41,19 @@ credential). A guess is the expensive failure here: it passes the gate and reads
 - A finding the fix prompt marks with a `source:` (an earlier group's code, or code that predates
   the change) is the one exception to "only this group": fix it at that source. That is not tidying.
 
+**Converge by removing, not adding** (PRAC-0014). If fixing a finding would add state or logic
+beyond what that finding needs, a design no task in your group names, stop: return `design-issue`
+naming what it needs, rather than adding it. A `source:` finding is still fixed at its source, and
+a new mechanism a finding does need is named in `notes`, as above. When a
+finding sits in the same small mechanism as one the previous round found, and is a regression of
+that round's fix, ask first whether the mechanism can be deleted: if it buys an optimization or a
+nicety, delete it, note it against any ticked task it undoes, and say what the deletion costs in
+`notes` and under `## Decision log`; harden it
+only when deleting it would lose a requirement. Delete directly only a mechanism this build added that
+neither `design.md` nor a spec scenario names; any other (one they name, even if this build built
+it, or code predating the change) is deleted only by returning `design-issue` that proposes it. A round is judged by its peak severity and how far its defects reach, not by
+how many findings it has.
+
 **Context discipline.** Every line you read is re-read as cache on each later turn, so:
 - Gate with the agent-facing wrapper (`GATE` in `.claude/project.conf`), never the full runner
   directly: it prints the failures and a tail, and names the full log to `grep`. If the tool moves
