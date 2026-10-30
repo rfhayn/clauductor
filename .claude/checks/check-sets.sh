@@ -409,7 +409,13 @@ merge_half() {
   for _w in $1; do [ "$_w" != "$2" ] || { echo waits; return; }; done
   echo fail
 }
-case $(merge_half "${GATE_PR_CHECKS:-}" "$job") in
+# The state printed below is project.conf's: read here a second way, so a call that stops passing
+# the conf's value fails rather than printing the other state.
+want=$(sed -n 's/^GATE_PR_CHECKS="\([^"]*\)".*/\1/p' "$ROOT/.claude/project.conf" | tail -n 1)
+mh_checks=${GATE_PR_CHECKS:-}
+[ "$mh_checks" = "$want" ] && ok "the merge guard's half reads GATE_PR_CHECKS as project.conf sets it ('$want')" \
+  || fail "the merge guard's half reads GATE_PR_CHECKS as '$mh_checks', but project.conf sets '$want'"
+case $(merge_half "$mh_checks" "$job") in
   waits) ok "...and the merge guard waits for it: GATE_PR_CHECKS ($GATE_PR_CHECKS) names job $job, so a merge waits for the step to pass (bar what an earlier step executes: #365)" ;;
   off) ok "SKIPPED the merge guard's half: GATE_PR_CHECKS is empty, so no merge waits for CI's run of CHECKS_ONCE over this repo's project.conf (and that run needs its job's earlier steps green): Nothing. You. until GATE_PR_CHECKS names job $job (OPS-98)" ;;
   *) fail "GATE_PR_CHECKS ($GATE_PR_CHECKS) does not name test.yml's job that runs this repo's whole set ($job): no merge waits for the run of CHECKS_ONCE over this repo's project.conf" ;;
@@ -419,7 +425,7 @@ esac
 [ "$(merge_half test "$(ci_job "$CI")")" = waits ] && ok "falsified: GATE_PR_CHECKS=test waits for the real test.yml's run" || fail "GATE_PR_CHECKS=test with the real test.yml: $(merge_half test "$(ci_job "$CI")")"
 [ "$(merge_half test "$(ci_job "$S/ci-moved.yml")")" = fail ] && [ "$(merge_half test "$(ci_job "$S/ci-renamed.yml")")" = fail ] \
   && ok "...and fails it once the step moves to a job of its own or the job is renamed" || fail "GATE_PR_CHECKS=test with the step moved or the job renamed does not fail"
-# Each state of the conf, on the real file: empty (before OPS-98) is SKIPPED, never waits.
+# Each value merge_half can be given, with the real file's job: empty (before OPS-98) is off.
 [ "$(merge_half "" "$(ci_job "$CI")")" = off ] && [ "$(merge_half "lint test" "$(ci_job "$CI")")" = waits ] \
-  && ok "...and an empty GATE_PR_CHECKS is SKIPPED, while one naming test among others waits" || fail "GATE_PR_CHECKS empty: $(merge_half "" "$(ci_job "$CI")"); 'lint test': $(merge_half "lint test" "$(ci_job "$CI")")"
+  && ok "...and merge_half reads an empty GATE_PR_CHECKS as off (SKIPPED), and one naming test among others waits" || fail "GATE_PR_CHECKS empty: $(merge_half "" "$(ci_job "$CI")"); 'lint test': $(merge_half "lint test" "$(ci_job "$CI")")"
 finish
