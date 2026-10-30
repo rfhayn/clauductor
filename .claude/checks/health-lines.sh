@@ -417,8 +417,12 @@ has "coauthor: ...and names that branch in the fix" "$out" "rewrite master to re
 # by name.
 own_lib() {
   mkdir -p "$d/fw/lib"; mv "$1/.claude/lib/health.sh" "$d/fw/lib/health.sh"
-  has "$2: with no lib/health.sh in its checkout, and no plugin, it says so by name" "$(cd "$1" && CONTEXT_OFFLINE=1 STRIDAL_FW= sh ".claude/health/$2" 2>/dev/null)" "lib/health.sh is missing"
-  has "$2: finds the plugin's lib/health.sh through STRIDAL_FW" "$(cd "$1" && CONTEXT_OFFLINE=1 STRIDAL_FW="$d/fw" sh ".claude/health/$2" 2>/dev/null)" "$3"
+  out=$(cd "$1" && CONTEXT_OFFLINE=1 STRIDAL_FW= sh ".claude/health/$2" 2>/dev/null; echo "exit $?")
+  case $out in *"lib/health.sh is missing"*"exit 0") ok "$2: with no lib/health.sh in its checkout, and no plugin, it says so by name, exit 0" ;;
+    *) fail "$2: with no lib/health.sh and no plugin, no \"lib/health.sh is missing\" and exit 0 in: $out" ;; esac
+  out=$(cd "$1" && CONTEXT_OFFLINE=1 STRIDAL_FW="$d/fw" sh ".claude/health/$2" 2>/dev/null; echo "exit $?")
+  case $out in *"$3"*"exit 0") ok "$2: finds the plugin's lib/health.sh through STRIDAL_FW, exit 0" ;;
+    *) fail "$2: with the plugin's lib/health.sh, no \"$3\" and exit 0 in: $out" ;; esac
   mv "$d/fw/lib/health.sh" "$1/.claude/lib/health.sh"
 }
 CO1() { (cd "$C" && sh .claude/health/coauthor-trailers.sh 2>/dev/null; echo "exit $?"); }
@@ -498,11 +502,14 @@ has "the runner (extensions.sh health) merges a health line's stderr, so a CANNO
 
 # ── A project that keeps none of the three lines (OPS-172) ──────────────────────────────────────
 # This project keeps them, so the branches above for one it deleted never run here. A copy of this
-# check runs in a project with no .claude/health/ and no workflows, and must pass whole, saying it
-# found none of the three. Falsified by copying the project's push-main.sh into the fixture again,
-# as before OPS-172: red. The copy runs with HEALTH_LINES_INNER=1, so it never recurses.
+# check runs in a project with no .claude/health/ but with workflows (one that deleted the lines
+# still has its CI, so every branch on a project's workflows runs too), and must pass whole, saying
+# it found none of the three. Falsified by copying the project's push-main.sh into the fixture
+# again, as before OPS-172: red. The copy runs with HEALTH_LINES_INNER=1, so it never recurses.
 if [ -z "${HEALTH_LINES_INNER:-}" ]; then
-  P="$d/bare"; mkdir -p "$P/.claude/checks" "$P/.claude/lib"
+  P="$d/bare"; mkdir -p "$P/.claude/checks" "$P/.claude/lib" "$P/.github/workflows"
+  printf 'name: A\non:\n  schedule:\n    - cron: "0 1 * * 1"\njobs:\n  a:\n    runs-on: x\n' > "$P/.github/workflows/a.yml"
+  printf 'name: CI\non:\n  push:\n    branches: [main]\njobs:\n  a:\n    runs-on: x\n' > "$P/.github/workflows/ci.yml"
   cp "$ROOT/.claude/lib/conf.sh" "$ROOT/.claude/lib/health.sh" "$ROOT/.claude/lib/modules.sh" "$P/.claude/lib/"
   cp "$ROOT/.claude/extensions.sh" "$P/.claude/"
   cp "$(dirname "$0")/lib.sh" "$0" "$P/.claude/checks/"
