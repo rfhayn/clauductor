@@ -419,4 +419,7 @@ esac
 [ "$(merge_half test "$(ci_job "$CI")")" = waits ] && ok "falsified: GATE_PR_CHECKS=test waits for the real test.yml's run" || fail "GATE_PR_CHECKS=test with the real test.yml: $(merge_half test "$(ci_job "$CI")")"
 [ "$(merge_half test "$(ci_job "$S/ci-moved.yml")")" = fail ] && [ "$(merge_half test "$(ci_job "$S/ci-renamed.yml")")" = fail ] \
   && ok "...and fails it once the step moves to a job of its own or the job is renamed" || fail "GATE_PR_CHECKS=test with the step moved or the job renamed does not fail"
+# Each state of the conf, on the real file: empty (before OPS-98) is SKIPPED, never waits.
+[ "$(merge_half "" "$(ci_job "$CI")")" = off ] && [ "$(merge_half "lint test" "$(ci_job "$CI")")" = waits ] \
+  && ok "...and an empty GATE_PR_CHECKS is SKIPPED, while one naming test among others waits" || fail "GATE_PR_CHECKS empty: $(merge_half "" "$(ci_job "$CI")"); 'lint test': $(merge_half "lint test" "$(ci_job "$CI")")"
 finish
