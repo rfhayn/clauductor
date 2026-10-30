@@ -3,7 +3,7 @@
 **Status:** Approved by the owner, 2026-10-30 (PANEL-60, S18), with the decisions below. It supersedes `PRD-ui.md`, which already
 marks itself superseded by the direction shift of 2026-10-27 and names PRD-tui as its replacement, so this PRD leaves
 PRD-ui's text as it is. The rows it sets are PANEL-61 to PANEL-64 and PANEL-66 in
-`docs/roadmap.md` (Phase 4, *The terminal UI*), with PANEL-50, PANEL-56 and PANEL-25 feeding them. Each row is still proposed just in
+`docs/roadmap.md` (Phase 4, *The terminal UI*), with PANEL-50 and PANEL-56 feeding them and PANEL-25 following PANEL-61. Each row is still proposed just in
 time and approved on its own `design.md`. This PRD gives direction; it does not approve a design.
 
 ## Why
