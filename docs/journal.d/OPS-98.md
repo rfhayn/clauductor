@@ -2,7 +2,7 @@
 
 - **PR**: #350
 - **Session**: S18, started 2026-10-30 15:34 ET
-- **Review**: 5 round(s), peak high, cap 3
+- **Review**: 5 rounds, peak high, cap 3
 - **Gate**: CANNOT CHECK — the session's lead runs the gate
 - **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id
 - **Session start**: CANNOT CHECK — a lane shares the orchestrator's session id
