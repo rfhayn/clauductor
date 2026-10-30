@@ -255,3 +255,37 @@ func TestNoTestGitRunsMaintenance(t *testing.T) {
 		t.Errorf("WithConfig's own pair is lost: %q", out)
 	}
 }
+
+// Every environment the module builds by dropping each GIT_ variable puts testgit's config back
+// (Env or WithConfig), or its git runs auto maintenance again: the authority is every Go file of
+// the module, since a test's child gets whatever environment that file builds. A filter of named
+// keys (GIT_DIR alone) keeps GIT_CONFIG_COUNT and is not one.
+func TestEveryGitPrefixFilterKeepsTheConfig(t *testing.T) {
+	self, _ := filepath.Abs(".")
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bad []string
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || filepath.Dir(p) == self {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		src := string(b)
+		if strings.Contains(src, `"GIT_")`) && !strings.Contains(src, "testgit.WithConfig(") && !strings.Contains(src, "testgit.Env()") {
+			rel, _ := filepath.Rel(root, p)
+			bad = append(bad, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bad) > 0 {
+		t.Errorf("these drop every GIT_ variable and never restore testgit's config, so their git runs auto maintenance: %v", bad)
+	}
+}

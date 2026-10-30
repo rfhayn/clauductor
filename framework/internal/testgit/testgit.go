@@ -48,7 +48,8 @@ func init() {
 	}
 }
 
-// Env is this process's environment with no GIT_ variable, and a commit identity. init has
+// Env is this process's environment with none of its own GIT_ variables, plus testgit's git
+// config (configEnv) and a commit identity. init has
 // already dropped what the test binary inherited; Env also drops what a test set itself, as a
 // test standing in for a hook does (template's TestTheFixturesGitStaysInTheFixture), then sets
 // configEnv again. A caller that needs more appends it (GIT_EDITOR), or a config through WithConfig.

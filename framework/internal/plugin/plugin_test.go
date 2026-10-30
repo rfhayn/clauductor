@@ -14,6 +14,7 @@ import (
 
 	"github.com/rfhayn/stridal/internal/panel/config"
 	"github.com/rfhayn/stridal/internal/template"
+	"github.com/rfhayn/stridal/internal/testgit"
 )
 
 // The plugin and `stridal install`/`update` must agree on what is the framework's: a file the
@@ -459,8 +460,10 @@ func env(t *testing.T, home string) []string {
 	// A developer's global config usually names main as the default branch; the checks' scratch
 	// origins rely on it (a bare `git init` otherwise points HEAD at master).
 	os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[init]\n\tdefaultBranch = main\n"), 0o644)
-	return append(e, "HOME="+home, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"),
-		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
+	// testgit's config goes back in: the filter above dropped it, and without it git runs auto
+	// maintenance in the fixtures (#343).
+	return testgit.WithConfig(append(e, "HOME="+home, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+filepath.Join(home, ".gitconfig"),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com"))
 }
 
 func run(t *testing.T, dir string, e []string, stdin string, name string, args ...string) (string, int) {
