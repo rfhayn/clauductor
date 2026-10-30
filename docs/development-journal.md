@@ -20,16 +20,16 @@ entries with one number on `main`.
 
 **Rows.** OPS-104 (#344, squash 1f4c0fcc). No fragment: the row's records are this entry, and its close was deferred to after the owner's machine migration.
 
-**What happened.** The rename sweep ran as its own session, one PR, and grew past its row twice by the owner's override mid-run: first "change everything", then "Nothing should be kept as clauductor". So there is no class C, no `Legacy*` constant, no fallback reader and no shim. The plugin id, the skill namespace, env vars, `.stridal/` directories, the journal, the archive and ADR text were all renamed, and the new `.claude/checks/name-residue.sh` allows zero matches. Only git history and past PR titles keep the old name. The Go module is `github.com/rfhayn/stridal`, because the `stridal` GitHub name belongs to an unrelated account. Right after the merge, `gh api -X PATCH` renamed the repository to rfhayn/stridal, with the owner's approval of 2026-10-29, and the old URL redirects.
+**What happened.** The rename sweep ran as its own session, one PR, and grew past its row twice by the owner's override mid-run: first "change everything", then that nothing should keep the earlier name. So there is no class C, no `Legacy*` constant, no fallback reader and no shim. The plugin id, the skill namespace, env vars, `.stridal/` directories, the journal, the archive and ADR text were all renamed, and the new `.claude/checks/name-residue.sh` allows zero matches. Only git history and past PR titles keep the old name. The Go module is `github.com/rfhayn/stridal`, because the `stridal` GitHub name belongs to an unrelated account. Right after the merge, `gh api -X PATCH` renamed the repository to rfhayn/stridal, with the owner's approval of 2026-10-29, and the old URL redirects.
 
-**The machine migration.** It was a one-off script outside the repo, run by the owner after the session. It moved the folder to `~/Development/stridal`, installed `stridal` into `~/.local/bin`, and moved `~/.clauductor` to `~/.stridal`. It also replaced the 13 old panel hooks with `src=stridal-panel` ones, set `STRIDAL_FRAMEWORK`, renamed `.git/clauductor` to `.git/stridal`, and repointed origin. The close verified each of these by existence, and name-residue is clean.
+**The machine migration.** It was a one-off script outside the repo, run by the owner after the session. It moved the folder to `~/Development/stridal`, installed `stridal` into `~/.local/bin`, and moved the old state directory to `~/.stridal`. It also replaced the 13 old panel hooks with `src=stridal-panel` ones, set `STRIDAL_FRAMEWORK`, renamed the old `.git/` state directory to `.git/stridal`, and repointed origin. The close verified each of these by existence, and name-residue is clean.
 
 The script copied the Claude Code project folder's `memory/` but not its 33 transcripts. The close moved them, then, with the owner's OK, removed:
 - the duplicate `.zshrc` lines;
 - the orphaned `.claude/worktrees/session-16-close`, whose 707 files matched aa48814d;
-- the old binaries, the old status files and the clauductor-era `settings.json` backups.
+- the old binaries, the old status files and the pre-rename `settings.json` backups.
 
-The panel was not running at verification and was not checked before the cleanup: the owner's choice. Starting it is an owner-queue item. Standing Tee's `.git/clauductor` stays until Standing Tee updates.
+The panel was not running at verification and was not checked before the cleanup: the owner's choice. Starting it is an owner-queue item. Standing Tee's old-name `.git/` state directory stays until Standing Tee updates.
 
 **Review.** Five rounds against a cap of 3; the owner allowed round 4 and on. The peak was medium, all in the new `name-residue.sh`: the split-form class, a 45 s fork loop, the colour silent-pass and the longest-path credit. Round 5 converged with no medium. Its four lows are #346, now **OPS-178**.
 
