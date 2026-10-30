@@ -115,11 +115,14 @@ residue() {
   [ ! -s "$_r/unread" ] || { rm -rf "$_r"; return 2; }
   # What credit reads: every line of both scans; each tracked path as its own line 0; and each
   # symlink's target, read from its blob, as the link's line 1, with any newline in it a space.
+  # A quoted path's text loses its escapes (\t, \n, \303...), each of which stands for a byte that
+  # is no letter, so an escape's own letter neither hides a split nor makes one.
   scan "$1" -n -e '' >"$_r/g"; rc=$?
   [ "$rc" -le 1 ] || { rm -rf "$_r"; return 2; }
   scan "$1" --cached -n -e '' >>"$_r/g"; rc=$?
   [ "$rc" -le 1 ] || { rm -rf "$_r"; return 2; }
-  LC_ALL=C awk '{ print $0 ":0:" $0 }' "$_r/p" >>"$_r/g" || { rm -rf "$_r"; return 2; }
+  LC_ALL=C awk '{ t = $0; if (t ~ /^"/) gsub(/\\([0-7][0-7][0-7]|.)/, "", t); print $0 ":0:" t }' \
+    "$_r/p" >>"$_r/g" || { rm -rf "$_r"; return 2; }
   while IFS= read -r _l; do
     case $_l in 120000\ *) ;; *) continue ;; esac
     _o=${_l#120000 }; _o=${_o%% *}
@@ -273,11 +276,12 @@ if got=$(residue "$lk"); then
 else
   fail "the links case failed the scan (status 2): a link's target was not read as one line"
 fi
-# Every exit by which residue fails closed, reached on that repository: each command whose output
-# it reads failing in turn ("cmd:arguments"), having written all it would have, so that no later
-# step catches what the exit under test lets through ("short:" cuts tr's output to one line
-# instead, which the line count's compare must catch), must fail the scan with status 2, never
-# pass on what was read before it. credit is reached through its awk.
+# Every command exit by which residue fails closed, reached on that repository (its two others
+# are reached by the not-a-repository and intent-to-add cases): each command whose output it reads
+# failing in turn ("cmd:arguments"), having written all it would have, so that no later step
+# catches what the exit under test lets through ("short:" cuts tr's output to one line instead,
+# which the line count's compare must catch), must fail the scan with status 2, never pass on
+# what was read before it. credit is reached through its awk.
 open=""
 mkdir "$t/stubtmp"
 for call in 'git:* ls-files' 'git:* ls-files -s' 'awk:-F*' 'sort:-u */w' \
@@ -364,6 +368,52 @@ git -C "$fc" add -A
 h=$(printf 'n = "%s" + "%s"\n' "$p" "$q" | git -C "$fc" hash-object -w --stdin)
 git -C "$fc" update-index --add --cacheinfo "100644,$h,Lower.go"
 unread "a tracked file whose name another file's stands for (case folded or not)" "$fc" Lower.go
+# The working tree is read for what the index does not hold yet: an edit not staged, and a new
+# file added with -N (build-change's register step leaves every new file so).
+wt="$t/unstaged"
+git init -q "$wt"
+printf 'clean\n' > "$wt/a.go"
+git -C "$wt" add -A
+commit "$wt"
+printf 'n = "%s" + "%s"\n' "$p" "$q" > "$wt/a.go"
+printf 'n = "%s" + "%s"\n' "$p" "$q" > "$wt/new.go"
+git -C "$wt" add -N new.go
+if got=$(residue "$wt"); then
+  got=$(printf '%s\n' "$got" | tr '\n' ' ')
+  if [ "$got" = "a.go new.go " ]; then
+    ok "an unstaged edit and an intent-to-add file are read from the working tree"
+  else
+    fail "an unstaged edit or an intent-to-add file went unread: found '$got' (want 'a.go new.go')"
+  fi
+else
+  fail "an unstaged edit or an intent-to-add file failed the scan (status 2) rather than being read"
+fi
+# A path's quoting is not its text: a tab splitting the name in a path is found, and the letter
+# of a \t escape makes no name of a path whose letters are not it.
+qp="$t/quoted"
+git init -q "$qp"
+printf 'clean\n' > "$qp/$p$tab$q.md"
+printf 'clean\n' > "$qp/$(printf '%s' "$old" | cut -c1-7)$tab$(printf '%s' "$old" | cut -c9-).md"
+git -C "$qp" add -A
+got=$(residue "$qp")
+if [ "$got" = "\"$p\\t$q.md\"" ]; then
+  ok "a tab splitting the name in a path is found, and the letter of a tab's escape makes no name"
+else
+  fail "a quoted path was read by its escapes: found '$got' (want the one path split by a tab)"
+fi
+# A prefix that names a tracked file is a candidate only when a line number follows it: a file
+# named "x:<first piece>" holding "<rest>" makes no line of x's.
+xp="$t/prefix"
+git init -q "$xp"
+printf 'clean\n' > "$xp/x"
+printf '%s\n' "$q" > "$xp/x:$p"
+git -C "$xp" add -A
+got=$(residue "$xp")
+if [ -z "$got" ]; then
+  ok "a path prefix with no line number after it is not read as a file's line"
+else
+  fail "a path prefix with no line number after it was read as a file's line: found '$got'"
+fi
 # An intent-to-add file has no blob yet, so only the working tree can be read for it: shut, it is
 # read by neither scan, and the scan fails rather than pass clean over what it will hold.
 ia="$t/intent"
@@ -400,6 +450,6 @@ if found=$(residue "$ROOT"); then
     printf '%s\n' "$found" | sed 's/^/     /'
   fi
 else
-  fail "could not read every tracked file in $ROOT (not a repository, git failed, or a tracked file is not in the working tree as itself: git status shows it)"
+  fail "could not read every tracked file in $ROOT (not a repository, git failed, or a new (intent-to-add) or unmerged file the working tree cannot open: git status shows it)"
 fi
 finish
