@@ -29,7 +29,7 @@ wf="$STRIDAL_FW/workflows/build-change.js"
 d=$(scratch)
 
 grep -q 'const stuck = stuckReason(entry.rounds)' "$wf" && ok "the review loop consults the stuck-loop breaker every round" || fail "build-change.js no longer calls stuckReason(entry.rounds) in the review loop"
-grep -q "return stop(\`group \${g.n} review\`, \`\${stuck}; grades \${grades(entry)}\${disputes}\${both}\`, 'stuck')" "$wf" && ok "a stuck loop stops with the distinct kind 'stuck'" || fail "build-change.js does not stop a stuck loop with kind 'stuck'"
+grep -q "return stop(\`group \${g.n} review\`, \`\${stuck}\${hint}; grades \${grades(entry)}\${disputes}\${both}\`, 'stuck')" "$wf" && ok "a stuck loop stops with the distinct kind 'stuck'" || fail "build-change.js does not stop a stuck loop with kind 'stuck'"
 grep -q "\${kind === 'stuck' ? 'STUCK' : 'STOPPED'}" "$wf" && ok "the notify line says STUCK for a stuck loop" || fail "the notify line does not distinguish a stuck loop"
 grep -q 'grades ${grades(entry)}"' "$wf" && ok "the Progress line records each round's grade" || fail "the commit step's Progress line does not record the grades"
 
@@ -342,10 +342,9 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   const regress = { ...finding(3), summary: 'the skip misses a path through a done milestone' }
   r = await run([finding(3), { ...finding(3), line: 60, summary: 'the skip misses file order' }], { round2: [regress], fixNotes: 'deleted the edge skip; costs a few grey edges' })
   const fix2 = (r.calls.find((c) => c.opts.label === 'review-fix:3#2') || {}).prompt || ''
-  t('a fix that needs unnamed state returns design-issue, and a regression in one mechanism asks first to delete it', r.fix.includes('no task in this group names') && r.fix.includes('whether the mechanism can be deleted') && !r.fix.includes('The previous round found'), r.fix)
-  r = await run([{ ...finding(3), summary: 'the skip misses file order' }], { round2: [regress] })
-  t('#601\'s shape (one medium, then one regressing its fix) stops stuck with both rounds and the delete option', r.report.stoppedAt === 'group 3 review' && r.report.reason.includes('the skip misses file order') && r.report.reason.includes('the skip misses a path through a done milestone') && r.report.reason.includes('whether the mechanism can be deleted'), r.report.reason)
-  r = await run([finding(3), { ...finding(3), line: 60, summary: 'the skip misses file order' }], { round2: [regress], fixNotes: 'deleted the edge skip; costs a few grey edges' })
+  t('a fix that needs unnamed state returns design-issue, a designed mechanism is deleted only through design-issue, and a regression in one mechanism asks first to delete it', r.fix.includes('no task in this group names') && r.fix.includes('design.md or a spec scenario names is deleted only by returning design-issue') && r.fix.includes('whether the mechanism can be deleted') && r.fix.includes('Decision log') && !r.fix.includes('The previous round found'), r.fix)
+  const r601 = await run([{ ...finding(3), summary: 'the skip misses file order' }], { round2: [regress] })
+  t('#601\'s shape (one medium, then one regressing its fix) stops stuck with both rounds, and the delete option reaches the owner\'s notify', r601.report.stoppedAt === 'group 3 review' && r601.report.reason.includes('the skip misses file order') && r601.report.reason.includes('the skip misses a path through a done milestone') && r601.report.notify.includes('PRAC-0014'), [r601.report.notify, r601.report.reason])
   t('round 2\'s fixer is given round 1\'s findings, and every fix\'s notes reach the report', fix2.includes('The previous round found these') && fix2.includes('the skip misses file order') && (r.report.groups[0].fixNotes || []).join('|') === 'round 1: deleted the edge skip; costs a few grey edges|round 2: deleted the edge skip; costs a few grey edges', [fix2, r.report.groups[0].fixNotes])
   const MAIN = { gitDir: '/repo/.git', commonDir: '/repo/.git/', toplevel: '/repo' }
   // The settings agent (project-config.sh) runs before preflight; "after preflight" counts from it.

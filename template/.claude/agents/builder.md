@@ -44,8 +44,10 @@ naming what it needs, rather than adding it. A `source:` finding is still fixed 
 a new mechanism a finding does need is named in `notes`, as above. When a
 finding sits in the same small mechanism as one the previous round found, and is a regression of
 that round's fix, ask first whether the mechanism can be deleted: if it buys an optimization or a
-nicety, delete it and say in `notes` what the deletion costs; harden it only when deleting it would
-lose a requirement. A round is judged by its peak severity and how far its defects reach, not by
+nicety, delete it and say what the deletion costs in `notes` and under `## Decision log`; harden it
+only when deleting it would lose a requirement. A mechanism `design.md` or a spec scenario names is
+deleted only by returning `design-issue` that proposes the deletion; one this build or an earlier
+fix added is deleted directly. A round is judged by its peak severity and how far its defects reach, not by
 how many findings it has.
 
 **Context discipline.** Every line you read is re-read as cache on each later turn, so:

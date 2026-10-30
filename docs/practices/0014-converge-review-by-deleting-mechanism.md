@@ -41,7 +41,9 @@ the report the PR is written from.
 3. **When a finding sits in the same small mechanism as the previous round's and is a regression
    of its fix, the next fix asks first whether the mechanism can be deleted.** If what it buys is
    an optimization or a nicety, delete it and state the cost in the PR body. Harden it only when
-   deleting it would lose a requirement. This governs what a fix is, not how many rounds there are:
+   deleting it would lose a requirement. A mechanism that `design.md` or a spec scenario names is
+   the owner's: the builder proposes its deletion by returning `design-issue`, and deletes directly
+   only what the build or an earlier fix added. This governs what a fix is, not how many rounds there are:
    the cap (`.claude/review-cap.sh`) is unchanged.
 
 ## Consequences
@@ -49,27 +51,32 @@ the report the PR is written from.
 - A loop that keeps regressing in one mechanism converges in a round, as #601's did, instead of
   running to the cap.
 - A fix cannot grow the design quietly: unnamed state reaches the owner as a design issue.
-- A deletion's cost is written down where the PR body is drafted from.
+- A deletion's cost is written down in the change's Decision log, which survives a stop and a
+  resume, and from there reaches the PR body.
 
 ### Negative / trade-offs
-- Deleting a nicety loses it; the owner learns that from the PR body, after the fact.
+- Deleting a nicety the build added loses it; the owner learns that from the PR body, after the
+  fact. A designed one waits for the owner, which costs a stop.
 - "Same small mechanism" is the builder's judgment from two rounds' finding lists. A builder can
   misjudge it either way, and nothing checks that it asked.
 - More design-issue stops: a fix that a builder would once have patched in now stops the run.
 
 ## Enforcement
 - **`template/.claude/workflows/build-change.js`**: every review-fix prompt carries the stop and
-  delete-first instruction (`DELETE_FIRST`), from round 2 the previous round's findings, and each
-  fix's `notes` are kept in the group's report (`fixNotes`), which the workflow's success steps put
-  in the PR body. **`checks/build-change.sh`** asserts these in its driver. The review prompt and
-  call (rule 13's triggers) are unchanged, so no eval receipt is needed.
+  delete-first instruction (`DELETE_FIRST`, which also sends a designed mechanism's deletion to
+  `design-issue` and a deletion's cost to the Decision log), from round 2 the previous round's
+  findings, and each fix's `notes` in the group's report (`fixNotes`); the workflow's success
+  steps put the deletions in the PR body. **`checks/build-change.sh`** asserts these in its driver.
+  The review prompt and call (rule 13's triggers) are unchanged, so no eval receipt is needed.
 - **A limit, and how it is covered.** #601's own shape (one medium, then one medium that regresses
   its fix) stops build-change's stuck-loop breaker at round 2 (*not falling*), before any fixer
-  sees both rounds. So the stuck stop names both rounds' findings and the delete option to whoever
-  reads it; the deletion is then that reader's decision, not the builder's.
-- **`template/.claude/agents/builder.md`**, *Converge by removing, not adding*, and
-  **`/apply-change`** step 4, which hands the builder the previous round's findings: the same rules
-  for a loop run by hand. Instructions: nothing checks them.
+  sees both rounds. So the stuck stop's notify, which reaches the owner, opens with the delete
+  option, and its full reason lists both rounds' findings; the playbook's *stuck* row says the
+  same. The deletion is then the owner's decision, not the builder's.
+- Every review-fix loop is reached: build-change (above); **`builder.md`**, *Converge by removing,
+  not adding*; **`/apply-change`** step 4, which hands the builder the previous round's findings;
+  and **`merge-pr`** step 3's hand-run loop, the one #601 ran. The last three are instructions:
+  nothing checks them.
 - Peak-severity scoring is `build-change.js`'s `gradeRound` and its stuck-loop stops, as before.
 - The builder's judgment that a finding is a regression in the same mechanism, and the PR body
   stating the cost: **Nothing. You.**
