@@ -229,10 +229,11 @@ func (c *Conf) Mapping(files []string) (*PathMap, error) {
 		} else if d := path.Dir(runner); d != "scripts/ci" {
 			// The runner sources lib/steps.sh beside it, and the conformance kit tests the
 			// lease.sh beside it (../lease.sh): both move with it. So do the run-state library
-			// it sources and gate-wait.sh, which reads that library beside itself (OPS-41).
+			// it sources and gate-wait.sh, which reads that library beside itself (OPS-41), and
+			// batch.sh, so the project's gate directory stays its one CI directory (OPS-176).
 			for _, rel := range files {
 				f, ok := strings.CutPrefix(rel, "scripts/ci/")
-				if !ok || !(f == "lease.sh" || f == "README.md" || f == "lib/steps.sh" || f == "lib/gate-state.sh" || f == "gate-wait.sh" || strings.HasPrefix(f, "lease-conformance/")) {
+				if !ok || !(f == "lease.sh" || f == "README.md" || f == "lib/steps.sh" || f == "lib/gate-state.sh" || f == "gate-wait.sh" || f == "batch.sh" || strings.HasPrefix(f, "lease-conformance/")) {
 					continue
 				}
 				m.dest[rel] = d + "/" + f
