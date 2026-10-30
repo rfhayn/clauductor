@@ -93,7 +93,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A project's history is never reformatted; records since adoption meet the format | `RECORDS_BASELINE`, `CHANGES_LEGACY` (`lib/records.sh`); **`checks/journal.sh`**, **`adr-numbering.sh`**, **`changes.sh`** |
 | An ADR or PRAC number is never taken twice (one space); each is indexed and names its enforcement | **`checks/adr-numbering.sh`**; `new-adr` numbers from `origin/main` and open PRs |
 | A skill's context script and every `.claude/` path a skill or agent names exists | **`checks/skills.sh`** |
-| The repo works without clauductor: nothing needs the binary or the panel | **`checks/run.sh`** runs the checks with `clauductor` off `PATH`; **`checks/no-clauductor.sh`** asserts it, and runs the gate, a context script and the status line there |
+| The repo works without stridal: nothing needs the binary or the panel | **`checks/run.sh`** runs the checks with `stridal` off `PATH`; **`checks/no-stridal.sh`** asserts it, and runs the gate, a context script and the status line there |
 | A branch is named by its `BRANCH_*` key, never a literal prefix | **`checks/branch-prefixes.sh`**: the model's files and `panel.json` |
 | Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | A script's temporary file lands in `$TMPDIR`: every `mktemp` line holds a `${TMPDIR:-` template or says why not | **`checks/mktemp-in-tmpdir.sh`** over every tracked shell script |

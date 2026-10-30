@@ -16,7 +16,7 @@ the log (OPS-108), so rows built in parallel never edit one shared line.
 !`sh ${CLAUDE_PLUGIN_ROOT}/skills/log-insight/context.sh`
 
 If the line above shows as literal text instead of output, run
-`clauductor-model skills/log-insight/context.sh` yourself and read the result before step 1.
+`stridal-model skills/log-insight/context.sh` yourself and read the result before step 1.
 
 ## What counts
 Non-obvious observations found while working: a platform or library quirk, a trade-off, a
@@ -46,7 +46,7 @@ Routing follows *What this tier holds* in `docs/adr/README.md`.
   `Instance of ADR-NNNN (check N)` (or `Instance of AGENTS.md rule N`), or quote the covering
   sentence: `Instance of ADR-NNNN ("…")`. Find that sentence first; if you cannot, it is not
   covered.
-- **A decision with trade-offs, or a lesson with a mechanism**: offer `/clauductor:new-adr`, which writes a
+- **A decision with trade-offs, or a lesson with a mechanism**: offer `/stridal:new-adr`, which writes a
   new ADR or an amendment inside the ADR that already owns the principle.
 - **3+ rows share a Topic**: suggest a promotion. Topic tags are typed by hand, so look for rows of
   the same SHAPE under other tags too.

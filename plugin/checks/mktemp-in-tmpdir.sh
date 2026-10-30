@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Every temporary file a script makes lands under $TMPDIR (OPS-150). On macOS a bare `mktemp` (and
 # `-d`, `-t`, `-p`) ignores $TMPDIR and creates under the `confstr` user temp directory
 # (/var/folders/…/T), which Claude Code's sandbox refuses, so a session-start script read the change

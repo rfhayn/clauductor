@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # extensions.sh: run or print what the enabled modules and the local layer add to the operating
 # model (lib/modules.sh names the points). The template's hosts call it; nothing else needs to.
 #
@@ -15,15 +15,15 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # Every script runs per its own #! line (a bash health line is never forced through sh), and every
 # section that cannot run says CANNOT CHECK instead of printing nothing: an absent answer must not
 # read as a healthy one. Always exit 0 except `list`, so one broken part never hides the rest.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/modules.sh" || { echo "CANNOT CHECK — .claude/lib/modules.sh is missing"; exit 0; }
+. "$STRIDAL_FW/lib/modules.sh" || { echo "CANNOT CHECK — .claude/lib/modules.sh is missing"; exit 0; }
 cd "$ROOT" || exit 0
-# The plugin's copy of this script knows the plugin root (CLAUDUCTOR_FW). A health line is the
+# The plugin's copy of this script knows the plugin root (STRIDAL_FW). A health line is the
 # project's own file, so in a plugin project it finds the model's libraries (lib/health.sh) there.
-[ -z "${CLAUDUCTOR_FW:-}" ] || export CLAUDUCTOR_FW
+[ -z "${STRIDAL_FW:-}" ] || export STRIDAL_FW
 TAB=$(printf '\t')
 ind() { sed 's/^/    /'; }
 

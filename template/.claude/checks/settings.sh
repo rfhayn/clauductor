@@ -307,8 +307,8 @@ n=$(lanes_at_template "$d/nostar.json" "$d/lane.md" | grep -c '^FAIL')
 [ "$n" -gt 0 ] && ok "lane self-test: the lane form fails once \`scripts/ci/gate.sh *\` leaves the settings" || fail "lane self-test: the lane form passed with no \`scripts/ci/gate.sh *\` entry"
 
 # The real instructions: the Markdown agents load, the playbook and the conventions. The skills and
-# agents are the model's copy: the project's, or the plugin's (CLAUDUCTOR_FW).
-FW=${CLAUDUCTOR_FW:-$ROOT/.claude}
+# agents are the model's copy: the project's, or the plugin's (STRIDAL_FW).
+FW=${STRIDAL_FW:-$ROOT/.claude}
 set -- "$FW"/skills/*/*.md "$FW"/agents/*.md
 for f in "$ROOT/AGENTS.md" "$ROOT/CLAUDE.md" "$ROOT/docs/playbook.md" "$ROOT/docs/conventions.md"; do [ -f "$f" ] && set -- "$@" "$f"; done
 check_lane_gates "$st" "$@" > "$d/lanes"

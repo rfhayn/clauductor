@@ -1,12 +1,12 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Context for new-adr: the next record number, taken from origin/<main> AND the open PRs (two
 # branches cut from one main both see the same "highest + 1", and git raises no conflict because
 # the file names differ after the number). ADRs (ADR_DIR) and practice records (PRACTICES_DIR)
 # share one number space, so both directories count.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 cd "$ROOT" || exit 0
 
 echo "- Today: $(date +%Y-%m-%d)"

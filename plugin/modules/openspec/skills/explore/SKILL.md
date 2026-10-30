@@ -13,7 +13,7 @@ Enter explore mode. Think deeply. Visualize freely. Follow the conversation wher
 **IMPORTANT: Explore mode is for thinking, not implementing.** You may read files, search code,
 and investigate the codebase, but you must NEVER write code or implement features. If the user
 asks you to implement something, remind them to leave explore mode first and propose the change
-(`/clauductor:propose`). You MAY write to a change's records (a design note, a spec delta) if the user asks:
+(`/stridal:propose`). You MAY write to a change's records (a design note, a spec delta) if the user asks:
 that is capturing thinking, not implementing. The rules for doing so are under *Capturing*, below.
 
 **This is a stance, not a workflow.** There are no fixed steps, no required sequence, no mandatory
@@ -104,7 +104,7 @@ This tells you:
 
 Think freely. When insights crystallize, you might offer:
 
-- "This feels solid enough to start a change. Want me to propose it?" (that is `/clauductor:propose`, which
+- "This feels solid enough to start a change. Want me to propose it?" (that is `/stridal:propose`, which
   checks that nothing else is proposed ahead and stops for the owner's approval)
 - Or keep exploring - no pressure to formalize
 
@@ -154,7 +154,7 @@ fails the gate later, far from the conversation that caused it:
 - **A MODIFIED requirement is copied word for word first**, every scenario header included, then
   edited: OpenSpec matches scenarios by their whole header, and one left out is deleted on archive.
 - **A new capability's delta opens with `## Purpose`** of at least 50 characters.
-- A new change is never started here: that is `/clauductor:propose`.
+- A new change is never started here: that is `/stridal:propose`.
 
 ---
 
@@ -277,7 +277,7 @@ You: That changes everything.
 
 There's no required ending. Discovery might:
 
-- **Flow into a proposal**: "Ready to start? I can propose it (`/clauductor:propose`)."
+- **Flow into a proposal**: "Ready to start? I can propose it (`/stridal:propose`)."
 - **Result in record updates**: "Updated the spec delta with these requirements"
 - **Just provide clarity**: User has what they need, moves on
 - **Continue later**: "We can pick this up anytime"
@@ -294,7 +294,7 @@ When it feels like things are crystallizing, you might summarize:
 **Open questions**: [if any remain]
 
 **Next steps** (if ready):
-- Propose the change (/clauductor:propose)
+- Propose the change (/stridal:propose)
 - Keep exploring: just keep talking
 ```
 

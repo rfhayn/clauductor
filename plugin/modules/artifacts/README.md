@@ -71,7 +71,7 @@ read, or a missing stamp is `CANNOT CHECK`, never `OK`.
 | `publish.sh --status \| --record <page> \| <page> [--ref]` | Node | the claude.ai copies (`prep-artifact.mjs`) |
 | `open.sh [--print]` | sh, jq | open every registered artifact |
 
-From the plugin, each is `clauductor-model modules/artifacts/bin/<tool>`.
+From the plugin, each is `stridal-model modules/artifacts/bin/<tool>`.
 
 ## Why a content hash, and why at the close
 

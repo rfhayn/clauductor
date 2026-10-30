@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # marker.sh: session-start's marker opens a row's PR as a draft whose body starts with the marker
 # line and the cost line; a second run adds nothing; an open PR without the marker gets it first;
 # and every failure is ONE `marker: WARNING` line with exit 0, since session start never blocks.
@@ -38,9 +38,9 @@ chmod +x "$S/bin/gh"
 
 setup() {  # a fresh project with an origin, on row A-1's branch with nothing ahead of main
   F="$S/proj"; rm -rf "$F" "$S/origin.git"; mkdir -p "$F/.claude/lib" "$F/.claude/skills/session-start" "$F/docs"
-  cp "$CLAUDUCTOR_FW/lib/conf.sh" "$F/.claude/lib/" 2>/dev/null
-  cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$CLAUDUCTOR_FW/roadmap-plan.sh" "$F/.claude/" 2>/dev/null
-  cp "$CLAUDUCTOR_FW/skills/session-start/marker.sh" "$F/.claude/skills/session-start/" 2>/dev/null
+  cp "$STRIDAL_FW/lib/conf.sh" "$F/.claude/lib/" 2>/dev/null
+  cp "$STRIDAL_FW/roadmap-queue.sh" "$STRIDAL_FW/roadmap-plan.sh" "$F/.claude/" 2>/dev/null
+  cp "$STRIDAL_FW/skills/session-start/marker.sh" "$F/.claude/skills/session-start/" 2>/dev/null
   cat > "$F/docs/roadmap.md" <<'EOF'
 ## Phase 1 — Now
 | # | Change | Scope | Deps | Status |
@@ -187,7 +187,7 @@ printf '%s\n' "$out" | tail -1 >> "$S/success"
 
 # build-change's preflight takes only marker.sh's success lines as a marker (MARKER_OK) and warns
 # on anything else, so each line printed above must be one it accepts (OPS-126).
-wf="$CLAUDUCTOR_FW/workflows/build-change.js"
+wf="$STRIDAL_FW/workflows/build-change.js"
 if [ ! -f "$wf" ]; then ok "SKIPPED: no build-change.js, so no preflight reads the marker"
 elif ! command -v node >/dev/null 2>&1; then ok "SKIPPED: node is not installed, so build-change's MARKER_OK is not held to marker.sh's lines"
 else
@@ -197,6 +197,6 @@ else
 fi
 
 # The caller: a marker no session start runs is not shipped (rule 3).
-grep -q 'session-start/marker\.sh' "$CLAUDUCTOR_FW/skills/session-start/SKILL.md" 2>/dev/null \
+grep -q 'session-start/marker\.sh' "$STRIDAL_FW/skills/session-start/SKILL.md" 2>/dev/null \
   && ok "session-start's SKILL.md runs the marker" || fail "session-start's SKILL.md does not run .claude/skills/session-start/marker.sh"
 finish

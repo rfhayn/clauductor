@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # roadmap-queue.sh: THE parser of the roadmap's change queue (ROADMAP in .claude/project.conf).
 # session-start, session-close, the panel's card and suggestions, and the checks all read the
 # queue through this script's contract, by way of roadmap_queue in .claude/lib/conf.sh. Do not
@@ -50,9 +50,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # one that does not parse, names another section, sits outside a section or repeats one, is an
 # error, never a gate read as not started. The current phase is DERIVED: the first phase that still
 # has a queued, in-flight or open row.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 
 # The front door: a project that keeps its own parser (ROADMAP_PARSER) gets it through every
 # command that names this script (skills, panel cards, people), via the one helper. Scripts call

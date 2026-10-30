@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Conformance suite for the clauductor lease protocol (docs/panel.md, "Queue and the
+# Conformance suite for the stridal lease protocol (docs/panel.md, "Queue and the
 # gate lock protocol"). Any implementation of the protocol runs it.
 #
 # THE INTERFACE. An implementation is a command that waits its turn for a lease,
@@ -10,20 +10,20 @@
 #       runs  <impl> [impl-args...] <lockdir> <lane> <command> [args...]
 #
 #   conformance.sh --lock-env VAR <impl> [impl-args...]
-#       runs  VAR=<lockdir> CLAUDUCTOR_LANE=<lane> <impl> [impl-args...] <command> [args...]
+#       runs  VAR=<lockdir> STRIDAL_LANE=<lane> <impl> [impl-args...] <command> [args...]
 #       for an implementation that takes its lock path from the environment, such as
 #       a project's gate wrapper whose lock is normally <git common dir>/..., so it can
 #       run the suite with no adapter (make the path overridable by VAR).
 #
 # Reference adapters for the first form:
 #
-#   clauductor lock-run:  #!/bin/sh
+#   stridal lock-run:  #!/bin/sh
 #                         lock=$1 lane=$2; shift 2
-#                         exec clauductor lock-run --lane "$lane" "$lock" -- "$@"
+#                         exec stridal lock-run --lane "$lane" "$lock" -- "$@"
 #   the docs' lease.sh:   #!/usr/bin/env bash
 #                         set -euo pipefail; . /path/to/lease.sh; lease_run "$@"
 #
-# The command must see CLAUDUCTOR_LOCK_HELD equal to the lock path EXACTLY as it was
+# The command must see STRIDAL_LOCK_HELD equal to the lock path EXACTLY as it was
 # given (cleaned, never symlink-resolved): a gate script compares the two to detect
 # re-entry, and a resolved path would make it queue behind itself. The
 # symlinked-lock case checks it.
@@ -161,7 +161,7 @@ setup() {
 # start NAME BODY: run the implementation as lane NAME, with command `sh -c BODY`.
 start() {
 	if [ -n "$LOCK_ENV" ]; then
-		env "$LOCK_ENV=$LOCK" CLAUDUCTOR_LANE="$1" "${IMPL[@]}" sh -c "$2" 2>"$CASE_DIR/$1.err" &
+		env "$LOCK_ENV=$LOCK" STRIDAL_LANE="$1" "${IMPL[@]}" sh -c "$2" 2>"$CASE_DIR/$1.err" &
 	else
 		"${IMPL[@]}" "$LOCK" "$1" sh -c "$2" 2>"$CASE_DIR/$1.err" &
 	fi
@@ -666,30 +666,30 @@ wait_for() {
 case_owner_record() {
 	setup owner-record
 	export SNAP="$CASE_DIR/snap"
-	start a 'cp "$CLAUDUCTOR_LOCK_HELD/owner.json" "$SNAP.tmp"; mv "$SNAP.tmp" "$SNAP"; printf %s "$CLAUDUCTOR_LOCK_HELD" > "$SNAP.held"; sleep 2; exit 3'
+	start a 'cp "$STRIDAL_LOCK_HELD/owner.json" "$SNAP.tmp"; mv "$SNAP.tmp" "$SNAP"; printf %s "$STRIDAL_LOCK_HELD" > "$SNAP.held"; sleep 2; exit 3'
 	wait_for "$SNAP"
 	if [ ! -s "$SNAP" ]; then
-		fail "the command never ran, or CLAUDUCTOR_LOCK_HELD is not the lock"
+		fail "the command never ran, or STRIDAL_LOCK_HELD is not the lock"
 	else
 		owner_record_check "$SNAP"
-		[ "$(cat "$SNAP.held")" = "$LOCK" ] || fail "CLAUDUCTOR_LOCK_HELD is '$(cat "$SNAP.held")', want $LOCK"
+		[ "$(cat "$SNAP.held")" = "$LOCK" ] || fail "STRIDAL_LOCK_HELD is '$(cat "$SNAP.held")', want $LOCK"
 	fi
 	finish a
 	[ "$RC" = 3 ] || fail "exit $RC, want the command's 3"
 	[ ! -e "$LOCK" ] || fail "the lease was not released"
 }
 
-# A lock path through a symlinked directory: CLAUDUCTOR_LOCK_HELD is the path as
+# A lock path through a symlinked directory: STRIDAL_LOCK_HELD is the path as
 # given, not resolved, or a gate script's re-entry check never matches.
 case_symlinked_lock() {
 	mkdir -p "$WORK/symlinked-lock/real"
 	ln -s real "$WORK/symlinked-lock/link"
 	LOCK_PATH="$WORK/symlinked-lock/link/gate.lock" setup symlinked-lock
 	export SNAP="$CASE_DIR/snap"
-	start a 'printf %s "$CLAUDUCTOR_LOCK_HELD" > "$SNAP"'
+	start a 'printf %s "$STRIDAL_LOCK_HELD" > "$SNAP"'
 	finish a
 	[ "$RC" = 0 ] || fail "exit $RC ($(tail -n 1 "$CASE_DIR/a.err" 2>/dev/null))"
-	[ "$(cat "$SNAP" 2>/dev/null)" = "$LOCK" ] || fail "CLAUDUCTOR_LOCK_HELD is '$(cat "$SNAP" 2>/dev/null)', want the path as given: $LOCK"
+	[ "$(cat "$SNAP" 2>/dev/null)" = "$LOCK" ] || fail "STRIDAL_LOCK_HELD is '$(cat "$SNAP" 2>/dev/null)', want the path as given: $LOCK"
 	[ ! -e "$LOCK" ] || fail "the lease was not released"
 }
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # prereqs.sh: report which tools the operating model uses are present and which are missing, with
 # an install hint for this OS. It WARNS and never fails (exit 0 always): a missing tool degrades
 # one step, and the report says which, so the reader decides.
@@ -7,12 +7,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #   sh .claude/prereqs.sh
 #   sh .claude/prereqs.sh --rows
 #
-# --rows prints one tab-separated line per tool instead of the report, for `clauductor doctor`:
+# --rows prints one tab-separated line per tool instead of the report, for `stridal doctor`:
 # ok|missing, the level, the tool, its path (ok) or this OS's install hint (missing), and the
 # reason. No heading and no closing line; exit 0 as ever.
 #
-# Run by `clauductor install` and `clauductor init` (from the template they install), by the
-# plugin's /clauductor:init (scaffold.sh), and by install.sh. Plain POSIX sh with no tool beyond
+# Run by `stridal install` and `stridal init` (from the template they install), by the
+# plugin's /stridal:init (scaffold.sh), and by install.sh. Plain POSIX sh with no tool beyond
 # `uname`, so it runs on a machine missing everything it reports on.
 #
 # PREREQS_OS overrides `uname -s` (Darwin, Linux, WSL): the checks use it to see each OS's hints.
@@ -52,7 +52,7 @@ hint() {
         claude) echo "see https://claude.ai/code" ;;
       esac ;;
     *)
-      echo "see the tool's own install page (on Windows, run clauductor under WSL2 and use the Linux hints)" ;;
+      echo "see the tool's own install page (on Windows, run stridal under WSL2 and use the Linux hints)" ;;
   esac
 }
 
@@ -89,6 +89,6 @@ row optional python3 "machine-quiet's live-session check; without it, it removes
 if [ "$missing" -eq 0 ]; then
   echo "  All present."
 else
-  echo "  $missing missing. Install them and re-run: sh "$CLAUDUCTOR_FW"/prereqs.sh"
+  echo "  $missing missing. Install them and re-run: sh "$STRIDAL_FW"/prereqs.sh"
 fi
 exit 0

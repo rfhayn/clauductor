@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Branch names are the project's: BRANCH_CHANGE, BRANCH_FIX and BRANCH_OPS in .claude/project.conf
 # (defaults in .claude/lib/conf.sh). The OPS-8 rehearsal found them configurable but written as
 # literals in the skills, the build-change workflow and the panel preset, so a project that set
@@ -12,9 +12,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #      sets a key's default (`BRANCH_CHANGE="change/"`), the roadmap's `ops/check-outcome-<id>`
 #      row ids (a record grammar, read by roadmap-queue.sh), and a line a project marks
 #      `branch-literal-ok`. The checks and examples are test fixtures and are not scanned.
-#   2. .clauductor/panel.json, when there is one, agrees with the keys: a lane for each prefix, no
+#   2. .stridal/panel.json, when there is one, agrees with the keys: a lane for each prefix, no
 #      lane on a default the project does not use, and every template's branch_pattern starting
-#      with a configured prefix (`clauductor install` writes it so; this catches drift after).
+#      with a configured prefix (`stridal install` writes it so; this catches drift after).
 . "$(dirname "$0")/lib.sh"
 
 # scan DIR: prints "path:line: text" for every literal prefix in DIR's framework files.
@@ -66,17 +66,17 @@ if command -v jq >/dev/null 2>&1; then
   n=$(panel_problems "$d/p.json" feature/ fix/ ops/ | grep -c .)
   [ "$n" = 3 ] && ok "self-test: a preset on change/ disagrees with BRANCH_CHANGE=feature/ three ways" || fail "self-test: the panel comparison found $n problem(s), want 3"
   [ -z "$(panel_problems "$d/p.json" change/ fix/ ops/)" ] && ok "self-test: the preset agrees with the default keys" || fail "self-test: the preset disagrees with the defaults"
-  p="$ROOT/.clauductor/panel.json"
+  p="$ROOT/.stridal/panel.json"
   if [ -f "$p" ]; then
     probs=$(panel_problems "$p" "$BRANCH_CHANGE" "$BRANCH_FIX" "$BRANCH_OPS" 2>&1)
     if [ -n "$probs" ]; then
-      fail ".clauductor/panel.json disagrees with the branch keys in .claude/project.conf:"
+      fail ".stridal/panel.json disagrees with the branch keys in .claude/project.conf:"
       printf '%s\n' "$probs" | sed 's/^/       /'
     else
-      ok ".clauductor/panel.json's lanes and branch patterns follow BRANCH_CHANGE, BRANCH_FIX and BRANCH_OPS"
+      ok ".stridal/panel.json's lanes and branch patterns follow BRANCH_CHANGE, BRANCH_FIX and BRANCH_OPS"
     fi
   else
-    ok "no .clauductor/panel.json in this project"
+    ok "no .stridal/panel.json in this project"
   fi
 else
   fail "cannot run: jq is not installed (the panel comparison needs it)"

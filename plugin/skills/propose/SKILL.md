@@ -17,7 +17,7 @@ owner approves its design (AGENTS.md, *Who decides*), or Claude does on the owne
 
 **If the diff fits in one sentence, it gets no proposal.** A typo, a dependency bump, a one-line
 fix, a rename, a doc edit: it goes to a fix or ops lane (`BRANCH_FIX`, `BRANCH_OPS`; the panel's *Fix an issue* or *Ops
-task* template), is gated, reviewed and merged with `/clauductor:merge-pr`, and leaves no change directory.
+task* template), is gated, reviewed and merged with `/stridal:merge-pr`, and leaves no change directory.
 Anthropic's threshold for when a plan is worth writing, and Kiro's "quick spec": a proposal costs
 the owner a review, so it has to buy one. The test: *does it change what a user can do?* If it
 does, or you cannot say it in one sentence, it is a change: carry on below.
@@ -27,7 +27,7 @@ does, or you cannot say it in one sentence, it is a change: carry on below.
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`
 
 If the line above shows as literal text instead of output, run
-`clauductor-model skills/propose/context.sh` yourself and read the result before step 0.
+`stridal-model skills/propose/context.sh` yourself and read the result before step 0.
 
 ## Steps
 0. **Preconditions. Not optional.**
@@ -48,7 +48,7 @@ If the line above shows as literal text instead of output, run
      `origin/main` before proposing: step 3a reads the row from there.
 1. **Name it.** A kebab-case id from the row (`add-member-invites`): the row's backticked change
    id, which step 3a looks the row up by. Work on `<BRANCH_CHANGE><id>`
-   (`clauductor-model project-config.sh branch change <id>` prints it), cut from `origin/main`, in a lane worktree (never the main checkout).
+   (`stridal-model project-config.sh branch change <id>` prints it), cut from `origin/main`, in a lane worktree (never the main checkout).
 2. **Draft** `changes/<id>/proposal.md`, `design.md`, `tasks.md` and any
    `specs/<capability>/spec.md` deltas, in the shapes `changes/README.md` gives:
    - `proposal.md` opens with `**Status:** awaiting approval`, the `**Roadmap row:**`, a
@@ -74,11 +74,11 @@ If the line above shows as literal text instead of output, run
    - **A new capability's** delta opens with `## Purpose` of at least 50 characters.
    - **No spec delta at all** (a refactor, tooling): write `changes/<id>/.openspec.yaml` with
      `skip_specs: true`.
-   `clauductor-model checks/run.sh changes` checks every one of these; only the approval may fail yet.
+   `stridal-model checks/run.sh changes` checks every one of these; only the approval may fail yet.
 2b. **Review it to convergence BEFORE the owner reads it.** The approval covers `design.md` as
    written, so a finding after it voids the approval and the owner approves again (PANEL-48 took
    three). Spend the review rounds first:
-   - Register the draft as a diff, `git add -N changes/<id>`, and spawn the `clauductor:reviewer` agent (a
+   - Register the draft as a diff, `git add -N changes/<id>`, and spawn the `stridal:reviewer` agent (a
      proposal always carries a spec delta or `.openspec.yaml`, so it is never prose only).
    - Tell it only the change id, and that it reviews a PROPOSAL, not a task group: all of
      `changes/<id>/` as `git diff HEAD` shows it. It judges whether the design does what the
@@ -93,7 +93,7 @@ If the line above shows as literal text instead of output, run
      With nothing else to do, end your turn with no final report and without SubagentHandback:
      Claude Code delivers its findings as your next turn. Never poll, sleep or re-spawn. If the
      Agent tool offers `run_in_background` (fork mode off: `-p`, the Agent SDK), pass `false`.
-   - Commit the draft. Its short sha is what was reviewed, and `clauductor-model change-approval.sh
+   - Commit the draft. Its short sha is what was reviewed, and `stridal-model change-approval.sh
      <id>` prints its design hash. The proposal PR's body carries exactly one `Review:` line:
      `Review: converged in <n> round(s), peak <sev>, at <short sha> · design <hash>`, or, when the
      rounds stopped first, `Review: NOT converged after <n> round(s), peak <sev>, open: <short
@@ -110,7 +110,7 @@ If the line above shows as literal text instead of output, run
      that marker).
    For the last two, add `**Approval:** owner — <why>` under the proposal's Risk line, so
    `--delegate` refuses it from then on, and go to step 3.
-   Otherwise run `clauductor-model change-approval.sh <id> --delegate "<OWNER_NAME>"`. It records
+   Otherwise run `stridal-model change-approval.sh <id> --delegate "<OWNER_NAME>"`. It records
    `**Approved:** <date> by Claude (delegated by <owner>) · design <hash>` only while
    `APPROVAL_DELEGATED="1"` on `origin/<MAIN_BRANCH>` (the disk, with no remote); the change
    touches no path `${CLAUDE_PLUGIN_ROOT}/lib/approval-guarded.txt` or `.claude/local/approval-guarded.txt`
@@ -133,14 +133,14 @@ If the line above shows as literal text instead of output, run
    `changes/README.md`).
    Otherwise it refuses and says why: go to step 3, and quote the refusal line in the PR body
    and the owner's notification, so the owner sees the cause (a log to start is theirs to do).
-   On success: run `clauductor-model checks/run.sh
+   On success: run `stridal-model checks/run.sh
    changes`, open the PR `proposal: <id>` with the decisions you took (each with the alternative it
    beat), the slice line, the `Review:` line and a line `Approved: by Claude on delegation · design
    <hash>`; then `PushNotification` the owner ONE line naming the change, its decisions and the PR,
    and go on to step 5's landing without waiting.
    **The owner overrules** on their word: before the proposal lands, `--revoke` in its PR and go to
    step 4 (from then on `--delegate` refuses it; only their `--record` approves it). Once it has landed, revise `design.md` as they decide in a new `proposal: <id>` PR, on a
-   branch of its own cut from `origin/<MAIN_BRANCH>` (`clauductor-model project-config.sh branch ops
+   branch of its own cut from `origin/<MAIN_BRANCH>` (`stridal-model project-config.sh branch ops
    <id>-revise`; never the build's `<BRANCH_CHANGE><id>`), that carries their `--record` (a revoke alone can never pass the gate), and stop any build lane
    already started from the landed design until that PR merges.
 3. **Put it in front of the owner, and STOP** (any case step 3a sends here).
@@ -157,9 +157,9 @@ If the line above shows as literal text instead of output, run
    step 2b (the diff since the reviewed commit is enough) and replace the `Review:` line before
    asking again, so what the owner approves is what was reviewed.
 5. **On approval** (step 3a recorded a delegated one already: skip to the landing):
-   `clauductor-model change-approval.sh <id> --record "<owner>"` (it writes
+   `stridal-model change-approval.sh <id> --record "<owner>"` (it writes
    `**Approved:** <date> by <owner> · design <hash>`: the approval covers `design.md` and the Risk
-   line exactly as they stand), run `clauductor-model checks/run.sh changes`, then land the proposal alone through `merge-pr`
+   line exactly as they stand), run `stridal-model checks/run.sh changes`, then land the proposal alone through `merge-pr`
    (under a review page, the PR's body carries the `Review:` line too). Step 2b reviewed it, so
    merge-pr's step 3 reviews only what changed since. Its roadmap row stays `⬜ queued`, untouched:
    a row's Status is the daily close's (OPS-108), which sets it in flight once the build PR opens.

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # PreToolUse hook (matcher: Bash). Refuses a gate (GATE, GATE_RUN) or a gate wait (gate-wait.sh)
 # that would end up where nobody hears it finish.
 #
@@ -42,7 +42,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 payload=$(cat)
 
 root=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd) || root=""
-# From the clauductor plugin this file is not in the project: its GATE settings are under
+# From the stridal plugin this file is not in the project: its GATE settings are under
 # CLAUDE_PROJECT_DIR.
 [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "$CLAUDE_PROJECT_DIR/.claude/project.conf" ] && root=$CLAUDE_PROJECT_DIR
 ROOT=$root

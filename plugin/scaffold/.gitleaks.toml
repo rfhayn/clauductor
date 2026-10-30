@@ -1,7 +1,7 @@
 # The gate's secret scan (scripts/ci/run-local.sh, the "secrets" step) runs gitleaks from the
 # repository root, so it reads this file. It keeps gitleaks' default rules and adds nothing yet.
 #
-# This file is the project's: `clauductor install` and `update` create it only when it is missing
+# This file is the project's: `stridal install` and `update` create it only when it is missing
 # and never write over it. Edit it freely.
 #
 # When the scan flags something that is NOT a secret (a test fixture, a vendored bundle, a public

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The compound step (session-close step 3b; .claude/compound.sh): no insight stays Raw for
 # COMPOUND_MAX_SESSIONS journal sessions (default 3) without a decision. Falsified in fixtures: a Raw
 # row three sessions old fails, a younger one passes, a decided one (promoted, an instance, or
@@ -10,7 +10,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 d=$(scratch)
 mk() {  # mk NAME ROWS...: a fixture with three journal sessions and the given insight rows
   F="$d/$1"; shift; mkdir -p "$F/.claude/lib" "$F/docs"
-  cp "$CLAUDUCTOR_FW/lib/conf.sh" "$F/.claude/lib/"; cp "$CLAUDUCTOR_FW/compound.sh" "$F/.claude/"
+  cp "$STRIDAL_FW/lib/conf.sh" "$F/.claude/lib/"; cp "$STRIDAL_FW/compound.sh" "$F/.claude/"
   printf '# Journal\n\n## Session 3 — 2026-03-10 — a — x\n\n## Session 2 — 2026-02-10 — a — x\n\n## Session 1 — 2026-01-10 — a — x\n' > "$F/docs/development-journal.md"
   { printf '# Insights log\n\n## Log\n\n| Date | Area | Topic | Observation | How to verify | Status |\n|------|------|-------|-------------|---------------|--------|\n'
     for r in "$@"; do printf '%s\n' "$r"; done; } > "$F/docs/insights-log.md"
@@ -72,10 +72,10 @@ run; expect_rc 2 $? "compound: a '## Log' heading with no table under it (the ta
 
 grep -qE '^\| `Not promoted — <why>` \||(^|· )`Not promoted — <why>`' "$ROOT/$INSIGHTS" 2>/dev/null \
   && ok "the status vocabulary has 'Not promoted — <why>'" || fail "$INSIGHTS's status vocabulary lacks 'Not promoted — <why>'"
-grep -qF 'sh "$CLAUDUCTOR_FW"/compound.sh' "$CLAUDUCTOR_FW/skills/session-close/context.sh" \
+grep -qF 'sh "$STRIDAL_FW"/compound.sh' "$STRIDAL_FW/skills/session-close/context.sh" \
   && ok "session-close's context runs the compound step" || fail "session-close's context.sh does not run .claude/compound.sh"
 
-out=$(sh "$CLAUDUCTOR_FW/compound.sh" --check 2>&1); rc=$?
+out=$(sh "$STRIDAL_FW/compound.sh" --check 2>&1); rc=$?
 expect_rc 0 "$rc" "this project's insights: $(printf '%s\n' "$out" | tail -1)"
 [ "$rc" -eq 0 ] || printf '%s\n' "$out" | grep OVERDUE | sed 's/^/     /'
 finish

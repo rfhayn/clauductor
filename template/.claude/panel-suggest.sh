@@ -1,6 +1,6 @@
 #!/bin/sh
 # What each panel lane template could start next, for the panel's New lane dialog
-# (`templates[].suggest` in .clauductor/panel.json; clauductor docs/panel.md, "Suggestions").
+# (`templates[].suggest` in .stridal/panel.json; stridal docs/panel.md, "Suggestions").
 #
 #   sh .claude/panel-suggest.sh build     queued change rows whose proposal is on main (CHANGES_DIR/<id>)
 #   sh .claude/panel-suggest.sh propose   the next queued change row with no proposal yet, or none

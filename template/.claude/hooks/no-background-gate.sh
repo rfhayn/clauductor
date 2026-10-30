@@ -41,7 +41,7 @@
 payload=$(cat)
 
 root=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd) || root=""
-# From the clauductor plugin this file is not in the project: its GATE settings are under
+# From the stridal plugin this file is not in the project: its GATE settings are under
 # CLAUDE_PROJECT_DIR.
 [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -f "$CLAUDE_PROJECT_DIR/.claude/project.conf" ] && root=$CLAUDE_PROJECT_DIR
 ROOT=$root

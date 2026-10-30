@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The living-visuals module (.claude/modules/living-visuals), tested whether a project turns it on
 # or not: living.sh's page rules, --regen, --list, the module's project check, its context section
 # and its wiring, each against a throwaway project, never its own source. Ported from the generic
@@ -11,9 +11,9 @@ need git jq
 d=$(scratch)
 R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/modules" "$R/.claude/checks" "$R/.claude/skills/update-page" "$R/docs" "$R/src" "$R/bin"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/checks/run.sh" "$CLAUDUCTOR_FW/checks/lib.sh" "$R/.claude/checks/"
-cp -R "$CLAUDUCTOR_FW/modules/artifacts" "$CLAUDUCTOR_FW/modules/living-visuals" "$R/.claude/modules/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/checks/run.sh" "$STRIDAL_FW/checks/lib.sh" "$R/.claude/checks/"
+cp -R "$STRIDAL_FW/modules/artifacts" "$STRIDAL_FW/modules/living-visuals" "$R/.claude/modules/"
 printf 'MODULES="artifacts living-visuals"\n' > "$R/.claude/project.conf"
 printf -- '---\nname: update-page\n---\nRefresh it.\n' > "$R/.claude/skills/update-page/SKILL.md"
 LV="$R/.claude/modules/living-visuals/bin/living.sh"
@@ -300,7 +300,7 @@ has yes "Page rules (the gate's living-visuals:pages) failing on this tree" "$c"
 has yes "claim item-count says \"four\"" "$c" "context: ...each named"
 
 # ── rule 3: the close and the merge invoke the tool ────────────────────────────────────────────
-F="$CLAUDUCTOR_FW/modules/living-visuals/skills"
+F="$STRIDAL_FW/modules/living-visuals/skills"
 grep -q 'living.sh --regen' "$F/session-close/living-visuals.md" && grep -q 'run.sh living-visuals:pages' "$F/session-close/living-visuals.md" \
   && ok "wiring: session-close regenerates the blocks and runs the check" || fail "wiring: session-close's fragment does not run --regen and the check"
 grep -q 'living.sh --list --ref origin/main' "$F/merge-pr/living-visuals.md" && ok "wiring: merge-pr lists the living pages the merge moved" || fail "wiring: merge-pr's fragment does not run --list"

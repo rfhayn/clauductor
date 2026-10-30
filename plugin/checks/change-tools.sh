@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The scripts a change passes through, each falsified in a throwaway repo:
 #   change-approval.sh  records an approval over the design's hash; a later edit to design.md or the
 #                       Risk line voids it; --revoke puts it back to awaiting, keeping who approved;
@@ -23,13 +23,13 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 need git jq
 
 d=$(scratch)
-EX="$CLAUDUCTOR_FW/examples"
+EX="$STRIDAL_FW/examples"
 R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/changes" "$R/specs" "$R/docs"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/usage.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/change-approval.sh" "$CLAUDUCTOR_FW/verify-change.sh" "$CLAUDUCTOR_FW/scenario-trace.sh" \
-   "$CLAUDUCTOR_FW/change-cost.sh" "$CLAUDUCTOR_FW/usage-report.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
-cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$R/.claude/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/usage.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/change-approval.sh" "$STRIDAL_FW/verify-change.sh" "$STRIDAL_FW/scenario-trace.sh" \
+   "$STRIDAL_FW/change-cost.sh" "$STRIDAL_FW/usage-report.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
+cp "$STRIDAL_FW/roadmap-queue.sh" "$R/.claude/"
 cp -R "$EX/specs/greeting" "$R/specs/"
 echo "notes" > "$R/docs/notes.md"  # a file of the fork point for a task to rename away
 # roadmap CHANGE: the example's row 1.1 with CHANGE as its Change cell.
@@ -45,7 +45,7 @@ C="$R/changes/add-greeting-name"
 A() { (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name "$@") > "$d/out" 2>&1; }
 # The clone's approval log (#272): startlog begins it afresh, as the owner does once per clone, so a
 # --delegate expected to pass is not refused by an approval an earlier case logged.
-L="$R/.git/clauductor/approvals.log"
+L="$R/.git/stridal/approvals.log"
 startlog() { rm -f "$L"; (cd "$R" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1 || fail "change-tools: --start-log: $(cat "$d/out")"; }
 A; expect_rc 1 $? "change-approval: an unapproved change is not approved"
 A --record Ana; expect_rc 0 $? "change-approval --record writes the Approved line"
@@ -71,7 +71,7 @@ fresh() { sed 's/^\*\*Approved:\*\* .*/**Status:** awaiting approval/; s/^\*\*St
 fresh
 A --delegate Ana; expect_rc 1 $? "change-approval --delegate refuses while APPROVAL_DELEGATED is off"
 grep -q 'APPROVAL_DELEGATED is not' "$d/out" && ok "...and says the key is off" || fail "no key reason in: $(cat "$d/out")"
-printf 'APPROVAL_DELEGATED="1"\n' > "$R/.claude/project.conf"; cp "$CLAUDUCTOR_FW/lib/approval-guarded.txt" "$R/.claude/lib/"
+printf 'APPROVAL_DELEGATED="1"\n' > "$R/.claude/project.conf"; cp "$STRIDAL_FW/lib/approval-guarded.txt" "$R/.claude/lib/"
 # Both stand for files already on main, so they are kept out of the branch's diff (untracked files count).
 printf '.claude/project.conf\n.claude/lib/approval-guarded.txt\n' >> "$R/.git/info/exclude"
 startlog; A --delegate Ana; expect_rc 0 $? "change-approval --delegate records with the key on and no guarded path"
@@ -637,7 +637,7 @@ echo "- **D3** edited after approval" >> "$C/design.md"; git -C "$R" commit -qam
 V; expect_rc 1 $? "verify-change fails when the design changed after approval"
 # CHANGES_LEGACY: a grandfathered change keeps the format it was approved in, so its approval line
 # and its scenarios are not judged; its tasks still are.
-cp "$CLAUDUCTOR_FW/lib/records.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/lib/records.sh" "$R/.claude/lib/"
 [ -f "$R/.claude/project.conf" ] && cp "$R/.claude/project.conf" "$d/pc.bak" || : > "$d/pc.bak"
 { cat "$d/pc.bak"; echo 'CHANGES_LEGACY="add-greeting-name"'; } > "$R/.claude/project.conf"
 # (group 2's files back, as the cases above may have left them; no test cites FAREWELL-1-S1)
@@ -884,10 +884,10 @@ ur=$(jq -r '.total_usd * 100 | round / 100' "$d/ur" 2>/dev/null)
 # read them (lib/change.sh change_extra_missing).
 X="$d/extra"; mkdir -p "$X"
 printf '# P\n\n## Rollback\nRevert it.\n' > "$X/proposal.md"; printf '# D\n' > "$X/design.md"
-out=$(CHANGE_RECORD_EXTRA="" sh -c '. "$1"; change_extra_missing "$2"' _ "$CLAUDUCTOR_FW/lib/change.sh" "$X")
+out=$(CHANGE_RECORD_EXTRA="" sh -c '. "$1"; change_extra_missing "$2"' _ "$STRIDAL_FW/lib/change.sh" "$X")
 [ -z "$out" ] && ok "CHANGE_RECORD_EXTRA empty: nothing extra is required" || fail "empty CHANGE_RECORD_EXTRA: $out"
-out=$(CHANGE_RECORD_EXTRA="proposal.md:Rollback" sh -c '. "$1"; change_extra_missing "$2"' _ "$CLAUDUCTOR_FW/lib/change.sh" "$X")
+out=$(CHANGE_RECORD_EXTRA="proposal.md:Rollback" sh -c '. "$1"; change_extra_missing "$2"' _ "$STRIDAL_FW/lib/change.sh" "$X")
 [ -z "$out" ] && ok "CHANGE_RECORD_EXTRA: a record carrying the section passes" || fail "present section: $out"
-out=$(CHANGE_RECORD_EXTRA="proposal.md:Rollback; design.md:Security review (STRIDE); notes.md:Owner" sh -c '. "$1"; change_extra_missing "$2"' _ "$CLAUDUCTOR_FW/lib/change.sh" "$X")
+out=$(CHANGE_RECORD_EXTRA="proposal.md:Rollback; design.md:Security review (STRIDE); notes.md:Owner" sh -c '. "$1"; change_extra_missing "$2"' _ "$STRIDAL_FW/lib/change.sh" "$X")
 case "$out" in *"design.md has no '## Security review (STRIDE)' section"*"notes.md is missing"*) ok "CHANGE_RECORD_EXTRA: a missing section and a missing file are each named" ;; *) fail "missing sections: $out" ;; esac
 finish

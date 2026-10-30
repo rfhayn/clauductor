@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # usage-report.sh: what Claude Code has cost here, by role and by model (OPS-9, "Cost per role").
 #
 #   sh .claude/usage-report.sh                    the calling session (CLAUDE_CODE_SESSION_ID), its agents included
@@ -24,11 +24,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #
 # Exit 0 with a report, 2 when it CANNOT CHECK (no jq, no session to report, no transcripts), so a
 # caller never reads "no data" as "$0".
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/usage.sh"
+. "$STRIDAL_FW/lib/usage.sh"
 
 session="" since="" days="" mode=text contributors="" top=10
 while [ $# -gt 0 ]; do
@@ -124,7 +124,7 @@ fi
 # --contributors: context attribution (ST-8), same session/window selectors as above.
 jq '.prices' "$ROOT/.claude/model-roles.json" > "$tmp.prices" || cannot "model-roles.json has no .prices"
 usage_contributor_lines "$since" "$session" 2> "$tmp.err" | jq -n --arg since "$since" --arg root "$ROOT" \
-  --slurpfile prices "$tmp.prices" -f "$CLAUDUCTOR_FW/lib/usage-contributors.jq" > "$tmp.contrib" \
+  --slurpfile prices "$tmp.prices" -f "$STRIDAL_FW/lib/usage-contributors.jq" > "$tmp.contrib" \
   || cannot "contributors could not be computed: $(head -1 "$tmp.err")"
 
 print_summary

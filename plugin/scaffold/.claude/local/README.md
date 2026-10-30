@@ -1,8 +1,8 @@
 # The local layer
 
-`.claude/local/` is this project's own extension of the operating model. **`clauductor install`
-and `clauductor update` never write a file here** (the doc tier: this README is created once, if
-missing), and the plugin's `/clauductor:init` only scaffolds it. Put here what is yours and would
+`.claude/local/` is this project's own extension of the operating model. **`stridal install`
+and `stridal update` never write a file here** (the doc tier: this README is created once, if
+missing), and the plugin's `/stridal:init` only scaffolds it. Put here what is yours and would
 otherwise be an edit to a framework file that the next update overwrites.
 
 It is always on. It offers the same points as a module (`${CLAUDE_PLUGIN_ROOT}/modules/README.md`), and its parts
@@ -21,7 +21,7 @@ run after the enabled modules'. Each point's contract:
 | `hook-expectations.tsv` | `checks/hooks.sh`, the registration table | One row per hook script THIS project registers in `settings.json`: script, exit, proof (`out:<ERE>`, `file:<path>` or `exit`), payload JSON, why; TAB-separated, `#` comments allowed. A registered hook with no row fails. |
 
 Every script runs per its own `#!` line (`#!/usr/bin/env bash` runs under bash, never forced
-through `sh`), and with no `#!` line under `sh`. `clauductor-model extensions.sh list` shows every part.
+through `sh`), and with no `#!` line under `sh`. `stridal-model extensions.sh list` shows every part.
 
 `checks/modules.sh` holds this to its contract: the local layer's parts load, a guard rule that
 does not parse blocks, and a disabled module's parts never run.

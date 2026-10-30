@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # review-cap.sh prints a row's review-round cap from the one place its risk is written: a change's
 # proposal (`**Risk:**`, an archived one included), else an ops or fix row's Change cell (`Risk:`
 # outside backticks), else normal; REVIEW_CAPS turns the risk into rounds. It refuses, rather than
@@ -9,8 +9,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 
 F="$(scratch)/proj"; mkdir -p "$F/.claude/lib" "$F/docs" "$F/changes/add-low" "$F/changes/add-bad" "$F/changes/archive/2026-01-02-add-old"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$F/.claude/lib/" 2>/dev/null
-cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$CLAUDUCTOR_FW/review-cap.sh" "$F/.claude/" 2>/dev/null
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$F/.claude/lib/" 2>/dev/null
+cp "$STRIDAL_FW/roadmap-queue.sh" "$STRIDAL_FW/review-cap.sh" "$F/.claude/" 2>/dev/null
 cat > "$F/docs/roadmap.md" <<'EOF'
 ## Phase 1 — Now
 | # | Change | Scope | Deps | Status |
@@ -150,16 +150,16 @@ printf 'REVIEW_CAPS="low:2 normal:3 high:4"\nREVIEW_AT_CAP="known-limits"\n' > "
 is "4 — risk high, from row 1.6's Change cell; REVIEW_AT_CAP known-limits" "REVIEW_AT_CAP known-limits appears on --why" 1.6 --why
 
 # The callers: a capability no real process asks is not shipped (rule 3).
-grep -q 'review-cap\.sh' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \
+grep -q 'review-cap\.sh' "$STRIDAL_FW/workflows/build-change.js" 2>/dev/null \
   && ok "build-change.js takes its maxRounds default from review-cap.sh" || fail "build-change.js does not ask review-cap.sh for its maxRounds default"
-grep -q 'REVIEW_AT_CAP' "$CLAUDUCTOR_FW/workflows/build-change.js" 2>/dev/null \
+grep -q 'REVIEW_AT_CAP' "$STRIDAL_FW/workflows/build-change.js" 2>/dev/null \
   && ok "build-change.js reads REVIEW_AT_CAP from review-cap.sh --why" || fail "build-change.js does not read REVIEW_AT_CAP"
-grep -q 'review-cap\.sh' "$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
+grep -q 'review-cap\.sh' "$STRIDAL_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
   && ok "merge-pr step 3 stops at review-cap.sh's cap" || fail "merge-pr's SKILL.md does not name review-cap.sh"
-grep -q 'REVIEW_AT_CAP stop' "$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
+grep -q 'REVIEW_AT_CAP stop' "$STRIDAL_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
   && ok "merge-pr step 3 stops at cap with medium or worse when REVIEW_AT_CAP is stop" || fail "merge-pr does not stop on medium+ at cap under stop"
-grep -qF 'do not merge' "$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
+grep -qF 'do not merge' "$STRIDAL_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
   && ok "merge-pr step 3 refuses to merge past medium+ at cap under stop" || fail "merge-pr may still merge past medium+ at cap under stop"
-grep -q 'known-limits' "$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
+grep -q 'known-limits' "$STRIDAL_FW/skills/merge-pr/SKILL.md" 2>/dev/null \
   && ok "merge-pr step 3 keeps known-limits behavior for projects that want it" || fail "merge-pr does not name known-limits"
 finish

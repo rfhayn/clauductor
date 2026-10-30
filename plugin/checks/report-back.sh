@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # A worker gets its agents' results, and the session that asked gets the worker's (OPS-43, folding
 # in OPS-25). In an interactive session (fork mode, the default) every spawn runs in the background
 # and the Agent tool has no `run_in_background`; Claude Code holds a launcher that ends its TURN
@@ -33,7 +33,7 @@ has() {
   ok "$_hl"
 }
 
-for f in "$CLAUDUCTOR_FW/skills/apply-change/SKILL.md" "$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md"; do
+for f in "$STRIDAL_FW/skills/apply-change/SKILL.md" "$STRIDAL_FW/skills/merge-pr/SKILL.md"; do
   s=$(basename "$(dirname "$f")")
   [ -f "$f" ] || { ok "no $s skill in this project"; continue; }
   has "$f" "$s waits for every agent it spawned by ending its turn, never by handing back, polling or re-spawning" \
@@ -47,12 +47,12 @@ for f in "$CLAUDUCTOR_FW/skills/apply-change/SKILL.md" "$CLAUDUCTOR_FW/skills/me
   has "$f" "$s has a channel without SendMessage: the hand-back, else PushNotification" \
     'If SendMessage is not in your tool list' 'in your final hand-back'
 done
-f="$CLAUDUCTOR_FW/skills/apply-change/SKILL.md"
+f="$STRIDAL_FW/skills/apply-change/SKILL.md"
 [ -f "$f" ] && has "$f" "apply-change notifies the owner itself when no session asked" 'With no reportTo, notify the owner yourself'
-f="$CLAUDUCTOR_FW/skills/merge-pr/SKILL.md"
+f="$STRIDAL_FW/skills/merge-pr/SKILL.md"
 [ -f "$f" ] && has "$f" "merge-pr notifies the owner itself when no session asked" 'notify the owner with `PushNotification`'
 
-wf="$CLAUDUCTOR_FW/workflows/build-change.js"
+wf="$STRIDAL_FW/workflows/build-change.js"
 if [ -f "$wf" ]; then
   has "$wf" "build-change takes reportTo and tells the launching session to SendMessage it the outcome" \
     'reportTo?: "<session>"' 'SendMessage it' 'reportTo: typeof args.reportTo' 'If SendMessage is not in your tool list' 'in your final hand-back'

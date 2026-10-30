@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # session-start/digests.sh — the five long sections of the session-start context block, printed as
 # digests so the block fits (ST-11, ported from Standing Tee's session-start-digests.test.ts).
 #
@@ -13,8 +13,8 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 
 DIGEST_BUDGET=8000
-SCRIPT="$CLAUDUCTOR_FW/skills/session-start/digests.sh"
-CTX="$CLAUDUCTOR_FW/skills/session-start/context.sh"
+SCRIPT="$STRIDAL_FW/skills/session-start/digests.sh"
+CTX="$STRIDAL_FW/skills/session-start/context.sh"
 
 [ -f "$SCRIPT" ] || { fail "missing $SCRIPT"; finish; }
 [ -x "$SCRIPT" ] || chmod +x "$SCRIPT"

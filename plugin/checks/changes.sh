@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Every open change in CHANGES_DIR has the shape changes/README.md gives, so build-change, the
 # trace and the merge guard can read it, and the living specs keep the format specs/README.md gives.
 # The set is the directory, so a new change is checked the moment it exists.
@@ -19,20 +19,20 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #   capability's delta has a `## Purpose` of 50 characters or more; a change with no delta says so
 #   in `.openspec.yaml` (`skip_specs: true`).
 . "$(dirname "$0")/lib.sh"
-. "$CLAUDUCTOR_FW/lib/change.sh"
-. "$CLAUDUCTOR_FW/lib/records.sh"
+. "$STRIDAL_FW/lib/change.sh"
+. "$STRIDAL_FW/lib/records.sh"
 
 # ── Self-test: a well-formed change passes, and each broken shape fails ──────────────────────────
 # Built from the example change (.claude/examples), so the example is held to every rule too.
 if [ -z "${CHANGES_SELFTEST:-}" ]; then
-  me="$CLAUDUCTOR_FW/checks/changes.sh"
-  EX="$CLAUDUCTOR_FW/examples"
+  me="$STRIDAL_FW/checks/changes.sh"
+  EX="$STRIDAL_FW/examples"
   C=changes/add-greeting-name
   mk() {  # mk NAME: a fixture project holding the example change, approved; returned in $F
     F="$(scratch)/$1"; mkdir -p "$F/.claude/lib" "$F/.claude/checks" "$F/changes" "$F/specs" "$F/docs"
-    cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/records.sh" "$F/.claude/lib/"
-    cp "$CLAUDUCTOR_FW/checks/lib.sh" "$F/.claude/checks/"
-    cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$CLAUDUCTOR_FW/change-approval.sh" "$F/.claude/"
+    cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/records.sh" "$F/.claude/lib/"
+    cp "$STRIDAL_FW/checks/lib.sh" "$F/.claude/checks/"
+    cp "$STRIDAL_FW/roadmap-queue.sh" "$STRIDAL_FW/change-approval.sh" "$F/.claude/"
     cp -R "$EX/changes/add-greeting-name" "$F/changes/"; cp -R "$EX/specs/greeting" "$F/specs/"
     printf '## Phase 1 — x\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-greeting-name` — a member sees their name. Risk: low | s · Budget: $15 | — | ⬜ queued |\n' > "$F/docs/roadmap.md"
     (ROOT="$F" APPROVAL_DATE=2026-01-02 sh "$F/.claude/change-approval.sh" add-greeting-name --record Ana >/dev/null)
@@ -328,7 +328,7 @@ for c in "$dir"/*/; do
     # receipt, so a proposal cannot reach main before the owner approves it. The approval covers
     # the design as written: an edit to design.md (or the Risk line) after it is a new design.
     if grep -qE '^\*\*Approved:\*\* ' "$p"; then
-      out=$(ROOT="$ROOT" sh "$CLAUDUCTOR_FW/change-approval.sh" "$id" 2>&1) \
+      out=$(ROOT="$ROOT" sh "$STRIDAL_FW/change-approval.sh" "$id" 2>&1) \
         && ok "$id: approved, and the design is unchanged since ($out)" \
         || fail "$id: $out. Put it back in front of the $OWNER_ROLE: 'sh .claude/change-approval.sh $id --revoke', then --record once they approve"
     elif grep -qE '^\*\*Status:\*\* awaiting approval' "$p"; then fail "$id: awaiting the $OWNER_ROLE's approval; it cannot merge until they approve ('sh .claude/change-approval.sh $id --record <name>')"

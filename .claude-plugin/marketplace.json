@@ -1,14 +1,14 @@
 {
-  "description": "Clauductor's operating model for Claude Code, as a plugin.",
-  "name": "clauductor",
+  "description": "Stridal's operating model for Claude Code, as a plugin.",
+  "name": "stridal",
   "owner": {
     "name": "Rich Hayn"
   },
   "plugins": [
     {
       "category": "development",
-      "description": "The operating model: skills, agents, hooks, the build-change workflow and the process checks. /clauductor:init scaffolds a repository's own files.",
-      "name": "clauductor",
+      "description": "The operating model: skills, agents, hooks, the build-change workflow and the process checks. /stridal:init scaffolds a repository's own files.",
+      "name": "stridal",
       "source": "./plugin"
     }
   ]

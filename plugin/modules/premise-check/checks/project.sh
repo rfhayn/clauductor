@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The premise-check module's own check, run by checks/run.sh only while the module is on: on THIS
 # project, the script produces a report that ends in a receipt (from an issue fixture, so no
 # network), the guard rule and its library parse, PREMISE_REQUIRED_ON names a branch prefix, and

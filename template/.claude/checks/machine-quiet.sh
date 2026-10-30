@@ -17,15 +17,15 @@ git -C "$R" add -A && git -C "$R" commit -qm init
 git -C "$R" worktree add -q "$R/.claude/worktrees/lane" 2>/dev/null
 WT="$R/.claude/worktrees"
 
-# PATH without claude, clauductor, docker or colima. A directory holding one of them is not
+# PATH without claude, stridal, docker or colima. A directory holding one of them is not
 # dropped but mirrored minus those names: on Linux that directory is /usr/bin (docker sits beside
 # sh, and /bin links to it), so dropping it leaves no sh at all.
 np=""; n=0; IFS_OLD=$IFS; IFS=:
 for p in $PATH; do
-  if [ -x "$p/claude" ] || [ -x "$p/clauductor" ] || [ -x "$p/docker" ] || [ -x "$p/colima" ]; then
+  if [ -x "$p/claude" ] || [ -x "$p/stridal" ] || [ -x "$p/docker" ] || [ -x "$p/colima" ]; then
     n=$((n + 1)); m="$d/path$n"; mkdir -p "$m"
     for f in "$p"/*; do
-      case "${f##*/}" in claude|clauductor|docker|colima) continue ;; esac
+      case "${f##*/}" in claude|stridal|docker|colima) continue ;; esac
       [ -e "$m/${f##*/}" ] || ln -s "$f" "$m/${f##*/}" 2>/dev/null
     done
     p=$m
@@ -33,7 +33,7 @@ for p in $PATH; do
   np="$np${np:+:}$p"
 done
 IFS=$IFS_OLD
-for c in claude clauductor docker colima; do
+for c in claude stridal docker colima; do
   (PATH="$np"; command -v "$c" >/dev/null 2>&1) && fail "fixture: $c is still on the stripped PATH"
 done
 

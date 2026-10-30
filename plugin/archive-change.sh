@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # archive-change.sh: promote a finished change's spec deltas into the living specs, safely. Step 1 of
 # the archive-change skill: the skill decides WHEN (the PR merged, every task ticked); this decides
 # WHAT the living specs become, the same way every time.
@@ -24,11 +24,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #               the scenarios removed.
 #
 # It moves nothing: `git mv` to the archive stays the skill's step 4. Plain POSIX sh and awk.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/change.sh"
+. "$STRIDAL_FW/lib/change.sh"
 
 usage="usage: archive-change.sh <id> [--apply] [--superseded '<old phrase>']..."
 id=""; apply=""; nsup=0

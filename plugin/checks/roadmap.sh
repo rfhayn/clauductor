@@ -1,11 +1,11 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The roadmap queue parser (.claude/roadmap-queue.sh) accepts the grammar docs/roadmap.md states,
 # REFUSES every shape it cannot classify (so no row can vanish silently), derives the current
 # phase, and inherits owners section-over-phase. Then: the project's own roadmap parses.
 . "$(dirname "$0")/lib.sh"
 
-P="$CLAUDUCTOR_FW/roadmap-queue.sh"
+P="$STRIDAL_FW/roadmap-queue.sh"
 d=$(scratch)
 # The grammar tests run the template's own parser, whatever ROADMAP_PARSER this project sets.
 rq() { ROADMAP_BUILTIN=1 sh "$P" "$@"; }
@@ -241,8 +241,8 @@ tsv16 '' soft | grep -q 'for a row with no budget' && ok "the --tsv contract ref
 # by ROADMAP_PARSER, reads it, and every consumer follows the key (the panel's suggestions here).
 need jq
 F="$d/own"; mkdir -p "$F/.claude/lib" "$F/docs" "$F/changes" "$F/infra"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/fragments.sh" "$F/.claude/lib/"
-cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$CLAUDUCTOR_FW/roadmap-plan.sh" "$CLAUDUCTOR_FW/panel-suggest.sh" "$F/.claude/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/fragments.sh" "$F/.claude/lib/"
+cp "$STRIDAL_FW/roadmap-queue.sh" "$STRIDAL_FW/roadmap-plan.sh" "$STRIDAL_FW/panel-suggest.sh" "$F/.claude/"
 cat > "$F/docs/roadmap.md" <<'EOF'
 # Roadmap
 
@@ -356,7 +356,7 @@ bypass() {
   find "$1" \( -name '*.sh' -o -name '*.js' \) -type f | sort | while read -r f; do
     case $f in
       */lib/conf.sh|*/roadmap-queue.sh|*/checks/roadmap.sh|*/checks/panel-contract.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
-      # Clauductor's roadmap tracker (OPS-83): it reads only the roadmap's `## Session plan`
+      # Stridal's roadmap tracker (OPS-83): it reads only the roadmap's `## Session plan`
       # section, which is not a queue table; its rows come from roadmap_queue.
       */local/roadmap-tracker.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
       # ...and its check, which finds that section's line range and greps for a committed address.
@@ -372,8 +372,8 @@ bypass() {
     # call is allowed (OPS-126): the first such call on each line is cut before the scan, so a raw
     # queue read added to the marker, even on that same line, is still flagged.
     strip='s/^$//'
-    # The plugin's build spells the call "$CLAUDUCTOR_FW/roadmap-plan.sh"; both forms are cut.
-    case $f in */skills/session-start/marker.sh) strip='s#sh "\$(ROOT/\.claude|CLAUDUCTOR_FW)/roadmap-plan\.sh" "\$ROOT/\$ROADMAP"##' ;; esac
+    # The plugin's build spells the call "$STRIDAL_FW/roadmap-plan.sh"; both forms are cut.
+    case $f in */skills/session-start/marker.sh) strip='s#sh "\$(ROOT/\.claude|STRIDAL_FW)/roadmap-plan\.sh" "\$ROOT/\$ROADMAP"##' ;; esac
     # OPS-131: change-approval.sh copies main's roadmap to a file for roadmap_queue, and reads its
     # row from the line roadmap_queue names, as review-cap.sh does. Only that copy is cut.
     case $f in "$1"/change-approval.sh) strip='s#authority "\$ROOT/\$ROADMAP" > "\$rmf"##' ;; esac
@@ -404,7 +404,7 @@ p2=$(bypass "$d/plant2" "$d/skips2" | cut -d: -f1 | tr '\n' ' ')
   && ok "the bypass scan finds the roadmap's path unquoted, half-quoted, braced, after a cd and behind a comment marker; it passes a bare \"\$ROADMAP\" pattern" \
   || fail "the bypass scan flagged [$p2], want [braced.sh cd-then-read.sh marked.sh mixed.sh unquoted.sh ]"
 mkdir -p "$d/plant3/skills/session-start"
-printf '#!/bin/sh\nsn=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null)\nawk 1 "$ROOT/$ROADMAP"\nx=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP"; awk 1 "$ROOT/$ROADMAP")\n' > "$d/plant3/skills/session-start/marker.sh"
+printf '#!/bin/sh\nsn=$(sh "$STRIDAL_FW/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>/dev/null)\nawk 1 "$ROOT/$ROADMAP"\nx=$(sh "$STRIDAL_FW/roadmap-plan.sh" "$ROOT/$ROADMAP"; awk 1 "$ROOT/$ROADMAP")\n' > "$d/plant3/skills/session-start/marker.sh"
 p3=$(bypass "$d/plant3" | cut -d: -f1,2 | tr '\n' ' ')
 [ "$p3" = "skills/session-start/marker.sh:3 skills/session-start/marker.sh:4 " ] && ok "the marker's exemption covers only its roadmap-plan.sh call: a raw read added to it is flagged, on its own line or the call's" || fail "the marker plant flagged [$p3], want [skills/session-start/marker.sh:3 skills/session-start/marker.sh:4 ]"
 mkdir -p "$d/plant4"

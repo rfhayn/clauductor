@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The OpenSpec module (D2 of the change process), where the CLI can run:
 #   - the module's version gate refuses a CLI older than 1.13 and accepts 1.13 and later;
 #   - the module's config.yaml parses, and its rules reach `openspec instructions`;
@@ -11,12 +11,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #
 # The CLI is optional, so without it (or with one older than 1.13) the two validations say SKIPPED
 # and why, on an `ok` line that names the reason. OPENSPEC_REQUIRED=1 turns that into a failure: the
-# clauductor repository's CI sets it after installing the CLI, so the example is validated there on
+# stridal repository's CI sets it after installing the CLI, so the example is validated there on
 # every push. OPENSPEC_BIN names the binary (default: openspec on PATH). Telemetry is off
 # (DO_NOT_TRACK=1, OPENSPEC_TELEMETRY=0) and HOME is a scratch directory while it runs.
 . "$(dirname "$0")/lib.sh"
 
-EN="$CLAUDUCTOR_FW/modules/openspec/enable.sh"
+EN="$STRIDAL_FW/modules/openspec/enable.sh"
 d=$(scratch)
 bin=${OPENSPEC_BIN:-openspec}
 
@@ -47,14 +47,14 @@ fi
 
 if [ -n "$usable" ]; then
   mkdir -p "$d/home" "$d/ex/openspec" "$d/ex/changes"
-  cp -R "$CLAUDUCTOR_FW/examples/changes/add-greeting-name" "$d/ex/changes/"
-  cp -R "$CLAUDUCTOR_FW/examples/specs" "$d/ex/specs"
+  cp -R "$STRIDAL_FW/examples/changes/add-greeting-name" "$d/ex/changes/"
+  cp -R "$STRIDAL_FW/examples/specs" "$d/ex/specs"
   ln -s ../changes "$d/ex/openspec/changes"; ln -s ../specs "$d/ex/openspec/specs"
   if osv "$d/ex"; then ok "openspec $v validates the example change through the module's symlinks: $(grep -E 'Totals|passed' "$d/os.out" | tail -1)"
   else fail "openspec $v rejects the example change through the symlinks:"; sed 's/^/     /' "$d/os.out" | head -20; fi
   # The module's config.yaml must parse: OpenSpec IGNORES one that does not, with a warning, so its
   # rules silently stop reaching the artifacts it scaffolds. Read one rule back, as its README says.
-  cp "$CLAUDUCTOR_FW/modules/openspec/config.yaml" "$d/ex/openspec/config.yaml"
+  cp "$STRIDAL_FW/modules/openspec/config.yaml" "$d/ex/openspec/config.yaml"
   (cd "$d/ex" && HOME="$d/home" DO_NOT_TRACK=1 OPENSPEC_TELEMETRY=0 NO_COLOR=1 "$bin" instructions specs --change add-greeting-name --json) > "$d/ins.out" 2>&1
   if grep -q 'could not parse' "$d/ins.out" || ! grep -q 'CAP-n-Sn' "$d/ins.out"; then fail "openspec $v does not read the module's config.yaml rules: $(grep -m1 -i 'parse\|warn' "$d/ins.out")"
   else ok "openspec $v reads the module's config.yaml (its scenario-ID rule reaches the specs instructions)"; fi
@@ -67,19 +67,19 @@ fi
 
 # The explore skill the module ships (skills/explore/SKILL.md): a whole skill, installed by enable.sh
 # into .claude/skills/explore, refreshed by it, and reported by --check once the copy drifts.
-SK="$CLAUDUCTOR_FW/modules/openspec/skills/explore/SKILL.md"
+SK="$STRIDAL_FW/modules/openspec/skills/explore/SKILL.md"
 if [ ! -f "$SK" ]; then fail "the module's explore skill is missing ($SK)"
 else
   fmv() { awk -v k="$1" 'NR==1 && $0!="---"{exit} NR>1 && $0=="---"{exit} NR>1 { i=index($0, ":"); if (i && substr($0,1,i-1)==k) { v=substr($0,i+1); sub(/^[ \t]+/,"",v); gsub(/^"|"$/,"",v); print v; exit } }' "$SK"; }
   [ "$(fmv name)" = explore ] && ok "the explore skill's frontmatter names it explore" || fail "explore SKILL.md: name is '$(fmv name)'"
   # The shipped frontmatter is the TEMPLATE's thinker role. A project that retunes thinker sets its
   # installed copy to match (checks/model-roles.sh), which enable.sh keeps, so the shipped file is held
-  # only to the template's own model-roles.json, here in clauductor's repository.
+  # only to the template's own model-roles.json, here in stridal's repository.
   roles=""
   if [ -d "$ROOT/../framework/internal/template" ]; then roles="$ROOT/.claude/model-roles.json"
   elif [ -d "$ROOT/framework/internal/template" ]; then roles="$ROOT/template/.claude/model-roles.json"; fi
   if [ -z "$roles" ]; then
-    ok "not clauductor's template: the installed explore skill is held to this project's thinker role by checks/model-roles.sh, not here"
+    ok "not stridal's template: the installed explore skill is held to this project's thinker role by checks/model-roles.sh, not here"
   elif command -v jq >/dev/null 2>&1 && [ -f "$roles" ]; then
     wm=$(jq -r '.roles.thinker.model // empty' "$roles"); we=$(jq -r '.roles.thinker.effort // empty' "$roles")
     [ "$(fmv model)/$(fmv effort)" = "$wm/$we" ] && ok "its model and effort are the template's thinker role ($wm/$we), the role enable.sh tells the project to map it to" \
@@ -92,14 +92,14 @@ else
   for want in '[CAP-n-Sn]' '1.13 or later' 'voids that approval' 'CHANGES_DIR/<id>/'; do
     grep -qF -- "$want" "$SK" && ok "the explore skill states '$want'" || fail "the explore skill does not state '$want'"
   done
-  # The plugin's builder namespaces skill references, so its copy says `/clauductor:propose`.
-  grep -qE '`/(clauductor:)?propose`' "$SK" && ok "the explore skill states '/propose' (or the plugin's '/clauductor:propose')" \
+  # The plugin's builder namespaces skill references, so its copy says `/stridal:propose`.
+  grep -qE '`/(stridal:)?propose`' "$SK" && ok "the explore skill states '/propose' (or the plugin's '/stridal:propose')" \
     || fail "the explore skill does not state '/propose'"
   grep -qE 'openspec/changes/|openspec new change|/opsx:' "$SK" && fail "the explore skill still names OpenSpec's own paths or commands: $(grep -nE 'openspec/changes/|openspec new change|/opsx:' "$SK" | head -2)" \
     || ok "the explore skill names no openspec/changes path and no opsx command"
   X="$d/explore"; mkdir -p "$X/.claude/lib"
-  cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$X/.claude/lib/"
-  cp -R "$CLAUDUCTOR_FW/modules" "$X/.claude/modules"
+  cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$X/.claude/lib/"
+  cp -R "$STRIDAL_FW/modules" "$X/.claude/modules"
   xen() { (cd "$X" && PATH="$d/stub:$PATH" OPENSPEC_BIN="$d/stub/os-1.13.2" sh .claude/modules/openspec/enable.sh "$@") 2>&1; }
   # --check reports every finding: an old CLI, missing links and a missing skill, all in one run.
   out=$(cd "$X" && PATH="$d/stub:$PATH" OPENSPEC_BIN="$d/stub/os-1.2.0" sh .claude/modules/openspec/enable.sh --check 2>&1); rc=$?
@@ -123,12 +123,12 @@ else
   echo "drift" >> "$IN"; xen >/dev/null
   if grep -qx 'model: sonnet' "$IN" && grep -qx 'effort: medium' "$IN" && ! grep -qx drift "$IN"; then ok "a refresh replaces the body and keeps the project's model: and effort:"
   else fail "after a refresh of a retuned copy: $(head -5 "$IN" | tr '\n' ' ') / drift $(grep -c '^drift$' "$IN")"; fi
-  f=$(cd "$X" && cp "$CLAUDUCTOR_FW/extensions.sh" .claude/ && printf 'MODULES="openspec"\n' > .claude/project.conf && sh .claude/extensions.sh fragments explore 2>&1)
+  f=$(cd "$X" && cp "$STRIDAL_FW/extensions.sh" .claude/ && printf 'MODULES="openspec"\n' > .claude/project.conf && sh .claude/extensions.sh fragments explore 2>&1)
   case $f in None.*) ok "the explore SKILL.md is not offered as a fragment of itself" ;; *) fail "fragments explore: $f" ;; esac
   # A project that retuned its thinker role: this very check, run there, must not fail on the shipped
   # skill's frontmatter (it is the template's, and the project's copy is model-roles.sh's to hold).
   if [ -z "${OPENSPEC_INNER:-}" ]; then
-    mkdir -p "$X/.claude/checks"; cp "$CLAUDUCTOR_FW/checks/lib.sh" "$CLAUDUCTOR_FW/checks/openspec.sh" "$X/.claude/checks/"
+    mkdir -p "$X/.claude/checks"; cp "$STRIDAL_FW/checks/lib.sh" "$STRIDAL_FW/checks/openspec.sh" "$X/.claude/checks/"
     printf '{"roles":{"thinker":{"model":"sonnet","effort":"medium"}},"skills":{}}\n' > "$X/.claude/model-roles.json"
     out=$(cd "$X" && OPENSPEC_INNER=1 ROOT="$X" OPENSPEC_BIN="$d/no-such-openspec" OPENSPEC_REQUIRED= sh .claude/checks/openspec.sh 2>&1); rc=$?
     [ "$rc" -eq 0 ] && ok "in a project whose thinker role is sonnet/medium, this check passes (the shipped frontmatter is held to the template's role only)" \

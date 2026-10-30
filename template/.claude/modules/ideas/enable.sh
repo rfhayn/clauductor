@@ -23,11 +23,11 @@ f=${IDEAS_FILE:-docs/ideas.md}
 mod="$ROOT/.claude/modules/ideas"
 
 # How a project runs the module's tools: the template's path, or, from the plugin, its command.
-case ${CLAUDUCTOR_FW:-} in '' | */.claude) plugin="" ;; *) plugin=1 ;; esac
+case ${STRIDAL_FW:-} in '' | */.claude) plugin="" ;; *) plugin=1 ;; esac
 # The two spellings of the tool. Held in variables on purpose: the plugin build rewrites a literal
 # `sh .claude/...` in a script to the plugin's copy, which would rewrite these patterns too.
 tpl=".claude/modules/ideas/bin/render.sh"
-plg="clauductor-model modules/ideas/bin/render.sh"
+plg="stridal-model modules/ideas/bin/render.sh"
 # skill_body FILE: FILE without its frontmatter's model: and effort: lines, the tool spelt the
 # template's way (so a plugin project's copy compares equal to the module's).
 skill_body() {

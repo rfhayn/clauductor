@@ -1,10 +1,10 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Shell scripts check out with LF on every OS. Git for Windows defaults to core.autocrlf=true, which
 # checks text files out with CRLF unless the repository says otherwise, and then every hook, check
 # and gate script fails in sh (`$'\r': command not found`), on Windows tools and on a WSL2 checkout
 # made by them alike. The rule is the repository's .gitattributes (`* text=auto eol=lf`, which
-# `clauductor install` and `update` ship); this holds it.
+# `stridal install` and `update` ship); this holds it.
 #
 # Fails when: a new shell script would get no LF rule (the probe path below); any tracked *.sh, or
 # any file under .claude/hooks/ or .claude/checks/, has no LF rule; or any of them holds a CR in the

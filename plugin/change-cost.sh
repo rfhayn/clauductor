@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # change-cost.sh: what a change has cost so far, against its budget (item 12 of the change process).
 #
 #   sh .claude/change-cost.sh <id>          one line: "cost $12.34 of budget $40 …", or CANNOT CHECK
@@ -66,11 +66,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #
 # Exit 0 with a figure, 2 when it CANNOT CHECK (no jq, no transcripts for the branch), so a caller
 # never reads "no data" as "$0".
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
-. "$CLAUDUCTOR_FW/lib/conf.sh"
-. "$CLAUDUCTOR_FW/lib/change.sh"
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+. "$STRIDAL_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/change.sh"
 # The pricing is lib/usage.sh's, shared with usage-report.sh and metrics.sh: one price per message.
-. "$CLAUDUCTOR_FW/lib/usage.sh"
+. "$STRIDAL_FW/lib/usage.sh"
 
 id=${1:-}; [ -n "$id" ] || { echo "usage: change-cost.sh <change-id> [--json]" >&2; exit 64; }
 json=""; [ "${2:-}" = --json ] && json=1

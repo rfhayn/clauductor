@@ -12,7 +12,7 @@ argument-hint: <decision title>
 !`sh ${CLAUDE_PLUGIN_ROOT}/skills/new-adr/context.sh`
 
 If the line above shows as literal text instead of output, run
-`clauductor-model skills/new-adr/context.sh` yourself and read the result before step 1.
+`stridal-model skills/new-adr/context.sh` yourself and read the result before step 1.
 
 ## Steps
 0. **Ask the kind first: a decision (ADR) or a practice (PRAC)?** Say which, and why, in one line
@@ -22,7 +22,7 @@ If the line above shows as literal text instead of output, run
    - **How we work** (a lesson about testing, review, evidence or process with a mechanism, or a
      tooling decision behind one) → a practice record in `PRACTICES_DIR` (`docs/practices/`),
      headed `# PRAC NNNN: <title>`, cited `PRAC-NNNN`. If the directory is missing, create it from
-     the template's `docs/practices/` (its README and TEMPLATE.md; `clauductor update` offers them).
+     the template's `docs/practices/` (its README and TEMPLATE.md; `stridal update` offers them).
 
    Below, *the record* is that ADR or practice record, and `<DIR>` its directory.
 0a. **Decide: a new record, an amendment, or neither.** Read *What this tier holds* in
@@ -51,7 +51,7 @@ If the line above shows as literal text instead of output, run
    never inside a row's PR, which writes only its fragment (OPS-108).
 6. If it supersedes an older record, set that one's Status to `Superseded by ADR-NNNN` (or
    `PRAC-NNNN`).
-7. Run `clauductor-model checks/run.sh adr-numbering`.
+7. Run `stridal-model checks/run.sh adr-numbering`.
 
 ## Rules
 - Never renumber a record that is on `main`; supersede it. Renumbering your own unmerged record

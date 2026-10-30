@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # UserPromptSubmit hook: nudge Claude to refresh a stale status-line focus.
 #
 # The status line's "focus" is written by hand with status-write.sh, so it drifts as work moves
@@ -14,16 +14,16 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 branch=$(git --no-optional-locks branch --show-current 2>/dev/null)
 [ -z "$branch" ] && exit 0   # not a git repo, or detached: nothing to nudge about
 
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # A `.` of a missing file is fatal with a shell-dependent status (dash exits 2, which reads as a
 # block of the prompt): test first; without the config there is no focus file to judge.
-[ -f "$CLAUDUCTOR_FW/lib/conf.sh" ] || exit 0
+[ -f "$STRIDAL_FW/lib/conf.sh" ] || exit 0
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 file=$(focus_file "$branch")
 
 nudge() {
-  echo "[status] focus may be stale: run sh "$CLAUDUCTOR_FW"/status-write.sh \"<new focus>\" if the work has shifted."
+  echo "[status] focus may be stale: run sh "$STRIDAL_FW"/status-write.sh \"<new focus>\" if the work has shifted."
   exit 0
 }
 

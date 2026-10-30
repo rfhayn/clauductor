@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The five long sections of the session-start context block, as DIGESTS: the change queue, the
 # latest journal entry, the recent insights, and the ADR and practice-record indexes. Called by
 # context.sh, from the repo root.
@@ -11,10 +11,10 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plug
 #
 # Overridable for tests: JOURNAL, INSIGHTS, ADR_INDEX, PRAC_INDEX (defaults from project.conf).
 
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 _o_j=${JOURNAL-}; _o_i=${INSIGHTS-}; _o_a=${ADR_INDEX-}; _o_p=${PRAC_INDEX-}
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 [ -n "$_o_j" ] && JOURNAL="$_o_j"
 [ -n "$_o_i" ] && INSIGHTS="$_o_i"
 cd "$ROOT" || exit 1

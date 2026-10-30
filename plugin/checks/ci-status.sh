@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The ci-status module's parts, whether it is on here or not, in a throwaway repo with a stub gh
 # that logs every call (no network, no GitHub):
 #   - publish-status.sh posts exactly one status per verdict, to the commit named, with the
@@ -14,7 +14,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 need git bash
 
-PS="$CLAUDUCTOR_FW/modules/ci-status/scripts/publish-status.sh"
+PS="$STRIDAL_FW/modules/ci-status/scripts/publish-status.sh"
 d=$(scratch)
 mkdir -p "$d/bin" "$d/nogh"
 # gh: every call's argv on one line in $GH_LOG; a status POST also as "<sha> <state> <context>|<description>"
@@ -37,18 +37,18 @@ esac
 exit 0
 EOF
 chmod +x "$d/bin/gh"
-# PATH without clauductor, gitleaks or a real gh: the stub goes first where it is wanted.
+# PATH without stridal, gitleaks or a real gh: the stub goes first where it is wanted.
 # (A directory holding a real gh is kept: on Ubuntu that is /usr/bin, with sh in it. The stub goes
 # first, and "no gh" runs on a PATH of only the tools the publisher needs.)
 np=""; IFS_OLD=$IFS; IFS=:
-for p in $PATH; do [ -x "$p/clauductor" ] || [ -x "$p/gitleaks" ] && continue; np="$np${np:+:}$p"; done
+for p in $PATH; do [ -x "$p/stridal" ] || [ -x "$p/gitleaks" ] && continue; np="$np${np:+:}$p"; done
 IFS=$IFS_OLD
 
 # ── The publisher ───────────────────────────────────────────────────────────────────────
 P="$d/pub"; new_repo "$P"
 mkdir -p "$P/.claude/lib"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$P/.claude/lib/"
-cp -R "$CLAUDUCTOR_FW/modules" "$P/.claude/modules"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$P/.claude/lib/"
+cp -R "$STRIDAL_FW/modules" "$P/.claude/modules"
 printf 'MODULES="ci-status"\nGATE_REMOTE_WORKFLOW="ci.yml"\n' > "$P/.claude/project.conf"
 git -C "$P" add -A && git -C "$P" commit -qm init
 SHA=$(git -C "$P" rev-parse HEAD)
@@ -122,9 +122,9 @@ mkdir -p "$R/$RUN_DIR/lib" "$R/.claude/lib"
 cp "$ROOT/$RUN_REL" "$R/$RUN_REL"
 cp "$ROOT/$RUN_DIR/lease.sh" "$R/$RUN_DIR/lease.sh"
 cp "$ROOT/$RUN_DIR/lib/steps.sh" "$R/$RUN_DIR/lib/steps.sh"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/scenario-trace.sh" "$R/.claude/"
-cp -R "$CLAUDUCTOR_FW/modules" "$R/.claude/modules"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/scenario-trace.sh" "$R/.claude/"
+cp -R "$STRIDAL_FW/modules" "$R/.claude/modules"
 printf 'MODULES="ci-status"\nGATE_RUN="%s"\nGATE_STEPS="ci-steps.sh"\n' "$RUN_REL" > "$R/.claude/project.conf"
 # The steps: one that fails on FAIL_UNIT, one that commits mid-run on COMMIT_MID_RUN, one that takes
 # the lease away (another holder's nonce) on STEAL_LEASE.
@@ -136,8 +136,8 @@ gate_steps() {
   fi
   step "unit" sh -c "[ ! -f '$ROOT/FAIL_UNIT' ]" || return 1
   if [ -f "$ROOT/STEAL_LEASE" ]; then
-    sed 's/"nonce":"[0-9a-f]*"/"nonce":"0123456789abcdef"/' "$CLAUDUCTOR_LOCK_HELD/owner.json" > "$CLAUDUCTOR_LOCK_HELD/x"
-    mv "$CLAUDUCTOR_LOCK_HELD/x" "$CLAUDUCTOR_LOCK_HELD/owner.json"
+    sed 's/"nonce":"[0-9a-f]*"/"nonce":"0123456789abcdef"/' "$STRIDAL_LOCK_HELD/owner.json" > "$STRIDAL_LOCK_HELD/x"
+    mv "$STRIDAL_LOCK_HELD/x" "$STRIDAL_LOCK_HELD/owner.json"
   fi
   return 0
 }
@@ -147,7 +147,7 @@ git -C "$R" add -A && git -C "$R" commit -qm init
 # The publisher's "is the commit on the remote" call is the stub's: it answers yes for any SHA.
 gate() {  # gate [ARGS]: the full gate in $R; status posts in $d/posts
   : > "$d/posts"; : > "$d/log"
-  (cd "$R" && PATH="$d/bin:$np" GH_LOG="$d/log" GH_POSTS="$d/posts" GH_FAIL= CI= CLAUDUCTOR_LANE=check bash "$RUN_REL" "$@") > "$d/out" 2>&1
+  (cd "$R" && PATH="$d/bin:$np" GH_LOG="$d/log" GH_POSTS="$d/posts" GH_FAIL= CI= STRIDAL_LANE=check bash "$RUN_REL" "$@") > "$d/out" 2>&1
 }
 st() { cut -d' ' -f1,2 "$d/posts"; }
 T=$(git -C "$R" rev-parse HEAD)
@@ -193,7 +193,7 @@ touch "$R/STEAL_LEASE"; gate; rc=$?; rm -f "$R/STEAL_LEASE"
 expect_rc 70 "$rc" "a run that lost its gate lease fails"
 is "$T failure" "$(st)" "...and posts failure, never the green its steps earned"
 # ── The module's own check (ci-status:display), as checks/run.sh runs it while the module is on ──
-mkdir -p "$R/.claude/checks"; cp "$CLAUDUCTOR_FW/checks/run.sh" "$CLAUDUCTOR_FW/checks/lib.sh" "$R/.claude/checks/"
+mkdir -p "$R/.claude/checks"; cp "$STRIDAL_FW/checks/run.sh" "$STRIDAL_FW/checks/lib.sh" "$R/.claude/checks/"
 cp "$R/.claude/project.conf" "$d/conf.on"
 disp() { (cd "$R" && sh .claude/checks/run.sh ci-status:display) > "$d/disp" 2>&1; }
 disp; expect_rc 0 $? "ci-status:display passes with the module's defaults and the model's runner"
@@ -209,7 +209,7 @@ cp "$d/conf.on" "$R/.claude/project.conf"; rm -f "$R/own-runner.sh"
 
 # The README's remote recipe names the PR's head commit and the token: in a pull_request run HEAD is
 # the synthetic merge commit, and gh posts nothing without GH_TOKEN.
-RD="$CLAUDUCTOR_FW/modules/ci-status/README.md"
+RD="$STRIDAL_FW/modules/ci-status/README.md"
 grep -qF 'SHA: ${{ github.event.pull_request.head.sha || github.sha }}' "$RD" && ok "the README's remote recipe sets SHA to the PR's head (github.sha on push)" || fail "$RD: the remote recipe does not set SHA to github.event.pull_request.head.sha"
 grep -qF 'GH_TOKEN: ${{ github.token }}' "$RD" && ok "the README's remote recipe sets GH_TOKEN" || fail "$RD: the remote recipe does not set GH_TOKEN"
 

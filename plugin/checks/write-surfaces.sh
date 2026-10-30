@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The write-surfaces module (.claude/modules/write-surfaces), tested whether it is on or not,
 # through the real pr-merge-guard.sh in a throwaway repo with a stub gh (no network). The PRs are
 # the shapes Standing Tee's rule 5 was calibrated on: a change adding 10 routes and screens (never
@@ -12,14 +12,14 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 need git jq
 
-M="$CLAUDUCTOR_FW/modules/write-surfaces"
+M="$STRIDAL_FW/modules/write-surfaces"
 d=$(scratch)
 G="$d/app"; new_repo "$G"
 mkdir -p "$G/.claude/hooks/lib" "$G/.claude/lib" "$G/.claude/modules" "$G/docs" "$d/bin"
-cp "$CLAUDUCTOR_FW/hooks/pr-merge-guard.sh" "$G/.claude/hooks/"
-cp "$CLAUDUCTOR_FW/hooks/lib/"* "$G/.claude/hooks/lib/"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/evals.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$G/.claude/lib/"
-cp "$CLAUDUCTOR_FW/scenario-trace.sh" "$G/.claude/"
+cp "$STRIDAL_FW/hooks/pr-merge-guard.sh" "$G/.claude/hooks/"
+cp "$STRIDAL_FW/hooks/lib/"* "$G/.claude/hooks/lib/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/evals.sh" "$STRIDAL_FW/lib/modules.sh" "$G/.claude/lib/"
+cp "$STRIDAL_FW/scenario-trace.sh" "$G/.claude/"
 cp -R "$M" "$G/.claude/modules/write-surfaces"
 GLOBS='*app/api/v1/*route.ts *apps/web/app/*page.tsx'
 conf() { printf '%s\n' "$@" > "$G/.claude/project.conf"; }
@@ -125,7 +125,7 @@ merge "with the module OFF, 10 surfaces draw nothing (the rule is the module's)"
 
 # The module's own check: it fails until the project says what a write surface is.
 conf 'MODULES="write-surfaces"'
-mkdir -p "$G/.claude/checks"; cp "$CLAUDUCTOR_FW/checks/lib.sh" "$CLAUDUCTOR_FW/checks/run.sh" "$G/.claude/checks/"
+mkdir -p "$G/.claude/checks"; cp "$STRIDAL_FW/checks/lib.sh" "$STRIDAL_FW/checks/run.sh" "$G/.claude/checks/"
 out=$(cd "$G" && sh .claude/checks/run.sh write-surfaces:project 2>&1); rc=$?
 [ "$rc" != 0 ] && case "$out" in *"WRITE_SURFACE_GLOBS is empty"*) true ;; *) false ;; esac \
   && ok "write-surfaces:project fails while WRITE_SURFACE_GLOBS is empty" || fail "write-surfaces:project fails while WRITE_SURFACE_GLOBS is empty: it did not: $out"

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Health lines run per their own #! line (P1.8, B4): session-start runs them through
 # `.claude/extensions.sh health`, which must never force a bash script through sh (dash on Ubuntu,
 # where bash-only syntax is a syntax error and the line reads as a broken subject). Fixtures:
@@ -16,8 +16,8 @@ need git bash
 d=$(scratch)
 R="$d/p"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/health" "$d/bin"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/extensions.sh" "$R/.claude/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/extensions.sh" "$R/.claude/"
 cat > "$R/.claude/health/bashonly.sh" <<'EOF'
 #!/usr/bin/env bash
 if [[ -o posix ]]; then echo "FAILED forced through sh (bash in POSIX mode)"; exit 0; fi

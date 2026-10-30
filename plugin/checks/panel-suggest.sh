@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # panel-suggest.sh offers, per lane template, exactly what the roadmap allows next: with no Session
 # plan, the current phase (build = queued change rows whose proposal exists; propose = the first
 # queued change row, and nothing while one is already proposed ahead; ops = queued ops rows by
@@ -13,9 +13,9 @@ need jq
 
 d=$(scratch)
 F="$d/proj"; mkdir -p "$F/.claude/lib" "$F/.claude/skills/propose" "$F/docs" "$F/changes"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/fragments.sh" "$F/.claude/lib/" 2>/dev/null
-cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$CLAUDUCTOR_FW/roadmap-plan.sh" "$CLAUDUCTOR_FW/panel-suggest.sh" "$F/.claude/" 2>/dev/null
-cp "$CLAUDUCTOR_FW/skills/propose/context.sh" "$F/.claude/skills/propose/" 2>/dev/null
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/fragments.sh" "$F/.claude/lib/" 2>/dev/null
+cp "$STRIDAL_FW/roadmap-queue.sh" "$STRIDAL_FW/roadmap-plan.sh" "$STRIDAL_FW/panel-suggest.sh" "$F/.claude/" 2>/dev/null
+cp "$STRIDAL_FW/skills/propose/context.sh" "$F/.claude/skills/propose/" 2>/dev/null
 cat > "$F/docs/roadmap.md" <<'EOF'
 ## Phase 1 — Done
 | # | Change | Scope | Deps | Status |
@@ -170,7 +170,7 @@ inM git checkout -q --detach refs/remotes/origin/main && mkdir -p "$M/sub/change
 # close (OPS-125): the daily close is offered once every row of the open plan session has landed,
 # a batched PR's **Also closes** counting; with no plan, while any fragment waits.
 C="$d/close"; mkdir -p "$C/.claude/lib" "$C/docs/journal.d"
-cp -R "$F/.claude/." "$C/.claude/"; cp "$CLAUDUCTOR_FW/lib/fragments.sh" "$C/.claude/lib/" 2>/dev/null
+cp -R "$F/.claude/." "$C/.claude/"; cp "$STRIDAL_FW/lib/fragments.sh" "$C/.claude/lib/" 2>/dev/null
 cat > "$C/docs/roadmap.md" <<'RM'
 ## Phase 1 — Now
 | # | Change | Scope | Deps | Status |
@@ -334,7 +334,7 @@ mv "$C/keep.md" "$C/docs/roadmap.md"
 sed -e 's/^| S5 | (done) |/| S5 | |/' -e 's/^| S6 | (done) |/| S6 | |/' "$C/docs/roadmap.md" > "$C/r" && mv "$C/r" "$C/docs/roadmap.md"
 printf '# Journal\n\n## Session 3 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 mkdir -p "$C/.claude/skills/dev-journal" "$C/.claude/skills/session-close"
-cp "$CLAUDUCTOR_FW/skills/dev-journal/context.sh" "$C/.claude/skills/dev-journal/"
+cp "$STRIDAL_FW/skills/dev-journal/context.sh" "$C/.claude/skills/dev-journal/"
 [ "$(cnames)" = "session-5-close" ] && ok "close: S5 after Session 3 is offered as Session 5" || fail "close for S5 after Session 3 offered: $(cnames)"
 case $(cd "$C" && CONTEXT_OFFLINE=1 sh .claude/skills/dev-journal/context.sh 2>&1) in
   *"This close's session"*": 5"*) ok "...and dev-journal's context names Session 5 for its entry, not the count's 4" ;;
@@ -342,7 +342,7 @@ case $(cd "$C" && CONTEXT_OFFLINE=1 sh .claude/skills/dev-journal/context.sh 2>&
 esac
 # Both contexts read the number where they read main: a copy of the fixture with an origin/main,
 # so session-close's context reaches its fetched branch, and each must print the number itself.
-C2="$d/close2"; cp -R "$C" "$C2"; cp "$CLAUDUCTOR_FW/skills/session-close/context.sh" "$C2/.claude/skills/session-close/"
+C2="$d/close2"; cp -R "$C" "$C2"; cp "$STRIDAL_FW/skills/session-close/context.sh" "$C2/.claude/skills/session-close/"
 (cd "$C2" && git init -q && git add -A && git -c user.name=Ann -c user.email=a@example.com commit -qm base && git update-ref refs/remotes/origin/main HEAD) >/dev/null 2>&1 || fail "the second close fixture could not commit"
 ctx() { (cd "$C2" && env PATH="$d/nogh:$PATH" CONTEXT_OFFLINE=1 sh ".claude/skills/$1/context.sh" 2>&1) | grep "This close's session"; }
 mkdir -p "$d/nogh"; printf '#!/bin/sh\nexit 1\n' > "$d/nogh/gh"; chmod +x "$d/nogh/gh"
@@ -360,7 +360,7 @@ cnone && ok "...and once that entry is written, the close is not offered again" 
 printf '# Journal\n\n## Session 4 — 2026-01-01 — Ann — x\n' > "$C/docs/development-journal.md"
 
 # The preset panel config: every command it names exists in this project.
-pj="$ROOT/.clauductor/panel.json"
+pj="$ROOT/.stridal/panel.json"
 if [ -f "$pj" ]; then
   jq -e . "$pj" >/dev/null 2>&1 && ok "panel.json parses" || fail "panel.json is not valid JSON"
   for p in $(jq -r '[.cards[]?.command, .templates[]?.suggest.command, .queues[]?.command] | map(select(. != null)) | .[] | .[]' "$pj" \

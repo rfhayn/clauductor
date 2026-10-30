@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # change-approval.sh: the owner's approval covers the design AS WRITTEN (D8 of the change process).
 #
 #   sh .claude/change-approval.sh <id>                     the design hash, and whether the recorded
@@ -33,7 +33,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # history is never read as this one's. It is firm on origin/<MAIN_BRANCH> in a full clone (a
 # shallow one refuses, its history cut at its depth); the branch's own can be
 # rewritten, so --record, --delegate and --revoke also add a line to the approval log,
-# <git common dir>/clauductor/approvals.log, which no branch carries, and --delegate refuses a change
+# <git common dir>/stridal/approvals.log, which no branch carries, and --delegate refuses a change
 # the log names. A revoke the log cannot take still revokes, and exits 1 to say so. The log keys on
 # the change's id, so a change filed again under a new id is new to it. The log guards the act, not
 # the merge: the check never reads it, since a CI runner has none. It is per clone (every worktree
@@ -52,9 +52,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # approval makes checks/changes.sh fail until the owner approves again: the gate cannot write a
 # receipt and the merge guard refuses the merge. Recording is a skill step taken on the owner's word
 # (propose step 5); this script only writes what the owner said, it cannot tell that they said it.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
-. "$CLAUDUCTOR_FW/lib/conf.sh"
-. "$CLAUDUCTOR_FW/lib/change.sh"
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+. "$STRIDAL_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/change.sh"
 
 # ── The approval log (OPS-131, #272) ───────────────────────────────────────────────────────────
 # A line per approval or revoke, in the repository's common git dir: outside every worktree and
@@ -62,7 +62,7 @@ ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "
 approval_log=""
 if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$ROOT" && pwd -P)" ]; then
   common=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P) \
-    && approval_log="$common/clauductor/approvals.log"
+    && approval_log="$common/stridal/approvals.log"
 fi
 # log_append VERB WHO: add a line for this change, creating the log; fails when it cannot. A log is
 # started only by a start or record line, the owner's word: --delegate refuses until one is there.
@@ -236,7 +236,7 @@ delegable() {
   key=$APPROVAL_DELEGATED
   [ -z "$main_ref" ] || key=$(authority "$ROOT/.claude/project.conf" | sed -n 's/^APPROVAL_DELEGATED=["'\'']*\([^"'\''#[:space:]]*\).*/\1/p' | tail -1)
   [ "$key" = 1 ] || { echo "APPROVAL_DELEGATED is not \"1\" in .claude/project.conf${main_ref:+ on $main_ref}, so only the $OWNER_ROLE approves"; return; }
-  fw=$(authority "$CLAUDUCTOR_FW/lib/approval-guarded.txt" | sed 's/[[:space:]]*$//; s|/$||' | grep -v '^#' | grep .)
+  fw=$(authority "$STRIDAL_FW/lib/approval-guarded.txt" | sed 's/[[:space:]]*$//; s|/$||' | grep -v '^#' | grep .)
   [ -n "$fw" ] || { echo ".claude/lib/approval-guarded.txt${main_ref:+ on $main_ref} is missing or lists no path, so no approval can be delegated"; return; }
   kept=$(kept); [ -z "$kept" ] || { echo "$kept; the $OWNER_ROLE approves it"; return; }
   # ADRs and practice records are the owner's (Who decides): their directories are guarded too.
@@ -361,21 +361,21 @@ case "${1:-}" in
     [ -z "$OWNER_NAME" ] || [ "$owner" = "$OWNER_NAME" ] || { echo "change-approval: only OWNER_NAME ($OWNER_NAME) delegates, not $owner" >&2; exit 64; }
     # A proposal approved before, standing or revoked since, is the owner's to approve again (OPS-128).
     prior=$(grep -E '^\*\*(Approved:\*\*|Status:\*\* awaiting approval \(revoked)' "$dir/proposal.md" | head -1)
-    [ -z "$prior" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: it was approved before ($prior), so only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
+    [ -z "$prior" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: it was approved before ($prior), so only the $OWNER_ROLE approves it again: 'sh "$STRIDAL_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
     why=$(delegable); [ -z "$why" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: $why" >&2; exit 1; }
     # --revoke's marker is a line a hand edit of the Status line removes; the history is not
     # (OPS-131). An Approved line ever committed to proposal.md is an approval before.
     why=$(history_holds '^[+-]\*\*Approved:\*\* ' "an Approved line"); [ -z "$why" ] \
-      || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: $why, so it was approved before (or an earlier change used the id $id) and only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
+      || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: $why, so it was approved before (or an earlier change used the id $id) and only the $OWNER_ROLE approves it again: 'sh "$STRIDAL_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
     # The log holds what a rewrite of the branch can take out of its history. A log that is missing
     # or cannot be read is not "never approved": it refuses, and the owner starts it (OPS-131, #272).
     [ -n "$approval_log" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the repository's common git dir cannot be found, so its approval log cannot be read" >&2; exit 1; }
-    [ -e "$approval_log" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: no approval log at $approval_log, so this clone cannot tell whether it was approved before; the $OWNER_ROLE starts it on their word: 'sh "$CLAUDUCTOR_FW"/change-approval.sh --start-log <owner>' (or approves this change: --record)" >&2; exit 1; }
+    [ -e "$approval_log" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: no approval log at $approval_log, so this clone cannot tell whether it was approved before; the $OWNER_ROLE starts it on their word: 'sh "$STRIDAL_FW"/change-approval.sh --start-log <owner>' (or approves this change: --record)" >&2; exit 1; }
     seen=$(awk -F'\t' -v id="$id" '$3 == "start" || $3 == "record" { started = 1 } $2 == id && $3 != "start" { print $1 " " $3 " by " $4 } END { if (!started) print "unstarted" }' "$approval_log" 2>/dev/null) && [ -r "$approval_log" ] \
       || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log cannot be read" >&2; exit 1; }
     # A revoke adds to a log the owner has not started: that log cannot say "never approved" either.
-    [ "$(printf '%s\n' "$seen" | tail -1)" != unstarted ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log was never started by the $OWNER_ROLE, so this clone cannot tell whether it was approved before: 'sh "$CLAUDUCTOR_FW"/change-approval.sh --start-log <owner>' on their word (or approves this change: --record)" >&2; exit 1; }
-    [ -z "$seen" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: this clone's approval log $approval_log shows it before ($(printf '%s\n' "$seen" | tail -1)), so only the $OWNER_ROLE approves it again: 'sh "$CLAUDUCTOR_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
+    [ "$(printf '%s\n' "$seen" | tail -1)" != unstarted ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log was never started by the $OWNER_ROLE, so this clone cannot tell whether it was approved before: 'sh "$STRIDAL_FW"/change-approval.sh --start-log <owner>' on their word (or approves this change: --record)" >&2; exit 1; }
+    [ -z "$seen" ] || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: this clone's approval log $approval_log shows it before ($(printf '%s\n' "$seen" | tail -1)), so only the $OWNER_ROLE approves it again: 'sh "$STRIDAL_FW"/change-approval.sh $id --record <owner>' on their word" >&2; exit 1; }
     rewritable; log_append delegate "Claude (delegated by $owner)" || { echo "change-approval: cannot delegate $CHANGES_DIR/$id: the approval log $approval_log cannot be written" >&2; exit 1; }
     rewrite "**Approved:** ${APPROVAL_DATE:-$(date +%Y-%m-%d)} by Claude (delegated by $owner) · design $hash"
     echo "recorded: $CHANGES_DIR/$id approved by Claude, delegated by $owner, design $hash"

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Every skill is wired to things that exist (AGENTS.md rule 4: a delegation target is a named
 # thing, and a missing instruction gets interpreted rather than failing): its frontmatter name is
 # its directory's, it has a description, every `!`sh …`` context line names a file that exists,
@@ -7,7 +7,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # agent names under .claude/ exists.
 . "$(dirname "$0")/lib.sh"
 
-for f in "$CLAUDUCTOR_FW"/skills/*/SKILL.md; do
+for f in "$STRIDAL_FW"/skills/*/SKILL.md; do
   [ -f "$f" ] || continue
   s=$(basename "$(dirname "$f")")
   n=$(awk 'NR>1 && /^---$/{exit} /^name:/{sub(/^name:[ \t]*/, ""); print; exit}' "$f")
@@ -16,7 +16,7 @@ for f in "$CLAUDUCTOR_FW"/skills/*/SKILL.md; do
   # Each line runs as the skill would run it, whole: under the interpreter it names (`!`bash x`` is
   # never forced through sh, which is dash on Ubuntu), with its arguments and any pipe after them.
   grep -oE '!`(sh|bash) [^`]+`' "$f" | sed -E 's/^!`//; s/`$//' | while read -r interp script args; do
-    case $script in '${CLAUDE_PLUGIN_ROOT}'/*) script="$CLAUDUCTOR_FW/${script#'${CLAUDE_PLUGIN_ROOT}'/}" ;; *) script="$ROOT/$script" ;; esac
+    case $script in '${CLAUDE_PLUGIN_ROOT}'/*) script="$STRIDAL_FW/${script#'${CLAUDE_PLUGIN_ROOT}'/}" ;; *) script="$ROOT/$script" ;; esac
     if [ -f "$script" ]; then
       out=$(cd "$ROOT" && sh -c "\"\$0\" \"\$1\" $args" "$interp" "$script" 2>&1 >/dev/null </dev/null); rc=$?
       [ "$rc" -eq 0 ] && echo "ok   skill $s: $script runs" || echo "FAIL skill $s: $script exits $rc: $(printf '%s' "$out" | tail -1)"
@@ -28,7 +28,7 @@ for f in "$CLAUDUCTOR_FW"/skills/*/SKILL.md; do
 done
 
 # Paths to scripts under .claude/ named in skills, agents, AGENTS.md and settings.json.
-for p in $(cat "$CLAUDUCTOR_FW"/skills/*/SKILL.md "$CLAUDUCTOR_FW"/agents/*.md "$ROOT/AGENTS.md" "$ROOT/.claude/settings.json" 2>/dev/null \
+for p in $(cat "$STRIDAL_FW"/skills/*/SKILL.md "$STRIDAL_FW"/agents/*.md "$ROOT/AGENTS.md" "$ROOT/.claude/settings.json" 2>/dev/null \
   | grep -oE '\.claude/[A-Za-z0-9_./-]+\.(sh|js|awk|json)' | sort -u); do
   # settings.local.json is per machine and gitignored: named as the place to loosen, never shipped.
   [ "$p" = .claude/settings.local.json ] && continue

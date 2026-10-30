@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # render.sh: render the Ideas queue (the Ideas page's database) as IDEAS_FILE, and summarise it.
 # Plain sh and jq; no Node.
 #
@@ -42,9 +42,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # where the two deliberately differ.
 #
 # Exit: 0 done; 2 refused (the reason on stderr, prefixed "ideas-render: ").
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 
 die() { printf 'ideas-render: %s\n' "$*" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || die "jq is not installed"

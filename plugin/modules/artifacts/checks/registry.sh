@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The artifacts module's own check of THIS project's registry (ARTIFACT_REGISTRY), run by
 # checks/run.sh as artifacts:registry only while the module is on:
 #   - every artifact declares authorities that match something, and a well-formed review stamp
@@ -14,7 +14,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 . "${CHECKS_LIB:?run this through checks/run.sh}"
 need jq
 reg=${ARTIFACT_REGISTRY:-docs/artifacts.json}
-cur="$CLAUDUCTOR_FW/modules/artifacts/bin/currency.sh"
+cur="$STRIDAL_FW/modules/artifacts/bin/currency.sh"
 [ -f "$ROOT/$reg" ] || { fail "the artifacts module is on, but $reg does not exist (start it: .claude/modules/artifacts/README.md)"; finish; }
 
 out=$(sh "$cur" --root "$ROOT" --lint 2>&1); rc=$?

@@ -63,7 +63,7 @@ The commands run with `sh -c` from the project root, each stopped after `LIVING_
 
 `.claude/checks/living-visuals.sh` tests the parts themselves whether the module is on or not.
 
-**The tool** (`bin/living.sh`; from the plugin, `clauductor-model modules/living-visuals/bin/living.sh`):
+**The tool** (`bin/living.sh`; from the plugin, `stridal-model modules/living-visuals/bin/living.sh`):
 
 | Call | Does |
 |---|---|

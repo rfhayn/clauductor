@@ -56,7 +56,7 @@ started from the panel's **New lane** (or by hand), on one branch:
 - **The prefixes are settings.** `change/`, `fix/` and `ops/` are the defaults of `BRANCH_CHANGE`,
   `BRANCH_FIX` and `BRANCH_OPS` in `.claude/project.conf`; a project changes them there and nowhere
   else. The skills name branches by these keys (`sh .claude/project-config.sh` prints them),
-  build-change reads its branch at run time, and `clauductor install` writes the panel preset
+  build-change reads its branch at run time, and `stridal install` writes the panel preset
   with them. `checks/branch-prefixes.sh` fails on a literal prefix in the model's files and on a
   `panel.json` that disagrees with the keys.
 - **The main checkout stays on `main`.** Every hook runs from it; `worktree-hook-drift.sh` refuses
@@ -72,11 +72,11 @@ started from the panel's **New lane** (or by hand), on one branch:
 
   `.git/config` and `.git/hooks` are denied to every sandboxed command.
   - **A lane that is an agent of the main session** brings its own hooks and skills along
-    (`clauductor update`, a rebase, a merge) inside the sandbox. That was seen to work on
-    2026-10-28, though these commands match the `git *` and `clauductor *` entries below; what
-    those entries do is Clauductor's #307.
+    (`stridal update`, a rebase, a merge) inside the sandbox. That was seen to work on
+    2026-10-28, though these commands match the `git *` and `stridal *` entries below; what
+    those entries do is Stridal's #307.
   - **A lane that is its own session** (a panel lane, or a new terminal tab) cannot: the session
-    that opens it syncs them (Clauductor's ST-15). Until that exists, the owner syncs such a lane
+    that opens it syncs them (Stridal's ST-15). Until that exists, the owner syncs such a lane
     by hand.
   - **The main session** creates every lane's worktree. `git worktree add` writes `.git/config`,
     and its checkout writes the agents, so it runs outside the sandbox: a fixed git command, not
@@ -88,13 +88,13 @@ started from the panel's **New lane** (or by hand), on one branch:
   - **What does run outside the sandbox:** a command matching `sandbox.excludedCommands` in
     `settings.json`, and any command run with an approved sandbox bypass. The gate is one, since
     its process checks need `ps`, tmux and loopback, so a lane's gate runs the lane's own checks and
-    tests. The controls are review before the gate and the approval itself (Clauductor's #307).
+    tests. The controls are review before the gate and the approval itself (Stridal's #307).
     An entry matches only the script run alone, so a subagent lane, whose Bash starts in the main
     checkout, runs `scripts/ci/gate.sh -C <worktree>` (and `scripts/ci/gate-wait.sh -C <worktree>`),
     never `cd <worktree> && …` or a pipe: those run sandboxed and fail (`checks/settings.sh`).
     Seen 2026-10-28: a `git` command matching the `git *` entry was still refused `.git/config`,
     and that day's unsandboxed runs each went through an approved bypass, so what the entries do
-    on their own is unverified (Clauductor's #307).
+    on their own is unverified (Stridal's #307).
   - A plugin install takes its hooks, skills and agents from the plugin cache, so their sync does
     not apply there.
 - **A request is priced before it is relayed to a running lane.** The orchestrator tells the owner
@@ -103,25 +103,25 @@ started from the panel's **New lane** (or by hand), on one branch:
 - **One full gate at a time.** All lanes share one gate lease (`scripts/ci/run-local.sh`), so a
   lane's full gate may queue behind another's; the panel shows who holds it. A `--quick` run takes
   no lease and never queues.
-- The panel (`clauductor panel`) shows each lane's focus, context, quota and state. Its preset
-  config is `.clauductor/panel.json`: the lanes above, lane templates whose **Up next** rows come
+- The panel (`stridal panel`) shows each lane's focus, context, quota and state. Its preset
+  config is `.stridal/panel.json`: the lanes above, lane templates whose **Up next** rows come
   from the roadmap (`panel-suggest.sh`), the gate queue, and pinned owner-queue and change-queue
-  cards. Trust it once with `clauductor panel trust`.
-- **Nothing needs the panel or the `clauductor` binary.** The skills, hooks, checks, the gate and
+  cards. Trust it once with `stridal panel trust`.
+- **Nothing needs the panel or the `stridal` binary.** The skills, hooks, checks, the gate and
   its lease (`lease.sh` when there is no binary), the merge guard and the records all run in Claude
   Code alone; a panel that is not running is a normal state. A whole-set `checks/run.sh` holds
   this: it runs every check once (the modules' and `.claude/local/checks` included) with
-  `clauductor` off `PATH`, a fresh `HOME` and `CI` empty, and `checks/no-clauductor.sh`, inside that
+  `stridal` off `PATH`, a fresh `HOME` and `CI` empty, and `checks/no-stridal.sh`, inside that
   run, asserts it is there and runs the gate, a skill context script and the status line the same
   way, failing on anything that errors or asks for the binary or the panel. So a check that needs
   your gh login, ssh keys, git signing or `CI=true` sets them up in its own scratch.
   `CHECKS_DOUBLE_PASS=1` switches back to the double pass (every check in your own environment, then
-  `no-clauductor.sh` running this directory's checks again without `clauductor`), as a stopgap
+  `no-stridal.sh` running this directory's checks again without `stridal`), as a stopgap
   while you fix such a check. A gate calls `model_step_checks` (`scripts/ci/lib/steps.sh`).
-  `model_step_no_clauductor` is only for a gate that cannot run the whole set: it runs neither the
+  `model_step_no_stridal` is only for a gate that cannot run the whole set: it runs neither the
   modules' checks nor `.claude/local/checks`, and calling both pays for the double pass again.
 - **The current quota is read from one file, panel or no panel.** On every refresh that carries
-  Claude Code's `rate_limits`, the status line saves them to `~/.clauductor/quota-reading.json`
+  Claude Code's `rate_limits`, the status line saves them to `~/.stridal/quota-reading.json`
   (per machine, mode 0600, replaced atomically; a subset of the panel's `quota.json` fields, in its
   units: `windows[].{key, pct, resetsAt}` and `at` in milliseconds, with no `expired` flag). Read it
   with `.claude/lib/quota.sh`: `quota_read` lists each window, `quota_pct five_hour` prints one,
@@ -174,7 +174,7 @@ inside the sandbox, and there `gh` must read `~/.config/gh/` to find its account
 Without one, `gh` writes the token into `hosts.yml` in plain text, where an agent could read it.
 
 Add whatever else your gate's steps call. **The panel is macOS-only and optional**: it runs on
-tmux, launchd and Terminal.app. Nothing needs it (`checks/no-clauductor.sh`): lanes are plain git
+tmux, launchd and Terminal.app. Nothing needs it (`checks/no-stridal.sh`): lanes are plain git
 worktrees under `.claude/worktrees/`, and the gate lease falls back to `scripts/ci/lease.sh`.
 
 **Windows: work inside WSL2.** Claude Code's sandbox runs on macOS, Linux and WSL2; on native
@@ -285,7 +285,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 - **Models follow the risk tier** the owner approved: a role with a variant for it in
   `.claude/model-roles.json` runs on it (the builder on sonnet for low risk, opus/xhigh for high;
   the reviewer on opus/xhigh for high). In **economy mode** (the panel writes
-  `~/.clauductor/panel/economy.json` past its quota threshold) the roles in `.economy.roles` drop a
+  `~/.stridal/panel/economy.json` past its quota threshold) the roles in `.economy.roles` drop a
   tier; the reviewer and the planner never do.
 - **The budget**: after each committed group it reads `.claude/change-cost.sh` and stops once the
   change's spend passes the proposal's `**Budget:**`; a `**Budget:** $N, soft` is reported in the
@@ -553,7 +553,7 @@ data that already exists. Nothing new is recorded to feed them.
 | cost by role, model, change and project | this machine's Claude Code transcripts at the list prices in `model-roles.json` |
 
 - **`.claude/metrics.sh`** prints them as the panel's metrics JSON for 7, 30 and 90 days: the
-  panel's **Metrics** view and **Flow** card draw it (`metrics` in `.clauductor/panel.json`,
+  panel's **Metrics** view and **Flow** card draw it (`metrics` in `.stridal/panel.json`,
   panel config version 4). A source it cannot read (no `gh`, offline, no transcripts) leaves its
   figures empty with a note saying why; it never prints a zero for "unknown".
   `checks/metrics.sh` holds it to the panel's contract.
@@ -565,14 +565,14 @@ data that already exists. Nothing new is recorded to feed them.
 
 ## Keeping the model current
 
-`clauductor update` (or `install` again) brings the framework files up to date and merges
+`stridal update` (or `install` again) brings the framework files up to date and merges
 `.claude/settings.json`; the template it reads is printed first, and must be the binary's version.
 It never overwrites a project-owned file, but it offers what the template added to them: new files
 (created only if missing), new `model-roles.json` keys (no value changes), and the AGENTS.md table
 rows the template gained (printed as a suggestion, never applied). Nothing a project configures
 lives in a framework file: branch prefixes and paths are `project.conf`'s, attribution and
-provenance are `model-roles.json`'s, so an edited framework file in `clauductor diff` is a real
-divergence. A repository that ran clauductor's old model gets its replaced files listed, and
+provenance are `model-roles.json`'s, so an edited framework file in `stridal diff` is a real
+divergence. A repository that ran stridal's old model gets its replaced files listed, and
 removed with `--prune`.
 
 ## The record

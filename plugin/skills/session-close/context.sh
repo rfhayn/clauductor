@@ -1,17 +1,17 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Context for session-close: what is still unlanded, unarchived, unrecorded or untriaged. Every
 # section that cannot run says so; a check that could not run learned NOTHING. No `set -e`.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 cd "$ROOT" || exit 0
 ind() { sed 's/^/    /'; }
 # The GitHub-reading sections (remote branches, queued-while-open, TBD specs). Tested for, never
 # sourced blind: a `.` of a missing file ends the script under dash and hides every later section.
-if [ -f "$CLAUDUCTOR_FW/lib/context.sh" ]; then
+if [ -f "$STRIDAL_FW/lib/context.sh" ]; then
   # shellcheck disable=SC1091
-  . "$CLAUDUCTOR_FW/lib/context.sh"
+  . "$STRIDAL_FW/lib/context.sh"
 else
   ctx_open_prs() { gh pr list --state open --limit 100 --json number,title,headRefName,author,updatedAt,files 2>/dev/null; }
   ctx_loose_branches() { echo "CANNOT CHECK — .claude/lib/context.sh is missing"; }
@@ -94,16 +94,16 @@ echo "- Raw insights outstanding: $(count_rows '\| (\*\*)?Raw\b[^|]*\|[[:space:]
 echo "- Topics at the 3+ promotion trigger, Raw rows only:"
 grep -E '\| (\*\*)?Raw\b[^|]*\|[[:space:]]*$' "$INSIGHTS" 2>/dev/null | cut -d'|' -f4 | cut -d/ -f1 | tr -d ' ' | sort | uniq -c | awk '$1 >= 3' | ind
 echo "## Compound: the insights waiting for a decision (step 3b)"
-sh "$CLAUDUCTOR_FW"/compound.sh 2>&1 | ind
+sh "$STRIDAL_FW"/compound.sh 2>&1 | ind
 echo "- ADRs not yet Accepted:"
 ( grep -iE '\| (Proposed|Draft)' "$ADR_DIR/README.md" 2>/dev/null || echo "none" ) | ind
 echo "- Owner queue:"
-sh "$CLAUDUCTOR_FW"/owner-queue.sh 2>&1 | ind
+sh "$STRIDAL_FW"/owner-queue.sh 2>&1 | ind
 echo "- Lane worktrees:"
 sh .claude/health/worktrees.sh 2>&1 | ind
 # OPS-9: how the work flowed and what this session cost, for the journal entry and the Done line.
-echo "- Flow: $(sh "$CLAUDUCTOR_FW"/metrics.sh --line --window 30d 2>&1)"
+echo "- Flow: $(sh "$STRIDAL_FW"/metrics.sh --line --window 30d 2>&1)"
 echo "- This session's cost (usage-report.sh: by role and model, at list price, this machine only):"
-sh "$CLAUDUCTOR_FW"/usage-report.sh 2>&1 | sed -n '1p; /^| /p; /^Total/p; /^UNPRICED/p; /^CANNOT CHECK/p' | ind
+sh "$STRIDAL_FW"/usage-report.sh 2>&1 | sed -n '1p; /^| /p; /^Total/p; /^UNPRICED/p; /^CANNOT CHECK/p' | ind
 # Sections the enabled modules and the local layer add (context.d/session-close/).
-sh "$CLAUDUCTOR_FW"/extensions.sh context session-close
+sh "$STRIDAL_FW"/extensions.sh context session-close

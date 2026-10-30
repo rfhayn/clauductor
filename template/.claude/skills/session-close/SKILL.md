@@ -168,8 +168,8 @@ rule 1); if no change owns it, creating one (a roadmap row, an issue) is part of
 - **A check that could not run learned nothing.** `gh` failing on expired auth is not "no open PRs".
 - **Close the lanes**: every build, proposal and fix lane is landed, handed off in the journal, or
   stopped, and the main checkout is back on `main`. For each panel lane whose pull request merged
-  and that is still open, run `clauductor lane close <id>` from the repository under a 10-minute
-  Bash timeout (`timeout: 600000`; the plan; skip this when `clauductor` is not on `PATH` or no
+  and that is still open, run `stridal lane close <id>` from the repository under a 10-minute
+  Bash timeout (`timeout: 600000`; the plan; skip this when `stridal` is not on `PATH` or no
   panel runs), trying first the id that is the folder name of the merged branch's worktree in
   `git worktree list`, and, when that id is unknown, the id the refusal's `id (branch)` list
   gives the merged branch; a dry run that times out changed nothing, and the final message names

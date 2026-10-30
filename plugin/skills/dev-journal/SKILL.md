@@ -15,7 +15,7 @@ per session.
 !`sh ${CLAUDE_PLUGIN_ROOT}/skills/dev-journal/context.sh`
 
 If the line above shows as literal text instead of output, this harness does not pre-execute it:
-run `clauductor-model skills/dev-journal/context.sh` yourself and read the result before step 1.
+run `stridal-model skills/dev-journal/context.sh` yourself and read the result before step 1.
 
 **Only a daily close writes here** (`session-close`, *Two forms*). A row's session writes its
 fragment instead, `<JOURNAL_FRAGMENTS>/<row id>.md` (`docs/journal.d/README.md`), and the close's
@@ -37,7 +37,7 @@ writing a second entry.
 
    **What happened.** 1–3 sentences, then bullets naming PRs by number.
    **Key decisions.** Bullets with the reason; whose decision it was if it was the owner's.
-   **Learning.** Non-obvious things found (each also logged with /clauductor:log-insight).
+   **Learning.** Non-obvious things found (each also logged with /stridal:log-insight).
    **What's next.** Where the next session picks up, naming the change or row that owns it.
    ```
 

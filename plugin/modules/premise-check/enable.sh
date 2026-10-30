@@ -1,10 +1,10 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # enable.sh: put the premise check into the panel's fix lane, so a fix starts from it.
 #
 #   sh .claude/modules/premise-check/enable.sh           add panel/fix-prompt.txt's sentence to the
 #                                                        first_prompt of every lane_type "fix"
-#                                                        template in .clauductor/panel.json
+#                                                        template in .stridal/panel.json
 #   sh .claude/modules/premise-check/enable.sh --check   ok / FAIL lines: is it there (checks/project.sh)
 #
 # The sentence names the command as a reader types it here (premise_command, lib/receipt.sh). A
@@ -15,9 +15,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=$(pwd)
 # shellcheck disable=SC1091
 . "$HERE/lib/receipt.sh"
-# The panel's config, named once: messages print $REL (checks/no-clauductor.sh reads every echo
+# The panel's config, named once: messages print $REL (checks/no-stridal.sh reads every echo
 # line that names the product for one that asks the user to install it).
-REL=.clauductor/panel.json
+REL=.stridal/panel.json
 PANEL="$ROOT/$REL"
 cmd=$(premise_command "$ROOT" "$HERE")
 line=$(sed "s|{cmd}|$cmd|" "$HERE/panel/fix-prompt.txt")

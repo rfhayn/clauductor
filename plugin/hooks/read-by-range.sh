@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # PreToolUse hook (matchers: Read, Bash). Refuses a call that puts more than 400 lines of one
 # file into the context at once: a Read with no offset/limit/pages of a file over 400 lines, or a
 # Bash `cat`, `sed -n` range, `head` or `tail` that prints over 400 lines into the result.

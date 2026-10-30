@@ -1,7 +1,7 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # What each panel lane template could start next, for the panel's New lane dialog
-# (`templates[].suggest` in .clauductor/panel.json; clauductor docs/panel.md, "Suggestions").
+# (`templates[].suggest` in .stridal/panel.json; stridal docs/panel.md, "Suggestions").
 #
 #   sh .claude/panel-suggest.sh build     queued change rows whose proposal is on main (CHANGES_DIR/<id>)
 #   sh .claude/panel-suggest.sh propose   the next queued change row with no proposal yet, or none
@@ -35,11 +35,11 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # A lane name must match [a-z0-9][a-z0-9-]{0,40}; a row that cannot be one is left out, not
 # mangled. A failure exits non-zero, so the panel says "cannot read" and keeps the last list.
 set -u
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/change.sh"
+. "$STRIDAL_FW/lib/change.sh"
 cd "$ROOT" || exit 1
 kind=${1:-}
 case "$kind" in build | propose | ops | fix | close) ;; *) echo "usage: panel-suggest.sh build|propose|ops|fix|close" >&2; exit 2 ;; esac
@@ -78,7 +78,7 @@ open=$(printf '%s\n' "$tsv" | awk -F'\t' '$7 == "queued" || $7 == "inflight" || 
 props=$(branch_proposals "$have $done_ids" "$open")
 branched=$(printf '%s\n' "$props" | awk -F'\t' 'NF { print $1 }' | tr '\n' ' ')
 waiting=$(printf '%s\n' "$props" | awk -F'\t' '$2 == "waiting" { print $1 }' | tr '\n' ' ')
-plan=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$tmp/roadmap.md") || { echo "panel-suggest: the Session plan could not be parsed" >&2; exit 1; }
+plan=$(sh "$STRIDAL_FW/roadmap-plan.sh" "$tmp/roadmap.md") || { echo "panel-suggest: the Session plan could not be parsed" >&2; exit 1; }
 printf '%s\n' "$tsv" > "$tmp/tsv"
 # The planned ids in the plan's order (the R records are printed in it), each once: a change
 # planned as its `(proposal)` and then its build keeps its first place.
@@ -88,7 +88,7 @@ printf '%s\n' "$plan" | awk -F'\t' '$1 == "R" && !seen[$2]++ { print $2 }' > "$t
 # though their rows stay queued until the daily close folds them. close waits for them; build and
 # ops never offer them again (OPS-126: OPS-125 was offered all through S11 after #222 merged).
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/fragments.sh"
+. "$STRIDAL_FW/lib/fragments.sh"
 mkdir -p "$tmp/frags"
 if git rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 && git cat-file -e "$ref:./$ROADMAP" 2>/dev/null; then
   for p in $(git ls-tree --name-only "$ref" "./$JOURNAL_FRAGMENTS/" 2>/dev/null); do

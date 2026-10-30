@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The artifacts module's merge-guard rule (Standing Tee's rule 8): a session CLOSE cannot land while
 # a core artifact is BEHIND its sources. BLOCKING. Run by pr-merge-guard.sh's extension loop with
 # GUARD_HEAD, GUARD_BRANCH and ROOT in the environment (.claude/local/README.md has the contract).
@@ -19,15 +19,15 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # A stamp clears a line: "refreshed: <what>" or "reviewed, no change: <why>" (currency.sh --stamp).
 # BOUNDED, AND FAILS CLOSED: the check runs under ARTIFACT_RULE_SECONDS (default 40, inside the
 # extension loop's own GUARD_RULE_TIMEOUT), and a check that is stopped, or cannot run, blocks.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/modules.sh"
+. "$STRIDAL_FW/lib/modules.sh"
 TOP=$ROOT
 # How a person runs the tool: the template's path, or the plugin's command.
 self=".claude/modules/artifacts/bin/currency.sh"
-case ${CLAUDUCTOR_FW:-} in '' | */.claude) run="sh $self" ;; *) run="clauductor-model modules/artifacts/bin/currency.sh" ;; esac
+case ${STRIDAL_FW:-} in '' | */.claude) run="sh $self" ;; *) run="stridal-model modules/artifacts/bin/currency.sh" ;; esac
 
 case ${GUARD_BRANCH:-} in
   "${BRANCH_OPS:-ops/}"session-[0-9]*-close*) ;;
@@ -35,7 +35,7 @@ case ${GUARD_BRANCH:-} in
 esac
 hd=${GUARD_HEAD:?the guard passes GUARD_HEAD}
 reg=${ARTIFACT_REGISTRY:-docs/artifacts.json}
-cur="$CLAUDUCTOR_FW/modules/artifacts/bin/currency.sh"
+cur="$STRIDAL_FW/modules/artifacts/bin/currency.sh"
 
 git -C "$TOP" cat-file -e "$hd^{commit}" 2>/dev/null \
   || { echo "cannot find the head $hd locally, so the core-artifact currency rule cannot be evaluated. Run: git fetch origin pull/${GUARD_PR:-<n>}/head" >&2; exit 2; }

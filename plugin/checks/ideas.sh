@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The ideas module (.claude/modules/ideas), tested whether a project turns it on or not: its
 # renderer, its project check, enable.sh, its context section and its wiring, each against a
 # throwaway project, never its own source. Ported from Standing Tee's ideas-render.test.ts, and
@@ -7,13 +7,13 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 . "$(dirname "$0")/lib.sh"
 need git jq
 
-MOD="$CLAUDUCTOR_FW/modules/ideas"
+MOD="$STRIDAL_FW/modules/ideas"
 d=$(scratch)
 R="$d/app"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/modules" "$R/.claude/checks" "$R/docs"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/checks/run.sh" "$CLAUDUCTOR_FW/checks/lib.sh" "$R/.claude/checks/"
-cp -R "$CLAUDUCTOR_FW/modules/artifacts" "$MOD" "$R/.claude/modules/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/checks/run.sh" "$STRIDAL_FW/checks/lib.sh" "$R/.claude/checks/"
+cp -R "$STRIDAL_FW/modules/artifacts" "$MOD" "$R/.claude/modules/"
 printf 'PROJECT_NAME="Demo"\nOWNER_ROLE="owner"\nOWNER_NAME=""\nMODULES="artifacts ideas"\n' > "$R/.claude/project.conf"
 RS="$R/.claude/modules/ideas/bin/render.sh"
 run() { sh "$RS" "$@"; }
@@ -220,7 +220,7 @@ grep -q '^Our own ideas skill\.$' "$R/.claude/skills/ideas/SKILL.md" && ok "enab
 has yes "not the ideas module's" "$out" "enable: ...saying why"
 (cd "$R" && sh .claude/modules/ideas/enable.sh --check >/dev/null 2>&1); expect_rc 1 $? "enable --check: a foreign skill fails"
 rm -rf "$R/.claude/skills/ideas"; mv "$d/skill.keep" "$R/.claude/skills/ideas"
-# From the plugin, the installed skill runs the tool through clauductor-model: held by the plugin's
+# From the plugin, the installed skill runs the tool through stridal-model: held by the plugin's
 # own TestPluginChecksPassInScaffoldedProject, which runs the plugin's enable.sh in a scaffolded
 # project (a copy in a project's .claude/, as here, is never the plugin's).
 git -C "$R" add -A >/dev/null && git -C "$R" commit -qm start

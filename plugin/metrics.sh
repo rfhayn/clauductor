@@ -1,12 +1,12 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # metrics.sh: flow, DORA, cost, quality and outcomes, as the panel's metrics JSON (OPS-9).
 #
 #   sh .claude/metrics.sh                     the JSON for 7d, 30d and 90d (the panel's metrics.command)
 #   sh .claude/metrics.sh --window 30d        one window (repeatable)
 #   sh .claude/metrics.sh --line              one health line from the 30d window (health/flow.sh, session-close)
 #
-# THE CONTRACT is the panel's (docs/panel.md in the clauductor repository, *Metrics*, version 1),
+# THE CONTRACT is the panel's (docs/panel.md in the stridal repository, *Metrics*, version 1),
 # read strictly and drawn whole or not at all: an unknown key, a negative number, a percent over
 # 100 or a count that is not an integer refuses the WHOLE payload. So this script prints only the
 # keys the contract names, rounds every figure, and never prints anything else on stdout.
@@ -31,12 +31,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 #
 # Units are the contract's: hours (median), merges per week, percent, US dollars, days.
 # Test seams: METRICS_NOW (unix seconds), CLAUDE_PROJECTS_DIR (transcripts), PATH (gh).
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 [ "${METRICS_DEBUG:-}" = 1 ] || exec 2>/dev/null
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/change.sh"
+. "$STRIDAL_FW/lib/change.sh"
 
 now=${METRICS_NOW:-$(date +%s)}
 windows="" line=""
@@ -170,7 +170,7 @@ fi
 
 # ── Cost (transcripts) ────────────────────────────────────────────────────────────────────
 usagenote=""
-if USAGE_NOW=$now sh "$CLAUDUCTOR_FW/usage-report.sh" --days "$maxdays" --records > "$tmp/usage.jsonl" 2> "$tmp/usage.err"; then :
+if USAGE_NOW=$now sh "$STRIDAL_FW/usage-report.sh" --days "$maxdays" --records > "$tmp/usage.jsonl" 2> "$tmp/usage.err"; then :
 else
   usagenote=$(sed -n 's/^CANNOT CHECK — //p' "$tmp/usage.jsonl" | head -1)
   [ -n "$usagenote" ] || usagenote="usage-report.sh failed"

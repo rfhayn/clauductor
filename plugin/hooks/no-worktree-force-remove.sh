@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # PreToolUse hook (matcher: Bash). Refuses a Bash call that runs `git worktree remove` with
 # `--force` or `-f` (any unique prefix of --force, or a short cluster containing f).
 #

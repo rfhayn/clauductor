@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The risk-register module's parts, whether it is on here or not, in a throwaway project:
 #   - the session-start section lists every live row as `R<n> <title> — gate <Gate> (<Issue>)`, and
 #     leaves out a row whose bold title holds ✅ (a ✅ elsewhere in the row keeps it live);
@@ -16,10 +16,10 @@ need git
 d=$(scratch)
 R="$d/p"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/checks" "$R/docs"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/extensions.sh" "$R/.claude/"
-cp "$CLAUDUCTOR_FW/checks/run.sh" "$CLAUDUCTOR_FW/checks/lib.sh" "$R/.claude/checks/"
-cp -R "$CLAUDUCTOR_FW/modules" "$R/.claude/modules"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/extensions.sh" "$R/.claude/"
+cp "$STRIDAL_FW/checks/run.sh" "$STRIDAL_FW/checks/lib.sh" "$R/.claude/checks/"
+cp -R "$STRIDAL_FW/modules" "$R/.claude/modules"
 conf() { printf '%s\n' "$@" > "$R/.claude/project.conf"; }
 ctx() { (cd "$R" && sh .claude/extensions.sh context session-start) 2>&1; }
 has() {  # has WANT(yes|no) TEXT HAYSTACK LABEL

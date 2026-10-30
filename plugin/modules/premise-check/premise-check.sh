@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # premise-check.sh: does an issue's write-up still match the code? Run it before fixing the issue.
 # A port to sh + jq + git (+ gh to read the issue) of Standing Tee's infra/premise-check.mjs, which
 # it replaces line for line: the same terms, the same report, the same receipt.
@@ -91,7 +91,7 @@ done
 TOP=$(git rev-parse --show-toplevel 2>"$W/gerr") || fault "git rev-parse --show-toplevel … failed: $(cat "$W/gerr")"
 ROOT=$TOP
 # shellcheck disable=SC1091
-[ -f "$CLAUDUCTOR_FW/lib/conf.sh" ] && . "$CLAUDUCTOR_FW/lib/conf.sh"
+[ -f "$STRIDAL_FW/lib/conf.sh" ] && . "$STRIDAL_FW/lib/conf.sh"
 DOC_DIRS=${PREMISE_DOC_DIRS-docs openspec}
 if [ -z "$ref" ]; then
   # The default is the tree a fix would branch from, so it must be CURRENT: a stale origin/main

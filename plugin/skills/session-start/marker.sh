@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # marker.sh: a row's session shows on GitHub from its first minute (OPS-108, the job OPS-102 had).
 #
 #   sh .claude/skills/session-start/marker.sh [<row id> [S<n>]]
@@ -22,12 +22,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../.." && pwd) # clauductor plugin: the plug
 # FAIL SOFT, ONCE. Session start never blocks and never asks: any failure prints ONE line starting
 # `marker: WARNING` and exits 0. A second run finds the marker on the open PR and adds nothing; an
 # open PR without one gets the marker put first in its body.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 
 warn() { echo "marker: WARNING — $*; the session goes on without a marker"; exit 0; }
-case ${1:-} in -*) warn "usage: sh "$CLAUDUCTOR_FW"/skills/session-start/marker.sh [<row id> [S<n>]]" ;; esac
+case ${1:-} in -*) warn "usage: sh "$STRIDAL_FW"/skills/session-start/marker.sh [<row id> [S<n>]]" ;; esac
 rowid=${1:-}; sn=${2:-}
 command -v gh >/dev/null 2>&1 || warn "gh is not installed"
 
@@ -46,7 +46,7 @@ summary=$(printf '%s\n' "$row" | cut -f10 | cut -c1-60 | sed 's/[[:space:]]*$//'
 branch=$(printf '%s\n' "$branches" | awk -F'\t' -v a="$rowid" '!got && $1 == a { print $2; got = 1 }')
 [ "$here" = "$branch" ] || warn "this checkout is on '$here', not row $rowid's branch '$branch'"
 
-if [ -z "$sn" ] && [ -f "$CLAUDUCTOR_FW/roadmap-plan.sh" ]; then
+if [ -z "$sn" ] && [ -f "$STRIDAL_FW/roadmap-plan.sh" ]; then
   # A plan that does not parse is a WARNING naming why (OPS-129), never a silent fall back to the
   # journal's count, which would stamp a session the plan never named.
   # An entry spanning sessions (`S15–S18`) names no one day: the journal's count below numbers
@@ -55,7 +55,7 @@ if [ -z "$sn" ] && [ -f "$CLAUDUCTOR_FW/roadmap-plan.sh" ]; then
   # exists here, else the proposal's. A proposal with no build planned yet names no session for
   # the build, so the journal's count below numbers it; with no proposal, any entry does.
   want=proposal; [ -f "$ROOT/$CHANGES_DIR/$(printf '%s\n' "$row" | cut -f5)/proposal.md" ] && want=""
-  plan=$(sh "$CLAUDUCTOR_FW/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>&1) || warn "the Session plan did not parse ($(printf '%s\n' "$plan" | head -1 | sed 's|^[^:]*/||'))"
+  plan=$(sh "$STRIDAL_FW/roadmap-plan.sh" "$ROOT/$ROADMAP" 2>&1) || warn "the Session plan did not parse ($(printf '%s\n' "$plan" | head -1 | sed 's|^[^:]*/||'))"
   sn=$(printf '%s\n' "$plan" | awk -F'\t' -v a="$rowid" -v w="$want" '$1 == "R" && $2 == a { s[$6] = $3 }
     END { v = (w in s) ? s[w] : (w == "proposal" ? s[""] : ""); if (v ~ /^S[0-9]+(\.[0-9]+)*$/) print v }')
 fi
@@ -71,7 +71,7 @@ marker="session-start: $sn $when row $rowid"
 # The cost so far: every message of THIS session (its agents included), from its first.
 cost="session-start cost: CANNOT CHECK — no CLAUDE_CODE_SESSION_ID in this shell"
 if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] && command -v jq >/dev/null 2>&1; then
-  if recs=$(sh "$CLAUDUCTOR_FW/usage-report.sh" --session "$CLAUDE_CODE_SESSION_ID" --records 2>&1) && [ -n "$recs" ]; then
+  if recs=$(sh "$STRIDAL_FW/usage-report.sh" --session "$CLAUDE_CODE_SESSION_ID" --records 2>&1) && [ -n "$recs" ]; then
     cost=$(printf '%s\n' "$recs" | jq -rs --arg now "$(date +%s)" '
       (map(.read + .write + .out) | add) as $t | (map(.ts) | min) as $first
       | "session-start cost: \($t) tokens, \((($now | tonumber) - $first) / 60 | floor) min"' 2>/dev/null) \

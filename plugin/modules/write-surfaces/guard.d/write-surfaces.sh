@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The write-surfaces module's merge-guard rule (ADVISORY, never blocking): a capability change
 # (a branch under BRANCH_CHANGE) that ADDS WRITE_SURFACE_MAX (default 4) or more write surfaces
 # (files matching WRITE_SURFACE_GLOBS: routes, screens, handlers) is told to consider splitting.
@@ -25,12 +25,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 set -f   # the globs are patterns for `case`, never for the shell to expand against files
 # Tested, not sourced blind: a `.` of a missing file ends the shell (not 0, not 2), which the guard
 # reads as a crashed rule and BLOCKS on; an advisory rule must say so instead.
-if [ ! -f "$CLAUDUCTOR_FW/lib/conf.sh" ]; then
+if [ ! -f "$STRIDAL_FW/lib/conf.sh" ]; then
   echo "CANNOT CHECK — cannot read the project's configuration (lib/conf.sh is missing), so write surfaces were not counted."
   exit 0
 fi
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 
 case $GUARD_BRANCH in "${BRANCH_CHANGE:-change/}"*) ;; *) exit 0 ;; esac
 if [ -z "${WRITE_SURFACE_GLOBS:-}" ]; then

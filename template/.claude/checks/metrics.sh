@@ -1,6 +1,6 @@
 #!/bin/sh
 # metrics.sh and usage-report.sh (OPS-9), falsified in a throwaway repository with a fake gh and
-# fake transcripts, against the panel's metrics contract (docs/panel.md in the clauductor
+# fake transcripts, against the panel's metrics contract (docs/panel.md in the stridal
 # repository, *Metrics*, version 1):
 #   the contract   a validator in jq of what the panel's parser refuses (an unknown key, another
 #                  version or window, a negative or non-finite number, a percent over 100, a count

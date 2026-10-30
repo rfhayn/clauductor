@@ -1,17 +1,17 @@
-# lease.sh: the gate lease protocol in plain POSIX shell, VENDORED VERBATIM from the clauductor
+# lease.sh: the gate lease protocol in plain POSIX shell, VENDORED VERBATIM from the stridal
 # repo, docs/panel.md, "The protocol in plain shell" (the block between the lease.sh markers).
-# run-local.sh uses it when `clauductor lock-run` is not installed, so a machine or CI without
-# clauductor still queues on the same lease as every panel lane. Do not edit it here: update it
-# from docs/panel.md. Clauductor's tests fail if this copy drifts from that block, and its
+# run-local.sh uses it when `stridal lock-run` is not installed, so a machine or CI without
+# stridal still queues on the same lease as every panel lane. Do not edit it here: update it
+# from docs/panel.md. Stridal's tests fail if this copy drifts from that block, and its
 # conformance suite runs against the block.
 
-# clauductor lease protocol v1 in plain POSIX shell: interoperates with
-# `clauductor lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
+# stridal lease protocol v1 in plain POSIX shell: interoperates with
+# `stridal lock-run`. Usage: lease_run <lockdir> <lane> <command> [args...]
 # Exit status: the command's; 75 if the wait was cancelled from the panel; 70
 # if the lease was taken away while the command ran. The holder writes a TTL
-# (CLAUDUCTOR_LEASE_TTL, default 600 s) and renews it every TTL/3; the command
-# gets CLAUDUCTOR_LEASE_NONCE, and `lease_verify` says whether it still holds.
-# 124 if the wait outlasted CLAUDUCTOR_LEASE_MAX_WAIT (default 7200 s; 0 = none).
+# (STRIDAL_LEASE_TTL, default 600 s) and renews it every TTL/3; the command
+# gets STRIDAL_LEASE_NONCE, and `lease_verify` says whether it still holds.
+# 124 if the wait outlasted STRIDAL_LEASE_MAX_WAIT (default 7200 s; 0 = none).
 # Liveness and start time need ps; without it, or where ps errors (a sandbox), kill -0 (EPERM still means alive)
 # and /proc/<pid>/stat field 22. A start time from one source is never compared
 # with one from the other, and an alive pid that cannot be verified is live. A zombie
@@ -113,12 +113,12 @@ lease_renew() {
   done
 }
 # lease_verify LOCK HOLDER_PID: 0 (true) when LOCK is still held for the command asking: owner.json
-# carries CLAUDUCTOR_LEASE_NONCE (lease_run exports it to its command), or, from a holder that
+# carries STRIDAL_LEASE_NONCE (lease_run exports it to its command), or, from a holder that
 # exports none (lock-run), names HOLDER_PID or one of its ancestors as pid or child_pid. A gate
 # asks before it records a pass: a run that lost its lease may have run beside another.
 lease_verify() {
   lease_valid "$1/owner.json" || return 1
-  if [ -n "${CLAUDUCTOR_LEASE_NONCE:-}" ]; then [ "$(lease_get "$1/owner.json" nonce)" = "$CLAUDUCTOR_LEASE_NONCE" ]; return; fi
+  if [ -n "${STRIDAL_LEASE_NONCE:-}" ]; then [ "$(lease_get "$1/owner.json" nonce)" = "$STRIDAL_LEASE_NONCE" ]; return; fi
   _vp=$(lease_get "$1/owner.json" pid) _vc=$(lease_get "$1/owner.json" child_pid) _va=${2:-} _vn=0
   while [ -n "$_va" ] && [ "$_va" != 0 ] && [ "$_vn" -lt 12 ]; do
     { [ "$_va" = "$_vp" ] || [ "$_va" = "$_vc" ]; } && return 0
@@ -133,15 +133,15 @@ lease_run() {
   _cmd=$(printf %s "$1" | tr -d '"\\')
   _w="$_lock.waiters" _nonce=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
   # The holder's TTL (default 600 s, lock-run's); renewed every TTL/3 while the command runs.
-  _ttl=${CLAUDUCTOR_LEASE_TTL:-600}; case $_ttl in '' | *[!0-9]*) _ttl=600 ;; esac
+  _ttl=${STRIDAL_LEASE_TTL:-600}; case $_ttl in '' | *[!0-9]*) _ttl=600 ;; esac
   mkdir -p "$_w"
   _rec="{\"v\":1,\"nonce\":\"$_nonce\",\"pid\":$$,\"pstart\":\"$(lease_pstart $$)\",\"host\":\"$(hostname)\",\"lane\":\"$_lane\",\"cmd\":\"$_cmd\",\"started\":$(date +%s),\"renewed\":$(date +%s),\"ttl\":$_ttl}"
   _me="$_w/$(date +%s)000000000-$_nonce.json"
   printf '%s\n' "$_rec" > "$_me.tmp" && mv "$_me.tmp" "$_me"
   trap 'rm -f "$_me" "$_w/$_nonce.cancel"' EXIT
-  # A wait is bounded (CLAUDUCTOR_LEASE_MAX_WAIT seconds, default 7200; 0 = none)
+  # A wait is bounded (STRIDAL_LEASE_MAX_WAIT seconds, default 7200; 0 = none)
   # and says every 30 s whom it waits for, so no wait is ever silent or endless.
-  _max=${CLAUDUCTOR_LEASE_MAX_WAIT:-7200}; case $_max in '' | *[!0-9]*) _max=7200 ;; esac
+  _max=${STRIDAL_LEASE_MAX_WAIT:-7200}; case $_max in '' | *[!0-9]*) _max=7200 ;; esac
   _said="" _t0=$(date +%s)
   while :; do
     if [ -e "$_w/$_nonce.cancel" ]; then echo "lease: wait cancelled from the panel" >&2; return 75; fi
@@ -160,7 +160,7 @@ lease_run() {
       lease_renew "$_lock" "$_nonce" "$_ttl" $$ </dev/null >/dev/null 2>&1 &
       _renewer=$!
       trap 'kill "$_renewer" 2>/dev/null || :; if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"; fi' EXIT
-      CLAUDUCTOR_LOCK_HELD=$_lock CLAUDUCTOR_LEASE_NONCE=$_nonce "$@" && _rc=0 || _rc=$?
+      STRIDAL_LOCK_HELD=$_lock STRIDAL_LEASE_NONCE=$_nonce "$@" && _rc=0 || _rc=$?
       kill "$_renewer" 2>/dev/null || :; wait "$_renewer" 2>/dev/null || :
       if [ "$(lease_get "$_lock/owner.json" nonce)" = "$_nonce" ]; then rm -rf "$_lock"
       else echo "lease: LOST $_lock while the command ran (another may have run beside it)" >&2; _rc=70; fi
@@ -184,7 +184,7 @@ lease_run() {
       echo "lease: still waiting (${_el}s) for $_lock: held by lane $(lease_get "$_o" lane), pid $(lease_get "$_o" pid) on $(lease_get "$_o" host), started $(lease_get "$_o" started), renewed $(lease_get "$_o" renewed), ttl $(lease_get "$_o" ttl)" >&2
     fi
     if [ "$_max" -gt 0 ] && [ "$_el" -ge "$_max" ]; then
-      echo "lease: gave up after ${_el}s (CLAUDUCTOR_LEASE_MAX_WAIT=$_max) waiting for $_lock, held by pid $(lease_get "$_lock/owner.json" pid) on $(lease_get "$_lock/owner.json" host). If that holder is gone and this machine cannot inspect it, remove the lock by hand: rm -rf '$_lock'" >&2
+      echo "lease: gave up after ${_el}s (STRIDAL_LEASE_MAX_WAIT=$_max) waiting for $_lock, held by pid $(lease_get "$_lock/owner.json" pid) on $(lease_get "$_lock/owner.json" host). If that holder is gone and this machine cannot inspect it, remove the lock by hand: rm -rf '$_lock'" >&2
       return 124
     fi
     sleep 1

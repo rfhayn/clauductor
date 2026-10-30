@@ -12,7 +12,7 @@ also removes `changes/<id>/` (`git rm -r`): the row and git history are its reco
 and not yet built. `${CLAUDE_PLUGIN_ROOT}/checks/changes.sh` fails a directory whose roadmap row is cancelled.
 
 **The fast path.** A diff that fits in one sentence (a typo, a bump, a one-line fix) gets no change
-directory: it goes to a `fix/` or `ops/` lane and `/clauductor:merge-pr`. A change is for what alters what a
+directory: it goes to a `fix/` or `ops/` lane and `/stridal:merge-pr`. A change is for what alters what a
 user can do.
 
 The format is OpenSpec's, written by hand with nothing installed; the optional OpenSpec module
@@ -27,7 +27,7 @@ every open change against the shape below.
 **Roadmap row:** <row id>
 **Risk:** low | normal | high
 **Budget:** $N                                         ← when the roadmap row has `Budget: $N`; `$N, soft` if the owner made it soft
-**Approval:** owner — <why>                            ← only when the owner keeps it (`/clauductor:propose` step 3a)
+**Approval:** owner — <why>                            ← only when the owner keeps it (`/stridal:propose` step 3a)
 
 ## Why
 <the problem, and why now>
@@ -46,9 +46,9 @@ every open change against the shape below.
 - **Check after:** <n> days          ← or: **Check on:** YYYY-MM-DD
 ```
 
-- **The approval covers the design as written.** `clauductor-model change-approval.sh <id> --record
+- **The approval covers the design as written.** `stridal-model change-approval.sh <id> --record
   "<owner>"` writes the Approved line with a hash of `design.md` and the Risk line, and only on the
-  owner's word; `--delegate "<owner>"` writes one by Claude where `/clauductor:propose` step 3a allows it. An
+  owner's word; `--delegate "<owner>"` writes one by Claude where `/stridal:propose` step 3a allows it. An
   edit to either afterwards voids it: the check fails until it is approved again (`--revoke`, then
   the owner's `--record`: `--revoke` keeps who approved in the Status line, and `--delegate`
   refuses a change approved before, whoever approved it).
@@ -62,7 +62,7 @@ every open change against the shape below.
   (outside a repository, as in a `GATE_CLEAN_ROOM="archive"` gate, a shallow clone, whose history
   stops at its depth, or a CI checkout without `origin/<main>`) a delegated approval does not hold. It is refused, and fails, too (OPS-131) for
   a change that touches `ADR_DIR` or `PRACTICES_DIR`; whose proposal has a line
-  `**Approval:** owner — <why>` (`/clauductor:propose` step 3a writes it for a change that is money, legal or
+  `**Approval:** owner — <why>` (`/stridal:propose` step 3a writes it for a change that is money, legal or
   business, outward, irreversible or needs the owner at the computer; any `Approval:` line counts,
   however it is marked up, in a list, a quote or the middle of a paragraph too, and so does one
   any version in its history holds: a proposal that ever said `owner approval: none` in prose goes
@@ -84,7 +84,7 @@ every open change against the shape below.
   ASCII and not a known space, dash, quote, bullet or arrow reads as nothing inside a word (an
   invisible or combining character, `Appro&#847;val:`) and as a colon outside one or right after
   `approval` or `risk` (`Approvalːowner`), so it refuses rather than miss a marker: the safe side.
-  Letters that only look Latin (a Cyrillic `А`) are not read: that is `/clauductor:propose` step 3a's
+  Letters that only look Latin (a Cyrillic `А`) are not read: that is `/stridal:propose` step 3a's
   judgment. The row is the one row of `origin/<main>`'s roadmap
   that names the change's id, and the proposal's `**Roadmap row:**` must be it: no such row, two of
   them, a proposal naming another, or a row that is not a line of the `| # | Change | … |` table (a
@@ -101,13 +101,13 @@ every open change against the shape below.
   (#272). It includes an earlier change's under the same id, so a new change takes a new id.
 - **The approval log** (OPS-131, #272) holds what a rewrite of the branch could take out of its
   history. `--record`, `--delegate` and `--revoke` each add a line to
-  `<git common dir>/clauductor/approvals.log` (`git rev-parse --git-common-dir`, outside every
+  `<git common dir>/stridal/approvals.log` (`git rev-parse --git-common-dir`, outside every
   branch and shared by every worktree of the clone), and `--delegate` refuses a change the log
   names, so a revoke made only on a branch still holds here after that branch is rewritten. A log
   the owner never started (missing, or holding no `start` or `record` line), or one that is
   unreadable or cannot be appended to, refuses too: a log that cannot vouch is not "never
   approved". The owner starts it once per clone, on their word,
-  `clauductor-model change-approval.sh --start-log "<owner>"`, or their first `--record` does. A
+  `stridal-model change-approval.sh --start-log "<owner>"`, or their first `--record` does. A
   `--revoke` the log cannot take still revokes, and exits 1 to say the log missed it. Three
   limits: the log is **per clone**, so another machine or a fresh clone does not see this one's
   revokes until they land on `origin/<main>`, where the history is firm; it keys on the change's
@@ -166,7 +166,7 @@ what happens instead) belongs here.
 - The last line states the slice, or `Slice: exempt — <reason>` for pure substrate.
   `pr-merge-guard` rule 3 refuses a change PR without it.
 - A build PR merges only with every task ticked (the Slice line aside): `pr-merge-guard` rule 9,
-  and `/clauductor:verify-change` before it.
+  and `/stridal:verify-change` before it.
 
 ## `specs/<capability>/spec.md`: deltas
 
@@ -181,7 +181,7 @@ What the change does to the living specs, in the same format they use (see `../s
 - **A change with no delta** (a refactor, tooling) says so: `changes/<id>/.openspec.yaml` with
   `skip_specs: true`. Archive refuses a change with neither.
 
-`/clauductor:archive-change` applies them to `specs/<capability>/spec.md`.
+`/stridal:archive-change` applies them to `specs/<capability>/spec.md`.
 
 ## Scenarios and their tests
 

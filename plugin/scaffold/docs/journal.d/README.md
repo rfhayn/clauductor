@@ -43,7 +43,7 @@ What did not go as expected, or `None.`
 - **Session** is the marker's (`session-start/marker.sh`, the row PR body's first line): the
   session plan's number and the time the session started, in `TIME_ZONE_LABEL`.
 - **Review**: the rounds run, the highest severity found (`critical`, `high`, `medium`, `low` or
-  `none`), and the cap (`clauductor-model review-cap.sh <row id>`). Past the cap, KNOWN LIMITS in the PR
+  `none`), and the cap (`stridal-model review-cap.sh <row id>`). Past the cap, KNOWN LIMITS in the PR
   names the owner.
 - **Gate**: the minutes of the last full gate before the fragment's commit. Review and Gate describe
   the runs BEFORE that commit: writing the fragment makes a new head, which the final gate's receipt

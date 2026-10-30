@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build-change',
   description: 'Build an approved change group by group: the builder implements, the quick gate runs, an independent reviewer reviews, fixes repeat until severity converges, then one commit per group, a full gate receipt and the verify step',
-  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: <rounds; default .claude/review-cap.sh\'s cap>, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>", overrideQuota?: true (the owner\'s call: start past a STOP from .claude/quota-gate.sh, with a warning; a resume only warns without it)}. A build lane runs no session-start orientation (its first prompt is this workflow): once its preflight passes, the run runs the row\'s one session-start step itself, clauductor-model skills/session-start/marker.sh (no arguments: it finds the branch\'s row and its session). The changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, write the row\'s fragment, docs/journal.d/<row id>.md (session-close, A row\'s close), check it with clauductor-model checks/run.sh journal, run the full gate on the new head, then push and run /merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
+  whenToUse: 'After the owner has approved a change (changes/<id>/ on main) and its change branch (BRANCH_CHANGE + id, .claude/project.conf) is checked out clean in its OWN worktree (the main checkout stays on main), with the session entered into that worktree and STAYING there, editing nothing, until the run returns (each agent takes the session cwd when it starts). args: {change: "<id>", groups?: [numbers], maxRounds?: <rounds; default .claude/review-cap.sh\'s cap>, resume?: <group>, session?: "<this session\'s id, for the Session: trailer>", reportTo?: "<session>", overrideQuota?: true (the owner\'s call: start past a STOP from .claude/quota-gate.sh, with a warning; a resume only warns without it)}. A build lane runs no session-start orientation (its first prompt is this workflow): once its preflight passes, the run runs the row\'s one session-start step itself, stridal-model skills/session-start/marker.sh (no arguments: it finds the branch\'s row and its session). The changes directory, branch prefix, gate, quick-gate flags (GATE_QUICK_FLAGS), attribution trailer and provenance come from the project (.claude/project-config.sh --json), and changesDir/branchPrefix/gate/quickFlags/attribution args override them for one run. On a stop, send the returned report.notify with PushNotification; on success, write the row\'s fragment, docs/journal.d/<row id>.md (session-close, A row\'s close), check it with stridal-model checks/run.sh journal, run the full gate on the new head, then push and run /merge-pr. Either way, send the owner every line of report.warnings with the outcome (an overrun of a soft budget is one: it warns, where a hard budget stops). When report.reportTo names a session (the one that asked for this build), SendMessage it every outcome, with every line of report.warnings, instead, and it notifies the owner, warnings included: on a stop, report.notify; on success, run merge-pr with the same reportTo, which sends the merged outcome. If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a subagent, else send it with PushNotification. Pass the same reportTo again on every rerun or resume: the run knows only its own args. Without the Workflow tool, use the apply-change skill instead.',
   phases: [
     { title: 'Preflight', detail: 'branch, clean tree, open task groups, the quota gate' },
     { title: 'Build', detail: 'the builder agent implements one group' },
@@ -33,7 +33,7 @@ const change = args && args.change
 if (!change) throw new Error('build-change needs args.change (the change id)')
 // The project's settings (changes directory, branch prefix, gate, attribution, provenance) are read
 // at run time from .claude/project-config.sh, in the Preflight phase below: a project that changes
-// one edits project.conf or model-roles.json, never this file, so `clauductor update` sees this file
+// one edits project.conf or model-roles.json, never this file, so `stridal update` sees this file
 // as the template's (OPS-8 rehearsal: attribution off meant editing it, and update flagged it forever).
 // The gate and its quick flags come from there too (GATE, GATE_QUICK_FLAGS), each overridable by args,
 // and so does gate-wait.sh's path (gateWait: beside GATE_RUN, or scripts/ci/ for a project's own runner).
@@ -66,7 +66,7 @@ const ECONOMY = {
   orient: { model: "sonnet", effort: "low" },
   mechanic: { model: "haiku", effort: "low" },
 };
-const ECONOMY_FILE = '~/.clauductor/panel/economy.json'
+const ECONOMY_FILE = '~/.stridal/panel/economy.json'
 const SESSION = args.session ? String(args.session) : 'build-change'
 
 // ── pure: begin ── (no agent, no state: .claude/checks/build-change.sh loads this block into node
@@ -161,7 +161,7 @@ const stuckReason = (rounds) => {
   }
   return null
 }
-// THE PROJECT'S SETTINGS, from the output of `clauductor-model project-config.sh --json`, with this run's
+// THE PROJECT'S SETTINGS, from the output of `stridal-model project-config.sh --json`, with this run's
 // args overriding. Returns {error} when the output is not that script's JSON: the run stops rather
 // than build on a guessed branch or commit with a guessed trailer.
 const projectSettings = (text, a) => {
@@ -211,8 +211,8 @@ const PREFLIGHT = {
     clean: { type: 'boolean' },
     gitDir: { type: 'string', description: 'verbatim output of git rev-parse --absolute-git-dir' },
     risk: { type: 'string', description: 'the value of proposal.md\'s **Risk:** line, verbatim; empty if there is none' },
-    reviewCap: { type: 'string', description: 'the verbatim output (stdout and stderr) of clauductor-model review-cap.sh <change> --why' },
-    quotaGate: { type: 'string', description: 'the verbatim output (stdout and stderr) of clauductor-model quota-gate.sh, then a last line "exit <its exit code>"' },
+    reviewCap: { type: 'string', description: 'the verbatim output (stdout and stderr) of stridal-model review-cap.sh <change> --why' },
+    quotaGate: { type: 'string', description: 'the verbatim output (stdout and stderr) of stridal-model quota-gate.sh, then a last line "exit <its exit code>"' },
     budgetUsd: { type: ['number', 'null'], description: 'budgetUsd from change-cost.sh --json, verbatim; null if it printed null or nothing' },
     budgetKind: { type: ['string', 'null'], description: 'budgetKind from change-cost.sh --json, verbatim (hard, soft, none or unreadable); null if it printed no budgetKind' },
     costUsd: { type: ['number', 'null'], description: 'costUsd from change-cost.sh --json; null if it could not check' },
@@ -234,7 +234,7 @@ const PREFLIGHT = {
 }
 const MARKER = {
   type: 'object',
-  properties: { marker: { type: 'string', description: 'the verbatim output (stdout and stderr) of clauductor-model skills/session-start/marker.sh' } },
+  properties: { marker: { type: 'string', description: 'the verbatim output (stdout and stderr) of stridal-model skills/session-start/marker.sh' } },
   required: ['marker'],
 }
 const BUILD = {
@@ -278,7 +278,7 @@ const reviewPrompt = (g, change, disputed) =>
   + (disputed.length ? REVIEW_DISPUTED + disputed.map((d) => `- ${d}`).join('\n') : '')
 // agentType last, so nothing a shared helper returns can turn the review into another agent's.
 const reviewSpawn = (g, change, disputed, round) =>
-  agent(PIN + reviewPrompt(g, change, disputed), { ...pick('reviewer'), label: `review:${g.n}#${round}`, phase: 'Review', schema: REVIEW, agentType: 'clauductor:reviewer' })
+  agent(PIN + reviewPrompt(g, change, disputed), { ...pick('reviewer'), label: `review:${g.n}#${round}`, phase: 'Review', schema: REVIEW, agentType: 'stridal:reviewer' })
 // </review-prompt>
 const COMMIT = {
   type: 'object',
@@ -318,7 +318,7 @@ const stop = (where, reason, kind = 'stop') => {
 // ── Preflight ──────────────────────────────────────────────────────────────────────────────────
 phase('Preflight')
 const settings = await agent(
-  `Repo root is the cwd. Run \`clauductor-model project-config.sh --json\` and return its stdout verbatim as output (if it fails, its error output). Change nothing; do not interpret it.`,
+  `Repo root is the cwd. Run \`stridal-model project-config.sh --json\` and return its stdout verbatim as output (if it fails, its error output). Change nothing; do not interpret it.`,
   { label: 'settings', phase: 'Preflight', schema: SETTINGS, ...ROLES.mechanic },
 )
 if (!settings) return stop('preflight', 'the settings agent returned nothing')
@@ -337,11 +337,11 @@ const pre = await agent(
 3. Parse ${CHANGES}/${change}/tasks.md: every heading of the form "## <n>. <title>" is a group; count its "- [ ]" lines as openTasks.
 4. \`git rev-parse --absolute-git-dir\` → gitDir, \`git rev-parse --path-format=absolute --git-common-dir\` → commonDir, \`git rev-parse --show-toplevel\` → toplevel. Copy each output verbatim.
 5. From ${CHANGES}/${change}/proposal.md: the value of the \`**Risk:**\` line → risk (verbatim, empty if absent).
-6. \`clauductor-model change-cost.sh ${change} --json\` → from the JSON it prints, whatever its exit code: costUsd, budgetUsd and budgetKind, each copied verbatim (null for any it does not print, all three null if it prints no JSON). Do not read the budget from proposal.md yourself.
+6. \`stridal-model change-cost.sh ${change} --json\` → from the JSON it prints, whatever its exit code: costUsd, budgetUsd and budgetKind, each copied verbatim (null for any it does not print, all three null if it prints no JSON). Do not read the budget from proposal.md yourself.
 7. \`cat ${ECONOMY_FILE} 2>/dev/null\` → economy: true only if that prints JSON whose "economy" is true; false otherwise (no file included).
 8. \`date +%Y-%m-%d\` → today.
-9. \`clauductor-model review-cap.sh ${change} --why 2>&1\` → reviewCap, verbatim, whatever its exit code.
-10. \`clauductor-model quota-gate.sh 2>&1; echo "exit $?"\` → quotaGate, its output verbatim with that last exit line, whatever the exit code.
+9. \`stridal-model review-cap.sh ${change} --why 2>&1\` → reviewCap, verbatim, whatever its exit code.
+10. \`stridal-model quota-gate.sh 2>&1; echo "exit $?"\` → quotaGate, its output verbatim with that last exit line, whatever the exit code.
 Read the files; do not infer.`,
   { label: 'preflight', phase: 'Preflight', schema: PREFLIGHT, ...ROLES.mechanic },
 )
@@ -411,7 +411,7 @@ const pick = (role) => {
   return { model: c.model, effort: c.effort }
 }
 const CHEAP = pick('mechanic')
-const BUILDER = { agentType: 'clauductor:builder', ...pick('builder') }
+const BUILDER = { agentType: 'stridal:builder', ...pick('builder') }
 const REVIEWER = pick('reviewer') // for the log line only: the review itself is spawned by reviewSpawn
 Object.assign(report, { risk: RISK, economy: ECONOMY_ON, budgetUsd: pre.budgetUsd, budgetKind: pre.budgetKind, costUsd: pre.costUsd })
 log(`Risk ${RISK}: builder ${BUILDER.model}/${BUILDER.effort}, reviewer ${REVIEWER.model}/${REVIEWER.effort}, mechanic ${CHEAP.model}/${CHEAP.effort}${ECONOMY_ON ? ' (economy mode)' : ''}`)
@@ -463,7 +463,7 @@ if (!todo.length) return stop('preflight', 'nothing to build: no open task group
 // (a WARNING, a shell error, a step the agent skipped) is the warning, never taken for a marker.
 const mk = await spawn(
   `Run this one step and report, changing nothing else:
-1. \`clauductor-model skills/session-start/marker.sh 2>&1\` (no arguments) → marker, its output verbatim, whatever its exit code. It may open or mark the row's draft PR.`,
+1. \`stridal-model skills/session-start/marker.sh 2>&1\` (no arguments) → marker, its output verbatim, whatever its exit code. It may open or mark the row's draft PR.`,
   { label: 'marker', phase: 'Preflight', schema: MARKER, ...CHEAP },
 )
 const markerLine = String((mk && mk.marker) || '').trim().split('\n').pop()
@@ -585,7 +585,7 @@ for (const g of todo) {
 
   // ── Commit (local only, never push) ──────────────────────────────────────────────────────────
   const c = await spawn(
-    `Commit the uncommitted work for task group ${g.n} of change "${change}". First: independent review of this group converged in ${entry.rounds.length} round(s), so if ${CHANGES}/${change}/tasks.md has a task UNDER GROUP ${g.n}'s OWN HEADING asking for a review of the group, tick it (never tick a task under another group's heading). Then append ONE line under "## Progress" in that tasks.md: "- ${pre.today} group ${g.n} (${g.title}) built and reviewed: converged in ${entry.rounds.length} round(s), peak ${(entry.rounds[entry.rounds.length - 1] || {}).peak || 'none'}; grades ${grades(entry)}". Then: ${REGISTER} Now every path the group touched is tracked, so \`git diff HEAD --name-status\` is the complete list of what will be committed: refuse and report if any path looks like a secret (.env*, *credentials*, *.pem, *.key). Stage with \`git add -u\` (tracked paths only, deletions included; never \`git add -A\` or \`.\`, never by name: a staged deletion's path no longer exists). If \`git diff HEAD\` is empty the group produced no file change: do not commit, and return committed=true with the current sha and problem="no changes". Commit message, imperative, via heredoc:\n\n${change}: task group ${g.n} — ${g.title}${trailers('builder')}\n\nDo NOT push. Report the new short sha from \`git rev-parse --short HEAD\`. Last, run \`clauductor-model change-cost.sh ${change} --json\` and report its costUsd (null if it is null or the script fails).`,
+    `Commit the uncommitted work for task group ${g.n} of change "${change}". First: independent review of this group converged in ${entry.rounds.length} round(s), so if ${CHANGES}/${change}/tasks.md has a task UNDER GROUP ${g.n}'s OWN HEADING asking for a review of the group, tick it (never tick a task under another group's heading). Then append ONE line under "## Progress" in that tasks.md: "- ${pre.today} group ${g.n} (${g.title}) built and reviewed: converged in ${entry.rounds.length} round(s), peak ${(entry.rounds[entry.rounds.length - 1] || {}).peak || 'none'}; grades ${grades(entry)}". Then: ${REGISTER} Now every path the group touched is tracked, so \`git diff HEAD --name-status\` is the complete list of what will be committed: refuse and report if any path looks like a secret (.env*, *credentials*, *.pem, *.key). Stage with \`git add -u\` (tracked paths only, deletions included; never \`git add -A\` or \`.\`, never by name: a staged deletion's path no longer exists). If \`git diff HEAD\` is empty the group produced no file change: do not commit, and return committed=true with the current sha and problem="no changes". Commit message, imperative, via heredoc:\n\n${change}: task group ${g.n} — ${g.title}${trailers('builder')}\n\nDo NOT push. Report the new short sha from \`git rev-parse --short HEAD\`. Last, run \`stridal-model change-cost.sh ${change} --json\` and report its costUsd (null if it is null or the script fails).`,
     { label: `commit:${g.n}`, phase: 'Commit', schema: COMMIT, ...CHEAP },
   )
   if (!c || !c.committed) return stop(`group ${g.n} commit`, (c && c.problem) || 'commit agent returned nothing')
@@ -627,7 +627,7 @@ if (!receipt || !receipt.passed) return stop('receipt', receipt ? receipt.failur
 // ── Verify (D7): read-only, so the receipt stays valid ────────────────────────────────────────────
 phase('Verify')
 const v = await spawn(
-  `Run \`clauductor-model verify-change.sh ${change}\` from the repo root. Change nothing. passed=true only if it exits 0. Quote its FAIL lines and its last line as output.`,
+  `Run \`stridal-model verify-change.sh ${change}\` from the repo root. Change nothing. passed=true only if it exits 0. Quote its FAIL lines and its last line as output.`,
   { label: 'verify', phase: 'Verify', schema: VERIFY, ...CHEAP },
 )
 report.verify = v ? { passed: v.passed, output: v.output } : null

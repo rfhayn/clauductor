@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Health: is each core artifact (ARTIFACT_REGISTRY) current with the sources it declares, at
 # origin/MAIN_BRANCH? One verdict line per artifact that is not, or one OK naming the commit.
 #
@@ -9,10 +9,10 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # control. Never degrades to silence: a check that cannot run prints CANNOT CHECK. Always exits 0.
 # Reads local refs only (session-start's context script fetches first), so CONTEXT_OFFLINE changes
 # nothing here.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
-cur="$CLAUDUCTOR_FW/modules/artifacts/bin/currency.sh"
+. "$STRIDAL_FW/lib/conf.sh"
+cur="$STRIDAL_FW/modules/artifacts/bin/currency.sh"
 reg=${ARTIFACT_REGISTRY:-docs/artifacts.json}
 
 out=$(sh "$cur" --root "$ROOT" 2>&1); rc=$?

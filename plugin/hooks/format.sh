@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # PostToolUse hook (matcher: Write|Edit). Formats the file Claude just wrote with the project's
 # formatter, so formatting never reaches review as a finding and never needs a sweeping
 # reformat commit.
@@ -12,12 +12,12 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # hook's output on exit 0 reaches only the debug log anyway. The gate's lint step is what
 # catches a file the formatter could not handle.
 
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # A `.` of a missing file is fatal with a shell-dependent status (dash exits 2): test first; without
 # the config there is no formatter configured.
-[ -f "$CLAUDUCTOR_FW/lib/conf.sh" ] || exit 0
+[ -f "$STRIDAL_FW/lib/conf.sh" ] || exit 0
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 [ -n "${FORMAT_CMD:-}" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # currency.sh: is each core artifact CURRENT with the sources it describes? One line per artifact in
 # the registry (ARTIFACT_REGISTRY, default docs/artifacts.json): OK, or BEHIND naming the authority
 # that changed and the commit that changed it. Plain sh, git and jq; no Node.
@@ -50,9 +50,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 #
 # Exit: 0 read (and, with --check, all OK); 1 --check found one not OK (or --lint a problem); 2 an
 # error (the registry or the revision cannot be read, a bad option), its reason on stderr.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/conf.sh"
 
 TAB=$(printf '\t')
 NL='
@@ -103,7 +103,7 @@ fi
 REG=${ARTIFACT_REGISTRY:-docs/artifacts.json}
 RM=${ROADMAP:-docs/roadmap.md}
 self=".claude/modules/artifacts/bin/currency.sh"
-case ${CLAUDUCTOR_FW:-} in '' | */.claude) STAMP_CMD="sh $self" ;; *) STAMP_CMD="clauductor-model modules/artifacts/bin/currency.sh" ;; esac
+case ${STRIDAL_FW:-} in '' | */.claude) STAMP_CMD="sh $self" ;; *) STAMP_CMD="stridal-model modules/artifacts/bin/currency.sh" ;; esac
 WALK_LIMIT=100
 if [ -n "$check" ]; then WALK_BUDGET=4; else WALK_BUDGET=12; fi
 start_s=$(date +%s)

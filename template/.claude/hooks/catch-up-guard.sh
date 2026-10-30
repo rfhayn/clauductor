@@ -1,6 +1,6 @@
 #!/bin/sh
 # Refuses a Bash git command that moves the main checkout (a pull, merge, rebase, reset, ...) while
-# the panel catches that checkout up (`clauductor panel catch-up --project <main>` exits 0 and prints
+# the panel catches that checkout up (`stridal panel catch-up --project <main>` exits 0 and prints
 # `on`). PreToolUse (Bash).
 #
 # WHY (OPS-138, #249 item 2). merge-pr step 5 leaves the main checkout to the panel with catch-up on:
@@ -42,7 +42,7 @@
 # checkout's (so its `.git` counts, and a lane's worktree does not). So a lane's own catch-up merge
 # (merge-pr step 2), in its worktree, or after a literal cd into it, runs.
 #
-# WHAT IS ASKED. Only clauductor knows whether catch-up is on. Without clauductor on PATH (the repo
+# WHAT IS ASKED. Only stridal knows whether catch-up is on. Without stridal on PATH (the repo
 # works without it: ADR-0006), or with any answer but `on` and exit 0, catch-up is off: the command
 # runs, and the hook says why on stderr. Without jq, or with a payload jq cannot read, the payload is
 # read raw, its quotes and backslashes dropped: a `git` word and a move word, refused while catch-up
@@ -76,9 +76,9 @@ MOVES='pull merge reset checkout switch rebase restore stash update-ref'
 MOVE_RE='(^|[^A-Za-z0-9_-])(pull|merge|reset|checkout|switch|rebase|restore|stash|update-ref|update-head-ok)([^A-Za-z0-9_-]|$)'
 GIT_RE='(^|[^A-Za-z0-9_-])git([^A-Za-z0-9_-]|$)'
 
-catch_up() {  # catch_up MAIN: 0 when the panel catches MAIN up, 2 with no clauductor to ask, else 1
-  command -v clauductor >/dev/null 2>&1 || return 2
-  _cu=$(clauductor panel catch-up --project "$1" 2>/dev/null) && [ "$_cu" = on ]
+catch_up() {  # catch_up MAIN: 0 when the panel catches MAIN up, 2 with no stridal to ask, else 1
+  command -v stridal >/dev/null 2>&1 || return 2
+  _cu=$(stridal panel catch-up --project "$1" 2>/dev/null) && [ "$_cu" = on ]
 }
 main_of() {  # main_of DIR: the main checkout of DIR's repository (merge-pr step 5), or exit 1
   git -C "$1" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p' | grep .
@@ -100,7 +100,7 @@ Command: $2
 EOF
     exit 2
   elif [ "$_rc" = 2 ]; then
-    echo "catch-up-guard: no clauductor on PATH, so catch-up counts as off for $1: allowed (merge-pr step 5)" >&2
+    echo "catch-up-guard: no stridal on PATH, so catch-up counts as off for $1: allowed (merge-pr step 5)" >&2
   else
     echo "catch-up-guard: catch-up is off for $1: allowed (merge-pr step 5 pulls it from the main checkout itself)" >&2
   fi

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # PreToolUse hook (matcher: Bash). The merge gate: `merge-pr` merges without waiting for a human
 # (AGENTS.md, "Who decides"), so this hook is the whole gate, not a backstop behind one. It polices
 # the merge ACTION, client-side, because server-side required status checks cannot see a local
@@ -69,13 +69,13 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #
 # Dependencies: jq and gh. Checked by .claude/checks/merge-guard.sh.
 
-ROOT_HOOK=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT_HOOK:-}" ] && echo "$ROOT_HOOK" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT_HOOK=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT_HOOK:-}" ] && echo "$ROOT_HOOK" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 ROOT=$ROOT_HOOK
 # A `.` of a missing file is fatal with a shell-dependent status, which Claude Code may read as
 # "allow": test first, and fall back to the defaults.
-if [ -f "$CLAUDUCTOR_FW/lib/conf.sh" ]; then
+if [ -f "$STRIDAL_FW/lib/conf.sh" ]; then
   # shellcheck disable=SC1091
-  . "$CLAUDUCTOR_FW/lib/conf.sh"
+  . "$STRIDAL_FW/lib/conf.sh"
 else
   MAIN_BRANCH=main JOURNAL=docs/development-journal.md INSIGHTS=docs/insights-log.md JOURNAL_FRAGMENTS=docs/journal.d CHANGES_DIR=changes BRANCH_CHANGE=change/ GATE_RUN=scripts/ci/run-local.sh GATE_REMOTE_WORKFLOW=
 fi
@@ -1067,7 +1067,7 @@ fi
 # Rules 9–12 — the change process, read at the head (lib/change-guard.sh). BLOCKING. The libraries
 # are tested for, not sourced blind: a `.` of a missing file exits non-2, which reads as "allow".
 cg_lib="$(dirname "$0")/lib/change-guard.sh"
-ch_lib="$CLAUDUCTOR_FW/lib/change.sh"
+ch_lib="$STRIDAL_FW/lib/change.sh"
 { [ -f "$cg_lib" ] && [ -f "$ch_lib" ]; } || block "cannot find $cg_lib or $ch_lib, so rules 9–12 (the change process) cannot be checked. Restore them."
 # A library that does not parse may define some functions and not others, and an undefined
 # function's empty output would read as "no reason to block": parse first, then prove each is there.
@@ -1077,7 +1077,7 @@ for f in "$ch_lib" "$cg_lib"; do sh -n "$f" 2>/dev/null || block "$f does not pa
 # CHANGES_LEGACY (lib/records.sh): a grandfathered change is not held to the change-record rules
 # this format added (rules 9–11, cg_legacy). Set but unreadable is refused: a silent strict or lax
 # reading would both be guesses.
-rec_lib="$CLAUDUCTOR_FW/lib/records.sh"
+rec_lib="$STRIDAL_FW/lib/records.sh"
 if [ -n "${CHANGES_LEGACY:-}" ]; then
   [ -f "$rec_lib" ] && sh -n "$rec_lib" 2>/dev/null || block "CHANGES_LEGACY is set but $rec_lib is missing or does not parse, so which changes are grandfathered cannot be told. Restore it."
   . "$rec_lib"
@@ -1156,7 +1156,7 @@ why=$(coauthor_why "$cmd" "$(printf '%s' "$payload" | jq -r '.cwd // empty')" "$
 # Rule 13 — a model choice rests on evidence (OPS-10). The evals library is tested for, parsed and
 # proved complete before use, exactly as the change libraries above: a missing function's empty
 # output would read as "no receipt needed".
-ev_lib="$CLAUDUCTOR_FW/lib/evals.sh"
+ev_lib="$STRIDAL_FW/lib/evals.sh"
 [ -f "$ev_lib" ] || block "cannot find $ev_lib, so rule 13 (eval receipts) cannot be checked. Restore it."
 sh -n "$ev_lib" 2>/dev/null || block "$ev_lib does not parse, so rule 13 cannot be checked. Run: sh -n $ev_lib"
 . "$ev_lib"
@@ -1187,7 +1187,7 @@ fi
 # Anything else blocks, FAIL CLOSED: a rule that does not parse, cannot start, crashes (exit 1),
 # or outlives GUARD_RULE_TIMEOUT seconds (default 60) never reads as "no reason to block". The
 # loader is tested for, not sourced blind; if it is missing while a guard.d exists, block.
-mod_lib="$CLAUDUCTOR_FW/lib/modules.sh"
+mod_lib="$STRIDAL_FW/lib/modules.sh"
 if [ -f "$mod_lib" ]; then
   sh -n "$mod_lib" 2>/dev/null || block "$mod_lib does not parse, so the extension rules (guard.d) cannot be found. Run: sh -n $mod_lib"
   . "$mod_lib"

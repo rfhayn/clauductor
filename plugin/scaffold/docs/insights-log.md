@@ -2,18 +2,18 @@
 
 Raw, non-obvious technical observations captured **during** the work: platform quirks, gotchas,
 trade-offs, debugging wins, guards that failed silently. Newest at the top. This is the intake
-tier; durable decisions get **promoted** from here (`/clauductor:log-insight` runs the check).
+tier; durable decisions get **promoted** from here (`/stridal:log-insight` runs the check).
 
 ## Promotion rules
 Routing follows *What this tier holds* in [`adr/README.md`](adr/README.md) and
 [`practices/README.md`](practices/README.md).
 - **A decision about the system** → a new ADR; **a lesson about how we work, with a mechanism** →
   a new practice record (`PRAC-NNNN`); or a dated amendment inside the record that already owns
-  the principle (`/clauductor:new-adr` asks which). Mark **every** row the record cites
+  the principle (`/stridal:new-adr` asks which). Mark **every** row the record cites
   `Promoted → ADR-NNNN` or `Promoted → PRAC-NNNN`, not only the one that prompted it.
 - **Already covered by an existing check** → `Instance of ADR-NNNN (check N)` (or `PRAC-NNNN`),
   or the sentence form. Nothing is written in the record.
-- **The compound step** (`session-close` step 3b, `clauductor-model compound.sh`): every Raw row gets a
+- **The compound step** (`session-close` step 3b, `stridal-model compound.sh`): every Raw row gets a
   decision (promote, mark an instance, or `Not promoted — <why>`). `checks/compound.sh` fails a row
   still Raw after `COMPOUND_MAX_SESSIONS` sessions (default 3).
 - **3+ rows of one shape** → a promotion candidate. Topic tags are typed by hand, so a real group

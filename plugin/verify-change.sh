@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # verify-change.sh: the verify step before a change merges (D7 of the change process). Read-only.
 #
 #   sh .claude/verify-change.sh <id> [--base <ref>]     exit 1 on any FAIL line
@@ -17,9 +17,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/." && pwd) # clauductor plugin: the plugin r
 # the repo (so were not judged): not a failure (a helper, a fixture), but the reviewer's first question.
 #
 # build-change runs it after the receipt, and merge-pr before it merges a change PR (step 2c).
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
-. "$CLAUDUCTOR_FW/lib/conf.sh"
-. "$CLAUDUCTOR_FW/lib/change.sh"
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+. "$STRIDAL_FW/lib/conf.sh"
+. "$STRIDAL_FW/lib/change.sh"
 
 id=${1:-}; [ -n "$id" ] || { echo "usage: verify-change.sh <change-id> [--base <ref>]" >&2; exit 64; }
 shift
@@ -36,11 +36,11 @@ fail() { echo "FAIL $*"; fails=$((fails + 1)); }
 # tasks and its diff still are: those claims are format-free.
 legacy=""
 # shellcheck disable=SC1091
-[ -f "$CLAUDUCTOR_FW/lib/records.sh" ] && . "$CLAUDUCTOR_FW/lib/records.sh" && change_is_legacy "$id" && legacy=1
+[ -f "$STRIDAL_FW/lib/records.sh" ] && . "$STRIDAL_FW/lib/records.sh" && change_is_legacy "$id" && legacy=1
 
 # 1. The approval.
 if [ -n "$legacy" ]; then ok "approval: grandfathered (CHANGES_LEGACY): approved before adoption, in the earlier format; not judged here"
-else out=$(sh "$CLAUDUCTOR_FW/change-approval.sh" "$id" 2>&1) && ok "approval: $out" || fail "approval: $out"; fi
+else out=$(sh "$STRIDAL_FW/change-approval.sh" "$id" 2>&1) && ok "approval: $out" || fail "approval: $out"; fi
 
 # 2. Every task ticked.
 open=$(open_tasks "$dir/tasks.md")
@@ -52,7 +52,7 @@ fi
 
 # 3. The scenarios.
 if [ -n "$legacy" ]; then ok "scenarios: grandfathered (CHANGES_LEGACY): not enforced until archived"
-else out=$(sh "$CLAUDUCTOR_FW/scenario-trace.sh" --check --change "$id" 2>&1) && ok "scenarios: $(printf '%s\n' "$out" | tail -1)" \
+else out=$(sh "$STRIDAL_FW/scenario-trace.sh" --check --change "$id" 2>&1) && ok "scenarios: $(printf '%s\n' "$out" | tail -1)" \
   || { fail "scenarios: $(printf '%s\n' "$out" | tail -1)"; printf '%s\n' "$out" | grep -E '^(MISSING|PENDING)' | sed 's/^/       /'; }
 fi
 

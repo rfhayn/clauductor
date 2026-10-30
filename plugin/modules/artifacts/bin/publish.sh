@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # publish.sh: the artifacts module's publishing half, the claude.ai copies of the docs/*.html pages.
 # On only with ARTIFACT_PUBLISH="claude.ai"; with "off" (the default) every mode says so and exits 0.
 #
@@ -13,10 +13,10 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # from a session's memory, and that needs no Node. Every other mode runs prep-artifact.mjs (Node),
 # because the copy's bytes are its record (prep-artifact.mjs says why). Without Node they say
 # CANNOT CHECK and exit 3, never a quiet nothing.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
-prep="$CLAUDUCTOR_FW/modules/artifacts/bin/prep-artifact.mjs"
+. "$STRIDAL_FW/lib/conf.sh"
+prep="$STRIDAL_FW/modules/artifacts/bin/prep-artifact.mjs"
 REG=${ARTIFACT_REGISTRY:-docs/artifacts.json}
 export ARTIFACT_REGISTRY="$REG"
 top=$ROOT

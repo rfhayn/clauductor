@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # fold.sh: session-close's fold turns the row fragments on main into one `## Session N` entry, moves
 # their insight rows to the log, sets each row's Status, and removes the fragments; and it changes
 # NOTHING when any part cannot be done (a malformed fragment, a log with no table, a taken number).
@@ -9,9 +9,9 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 S=$(scratch)
 setup() {  # a fresh fixture project, a git repo with two good fragments
   F="$S/proj"; rm -rf "$F"; mkdir -p "$F/.claude/lib" "$F/.claude/skills/session-close" "$F/docs/journal.d"
-  cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/fragments.sh" "$F/.claude/lib/" 2>/dev/null
-  cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$F/.claude/" 2>/dev/null
-  cp "$CLAUDUCTOR_FW/skills/session-close/fold.sh" "$F/.claude/skills/session-close/" 2>/dev/null
+  cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/fragments.sh" "$F/.claude/lib/" 2>/dev/null
+  cp "$STRIDAL_FW/roadmap-queue.sh" "$F/.claude/" 2>/dev/null
+  cp "$STRIDAL_FW/skills/session-close/fold.sh" "$F/.claude/skills/session-close/" 2>/dev/null
   cat > "$F/docs/roadmap.md" <<'EOF'
 ## Phase 1 — Now
 | # | Change | Scope | Deps | Status |
@@ -139,6 +139,6 @@ printf '%s\n' "$out" | head -1 | grep -qx 'fold (dry run): Session 5 from 2 frag
   && ok "fold: a dry run with no insight rows says 0 once and changes nothing" || fail "fold: dry run said: $(printf '%s\n' "$out" | head -2)"
 
 # The caller: a fold no close runs is not shipped (rule 3).
-grep -q 'session-close/fold\.sh' "$CLAUDUCTOR_FW/skills/session-close/SKILL.md" 2>/dev/null \
+grep -q 'session-close/fold\.sh' "$STRIDAL_FW/skills/session-close/SKILL.md" 2>/dev/null \
   && ok "session-close's SKILL.md runs the fold" || fail "session-close's SKILL.md does not run .claude/skills/session-close/fold.sh"
 finish

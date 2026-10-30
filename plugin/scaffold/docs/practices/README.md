@@ -28,7 +28,7 @@ How to route a lesson:
 
 ## Process
 1. Capture raw observations in the insights log during the work.
-2. Promote one with `/clauductor:new-adr`, which asks first whether it is a decision (ADR) or a practice
+2. Promote one with `/stridal:new-adr`, which asks first whether it is a decision (ADR) or a practice
    (PRAC): copy [`TEMPLATE.md`](TEMPLATE.md) to `NNNN-<kebab-title>.md`, or amend the record that
    owns the principle. Then retag **every** insights row it cites `Promoted → PRAC-NNNN`.
 3. Reference the record where it is enforced (a hook, a check, `AGENTS.md`'s table).

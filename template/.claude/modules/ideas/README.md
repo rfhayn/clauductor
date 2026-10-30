@@ -39,7 +39,7 @@ as it is. Everything in the repository is sh and jq: no Node.
 
 `.claude/checks/ideas.sh` tests the parts themselves whether the module is on or not.
 
-**The tool** (`bin/render.sh`; from the plugin, `clauductor-model modules/ideas/bin/render.sh`):
+**The tool** (`bin/render.sh`; from the plugin, `stridal-model modules/ideas/bin/render.sh`):
 
 | Call | Does |
 |---|---|

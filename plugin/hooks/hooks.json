@@ -1,5 +1,5 @@
 {
-  "description": "Clauductor's operating-model hooks. Each runs only in a repository /clauductor:init set up (.claude/clauductor-plugin).",
+  "description": "Stridal's operating-model hooks. Each runs only in a repository /stridal:init set up (.claude/stridal-plugin).",
   "hooks": {
     "PostToolUse": [
       {

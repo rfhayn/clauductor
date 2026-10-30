@@ -1,9 +1,9 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # review-lane.sh sends a PR to the lighter docs review only when every changed path is prose, and
 # to the full reviewer otherwise, including for an empty diff and a last path with no newline.
 . "$(dirname "$0")/lib.sh"
-L="$CLAUDUCTOR_FW/skills/merge-pr/review-lane.sh"
+L="$STRIDAL_FW/skills/merge-pr/review-lane.sh"
 lane() { printf "$2" | sh "$L" | awk '{print $2}' | tr -d ';'; }
 t() { [ "$(lane x "$2")" = "$1" ] && ok "$1: $3" || fail "want $1 for $3, got $(printf "$2" | sh "$L")"; }
 t docs 'docs/a.md\nREADME.md\n' "Markdown only"

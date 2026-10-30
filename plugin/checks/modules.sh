@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # The module interface and the local layer (lib/modules.sh, .claude/modules/README.md,
 # .claude/local/README.md), in a throwaway project with a fixture module and a local layer:
 #   - an ENABLED module's parts load at every point (health, context, skill fragments, conflict
@@ -10,7 +10,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #   - a section that fails or prints nothing says CANNOT CHECK, never nothing;
 #   - a failing module check fails checks/run.sh (so the run is not a silently shorter list).
 #   Those whole-set runs clear the CHECKS_* markers (lib.sh's unmarked), so each wraps itself in the
-#   no-clauductor environment as a real one does, never inheriting the run this check is inside.
+#   no-stridal environment as a real one does, never inheriting the run this check is inside.
 # Then this project's own modules: each shipped or vendored module's module.conf names its
 # directory, declares exactly the parts it has, and each script part parses under its #! line;
 # every module MODULES enables loads. The guard.d point is held by checks/merge-guard.sh.
@@ -20,10 +20,10 @@ need git
 d=$(scratch)
 R="$d/p"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/checks" "$R/.claude/health"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/extensions.sh" "$R/.claude/"
-cp "$CLAUDUCTOR_FW/checks/run.sh" "$CLAUDUCTOR_FW/checks/lib.sh" "$R/.claude/checks/"
-cp -R "$CLAUDUCTOR_FW/modules" "$R/.claude/modules"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/extensions.sh" "$R/.claude/"
+cp "$STRIDAL_FW/checks/run.sh" "$STRIDAL_FW/checks/lib.sh" "$R/.claude/checks/"
+cp -R "$STRIDAL_FW/modules" "$R/.claude/modules"
 printf 'echo "OK core health"\n' > "$R/.claude/health/core.sh"
 
 # part LAYER-DIR NAME: every point, each saying which layer it came from.
@@ -46,9 +46,9 @@ printf 'name="needy"\nrequires="demo"\nenables=""\n' > "$R/.claude/modules/needy
 
 conf() { printf '%s\n' "$@" > "$R/.claude/project.conf"; }
 ext() { (cd "$R" && sh .claude/extensions.sh "$@") 2>&1; }
-# inr SCRIPT: sh code run in the project with its config read. CLAUDUCTOR_FW names its .claude/ too:
+# inr SCRIPT: sh code run in the project with its config read. STRIDAL_FW names its .claude/ too:
 # the plugin build's copy of conf.sh finds its sibling libraries through it.
-inr() { (cd "$R" && ROOT="$R" CLAUDUCTOR_FW="$R/.claude" sh -c ". .claude/lib/conf.sh; $1") 2>&1; }
+inr() { (cd "$R" && ROOT="$R" STRIDAL_FW="$R/.claude" sh -c ". .claude/lib/conf.sh; $1") 2>&1; }
 has() {  # has WANT(yes|no) TEXT HAYSTACK LABEL
   case "$3" in *"$2"*) got=yes ;; *) got=no ;; esac
   [ "$got" = "$1" ] && ok "$4" || fail "$4 (looked for '$2'): $(printf '%s' "$3" | head -c 400)"
@@ -117,7 +117,7 @@ v=$(inr 'echo "$PROPOSALS $REVIEW_PAGE"')
 
 # roadmap.d: a rule over the parsed queue holds EVERY read (any mode, the front door too) while its
 # layer is on, and never while its module is off. The rule refuses any row owned by "Mallory".
-cp "$CLAUDUCTOR_FW/roadmap-queue.sh" "$R/.claude/"
+cp "$STRIDAL_FW/roadmap-queue.sh" "$R/.claude/"
 mkdir -p "$R/docs" "$R/.claude/modules/demo/roadmap.d"
 printf '## Phase 1 — one\n**Owner:** Mallory\n\n| # | Change | Scope | Deps | Status |\n|---|---|---|---|---|\n| 1.1 | `add-x` — x | x | — | ⬜ queued |\n' > "$R/docs/roadmap.md"
 printf '#!/bin/sh\nawk -F"\\t" '"'"'$9 == "Mallory" { print "row " $4 ": Mallory may own nothing"; bad = 1 } END { exit bad }'"'"'\n' > "$R/.claude/modules/demo/roadmap.d/no-mallory.sh"
@@ -170,8 +170,8 @@ mkdir -p "$R/.claude/local/roadmap.d"
 door=.claude/roadmap-queue
 printf '#!/bin/sh\ncat >/dev/null\nsh %s.sh --tsv > "$ROOT/inner.out" 2>&1\nexit 0\n' "$door" > "$R/.claude/local/roadmap.d/reads-queue.sh"
 sed -i.bak 's/Mallory/Ana/' "$R/docs/roadmap.md" && rm -f "$R/docs/roadmap.md.bak"
-. "$CLAUDUCTOR_FW/lib/modules.sh"
-v=$(cd "$R" && ROOT="$R" CLAUDUCTOR_FW="$R/.claude" with_timeout 60 sh -c '. .claude/lib/conf.sh; roadmap_queue --check' 2>&1; echo "rc=$?")
+. "$STRIDAL_FW/lib/modules.sh"
+v=$(cd "$R" && ROOT="$R" STRIDAL_FW="$R/.claude" with_timeout 60 sh -c '. .claude/lib/conf.sh; roadmap_queue --check' 2>&1; echo "rc=$?")
 has yes "rc=0" "$v" "roadmap.d: a rule that reads the queue does not recurse (the outer read finishes)"
 has yes "a rule reads its rows on stdin, never the queue" "$(cat "$R/inner.out" 2>/dev/null)" "roadmap.d: ...its own read of the queue is refused by name"
 rm -rf "$R/.claude/local/roadmap.d" "$R/inner.out"
@@ -189,25 +189,25 @@ t=$(ext conflicts); has yes "CANNOT CHECK — this row of .claude/local/conflict
 
 # The hosts call the loader: the context scripts, every template skill's include line, and the
 # session-close table.
-grep -q 'extensions.sh health' "$CLAUDUCTOR_FW/skills/session-start/context.sh" && ok "session-start runs the health lines through extensions.sh" || fail "session-start/context.sh does not run extensions.sh health"
+grep -q 'extensions.sh health' "$STRIDAL_FW/skills/session-start/context.sh" && ok "session-start runs the health lines through extensions.sh" || fail "session-start/context.sh does not run extensions.sh health"
 # (Each path spelt out, not built from a loop variable: the plugin build rewrites literal paths.)
-grep -q "extensions.sh context session-start" "$CLAUDUCTOR_FW/skills/session-start/context.sh" && ok "session-start/context.sh prints the modules' and local layer's sections" || fail "session-start/context.sh does not run extensions.sh context session-start"
-grep -q "extensions.sh context session-close" "$CLAUDUCTOR_FW/skills/session-close/context.sh" && ok "session-close/context.sh prints the modules' and local layer's sections" || fail "session-close/context.sh does not run extensions.sh context session-close"
+grep -q "extensions.sh context session-start" "$STRIDAL_FW/skills/session-start/context.sh" && ok "session-start/context.sh prints the modules' and local layer's sections" || fail "session-start/context.sh does not run extensions.sh context session-start"
+grep -q "extensions.sh context session-close" "$STRIDAL_FW/skills/session-close/context.sh" && ok "session-close/context.sh prints the modules' and local layer's sections" || fail "session-close/context.sh does not run extensions.sh context session-close"
 # (The include lines are matched whatever path names extensions.sh: the plugin build rewrites it.)
-grep -qE '^!`sh [^ `]*extensions\.sh conflicts`$' "$CLAUDUCTOR_FW/skills/session-close/SKILL.md" && ok "session-close's conflict table includes the modules' and local layer's rows" || fail "session-close/SKILL.md has no conflicts include line"
-for sk in "$CLAUDUCTOR_FW"/skills/*/SKILL.md; do
+grep -qE '^!`sh [^ `]*extensions\.sh conflicts`$' "$STRIDAL_FW/skills/session-close/SKILL.md" && ok "session-close's conflict table includes the modules' and local layer's rows" || fail "session-close/SKILL.md has no conflicts include line"
+for sk in "$STRIDAL_FW"/skills/*/SKILL.md; do
   s=$(basename "$(dirname "$sk")")
   # The project's own skills, and the plugin's scaffolding skill (init), extend nothing; nor does a
   # whole skill a module ships (modules/<m>/skills/<s>/SKILL.md, installed by its enable.sh).
   case $s in architecture-audit | release-prep | init) continue ;; esac
-  ls "$CLAUDUCTOR_FW"/modules/*/skills/"$s"/SKILL.md >/dev/null 2>&1 && continue
+  ls "$STRIDAL_FW"/modules/*/skills/"$s"/SKILL.md >/dev/null 2>&1 && continue
   grep -qE "^!\`sh [^ \`]*extensions\\.sh fragments $s\`\$" "$sk" || fail "skill $s has no '!\`sh .claude/extensions.sh fragments $s\`' include line under ## Project steps"
 done
 [ "$_fails" -eq 0 ] && ok "every template skill includes its fragments"
 
 # This project's own modules.
-. "$CLAUDUCTOR_FW/lib/modules.sh"
-for md in "$CLAUDUCTOR_FW"/modules/*/; do
+. "$STRIDAL_FW/lib/modules.sh"
+for md in "$STRIDAL_FW"/modules/*/; do
   [ -d "$md" ] || continue
   m=$(basename "$md")
   [ -f "$md/module.conf" ] || { fail "module $m has no module.conf"; continue; }

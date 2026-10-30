@@ -18,7 +18,7 @@ gate_steps() {
 
   # The operating model's own checks: they hold the hooks, the roadmap, the ADRs and the model
   # roles to what AGENTS.md says. Plain sh + git + jq, so they run whatever your language.
-  step "process checks" sh scripts/ci/clauductor-model.sh checks/run.sh || return 1
+  step "process checks" sh scripts/ci/stridal-model.sh checks/run.sh || return 1
   [ "$mode" != docs ] || return 0
 
   # step "lint"      <your linter>        || return 1   # e.g. npm run lint · go vet ./... · ruff check .

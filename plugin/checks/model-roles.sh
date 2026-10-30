@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # A model or an effort is chosen in ONE place: .claude/model-roles.json. Everything that cannot
 # read that file restates it, and this check fails when any restatement disagrees:
 #   - every skill's and every agent's frontmatter `model:` and `effort:`;
@@ -7,7 +7,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 #   - .claude/workflows/build-change.js's ROLES, TIERS and ECONOMY tables and its ECONOMY_FILE,
 #     when the workflow exists (its attribution and provenance are read at run time from
 #     .claude/project-config.sh, so there is nothing to restate: checks/build-change.sh holds that);
-#   - .clauductor/panel.json `lane_types`, when the panel config exists.
+#   - .stridal/panel.json `lane_types`, when the panel config exists.
 # The sets are enumerated from the filesystem, not from the JSON (*Enumerate the authority*):
 # a skill directory the JSON forgot is a failure, and so is a JSON entry naming nothing.
 #
@@ -40,7 +40,7 @@ match() {
 }
 
 # ── Skills ─────────────────────────────────────────────────────────────────────────────
-for d in "$CLAUDUCTOR_FW"/skills/*/ "$ROOT"/.claude/skills/*/; do
+for d in "$STRIDAL_FW"/skills/*/ "$ROOT"/.claude/skills/*/; do
   [ -f "$d/SKILL.md" ] || continue
   s=$(basename "$d")
   r=$(role_of skills "$s")
@@ -49,12 +49,12 @@ for d in "$CLAUDUCTOR_FW"/skills/*/ "$ROOT"/.claude/skills/*/; do
   match skill "$s" "$d/SKILL.md" "$r"
 done
 for s in $(jq -r '.skills | keys[]' "$roles"); do
-  [ -f "$CLAUDUCTOR_FW/skills/$s/SKILL.md" ] || [ -f "$ROOT/.claude/skills/$s/SKILL.md" ] || fail "model-roles.json maps skill '$s', which does not exist"
+  [ -f "$STRIDAL_FW/skills/$s/SKILL.md" ] || [ -f "$ROOT/.claude/skills/$s/SKILL.md" ] || fail "model-roles.json maps skill '$s', which does not exist"
 done
 
 # ── Agents ─────────────────────────────────────────────────────────────────────────────
 known=" Read Grep Glob Edit Write MultiEdit NotebookEdit Bash BashOutput KillShell Skill Agent Task WebFetch WebSearch TodoWrite ReportFindings ${CHECK_EXTRA_TOOLS:-} "
-for f in "$CLAUDUCTOR_FW"/agents/*.md; do
+for f in "$STRIDAL_FW"/agents/*.md; do
   [ -f "$f" ] || continue
   a=$(basename "$f" .md)
   r=$(role_of agents "$a")
@@ -73,7 +73,7 @@ for f in "$CLAUDUCTOR_FW"/agents/*.md; do
   fi
 done
 for a in $(jq -r '.agents | keys[]' "$roles"); do
-  [ -f "$CLAUDUCTOR_FW/agents/$a.md" ] || fail "model-roles.json maps agent '$a', which does not exist"
+  [ -f "$STRIDAL_FW/agents/$a.md" ] || fail "model-roles.json maps agent '$a', which does not exist"
 done
 
 # ── Settings ───────────────────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ else
 fi
 
 # ── The build-change workflow's ROLES table ────────────────────────────────────────────
-wf="$CLAUDUCTOR_FW/workflows/build-change.js"
+wf="$STRIDAL_FW/workflows/build-change.js"
 if [ -f "$wf" ]; then
   # Lines of the form:   <role>: { model: "<m>", effort: "<e>" },
   rows=$(sed -n '/^const ROLES = {/,/^};/p' "$wf" | sed -nE 's/^[[:space:]]*"?([a-z-]+)"?:[[:space:]]*\{[[:space:]]*model:[[:space:]]*"([^"]*)",[[:space:]]*effort:[[:space:]]*"([^"]*)".*/\1 \2 \3/p')
@@ -169,7 +169,7 @@ if [ -f "$wf" ]; then
 fi
 
 # ── The panel's lane types ─────────────────────────────────────────────────────────────
-pj="$ROOT/.clauductor/panel.json"
+pj="$ROOT/.stridal/panel.json"
 if [ -f "$pj" ]; then
   for lane in $(jq -r '.lanes | to_entries[] | select(.key | startswith("_") | not) | .key' "$roles"); do
     r=$(jq -r --arg l "$lane" '.lanes[$l]' "$roles")
@@ -191,7 +191,7 @@ pb_table() {  # pb_table FILE: "<skill> <role>" per row of FILE's skills table
     | awk '/^[ \t]*<tr>/ { s = $0; gsub(/<\/t[dh]>/, "\t", s); gsub(/<[^>]*>/, "", s); n = split(s, c, "\t")
         for (i = 1; i <= n; i++) { gsub(/^[ \t]+|[ \t]+$/, "", c[i]) }
         if (n >= 3) printf "| `%s` | | %s |\n", c[1], c[n - 1]; next } { print }' \
-    | sed -nE 's/^\| `\/(clauductor:)?([a-z0-9-]+)` \|.*\| ([a-z-]+) \|$/\2 \3/p'
+    | sed -nE 's/^\| `\/(stridal:)?([a-z0-9-]+)` \|.*\| ([a-z-]+) \|$/\2 \3/p'
 }
 pb="$ROOT/$PLAYBOOK"
 [ -f "$pb" ] || fail "PLAYBOOK=$PLAYBOOK (.claude/project.conf) does not exist, so its skills table cannot be checked"
@@ -223,7 +223,7 @@ fi
 # directories (the authority), both directions: a suite whose role records nothing, and evidence
 # for a role with no suite. The receipt's hashes are pr-merge-guard rule 13's to hold, not this
 # check's: here a receipt is judged on its role, model, effort, completeness and thresholds.
-evlib="$CLAUDUCTOR_FW/lib/evals.sh"
+evlib="$STRIDAL_FW/lib/evals.sh"
 if [ ! -f "$evlib" ]; then
   fail "cannot find $evlib, so the eval evidence cannot be checked"
 else
@@ -259,7 +259,7 @@ else
   # The markers only protect what is between them. The review must not be reachable from outside:
   # a second reviewer spawn, the REVIEW schema or reviewSpawn used elsewhere in build-change.js would
   # change what the reviewer is in lines rule 13 does not hash.
-  wfr="$CLAUDUCTOR_FW/workflows/build-change.js"
+  wfr="$STRIDAL_FW/workflows/build-change.js"
   if [ -f "$wfr" ]; then
     outside=$(awk '
       { t = $0; sub(/^[ \t]+/, "", t) }

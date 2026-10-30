@@ -36,11 +36,11 @@ esac
 exit 0
 EOF
 chmod +x "$d/bin/gh"
-# PATH without clauductor, gitleaks or a real gh: the stub goes first where it is wanted.
+# PATH without stridal, gitleaks or a real gh: the stub goes first where it is wanted.
 # (A directory holding a real gh is kept: on Ubuntu that is /usr/bin, with sh in it. The stub goes
 # first, and "no gh" runs on a PATH of only the tools the publisher needs.)
 np=""; IFS_OLD=$IFS; IFS=:
-for p in $PATH; do [ -x "$p/clauductor" ] || [ -x "$p/gitleaks" ] && continue; np="$np${np:+:}$p"; done
+for p in $PATH; do [ -x "$p/stridal" ] || [ -x "$p/gitleaks" ] && continue; np="$np${np:+:}$p"; done
 IFS=$IFS_OLD
 
 # ── The publisher ───────────────────────────────────────────────────────────────────────
@@ -135,8 +135,8 @@ gate_steps() {
   fi
   step "unit" sh -c "[ ! -f '$ROOT/FAIL_UNIT' ]" || return 1
   if [ -f "$ROOT/STEAL_LEASE" ]; then
-    sed 's/"nonce":"[0-9a-f]*"/"nonce":"0123456789abcdef"/' "$CLAUDUCTOR_LOCK_HELD/owner.json" > "$CLAUDUCTOR_LOCK_HELD/x"
-    mv "$CLAUDUCTOR_LOCK_HELD/x" "$CLAUDUCTOR_LOCK_HELD/owner.json"
+    sed 's/"nonce":"[0-9a-f]*"/"nonce":"0123456789abcdef"/' "$STRIDAL_LOCK_HELD/owner.json" > "$STRIDAL_LOCK_HELD/x"
+    mv "$STRIDAL_LOCK_HELD/x" "$STRIDAL_LOCK_HELD/owner.json"
   fi
   return 0
 }
@@ -146,7 +146,7 @@ git -C "$R" add -A && git -C "$R" commit -qm init
 # The publisher's "is the commit on the remote" call is the stub's: it answers yes for any SHA.
 gate() {  # gate [ARGS]: the full gate in $R; status posts in $d/posts
   : > "$d/posts"; : > "$d/log"
-  (cd "$R" && PATH="$d/bin:$np" GH_LOG="$d/log" GH_POSTS="$d/posts" GH_FAIL= CI= CLAUDUCTOR_LANE=check bash "$RUN_REL" "$@") > "$d/out" 2>&1
+  (cd "$R" && PATH="$d/bin:$np" GH_LOG="$d/log" GH_POSTS="$d/posts" GH_FAIL= CI= STRIDAL_LANE=check bash "$RUN_REL" "$@") > "$d/out" 2>&1
 }
 st() { cut -d' ' -f1,2 "$d/posts"; }
 T=$(git -C "$R" rev-parse HEAD)

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # A record number is never taken twice, every record file has a row in its directory's index
 # (README.md), and every index row links a file that exists. The set is the directory (the
 # authority), not the index: a record the index forgot is the failure this exists to catch.
@@ -14,13 +14,13 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # is history, never reformatted: its heading may be any '# ADR NNNN' / '# ADR-NNNN' form and it may
 # lack the section. Falsified on fixtures shaped like an adopting project's ADR history.
 . "$(dirname "$0")/lib.sh"
-. "$CLAUDUCTOR_FW/lib/records.sh"
+. "$STRIDAL_FW/lib/records.sh"
 
 # ── Self-test ─────────────────────────────────────────────────────────────────────────────────────
 if [ -z "${ADR_SELFTEST:-}" ]; then
   mka() {  # mka NAME: a fixture project with three legacy ADRs (two heading forms, no Enforcement)
     F="$(scratch)/adr-$1"; A="$F/docs/adr"; mkdir -p "$F/.claude/checks" "$A"
-    cp -R "$CLAUDUCTOR_FW/lib" "$F/.claude/"; cp "$CLAUDUCTOR_FW/checks/lib.sh" "$CLAUDUCTOR_FW/checks/adr-numbering.sh" "$F/.claude/checks/"
+    cp -R "$STRIDAL_FW/lib" "$F/.claude/"; cp "$STRIDAL_FW/checks/lib.sh" "$STRIDAL_FW/checks/adr-numbering.sh" "$F/.claude/checks/"
     printf '# ADR NNNN: <Title>\n' > "$A/TEMPLATE.md"
     printf '# ADR 0001: The product is multi-tenant\n\n- **Status**: Accepted\n- **Date**: 2026-07-11\n\n## Decision\nx\n' > "$A/0001-multi-tenant.md"
     printf '# ADR-0002 — A passing test is evidence of nothing until it has failed\n\n- **Status**: Accepted\n- **Date**: 2026-08-02\n\n## Decision\nx\n' > "$A/0002-passing-test.md"
@@ -83,7 +83,7 @@ if [ -z "${ADR_SELFTEST:-}" ]; then
   # new-adr's context numbers across both directories on origin/main: a practice record's number
   # is taken for an ADR too.
   mkp ctx; add_prac 0005 '# PRAC 0005: A practice' yes; mkdir -p "$F/.claude/skills/new-adr"
-  cp "$CLAUDUCTOR_FW/skills/new-adr/context.sh" "$F/.claude/skills/new-adr/"
+  cp "$STRIDAL_FW/skills/new-adr/context.sh" "$F/.claude/skills/new-adr/"
   new_repo "$F"; git -C "$F" add -A >/dev/null 2>&1; git -C "$F" commit -qm adopt >/dev/null 2>&1
   git -C "$F" update-ref "refs/remotes/origin/$MAIN_BRANCH" HEAD
   rm "$P/0005-practice.md"  # gone from the branch, still on origin/main

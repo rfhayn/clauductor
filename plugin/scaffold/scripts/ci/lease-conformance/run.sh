@@ -1,14 +1,14 @@
 #!/bin/sh
 # run.sh: the lease conformance kit's runner. Any implementation of the gate lease protocol (the
-# panel's `clauductor lock-run`, the template's lease.sh, a project's own gate-lock script) runs the
-# suite through it, from the project, with nothing of clauductor installed.
+# panel's `stridal lock-run`, the template's lease.sh, a project's own gate-lock script) runs the
+# suite through it, from the project, with nothing of stridal installed.
 #
 #   sh scripts/ci/lease-conformance/run.sh                    the template's lease.sh (../lease.sh)
 #   sh scripts/ci/lease-conformance/run.sh <impl> [args...]   your implementation, called as
 #                                       <impl> [args...] <lockdir> <lane> <command> [args...]
 #   sh scripts/ci/lease-conformance/run.sh --lock-env VAR <impl> [args...]
 #                                       one that takes its lock from $VAR (a gate wrapper):
-#                                       VAR=<lockdir> CLAUDUCTOR_LANE=<lane> <impl> [args...] <command>...
+#                                       VAR=<lockdir> STRIDAL_LANE=<lane> <impl> [args...] <command>...
 #   CASES="dead-pid cancel" sh …/run.sh …       some cases; `bash conformance.sh --list` names them all
 #
 # It first checks the suite is the one VERSION names (sha256 over conformance.sh and cases/): the
@@ -17,7 +17,7 @@
 here=$(cd "$(dirname "$0")" && pwd)
 
 # suite_sha: sha256 over "<sha256>  <path>" lines of conformance.sh and every file under cases/,
-# sorted by path in the C locale. The Go test in clauductor computes the same.
+# sorted by path in the C locale. The Go test in stridal computes the same.
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
 suite_sha() {
   (cd "$here" && { echo conformance.sh; find cases -type f; } | LC_ALL=C sort | while IFS= read -r f; do

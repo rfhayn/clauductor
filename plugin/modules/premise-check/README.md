@@ -46,13 +46,13 @@ that anyone read it.
    `PREMISE_REQUIRED_ON="fix/ hotfix/"`, `PREMISE_DOC_DIRS="docs openspec"` (the defaults are in
    `module.conf`).
 2. `sh .claude/modules/premise-check/enable.sh` adds one sentence to every panel fix lane's first
-   prompt (`.clauductor/panel.json`, from `panel/fix-prompt.txt`), so a fix lane starts from the
+   prompt (`.stridal/panel.json`, from `panel/fix-prompt.txt`), so a fix lane starts from the
    check. Without a panel there is nothing to do. jq rewrites the file, so its layout becomes jq's.
 3. `sh .claude/checks/run.sh premise-check:project` checks the wiring: the script reports on this
    project, the rule parses, and every fix lane runs the check.
 
-With the clauductor plugin the module lives in the plugin, not in the repository: run it through
-`sh scripts/ci/clauductor-model.sh modules/premise-check/premise-check.sh <issue>`; the guard's
+With the stridal plugin the module lives in the plugin, not in the repository: run it through
+`sh scripts/ci/stridal-model.sh modules/premise-check/premise-check.sh <issue>`; the guard's
 message and `enable.sh` name that form.
 
 ## Tested

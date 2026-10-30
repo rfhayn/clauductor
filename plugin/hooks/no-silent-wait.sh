@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Refuses to let unattended work stop on a wait that will wake nobody. One script, registered for
 # six events and keyed by the payload's hook_event_name:
 #   PreToolUse (Bash)             refuses a subagent's or teammate's shell `&` (nothing tracks it)
@@ -46,7 +46,7 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin 
 # SubagentStart adds one, an allowed SubagentStop removes it, TeammateIdle adds a teammate.
 #
 # THE RECORD lives in the git common dir (every worktree shares it), per session:
-# <common dir>/clauductor-wait/<session_id>/{agents,tasks,refusals,ended}/<agent_id>; outside a git
+# <common dir>/stridal-wait/<session_id>/{agents,tasks,refusals,ended}/<agent_id>; outside a git
 # repository, under TMPDIR. Another session's records untouched for two days are pruned. ended/ is
 # written by an allowed SubagentStop: what a launcher waiting on that agent waits for.
 #
@@ -139,7 +139,7 @@ fi
 
 common=$(git -C "${CLAUDE_PROJECT_DIR:-.}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
   || common="${TMPDIR:-/tmp}"
-BASE="$common/clauductor-wait"
+BASE="$common/stridal-wait"
 STATE="$BASE/$sid"
 MAX=${NO_SILENT_WAIT_MAX_REFUSALS:-20}
 case $MAX in ''|*[!0-9]*) MAX=20 ;; esac

@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/../../.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # Health: does every docs/*.html page's claude.ai copy match origin/MAIN_BRANCH (the publishing half,
 # ARTIFACT_PUBLISH="claude.ai")? One verdict line per page that needs action, or one OK.
 #
@@ -7,10 +7,10 @@ CLAUDUCTOR_FW=$(cd "$(dirname "$0")/../../.." && pwd) # clauductor plugin: the p
 # executors are skill steps (the module's session-start and merge-pr fragments publish; session-close
 # records). With ARTIFACT_PUBLISH=off there is nothing to check, and the line says so. Never degrades
 # to silence: Node missing, no origin ref, or an unreadable registry prints CANNOT CHECK. Exit 0.
-ROOT=$(case $CLAUDUCTOR_FW in (*/.claude) dirname "$CLAUDUCTOR_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
+ROOT=$(case $STRIDAL_FW in (*/.claude) dirname "$STRIDAL_FW" ;; (*) [ -n "${ROOT:-}" ] && echo "$ROOT" || git rev-parse --show-toplevel 2>/dev/null || pwd ;; esac)
 # shellcheck disable=SC1091
-. "$CLAUDUCTOR_FW/lib/conf.sh"
-pub="$CLAUDUCTOR_FW/modules/artifacts/bin/publish.sh"
+. "$STRIDAL_FW/lib/conf.sh"
+pub="$STRIDAL_FW/modules/artifacts/bin/publish.sh"
 case ${ARTIFACT_PUBLISH:-off} in
   off) echo "OK — not applicable: ARTIFACT_PUBLISH=off, so no claude.ai copy is published or checked"; exit 0 ;;
 esac

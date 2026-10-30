@@ -1,7 +1,7 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # metrics.sh and usage-report.sh (OPS-9), falsified in a throwaway repository with a fake gh and
-# fake transcripts, against the panel's metrics contract (docs/panel.md in the clauductor
+# fake transcripts, against the panel's metrics contract (docs/panel.md in the stridal
 # repository, *Metrics*, version 1):
 #   the contract   a validator in jq of what the panel's parser refuses (an unknown key, another
 #                  version or window, a negative or non-finite number, a percent over 100, a count
@@ -119,9 +119,9 @@ case "$(validate "$d/two.json")" in *"2 values"*) ok "contract: the validator re
 # ── A repository with history, change records and a roadmap ─────────────────────────────────
 R="$d/app"; new_repo "$R"; R=$(cd "$R" && pwd -P)
 mkdir -p "$R/.claude/lib" "$R/changes/archive" "$R/docs"
-cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/change.sh" "$CLAUDUCTOR_FW/lib/usage.sh" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/lib/usage-contributors.jq" "$R/.claude/lib/"
-cp "$CLAUDUCTOR_FW/metrics.sh" "$CLAUDUCTOR_FW/usage-report.sh" "$CLAUDUCTOR_FW/roadmap-queue.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
+cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/change.sh" "$STRIDAL_FW/lib/usage.sh" "$R/.claude/lib/"
+cp "$STRIDAL_FW/lib/usage-contributors.jq" "$R/.claude/lib/"
+cp "$STRIDAL_FW/metrics.sh" "$STRIDAL_FW/usage-report.sh" "$STRIDAL_FW/roadmap-queue.sh" "$ROOT/.claude/model-roles.json" "$R/.claude/"
 printf 'PROJECT_NAME="Fixture"\n' > "$R/.claude/project.conf"
 # A fixture step that fails is a FAIL naming the step and git's words, never a figure that comes out
 # wrong further down: a lost commit once surfaced only as a branch missing from aging WIP (#62).

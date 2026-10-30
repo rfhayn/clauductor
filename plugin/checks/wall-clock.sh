@@ -1,5 +1,5 @@
 #!/bin/sh
-CLAUDUCTOR_FW=$(cd "$(dirname "$0")/.." && pwd) # clauductor plugin: the plugin root (framework/internal/plugin)
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
 # No unmarked `date +%s` clock read in a check (OPS-168). A check that times a case and asserts a
 # bound guessed at a machine's pace passes on an idle laptop and fails a loaded gate with nothing
 # wrong: living-visuals.sh's "the stopped command took 5s" under nine lanes. The bound a check
@@ -115,15 +115,15 @@ out=$(cd "$d" && scan ./good.sh)
 for c in "-:7:7" "1:7:7" "2:7:14" "1.5:7:11" "1.05:10:11" "1.1:50:55" "+2:7:14" "1e1:2:20" \
   "0.5:7:7" "-3:7:7" "0:7:7" "2x:7:7" "x2:7:7" "abc:7:7" ":7:7" "inf:7:7" "Inf:7:7" "nan:7:7" "1e400:7:7"; do
   f=${c%%:*} r=${c#*:}; s=${r%%:*} w=${r#*:}
-  if [ "$f" = - ]; then got=$(unset CLAUDUCTOR_TEST_SLOW; slow "$s"); f=unset; else got=$(CLAUDUCTOR_TEST_SLOW=$f slow "$s"); fi
-  [ "$got" = "$w" ] && ok "slow $s with CLAUDUCTOR_TEST_SLOW=$f is $w" || fail "slow $s with CLAUDUCTOR_TEST_SLOW=$f is '$got', want $w"
+  if [ "$f" = - ]; then got=$(unset STRIDAL_TEST_SLOW; slow "$s"); f=unset; else got=$(STRIDAL_TEST_SLOW=$f slow "$s"); fi
+  [ "$got" = "$w" ] && ok "slow $s with STRIDAL_TEST_SLOW=$f is $w" || fail "slow $s with STRIDAL_TEST_SLOW=$f is '$got', want $w"
 done
 # wait_for looks once more after its deadline, as testwait.For does: a condition first true on that
 # look counts, one true only on the look after it does not. Ten ticks at 1 s, so 11 looks.
 looks() { _lk=$((_lk + 1)); [ "$_lk" -ge "$want_look" ]; }
 for c in "11:0" "12:1"; do
   want_look=${c%%:*} _lk=0
-  (unset CLAUDUCTOR_TEST_SLOW; wait_for 1 looks); rc=$?
+  (unset STRIDAL_TEST_SLOW; wait_for 1 looks); rc=$?
   expect_rc "${c#*:}" "$rc" "wait_for 1 with the condition first true on look $want_look (the 11th is after the deadline)"
 done
 _lk=0 want_look=1; wait_for 1 looks && [ "$_lk" = 1 ] && ok "wait_for returns on the first look that holds" || fail "wait_for took $_lk looks for a condition true on the first"
@@ -133,7 +133,7 @@ _lk=0 want_look=1; wait_for 1 looks && [ "$_lk" = 1 ] && ok "wait_for returns on
 # this file: red. The copy runs with WALL_CLOCK_INNER=1, which skips this case, so it never recurses.
 if [ -z "${WALL_CLOCK_INNER:-}" ]; then
   P="$d/proj"; mkdir -p "$P/.claude/checks" "$P/.claude/lib" "$P/.claude/local/checks"
-  cp "$CLAUDUCTOR_FW/lib/conf.sh" "$CLAUDUCTOR_FW/lib/modules.sh" "$P/.claude/lib/"
+  cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/modules.sh" "$P/.claude/lib/"
   cp "$(dirname "$0")/lib.sh" "$0" "$P/.claude/checks/"
   printf 't=$(%s)\n' "da""te +""%s" > "$P/.claude/local/checks/late.sh"
   out=$(cd "$P" && WALL_CLOCK_INNER=1 ROOT="$P" sh ".claude/checks/${0##*/}" 2>&1)
@@ -146,8 +146,8 @@ fi
 # as a project's .claude/checks/), and ext_files' extension checks.
 here=$(cd "$(dirname "$0")" && pwd)
 set -- "$here"/*.sh
-if [ -f "$CLAUDUCTOR_FW/lib/modules.sh" ]; then
-  . "$CLAUDUCTOR_FW/lib/modules.sh"
+if [ -f "$STRIDAL_FW/lib/modules.sh" ]; then
+  . "$STRIDAL_FW/lib/modules.sh"
   ext_files checks .sh | cut -f2 > "$d/ext"
   while IFS= read -r f; do set -- "$@" "$f"; done < "$d/ext"
 fi
