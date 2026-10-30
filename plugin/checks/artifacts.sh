@@ -348,9 +348,9 @@ for b in ops/session-93-close-addendum ops/session-94-close-2; do expect_rc 2 "$
 gd 2 ops/session-9-close "$HD" "FAILS CLOSED when the check cannot finish in time" ARTIFACT_RULE_SECONDS=0
 grep -q 'did not finish within 0 s' "$d/err" && ok "guard rule: ...and says it was stopped" || fail "guard timeout text: $(head -3 "$d/err")"
 # Stopped mid-run, past currency.sh's start: a TERM that lands while a command runs in the
-# foreground, as the budget's does on a slow check. The rule is run on its own (the hook's own jq
-# calls would be stopped too). Falsified by a TERM trap that exits 2: the block then reads "could
-# not run", not "did not finish".
+# foreground, as the budget's does on a slow check. The rule is run on its own, so the status it
+# maps is currency.sh's alone (the hook's own budget, GUARD_RULE_TIMEOUT, does not enter). Falsified
+# by a TERM trap that exits 2: the block then reads "could not run", not "did not finish".
 # The TERM is the case's, not the budget's (the 0 s case above proves the budget stops the check;
 # with_timeout sends that stop as a TERM, lib/modules.sh): the first jq once currency.sh has
 # started sends it to currency.sh's shell, whose pid a pass-through sh records, and the budget is
