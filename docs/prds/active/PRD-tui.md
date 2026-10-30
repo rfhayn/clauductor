@@ -86,7 +86,7 @@ gate lease's holder. Needs-you rows sort first, then running, finished unread, i
 | `↵` | open the selected session's detail |
 | `n` | jump to the next session that needs the owner |
 | `f` | cycle the state filter (all, needs you, running, finished unread, idle) |
-| `a` | attach to the selected lane's tmux session in place of the UI, returning here on detach (decision 3) |
+| `a` | attach to the selected lane's tmux session in place of the UI, returning here on detach (PANEL-62, decision 3) |
 | `?` | the key list, and the docs link (the README's until the site exists) |
 | `q` | quit; the engine keeps running |
 
