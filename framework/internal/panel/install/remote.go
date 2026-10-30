@@ -21,7 +21,7 @@ import (
 //	lanes  only the panel's lanes: each starts with `claude --remote-control`
 //	off    neither
 //
-// The choice is the machine's, kept in ~/.clauductor/panel/remote-control.json (a file
+// The choice is the machine's, kept in ~/.stridal/panel/remote-control.json (a file
 // of its own, so a panel of another version reading projects.json never meets a key
 // it does not know). An explicit remoteControlAtStartup, true or false, is the
 // user's own choice: install never asks over it and never changes it unless told to
@@ -166,7 +166,7 @@ func ChooseRemoteControl(o RemoteOptions) (string, error) {
 		}
 		fmt.Fprintf(out, "  Every new interactive Claude session on this Mac now connects to Remote Control.\n"+
 			"  To undo: remove the \"%s\" line from %s, or set it to false (or /config in claude,\n"+
-			"  \"Enable Remote Control for all sessions\"). A backup from before the panel's first change is %s.clauductor-panel.bak.\n", remoteKey, settings, settings)
+			"  \"Enable Remote Control for all sessions\"). A backup from before the panel's first change is %s.stridal-panel.bak.\n", remoteKey, settings, settings)
 	case RemoteLanes:
 		fmt.Fprintf(out, "Remote control: the panel's lanes start with `claude --remote-control` (recorded in %s).\n"+
 			"  Lanes started before keep running without it; restart one to connect it. settings.json is unchanged.\n", RemoteControlPath(o.Home))

@@ -197,7 +197,7 @@ func TestStallBusyLaneNever(t *testing.T) {
 	}
 }
 
-const gateQueue = `,"queues":[{"id":"gate","title":"Gate","lock":"clauductor/gate.lock"}]`
+const gateQueue = `,"queues":[{"id":"gate","title":"Gate","lock":"stridal/gate.lock"}]`
 
 func gateHeld(lane string, alive bool) []types.QueueView { return gateRun(lane, "n-"+lane, alive) }
 

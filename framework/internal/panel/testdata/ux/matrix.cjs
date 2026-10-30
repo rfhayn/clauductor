@@ -38,7 +38,7 @@ const pw = L.loadPlaywright();
 const args = process.argv.slice(2);
 const opt = (name, d) => { const i = args.indexOf("--" + name); return i >= 0 ? args[i + 1] : d; };
 const R = L.run(args[0] && !args[0].startsWith("--") ? args[0] : null);
-const out = path.resolve(opt("out", path.join(require("os").tmpdir(), "clauductor-ux-out", "matrix-" + R.runid)));
+const out = path.resolve(opt("out", path.join(require("os").tmpdir(), "stridal-ux-out", "matrix-" + R.runid)));
 const areas = opt("areas", "views,appearance,sizes").split(",");
 const full = args.includes("--full");
 const VIEWPORTS = opt("viewports", "1280x800,1440x900,1920x1080,2000x900,2560x1440,900x800").split(",").map((s) => { const [w, h] = s.split("x").map(Number); return { width: w, height: h }; });

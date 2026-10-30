@@ -11,7 +11,7 @@ import (
 // is off, as is every root while the file is absent; turning a root off keeps the
 // others; the file is written private, and turning off a root never listed writes no
 // file. A test of the part cites no scenario: the CLI test TestPanelCatchUpPerProject
-// drives the per-project switch through `clauductor panel catch-up`.
+// drives the per-project switch through `stridal panel catch-up`.
 func TestCatchUpRecordedPerRoot(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

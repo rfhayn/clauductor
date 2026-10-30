@@ -96,7 +96,7 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 			m.each(func(md *state.Model, now time.Time) { md.RestoreAutoVerified(vf.Version) })
 		}
 	}
-	m.notifier = state.Notifier{MinInterval: def.cfg.AlertThresholds().MinInterval, Project: "clauductor panel"}
+	m.notifier = state.Notifier{MinInterval: def.cfg.AlertThresholds().MinInterval, Project: "stridal panel"}
 	m.notifyPath = filepath.Join(dir, "notifier.json")
 	if b, err := os.ReadFile(m.notifyPath); err == nil {
 		var st state.NotifierState
@@ -128,7 +128,7 @@ func newMachine(o Options, clk clock.Clock, ticks Ticks, projects []*Runtime, de
 	}
 	m.economy = newEconomy(o.Home, def.cfg)
 	if o.Launchd {
-		// `clauductor panel rotate-token` (or a reinstall) replaces the token file;
+		// `stridal panel rotate-token` (or a reinstall) replaces the token file;
 		// follow it so the old token dies in the running panel too.
 		m.sources = append(m.sources, &source{name: "token", every: t.Token, fixedRate: true, waitFirst: true, poll: m.pollToken})
 	}

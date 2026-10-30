@@ -99,7 +99,7 @@ func TestLaneArgvConstruction(t *testing.T) {
 	}
 	head = ns[:i+1]
 	tail := []string{";", "set-option", "-t", "=add-x:", "remain-on-exit", "on",
-		";", "set-option", "-t", "=add-x:", "@clauductor_type", "fix",
+		";", "set-option", "-t", "=add-x:", "@stridal_type", "fix",
 		";", "set-option", "-t", "=add-x:", "window-size", "latest",
 		";", "set-option", "-g", "prefix", "None",
 		";", "set-option", "-g", "prefix2", "None",
@@ -240,7 +240,7 @@ func TestLanesAreTaggedWithTheirProject(t *testing.T) {
 	m := testLaneManager(t)
 	m.Project = "app"
 	ns := strings.Join(m.NewSessionArgv("add-x", "/repo/w", "fix", sid, false), "\x00")
-	if !strings.Contains(ns, strings.Join([]string{"set-option", "-t", "=add-x:", "@clauductor_project", "app", ";"}, "\x00")) {
+	if !strings.Contains(ns, strings.Join([]string{"set-option", "-t", "=add-x:", "@stridal_project", "app", ";"}, "\x00")) {
 		t.Fatal("the lane is not tagged with its project")
 	}
 	out := "mine\t/tmp\t/tmp\t0\t\t1\t0\tfix\tapp\n" +

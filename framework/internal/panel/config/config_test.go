@@ -146,7 +146,7 @@ func TestTemplateConfigValidation(t *testing.T) {
 		"duplicate id":          `,"templates":[{"id":"a","lane_type":"build","first_prompt":"x"},{"id":"a","lane_type":"build","first_prompt":"y"}]`,
 		"escaping lock":         `,"queues":[{"id":"g","lock":"../outside"}]`,
 		"absolute lock":         `,"queues":[{"id":"g","lock":"/tmp/x"}]`,
-		"empty command":         `,"queues":[{"id":"g","lock":"clauductor/gate.lock","command":[]}]`,
+		"empty command":         `,"queues":[{"id":"g","lock":"stridal/gate.lock","command":[]}]`,
 		"negative threshold":    `,"alerts":{"idle_minutes":-1}`,
 		"guard above 100":       `,"quota_guard":{"five_hour_pct":101}`,
 		"unknown alert key":     `,"alerts":{"idle":5}`,
@@ -161,7 +161,7 @@ func TestTemplateConfigValidation(t *testing.T) {
 			t.Errorf("accepted: %s", why)
 		}
 	}
-	c := v2Config(t, `,"version":2,"queues":[{"id":"gate","title":"Gate","lock":"clauductor/gate.lock","command":["bash","infra/ci/run-local.sh"]}],"alerts":{"idle_minutes":0.5,"context_pct":0},"quota_guard":{"five_hour_pct":0}`)
+	c := v2Config(t, `,"version":2,"queues":[{"id":"gate","title":"Gate","lock":"stridal/gate.lock","command":["bash","infra/ci/run-local.sh"]}],"alerts":{"idle_minutes":0.5,"context_pct":0},"quota_guard":{"five_hour_pct":0}`)
 	th := c.AlertThresholds()
 	if th.Idle != 30*time.Second || th.ContextPct != 0 || th.FiveHourPct != DefaultFiveHourPct || !th.Notify || th.GuardPct != 0 ||
 		th.MinInterval != DefaultNotifyInterval*time.Second || th.Waiting != DefaultWaitingSeconds*time.Second {

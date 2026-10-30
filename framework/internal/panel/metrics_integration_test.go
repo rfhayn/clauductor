@@ -73,7 +73,7 @@ func startMetricsPanel(t *testing.T, trust bool, payload func() []byte, tune ...
 	case launch := <-ready:
 		u, _ := url.Parse(launch)
 		port, _ := strconv.Atoi(u.Port())
-		mp.c = liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, u.Query().Get("t"))}
+		mp.c = liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("stridal_panel_%d=%s", port, u.Query().Get("t"))}
 	case err := <-done:
 		t.Fatalf("Run exited: %v", err)
 	case <-time.After(5 * time.Second):

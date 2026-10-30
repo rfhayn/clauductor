@@ -25,7 +25,7 @@ var closeForms = map[string][]string{
 	`""`:                                               nil, // may close
 }
 
-// TestEveryCloseWordIsDocumented holds docs/panel.md's refusals table for `clauductor
+// TestEveryCloseWordIsDocumented holds docs/panel.md's refusals table for `stridal
 // lane close` to the verdict's words. It walks the authority: every reason closeHeld
 // and LaneCloseHeld return, and every one LaneView sets, parsed from closeheld.go. A
 // reason must be a Close*Words constant, a string literal, or one of closeForms, and

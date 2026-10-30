@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// PANEL-19: the project's changes, as Clauductor's operating model writes them
+// PANEL-19: the project's changes, as Stridal's operating model writes them
 // (changes/<id>/proposal.md, OPS-7), for three Needs-you signals: a proposal waiting
 // for its owner's approval, and a change over its budget. Only files are read: no
 // command runs, and a repository without them has no change.

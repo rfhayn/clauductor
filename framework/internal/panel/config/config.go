@@ -1,4 +1,4 @@
-// Package config is a project's panel configuration (.clauductor/panel.json): its
+// Package config is a project's panel configuration (.stridal/panel.json): its
 // parsing and validation, templates, alert thresholds, and the validation rules of
 // every name the panel turns into argv (lane ids, branches, launch options). It also
 // says where the panel keeps its own files.
@@ -22,14 +22,11 @@ import (
 )
 
 // DefaultConfigRel is where a project keeps its panel config, relative to the project root,
-// under the name now (brand.Name): where a new one is written. A project set up under a
-// legacy name keeps its own until it migrates, so a project's config is read through
-// OwnConfigPath (or ProjectEntry.ConfigPath), which takes the legacy name's while only that
-// one exists, never by joining DefaultConfigRel to the root (TestNoReadSiteJoinsDefaultConfigRel
-// fails such a join anywhere in the framework's non-test code).
+// spelled from brand.Name. A project's config is read through OwnConfigPath (or
+// ProjectEntry.ConfigPath).
 const DefaultConfigRel = "." + brand.Name + "/panel.json"
 
-// Config is the per-project panel configuration (.clauductor/panel.json).
+// Config is the per-project panel configuration (.stridal/panel.json).
 type Config struct {
 	// Schema is the JSON Schema the file follows, for editors (SchemaURL). Ignored.
 	Schema string `json:"$schema,omitempty"`
@@ -72,7 +69,7 @@ type Config struct {
 	// QuotaGuard refuses to start a lane above a 5-hour quota threshold.
 	QuotaGuard *QuotaGuardConfig `json:"quota_guard"`
 	// HostNames are extra names the panel answers to, each "<label>.localhost"
-	// (clauductor.localhost always works). No wildcards.
+	// (stridal.localhost always works). No wildcards.
 	HostNames []string `json:"host_names"`
 
 	// Metrics: version 4 (PANEL-19).
@@ -81,7 +78,7 @@ type Config struct {
 	// beside what the panel computes itself (package metrics).
 	Metrics *MetricsConfig `json:"metrics"`
 	// QuotaEconomy turns on economy mode above a 5-hour quota (off unless set): the
-	// panel writes ~/.clauductor/panel/economy.json for the operating model's
+	// panel writes ~/.stridal/panel/economy.json for the operating model's
 	// build-change to read, and shows an economy badge by the quota.
 	QuotaEconomy *QuotaEconomyConfig `json:"quota_economy"`
 
@@ -98,7 +95,7 @@ type Config struct {
 	// WorktreeTeardown before Close removes one. Both are trusted-config commands.
 	WorktreeSetup    *HookCommand `json:"worktree_setup"`
 	WorktreeTeardown *HookCommand `json:"worktree_teardown"`
-	// Ports gives each lane a stable port of its own, exported as CLAUDUCTOR_PORT.
+	// Ports gives each lane a stable port of its own, exported as STRIDAL_PORT.
 	Ports *PortsConfig `json:"ports"`
 
 	// The lane context policy: version 6 (PANEL-48).
@@ -242,7 +239,7 @@ func (c *Config) ResumeLine() string {
 
 // Defaults for the lane keys.
 const (
-	DefaultTmuxSocket  = "clauductor"
+	DefaultTmuxSocket  = "stridal"
 	DefaultWorktreeDir = ".claude/worktrees"
 	DefaultBase        = "origin/main"
 )
@@ -446,7 +443,7 @@ func LoadConfigRaw(path string) (*Config, []byte, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("no panel config at %s (create one with `clauductor panel init`, or pass --config; see docs/panel.md)", path)
+			return nil, nil, fmt.Errorf("no panel config at %s (create one with `stridal panel init`, or pass --config; see docs/panel.md)", path)
 		}
 		return nil, nil, err
 	}
@@ -1047,9 +1044,7 @@ func ValidLaneID(id string) bool { return LaneIDRe.MatchString(id) }
 // option (a leading "-") ever reaches git.
 var BranchRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
 
-// DefaultHostName is the name the panel is opened at: <brand.Name>.localhost. Its Host
-// allow-list also takes a legacy name's <name>.localhost (web's brandHosts, over
-// brand.Names), so a bookmark from before the rename still opens it.
+// DefaultHostName is the name the panel is opened at: <brand.Name>.localhost.
 const DefaultHostName = brand.Name + ".localhost"
 
 // localhostNameRe is the only shape an extra host name may have: one DNS label under

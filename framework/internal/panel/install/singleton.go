@@ -22,18 +22,18 @@ import (
 
 // PANEL-5: one panel per machine, enforced.
 //
-// The hook URL in ~/.claude/settings.json, ~/.clauductor/panel/{port,pid,token} and
+// The hook URL in ~/.claude/settings.json, ~/.stridal/panel/{port,pid,token} and
 // the launchd label are all per-machine. A second panel on another port would
 // silently re-point every session's hooks at itself, and its exit would delete the
-// first panel's marker. So a panel holds flock(2) on ~/.clauductor/panel/lock for
+// first panel's marker. So a panel holds flock(2) on ~/.stridal/panel/lock for
 // its whole life (the kernel drops it on any exit, SIGKILL included), refuses to
 // start while another process holds it or while the pid file names another LIVE
 // panel (one from before the lock), and removes the marker files at exit only while
 // they are still its own. Running several projects from one panel (a multi-project daemon) is future
 // work; until then, one project per machine at a time.
 
-// PanelOwner is ~/.clauductor/panel/owner.json: who holds the machine's panel files.
-// The pid file stays digits only (`clauductor panel open` and scripts read it); the
+// PanelOwner is ~/.stridal/panel/owner.json: who holds the machine's panel files.
+// The pid file stays digits only (`stridal panel open` and scripts read it); the
 // start time beside it is what tells a live panel from a reused pid.
 type PanelOwner struct {
 	PID     int    `json:"pid"`
@@ -44,7 +44,7 @@ type PanelOwner struct {
 	Started int64  `json:"started"`
 	// Projects are the roots of every project it serves (PANEL-16).
 	Projects []string `json:"projects,omitempty"`
-	// Socket is the path of the panel's command socket, where `clauductor lane close`
+	// Socket is the path of the panel's command socket, where `stridal lane close`
 	// reaches it (PANEL-57 D1); "" when it has none (it could not listen, or it is a
 	// panel from before the socket).
 	Socket string `json:"socket,omitempty"`
@@ -53,7 +53,7 @@ type PanelOwner struct {
 // ownerPath is the running panel's owner record.
 func ownerPath(home string) string { return filepath.Join(config.PanelDir(home), "owner.json") }
 
-// CLISocketPath is where a panel listens for `clauductor lane close` (PANEL-57 D1):
+// CLISocketPath is where a panel listens for `stridal lane close` (PANEL-57 D1):
 // in the private panel directory, so only the owner's user can open it.
 func CLISocketPath(home string) string { return filepath.Join(config.PanelDir(home), "cli.sock") }
 
@@ -217,10 +217,10 @@ func errOtherPanel(o *PanelOwner) error {
 	if o.PID > 0 {
 		pid = fmt.Sprintf("pid %d", o.PID)
 	}
-	return fmt.Errorf("another clauductor panel is running on this machine: %s, %s%s. "+
-		"There is one panel per machine: its hooks in ~/.claude/settings.json and the files in ~/.clauductor/panel/ "+
+	return fmt.Errorf("another stridal panel is running on this machine: %s, %s%s. "+
+		"There is one panel per machine: its hooks in ~/.claude/settings.json and the files in ~/.stridal/panel/ "+
 		"are per-machine, so a second panel would re-point every session's hooks at itself. Stop that one first "+
-		"(Ctrl-C in its terminal, or `launchctl bootout %s/%s` for the login agent), or open it with `clauductor panel open`",
+		"(Ctrl-C in its terminal, or `launchctl bootout %s/%s` for the login agent), or open it with `stridal panel open`",
 		what, pid, port, guiDomain(), LaunchdLabel)
 }
 
@@ -352,7 +352,6 @@ func driftOf(b []byte, port int) (HookDrift, error) {
 	current, _ := marshalRaw(hookEntry(port))
 	foreign := map[string]bool{}
 	var missing, outdated []string
-	renamed, older := false, false // why an entry is outdated: a legacy name's tag, or another older form
 	for _, ev := range signals.HookEvents {
 		found, stale := false, false
 		for _, g := range doc.Hooks[ev] {
@@ -364,13 +363,8 @@ func driftOf(b []byte, port int) (HookDrift, error) {
 					foreign[target] = true
 				case sameJSON(h, current):
 					found = true
-				default: // this panel's address in an older form (the HTTP hook before PANEL-23, or a legacy name's tag)
+				default: // this panel's address in an older form (the HTTP hook before PANEL-23)
 					stale = true
-					if legacyTagged(h) {
-						renamed = true
-					} else {
-						older = true
-					}
 				}
 			}
 		}
@@ -401,10 +395,6 @@ func driftOf(b []byte, port int) (HookDrift, error) {
 		d.Text = "they had been removed"
 	case len(missing) > 0:
 		d.Text = "missing for " + strings.Join(missing, ", ")
-	case len(outdated) > 0 && renamed && older:
-		d.Text = "they were an older form (a synchronous HTTP hook, or an earlier name's tag)"
-	case len(outdated) > 0 && renamed:
-		d.Text = "they were an older form (an earlier name's tag)"
 	case len(outdated) > 0:
 		d.Text = "they were an older form (a synchronous HTTP hook)"
 	}

@@ -10,8 +10,8 @@ import (
 )
 
 // Survey compares a repository with the template, file by file, without changing anything:
-// what `clauductor diff` prints, and what a project converging on the template (StandingT) works
-// down. It reads a repository that runs its own model as readily as one clauductor installed.
+// what `stridal diff` prints, and what a project converging on the template (StandingT) works
+// down. It reads a repository that runs its own model as readily as one stridal installed.
 
 // FileStatus is one file's comparison.
 type FileStatus struct {
@@ -112,7 +112,6 @@ func Survey(targetDir, pathPrefix string) (*Report, error) {
 	for _, rel := range files {
 		tier := Classify(rel)
 		dest, key, skip := pm.Resolve(rel)
-		dest = ProjectDest(targetDir, rel, dest)
 		if dest != "" {
 			dests[dest] = true
 		}

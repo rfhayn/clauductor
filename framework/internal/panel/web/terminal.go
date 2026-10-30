@@ -39,7 +39,7 @@ import (
 // shutting down, closes every viewer.
 
 // TermSubprotocol is the WebSocket subprotocol the page and server speak.
-const TermSubprotocol = "clauductor.term.v1"
+const TermSubprotocol = "stridal.term.v1"
 
 // ticketPrefix marks the ticket among the offered subprotocols.
 const ticketPrefix = "ticket."
@@ -236,7 +236,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	// the check and the viewer's registration would otherwise miss this viewer.
 	gen := s.rotation()
 	if !s.authed(r) {
-		http.Error(w, "unauthorized: open the URL `clauductor panel` printed", http.StatusUnauthorized)
+		http.Error(w, "unauthorized: open the URL `stridal panel` printed", http.StatusUnauthorized)
 		return
 	}
 	// A WebSocket upgrade is a GET, which the global guard lets through without an

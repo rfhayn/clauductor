@@ -71,7 +71,7 @@ func loadRegistry(rep *doctorReport, home string) (*config.Projects, error) {
 // linked worktree, panel trust without --project acts on the worktree, and panel install without
 // it refuses an empty registry (D8). No panel command takes --template-dir.
 func panelFix(sub, main string) string {
-	return "clauductor panel " + sub + " --project " + install.ShellWord(main)
+	return "stridal panel " + sub + " --project " + install.ShellWord(main)
 }
 
 // addFixes is the fix for a project the panel does not serve, picked by asking AddProject's own
@@ -89,7 +89,7 @@ func addFixes(home, main, verb string) (fixes []string, refused string) {
 	if _, _, lerr := config.LoadConfigRaw(cfgPath); lerr != nil && lerr.Error() == err.Error() && errors.Is(statErr(cfgPath), os.ErrNotExist) {
 		return []string{panelFix("init", main), panelFix(verb, main)}, ""
 	}
-	return nil, refusesHere("clauductor panel "+verb, err)
+	return nil, refusesHere("stridal panel "+verb, err)
 }
 
 func statErr(path string) error {
@@ -103,7 +103,7 @@ func notInstalled(home string, repo *doctorRepo) doctorLine {
 	line := doctorLine{level: levelNote, subject: "panel", detail: "not installed (the panel is optional)"}
 	switch {
 	case repo == nil:
-		line.detail += "; run `clauductor panel install --project` with a repository's path to install it"
+		line.detail += "; run `stridal panel install --project` with a repository's path to install it"
 	case repo.main == "":
 		line.detail += "; " + repo.mainNote
 	default:
@@ -144,13 +144,13 @@ func checkRunning(rep *doctorReport, home string, agent bool, reg *config.Projec
 	if reg == nil {
 		return // the panel cannot start from a registry that does not load; the registry line says so
 	}
-	line := doctorLine{level: levelNote, subject: "running", detail: "the panel is not running, and there is no login agent: start it with clauductor panel"}
+	line := doctorLine{level: levelNote, subject: "running", detail: "the panel is not running, and there is no login agent: start it with stridal panel"}
 	// panel install without --project installs the registry's default project, so it is printed
 	// only when that project's config loads (D8).
 	if d := reg.DefaultEntry(); d != nil {
 		if _, err := config.LoadConfig(d.ConfigPath()); err == nil {
 			line.detail += ", or run it at login with the fix below"
-			line.fixes = []string{"clauductor panel install"}
+			line.fixes = []string{"stridal panel install"}
 		}
 	}
 	rep.add(groupMachine, line)
@@ -178,7 +178,7 @@ func checkBuild(rep *doctorReport, home string, reg *config.Projects) {
 	}
 	self := doctorRunningStamp()
 	if panel.Revision == "" || self.Revision == "" {
-		rep.add(groupMachine, doctorLine{level: levelNote, subject: "build", detail: "cannot compare the panel's build with this clauductor's: a binary has no revision recorded (" + bin + ")"})
+		rep.add(groupMachine, doctorLine{level: levelNote, subject: "build", detail: "cannot compare the panel's build with this stridal's: a binary has no revision recorded (" + bin + ")"})
 		return
 	}
 	if panel.Module == self.Module && panel.Revision == self.Revision && panel.Modified == self.Modified {
@@ -192,7 +192,7 @@ func checkBuild(rep *doctorReport, home string, reg *config.Projects) {
 		}
 		return rev
 	}
-	detail := fmt.Sprintf("the panel runs revision %s (%s); this clauductor is %s (%s)",
+	detail := fmt.Sprintf("the panel runs revision %s (%s); this stridal is %s (%s)",
 		named(shortRev(panel.Revision), panel.Modified), bin, named(shortRev(self.Revision), self.Modified), exe)
 	// Which is newer is not known here. The panel install would put this binary in the panel
 	// and rotate the page's token, so it is named only as the way to do that when this one is
@@ -201,7 +201,7 @@ func checkBuild(rep *doctorReport, home string, reg *config.Projects) {
 		// the registry does not load, so panel install would refuse
 	} else if d := reg.DefaultEntry(); d != nil {
 		if _, err := config.LoadConfig(d.ConfigPath()); err == nil {
-			detail += "; when this one is the newer, `clauductor panel install` copies it over the panel's (and rotates the page's token)"
+			detail += "; when this one is the newer, `stridal panel install` copies it over the panel's (and rotates the page's token)"
 		}
 	}
 	rep.add(groupMachine, doctorLine{level: levelNote, subject: "build", detail: detail})

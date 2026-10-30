@@ -35,8 +35,8 @@ func oldModelClone(t *testing.T) string {
 	}
 	write(t, dir, ".claude/skills/our-skill/SKILL.md", "the project's own skill\n")
 	write(t, dir, ".claude/skills/session-start/SKILL.md", "an old session-start\n")
-	write(t, dir, ".claude/hooks/session-register.sh", "#!/bin/bash\nclauductor register \"$X\"\n")
-	write(t, dir, ".claude/hooks/heartbeat.sh", "#!/bin/bash\nclauductor heartbeat\n")
+	write(t, dir, ".claude/hooks/session-register.sh", "#!/bin/bash\nstridal register \"$X\"\n")
+	write(t, dir, ".claude/hooks/heartbeat.sh", "#!/bin/bash\nstridal heartbeat\n")
 	write(t, dir, ".claude/agents/pre-implementation.md", "an agent the project edited\n")
 	write(t, dir, ".claude/settings.json", `{
   "hooks": {
@@ -50,7 +50,7 @@ func oldModelClone(t *testing.T) string {
 }
 
 // Findings 1, 2 and 7 together: a fresh clone of an old-model repository is recognised as
-// clauductor's (no --force), the old model's replaced files are listed and, with --prune,
+// stridal's (no --force), the old model's replaced files are listed and, with --prune,
 // removed, and settings.json no longer registers the old hooks; the project's own files stay.
 func TestInstallOverAnOldModelClone(t *testing.T) {
 	tmplDir(t)
@@ -59,7 +59,7 @@ func TestInstallOverAnOldModelClone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a fresh clone of an old-model repo should install without --force: %v\n%s", err, out)
 	}
-	for _, want := range []string{"clauductor's old operating model", "Template: ", "OLD MODEL", ".claude/skills/claim/SKILL.md", ".claude/hooks/heartbeat.sh"} {
+	for _, want := range []string{"stridal's old operating model", "Template: ", "OLD MODEL", ".claude/skills/claim/SKILL.md", ".claude/hooks/heartbeat.sh"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dry-run output lacks %q", want)
 		}
@@ -118,7 +118,7 @@ func TestInstallRendersPanelFromProjectConf(t *testing.T) {
 	if out, err := runInstall(t, dir, false); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, ".clauductor/panel.json"))
+	raw, err := os.ReadFile(filepath.Join(dir, ".stridal/panel.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

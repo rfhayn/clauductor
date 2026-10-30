@@ -3,7 +3,7 @@
 # (its own run id, port, temp HOME and tmux sockets), then merge their findings into
 # one report: <out>/report.md and <out>/findings.json.
 #
-#   run-parallel.sh [--out dir (default $TMPDIR/clauductor-ux-out/<run>)] [--shards a,b,…] [--ports 4700-4799] [--run id] [--keep]
+#   run-parallel.sh [--out dir (default $TMPDIR/stridal-ux-out/<run>)] [--shards a,b,…] [--ports 4700-4799] [--run id] [--keep]
 #
 # Shards (default: all eight):
 #   layout-views       matrix.cjs --areas views        (6 viewports × every view)
@@ -14,7 +14,7 @@
 #   layout-metrics     matrix.cjs --areas features,metrics  (UX-2: PANEL-19/20 views, Metrics tab × range × scope)
 #   flows-metrics      flows.cjs --flows metrics       (UX-2: metrics, economy, readiness, ports, setup, remote control)
 #   flows-lifecycle    flows.cjs --flows lifecycle     (UX-2, UX_LIFECYCLE=1: auto-resume, auto-close on merge)
-# Environment: CLAUDUCTOR_BIN (else the checkout is built once), PLAYWRIGHT (the
+# Environment: STRIDAL_BIN (else the checkout is built once), PLAYWRIGHT (the
 # playwright package dir), UX_TMP (where runs live), UX_MATRIX_ARGS (extra matrix args,
 # e.g. --full). --keep leaves each run's temp dir after its panel is stopped.
 set -uo pipefail
@@ -34,18 +34,18 @@ while [ $# -gt 0 ]; do
   shift
 done
 [[ "$run" =~ ^[a-z0-9]{1,12}$ ]] || { echo "--run must be [a-z0-9]{1,12}" >&2; exit 2; }
-[ -n "$out" ] || out="${TMPDIR:-/tmp}/clauductor-ux-out/$run" # outside the checkout: nothing to ignore
+[ -n "$out" ] || out="${TMPDIR:-/tmp}/stridal-ux-out/$run" # outside the checkout: nothing to ignore
 pmin=${ports%-*} pmax=${ports#*-}
 export UX_PORT_MIN=$pmin UX_PORT_MAX=$pmax
 mkdir -p "$out"
 out=$(cd "$out" && pwd -P)
 command -v node >/dev/null || { echo "node is needed" >&2; exit 2; }
 
-if [ -z "${CLAUDUCTOR_BIN:-}" ]; then
+if [ -z "${STRIDAL_BIN:-}" ]; then
   mkdir -p "$out/.bin"
-  echo "building clauductor from $fw" >&2
-  (cd "$fw" && go build -o "$out/.bin/clauductor" ./cmd/clauductor) || exit 1
-  export CLAUDUCTOR_BIN="$out/.bin/clauductor"
+  echo "building stridal from $fw" >&2
+  (cd "$fw" && go build -o "$out/.bin/stridal" ./cmd/stridal) || exit 1
+  export STRIDAL_BIN="$out/.bin/stridal"
 fi
 
 IFS=, read -r -a list <<< "$shards"

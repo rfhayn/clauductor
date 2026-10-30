@@ -20,7 +20,7 @@ import (
 )
 
 // PANEL-22: the projects a running panel serves follow projects.json. A project added
-// (from the page's "Add a project…", or `clauductor panel add`) starts its runtime at
+// (from the page's "Add a project…", or `stridal panel add`) starts its runtime at
 // once: its sources, its lane manager and its hub, wired into the server, the ingest
 // and the menu. A project removed stops its runtime and waits for every one of its
 // goroutines; its lanes are tmux's and keep running. One reconcile does both, for the

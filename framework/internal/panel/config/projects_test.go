@@ -16,18 +16,18 @@ func TestProjectsLoadAndValidate(t *testing.T) {
 	if err != nil || len(p.Projects) != 0 || p.Version != ProjectsVersion {
 		t.Fatalf("a missing file is an empty registry: %+v %v", p, err)
 	}
-	good := `{"version":1,"default":"app","projects":[{"id":"app","root":"/r/app","config":"","tmux_socket":"clauductor","added":1},
-		{"id":"web","root":"/r/web","config":"/r/web/panel.json","tmux_socket":"clauductor-web","added":2}]}`
+	good := `{"version":1,"default":"app","projects":[{"id":"app","root":"/r/app","config":"","tmux_socket":"stridal","added":1},
+		{"id":"web","root":"/r/web","config":"/r/web/panel.json","tmux_socket":"stridal-web","added":2}]}`
 	for name, body := range map[string]string{
 		"unknown field":   strings.Replace(good, `"added":1`, `"added":1,"lane_auth":"any"`, 1),
 		"duplicate id":    strings.Replace(good, `"id":"web"`, `"id":"app"`, 1),
 		"duplicate root":  strings.Replace(good, `"root":"/r/web"`, `"root":"/r/app"`, 1),
-		"shared socket":   strings.Replace(good, `"clauductor-web"`, `"clauductor"`, 1),
+		"shared socket":   strings.Replace(good, `"stridal-web"`, `"stridal"`, 1),
 		"bad id":          strings.Replace(good, `"id":"web"`, `"id":"Web!"`, 1),
 		"relative root":   strings.Replace(good, `"root":"/r/web"`, `"root":"r/web"`, 1),
 		"unclean root":    strings.Replace(good, `"root":"/r/web"`, `"root":"/r/../web"`, 1),
 		"relative config": strings.Replace(good, `"config":"/r/web/panel.json"`, `"config":"panel.json"`, 1),
-		"bad socket":      strings.Replace(good, `"clauductor-web"`, `"a b"`, 1),
+		"bad socket":      strings.Replace(good, `"stridal-web"`, `"a b"`, 1),
 		"unknown default": strings.Replace(good, `"default":"app"`, `"default":"nope"`, 1),
 		"no default":      strings.Replace(good, `"default":"app"`, `"default":""`, 1),
 		"another version": strings.Replace(good, `"version":1`, `"version":2`, 1),
@@ -89,15 +89,15 @@ func TestProjectsSlugAndSockets(t *testing.T) {
 	}
 	p.Projects = append(p.Projects, ProjectEntry{ID: "app", Root: "/a", TmuxSocket: DefaultTmuxSocket})
 	p.Default = "app"
-	if s := p.NewSocket("web"); s != "clauductor-web" {
+	if s := p.NewSocket("web"); s != "stridal-web" {
 		t.Fatalf("a later project's socket: %s", s)
 	}
 	if id := p.Slug("App"); id != "app-2" {
 		t.Fatalf("a taken id: %s", id)
 	}
 	// panel.json's tmux_socket wins over the recorded one; neither: the default.
-	e := ProjectEntry{TmuxSocket: "clauductor-web"}
-	if e.Socket(&Config{TmuxSocket: "mine"}) != "mine" || e.Socket(&Config{}) != "clauductor-web" || (ProjectEntry{}).Socket(nil) != DefaultTmuxSocket {
+	e := ProjectEntry{TmuxSocket: "stridal-web"}
+	if e.Socket(&Config{TmuxSocket: "mine"}) != "mine" || e.Socket(&Config{}) != "stridal-web" || (ProjectEntry{}).Socket(nil) != DefaultTmuxSocket {
 		t.Fatal("socket resolution")
 	}
 }

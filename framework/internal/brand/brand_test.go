@@ -4,52 +4,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/rfhayn/stridal/internal/testgit"
 )
 
-// After the rename (OPS-104) every reader tries the new name, then the legacy one.
-func TestNamesAreTheNewThenTheLegacy(t *testing.T) {
-	if got := Names(); len(got) != 2 || got[0] != "stridal" || got[1] != "clauductor" {
-		t.Fatalf("Names() = %q, want [stridal clauductor]", got)
-	}
-}
-
-// Existing reads the legacy location while only it exists, the new one once it does, and
-// names the new one when neither does: that is where a write goes.
-func TestExistingReadsTheLegacyPathFirstThenTheNew(t *testing.T) {
-	dir := t.TempDir()
-	newP, legacy := filepath.Join(dir, ".newname"), filepath.Join(dir, ".clauductor")
-	if got := Existing(newP, legacy); got != newP {
-		t.Fatalf("neither exists: got %s, want the new %s", got, newP)
-	}
-	mkdir(t, legacy)
-	if got := Existing(newP, legacy); got != legacy {
-		t.Fatalf("only the legacy one exists: got %s, want %s", got, legacy)
-	}
-	mkdir(t, newP)
-	if got := Existing(newP, legacy); got != newP {
-		t.Fatalf("both exist: got %s, want the new %s", got, newP)
-	}
-	if got := Existing(); got != "" {
-		t.Fatalf("no paths: got %q", got)
-	}
-}
-
 // The shell half (template/.claude/lib/conf.sh's _brand_env) holds the same name as this
 // package: a script and the binary never disagree on where a file is.
 func TestShellBrandMatches(t *testing.T) {
-	out := shell(t, t.TempDir(), `printf '%s|%s|%s' "$BRAND_NAME" "$BRAND_LEGACY_NAME" "$BRAND_NAMES"`)
-	want := Name + "|" + LegacyName + "|" + strings.Join(Names(), " ")
-	if out != want {
-		t.Fatalf("conf.sh's _brand_env = %q, want %q (framework/internal/brand)", out, want)
+	if out := shell(t, t.TempDir(), `printf '%s' "$BRAND_NAME"`); out != Name {
+		t.Fatalf("conf.sh's _brand_env = %q, want %q (framework/internal/brand)", out, Name)
 	}
 }
 
-// focus_file reads a focus file a legacy name's folder holds while the new name's has none.
-func TestShellFocusFileReadsTheLegacyNameFirst(t *testing.T) {
+// focus_file names the focus file under the name's folder in the git directory.
+func TestShellFocusFileIsUnderTheName(t *testing.T) {
 	repo := t.TempDir()
 	if b, err := testgit.Command(repo, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, b)
@@ -58,19 +27,9 @@ func TestShellFocusFileReadsTheLegacyNameFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	focus := `BRAND_NAMES="newname clauductor"; focus_file change/x "$ROOT"`
-	newP := filepath.Join(gitDir, "newname", "focus-change-x.txt")
-	legacy := filepath.Join(gitDir, "clauductor", "focus-change-x.txt")
-	if got := resolved(t, shell(t, repo, focus)); got != newP {
-		t.Fatalf("no focus file yet: got %s, want the new %s", got, newP)
-	}
-	write(t, legacy)
-	if got := resolved(t, shell(t, repo, focus)); got != legacy {
-		t.Fatalf("only the legacy one: got %s, want %s", got, legacy)
-	}
-	write(t, newP)
-	if got := resolved(t, shell(t, repo, focus)); got != newP {
-		t.Fatalf("both: got %s, want the new %s", got, newP)
+	want := filepath.Join(gitDir, Name, "focus-change-x.txt")
+	if got := resolved(t, shell(t, repo, `focus_file change/x "$ROOT"`)); got != want {
+		t.Fatalf("focus_file = %s, want %s", got, want)
 	}
 }
 
@@ -99,19 +58,4 @@ func resolved(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return filepath.Join(d, filepath.Base(filepath.Dir(p)), filepath.Base(p))
-}
-
-func mkdir(t *testing.T, p string) {
-	t.Helper()
-	if err := os.MkdirAll(p, 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func write(t *testing.T, p string) {
-	t.Helper()
-	mkdir(t, filepath.Dir(p))
-	if err := os.WriteFile(p, []byte("focus\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }

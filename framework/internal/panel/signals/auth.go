@@ -51,7 +51,7 @@ func ParseAuthStatus(out []byte) (AuthStatus, error) {
 		a.Plan = Clip(*raw.SubscriptionType, 40)
 	}
 	if raw.OrgID != nil && *raw.OrgID != "" {
-		h := sha256.Sum256([]byte("clauductor-panel-account\x00" + *raw.OrgID))
+		h := sha256.Sum256([]byte("stridal-panel-account\x00" + *raw.OrgID))
 		a.Account = hex.EncodeToString(h[:6])
 	}
 	return a, nil

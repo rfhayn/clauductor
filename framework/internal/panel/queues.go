@@ -177,7 +177,7 @@ func (r *Runtime) runQueue(ctx context.Context, queue, worktree string) (*types.
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.Env = append(os.Environ(), "CLAUDUCTOR_LANE="+lane)
+	cmd.Env = append(os.Environ(), "STRIDAL_LANE="+lane)
 	// Its own process group: a panel restart or Ctrl-C does not kill a gate run.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {

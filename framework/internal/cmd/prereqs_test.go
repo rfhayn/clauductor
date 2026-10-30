@@ -119,7 +119,7 @@ func TestPrereqsNeverFails(t *testing.T) {
 		t.Fatalf("install failed: %v\n%s", err, got)
 	}
 	// install runs the report after it has written the files, from the template it installed.
-	wantAll(t, got, "Done! Clauductor framework installed.", "Prerequisites on macOS")
+	wantAll(t, got, "Done! Stridal framework installed.", "Prerequisites on macOS")
 	if strings.Index(got, "Prerequisites on") < strings.Index(got, "Done!") {
 		t.Error("the report should follow the install, not precede it")
 	}
@@ -173,20 +173,20 @@ func TestGitleaksConfigIsCreateOnly(t *testing.T) {
 	}
 }
 
-// The prerequisites report ends with the line naming `clauductor doctor`, in the report install
+// The prerequisites report ends with the line naming `stridal doctor`, in the report install
 // and init print, and when the report itself cannot run.
 func TestPrereqsEndsWithTheDoctorLine(t *testing.T) {
 	last := func(s string) string {
 		s = strings.TrimRight(s, "\n")
 		return s[strings.LastIndex(s, "\n")+1:]
 	}
-	const want = "To check this machine and the project again at any time: clauductor doctor"
+	const want = "To check this machine and the project again at any time: stridal doctor"
 	for name, out := range map[string]string{
 		"all present": prereqsReport(t, "Darwin", "git", "jq", "gh", "gitleaks", "claude", "tmux", "node", "python3"),
 		"missing":     prereqsReport(t, "Linux"),
 	} {
 		if !strings.Contains(last(out), want) {
-			t.Errorf("%s: the report's last line is %q, want it to name clauductor doctor:\n%s", name, last(out), out)
+			t.Errorf("%s: the report's last line is %q, want it to name stridal doctor:\n%s", name, last(out), out)
 		}
 	}
 	var out bytes.Buffer
@@ -202,7 +202,7 @@ func TestPrereqsEndsWithTheDoctorLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(raw, []byte("clauductor doctor")) {
+	if bytes.Contains(raw, []byte("stridal doctor")) {
 		t.Errorf("prereqs.sh prints the doctor line; the Go caller prints it:\n%s", raw)
 	}
 }

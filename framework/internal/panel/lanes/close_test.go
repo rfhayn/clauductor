@@ -335,7 +335,7 @@ func TestCloseRemovesACleanWorktreeAndOnlyAMergedBranch(t *testing.T) {
 	}
 }
 
-// PANEL-21: the teardown gets the lane's CLAUDUCTOR_PORT, as the docs say, although
+// PANEL-21: the teardown gets the lane's STRIDAL_PORT, as the docs say, although
 // Close forgets the lane (and with its record, its port) before the teardown runs.
 func TestCloseTeardownGetsTheLanePort(t *testing.T) {
 	t.Parallel()
@@ -356,7 +356,7 @@ func TestCloseTeardownGetsTheLanePort(t *testing.T) {
 	if len(r.hooks) != 1 {
 		t.Fatalf("hooks run: %v", r.hooks)
 	}
-	want := []string{"/usr/bin/env", "CLAUDUCTOR_LANE=ported", "CLAUDUCTOR_PORT=4730", "true"}
+	want := []string{"/usr/bin/env", "STRIDAL_LANE=ported", "STRIDAL_PORT=4730", "true"}
 	if strings.Join(r.hooks[0], " ") != strings.Join(want, " ") {
 		t.Fatalf("teardown argv %q, want %q", r.hooks[0], want)
 	}

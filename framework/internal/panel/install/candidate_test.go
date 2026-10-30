@@ -55,8 +55,8 @@ func TestInspectRefusesWhatAddWouldNot(t *testing.T) {
 	plain := t.TempDir()
 	file := filepath.Join(plain, "file")
 	writeFile(t, file, "x")
-	// A config whose socket is the registered project's (the historical "clauductor").
-	clash := cfgRepo(t, `{"name":"Clash","lanes":{"main":"orchestrator"},"tmux_socket":"clauductor"}`)
+	// A config whose socket is the registered project's (the historical "stridal").
+	clash := cfgRepo(t, `{"name":"Clash","lanes":{"main":"orchestrator"},"tmux_socket":"stridal"}`)
 	for _, c := range []struct{ path, code string }{
 		{"", "not-absolute"},
 		{"relative/path", "not-absolute"},
@@ -66,8 +66,8 @@ func TestInspectRefusesWhatAddWouldNot(t *testing.T) {
 		{plain, "not-git"},
 		{linked, "linked-worktree"},
 		{reg, "registered"},
-		{link, "registered"},                              // a symlinked duplicate
-		{filepath.Join(reg, ".clauductor"), "registered"}, // a path inside it
+		{link, "registered"},                           // a symlinked duplicate
+		{filepath.Join(reg, ".stridal"), "registered"}, // a path inside it
 		{clash, "socket-taken"},
 	} {
 		if _, code := refusedAs(t, home, c.path); code != c.code {

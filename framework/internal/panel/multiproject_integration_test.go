@@ -83,7 +83,7 @@ func TestOnePanelServesSeveralProjects(t *testing.T) {
 		t.Fatal("each project's lane runs on its own socket")
 	}
 	for sock, id := range map[string]string{sockA: "alpha", sockB: "beta"} {
-		out, _ := exec.Command(tmux, "-L", sock, "show-options", "-v", "-t", "=same:", "@clauductor_project").Output()
+		out, _ := exec.Command(tmux, "-L", sock, "show-options", "-v", "-t", "=same:", "@stridal_project").Output()
 		if strings.TrimSpace(string(out)) != id {
 			t.Fatalf("%s's lane is tagged %q", id, out)
 		}
@@ -115,8 +115,8 @@ func TestOnePanelServesSeveralProjects(t *testing.T) {
 }
 
 // attachedRepo is a committed git repository attached as id under home: its sidecar,
-// ~/.clauductor/projects/<id>/panel.json, is written and registered, and the
-// repository has no .clauductor/panel.json unless own names one.
+// ~/.stridal/projects/<id>/panel.json, is written and registered, and the
+// repository has no .stridal/panel.json unless own names one.
 func attachedRepo(t *testing.T, home, id, own string) (root, sidecar string) {
 	t.Helper()
 	root = signals.ResolvePath(t.TempDir())
@@ -133,7 +133,7 @@ func attachedRepo(t *testing.T, home, id, own string) (root, sidecar string) {
 	return root, res.Init.Path
 }
 
-// [ATTACH-4-S3] An attached project with no .clauductor/panel.json in its repository:
+// [ATTACH-4-S3] An attached project with no .stridal/panel.json in its repository:
 // the panel started with --project <repo> and no --config starts, and serves the
 // project from its sidecar.
 func TestPanelServesAnAttachedProjectWithoutConfigFlag(t *testing.T) {
@@ -162,7 +162,7 @@ func TestPanelServesAnAttachedProjectWithoutConfigFlag(t *testing.T) {
 }
 
 // [ATTACH-4-S1] [ATTACH-4-S4] An attached project whose repository also has its own
-// .clauductor/panel.json: the panel serves the sidecar's name, cards and templates;
+// .stridal/panel.json: the panel serves the sidecar's name, cards and templates;
 // `panel list` names the sidecar as outside the repository and says the repository's
 // file is not read; and the project menu's entry carries the sidecar's path, while a
 // project reading its own config carries none.

@@ -25,7 +25,7 @@ import (
 	"github.com/rfhayn/stridal/internal/testwait"
 )
 
-// PANEL-57: the command socket in the panel's life (task 2.2), and `clauductor lane
+// PANEL-57: the command socket in the panel's life (task 2.2), and `stridal lane
 // close`'s client against the real route on it (tasks 2.3, 2.4).
 
 // shortSocket is a socket path short enough for sun_path (E10): a t.TempDir() path on
@@ -291,7 +291,7 @@ func TestAPanelThatCannotMakeItsSocketServesAnyway(t *testing.T) {
 	if v := p.state(t); v.ProjectID == "" {
 		t.Fatal("the page's state is not served")
 	}
-	if s := out.String(); !strings.Contains(s, "no command socket, so `clauductor lane close` cannot reach this panel") || !strings.Contains(s, "a Unix socket's path must be shorter than") {
+	if s := out.String(); !strings.Contains(s, "no command socket, so `stridal lane close` cannot reach this panel") || !strings.Contains(s, "a Unix socket's path must be shorter than") {
 		t.Errorf("the panel did not say why it has no socket: %q", s)
 	}
 	if o, raw := readOwnerFile(t, home); o.Socket != "" || strings.Contains(raw, `"socket"`) {
@@ -330,7 +330,7 @@ func TestAPanelLeavesAFileAtItsSocketPathThatIsNotASocket(t *testing.T) {
 	}
 }
 
-// [LANECLOSE-3-S1] A panel given no CLISocket, as `clauductor panel` starts one, listens
+// [LANECLOSE-3-S1] A panel given no CLISocket, as `stridal panel` starts one, listens
 // at install.CLISocketPath(home), names it in owner.json, and answers the close there.
 // The home must be short enough for the socket's path (E10): see shortHome.
 func TestThePanelListensOnTheDefaultSocketPath(t *testing.T) {
@@ -360,7 +360,7 @@ func TestThePanelListensOnTheDefaultSocketPath(t *testing.T) {
 // laneFacts is what a close may change of a lane, each read from its own authority.
 type laneFacts struct{ Registered, Session, Worktree, Branch bool }
 
-// TestLaneCloseThroughTheSocket drives `clauductor lane close`'s client
+// TestLaneCloseThroughTheSocket drives `stridal lane close`'s client
 // (install.CloseLane) against a panel's socket, lanes on a throwaway tmux socket and
 // `claude agents` faked by stallWorld. Each lane's program waits for a file named
 // after it, so the test can end one (its claude exiting).
@@ -392,7 +392,7 @@ func TestLaneCloseThroughTheSocket(t *testing.T) {
 	// cleanup releases it too).
 	releaseDir := t.TempDir()
 	t.Cleanup(func() { os.WriteFile(filepath.Join(releaseDir, "slow"), nil, 0o644) })
-	teardown := `touch ` + shq(markDir) + `/"$CLAUDUCTOR_LANE"; if [ "$CLAUDUCTOR_LANE" = slow ]; then i=0; ` +
+	teardown := `touch ` + shq(markDir) + `/"$STRIDAL_LANE"; if [ "$STRIDAL_LANE" = slow ]; then i=0; ` +
 		`while [ ! -e ` + shq(releaseDir) + `/slow ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done; fi`
 	tdJSON, _ := json.Marshal([]string{"/bin/sh", "-c", teardown})
 	writeFile(t, filepath.Join(root, config.DefaultConfigRel), `{"name":"Closes","version":7,"lanes":{"main":"orchestrator","change/":"build"},
@@ -461,7 +461,7 @@ func TestLaneCloseThroughTheSocket(t *testing.T) {
 		return install.CloseLane(ctx, sock, project, id, req)
 	}
 	outLine := func(id string) string {
-		return "lane " + id + " (" + project + ") closed by clauductor lane close: removed "
+		return "lane " + id + " (" + project + ") closed by stridal lane close: removed "
 	}
 
 	// The worktrees' states: an untracked file, and a commit main lacks.

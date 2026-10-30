@@ -4,16 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 
-	"github.com/rfhayn/stridal/internal/brand"
 	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
-// The panel is opened at http://clauductor.localhost:<port>. macOS (and every
+// The panel is opened at http://stridal.localhost:<port>. macOS (and every
 // current browser) resolves *.localhost to loopback with no /etc/hosts entry, and
 // returns ::1 first, so the panel listens on [::1]:<port> as well as 127.0.0.1.
 // Both listeners serve one server and one state.
@@ -26,32 +24,16 @@ import (
 // defeats DNS rebinding. Host names compare case-insensitively (RFC 9110 §4.2.3).
 // Every state-changing request and the WebSocket upgrade must carry an Origin equal
 // to "http://" + the Host of THAT request, so a page on localhost cannot drive the
-// panel at clauductor.localhost, or the reverse.
+// panel at stridal.localhost, or the reverse.
 
 // allowedHosts is the exact Host allow-list, lower case.
 func (s *Server) allowedHosts() []string {
 	p := strconv.Itoa(s.Port)
 	hs := []string{"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p}
-	for _, n := range brandHosts(brand.Names()) {
-		hs = append(hs, n+":"+p)
-	}
+	hs = append(hs, config.DefaultHostName+":"+p)
 	for _, n := range s.hostNames() {
 		if config.ValidHostName(n) {
 			hs = append(hs, n+":"+p)
-		}
-	}
-	return hs
-}
-
-// brandHosts is <name>.localhost for each of names (brand.Names): the panel's own host name
-// (config.DefaultHostName), then a legacy name's, so a bookmark from before the rename still
-// opens it. Every entry is spelled from names, so the first is the new name's even where a
-// test passes names that differ from brand's.
-func brandHosts(names []string) []string {
-	hs := make([]string, 0, len(names))
-	for _, n := range names {
-		if h := n + ".localhost"; !slices.Contains(hs, h) {
-			hs = append(hs, h)
 		}
 	}
 	return hs
@@ -77,7 +59,7 @@ func (s *Server) originMatches(origin, host string) bool {
 // ListenLoopback binds 127.0.0.1:port and [::1]:<the same port>. ln6 is nil when
 // the machine has no IPv6 loopback (v6why says why); then the panel is opened at
 // 127.0.0.1. A [::1] port held by another process is an error, never skipped: the
-// browser would send clauductor.localhost, and the token, to it.
+// browser would send stridal.localhost, and the token, to it.
 func ListenLoopback(port int) (ln4, ln6 net.Listener, v6why string, err error) {
 	ln4, err = listen(port)
 	if err != nil {
@@ -101,7 +83,7 @@ func ListenLoopback(port int) (ln4, ln6 net.Listener, v6why string, err error) {
 	return ln4, ln6, "", nil
 }
 
-// PanelHost is the host the panel is opened at: clauductor.localhost when it
+// PanelHost is the host the panel is opened at: stridal.localhost when it
 // listens on both loopbacks, else 127.0.0.1.
 func PanelHost(dualStack bool) string {
 	if dualStack {

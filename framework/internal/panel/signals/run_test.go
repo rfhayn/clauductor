@@ -19,7 +19,7 @@ import (
 // holderEnv makes this test binary a holder of its stdout outside the group of the
 // shell that started it (TestHelperHoldsOutput): its value is the directory where it
 // marks that it has left, and where the test releases it.
-const holderEnv = "CLAUDUCTOR_TEST_OUTPUT_HOLDER"
+const holderEnv = "STRIDAL_TEST_OUTPUT_HOLDER"
 
 // TestHelperHoldsOutput is not a test: run with holderEnv set, it leaves its parent's
 // process group, says so, and keeps its stdout open until it is released (or a

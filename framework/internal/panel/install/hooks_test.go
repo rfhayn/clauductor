@@ -68,7 +68,7 @@ const foreignSettings = `{
     "Notification": [
       {"matcher": "permission_prompt", "hooks": [
         {"type": "command", "command": "terminal-notifier -message hi"},
-        {"type": "http", "url": "http://127.0.0.1:1111/hook?src=clauductor-panel", "timeout": 1}
+        {"type": "http", "url": "http://127.0.0.1:1111/hook?src=stridal-panel", "timeout": 1}
       ]}
     ],
     "PreToolUse": [
@@ -119,7 +119,7 @@ func TestInstallOnFreshHome(t *testing.T) {
 		t.Fatal("SessionStart installed; HTTP hooks do not fire for it")
 	}
 	b, _ := os.ReadFile(SettingsPath(home))
-	for _, want := range []string{`"type": "command"`, `"async": true`, `'http://127.0.0.1:4393/hook?src=clauductor-panel'`, `; exit 0"`} {
+	for _, want := range []string{`"type": "command"`, `"async": true`, `'http://127.0.0.1:4393/hook?src=stridal-panel'`, `; exit 0"`} {
 		if !strings.Contains(string(b), want) {
 			t.Fatalf("hook shape lacks %s:\n%s", want, b)
 		}
@@ -185,7 +185,7 @@ func TestInstallPreservesForeignHooksAndKeys(t *testing.T) {
 	if m["model"] != "opus" || m["env"].(map[string]any)["FOO"] != "bar" {
 		t.Error("other keys not preserved")
 	}
-	backup, err := os.ReadFile(SettingsPath(home) + ".clauductor-panel.bak")
+	backup, err := os.ReadFile(SettingsPath(home) + ".stridal-panel.bak")
 	if err != nil || string(backup) != foreignSettings {
 		t.Error("backup missing or not the pre-install content")
 	}
@@ -209,7 +209,7 @@ func TestUninstallRemovesOnlyOurs(t *testing.T) {
 	var want bytes.Buffer
 	json.Compact(&want, []byte(strings.Replace(foreignSettings,
 		`,
-        {"type": "http", "url": "http://127.0.0.1:1111/hook?src=clauductor-panel", "timeout": 1}`, "", 1)))
+        {"type": "http", "url": "http://127.0.0.1:1111/hook?src=stridal-panel", "timeout": 1}`, "", 1)))
 	got, _ := os.ReadFile(SettingsPath(home))
 	if !jsonEqual(want.Bytes(), got) {
 		t.Fatalf("uninstall changed foreign content:\n%s", got)
@@ -296,7 +296,7 @@ func TestInstallFollowsASymlinkedSettingsFile(t *testing.T) {
 	if !strings.Contains(string(b), hookURL(4393)) || !strings.Contains(string(b), `"model": "opus"`) {
 		t.Fatalf("target not updated:\n%s", b)
 	}
-	if _, err := os.Stat(target + ".clauductor-panel.bak"); err != nil {
+	if _, err := os.Stat(target + ".stridal-panel.bak"); err != nil {
 		t.Fatal("backup not written next to the target")
 	}
 }
@@ -313,7 +313,7 @@ func TestBackupKeepsThePrePanelFile(t *testing.T) {
 	if _, err := UninstallHooks(home); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(SettingsPath(home) + ".clauductor-panel.bak"); string(b) != foreignSettings {
+	if b, _ := os.ReadFile(SettingsPath(home) + ".stridal-panel.bak"); string(b) != foreignSettings {
 		t.Fatal("backup overwritten by a later change")
 	}
 }
@@ -433,7 +433,7 @@ func TestKeepHooksJudgesTheFileItWritesOver(t *testing.T) {
 // a second hook beside the old one, and uninstall leaves the old one behind.
 func TestHookCommandIsPinned(t *testing.T) {
 	const want = "curl -s --connect-timeout 1 -m 3 -X POST -H 'Content-Type: application/json' --data-binary @- " +
-		"'http://127.0.0.1:4393/hook?src=clauductor-panel' >/dev/null 2>&1; exit 0"
+		"'http://127.0.0.1:4393/hook?src=stridal-panel' >/dev/null 2>&1; exit 0"
 	if got := hookCommand(4393); got != want {
 		t.Fatalf("hookCommand(4393) changed:\n got  %s\n want %s\n"+
 			"Entries already installed carry the old command, and hookTarget matches only the current one, "+

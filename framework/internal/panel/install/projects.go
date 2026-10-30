@@ -17,7 +17,7 @@ import (
 type AddOptions struct {
 	Home    string
 	Project string // any path inside the project's main worktree
-	Config  string // "" for <root>/.clauductor/panel.json
+	Config  string // "" for <root>/.stridal/panel.json
 	ID      string // "" for the slug of the config's name
 	Run     signals.Runner
 	Now     time.Time
@@ -48,7 +48,7 @@ type AddPlan struct {
 
 // CheckAdd runs every check AddProject makes before it saves, and writes nothing: it returns
 // AddProject's own refusal, or the plan AddProject then saves. AddProject calls it, so a caller
-// that asks "would this be refused" (clauductor doctor) and the command itself cannot read the
+// that asks "would this be refused" (stridal doctor) and the command itself cannot read the
 // rule two ways.
 func CheckAdd(ctx context.Context, o AddOptions) (AddPlan, error) {
 	if o.Run == nil {
@@ -148,7 +148,7 @@ func AddProject(ctx context.Context, o AddOptions) (AddResult, error) {
 
 // ConfigPathOf is the config a --project/--config pair names (PANEL-42, design.md D7):
 // --config when given; else the registry's config for a project it holds, which may
-// sit outside the repository (a sidecar); else <root>/.clauductor/panel.json. The
+// sit outside the repository (a sidecar); else <root>/.stridal/panel.json. The
 // registry is the machine's choice, so a repository's own file never displaces it.
 func ConfigPathOf(home, project, cfg string) (string, error) {
 	if cfg != "" {
@@ -212,7 +212,7 @@ func RemoveProject(home, idOrPath string, force bool) (config.ProjectEntry, erro
 		e = reg.Find(signals.ResolvePath(idOrPath))
 	}
 	if e == nil {
-		return config.ProjectEntry{}, fmt.Errorf("no registered project %q (`clauductor panel list` names them)", idOrPath)
+		return config.ProjectEntry{}, fmt.Errorf("no registered project %q (`stridal panel list` names them)", idOrPath)
 	}
 	gone := *e
 	if n := laneCount(home, gone.Root); n > 0 && !force {
@@ -257,7 +257,7 @@ func ListProjects(w io.Writer, home string) error {
 		return err
 	}
 	if len(reg.Projects) == 0 {
-		fmt.Fprintln(w, "No projects registered. `clauductor panel add --project <path>` adds one; a bare `clauductor panel` in a repository adds that one.")
+		fmt.Fprintln(w, "No projects registered. `stridal panel add --project <path>` adds one; a bare `stridal panel` in a repository adds that one.")
 		return nil
 	}
 	for _, e := range reg.Projects {
@@ -284,7 +284,7 @@ func ListProjects(w io.Writer, home string) error {
 }
 
 // configLine is `panel list`'s config: its path, marked when it is outside the
-// repository, and, when the repository has a .clauductor/panel.json of its own as
+// repository, and, when the repository has a .stridal/panel.json of its own as
 // well, that the panel does not read that one (design.md D7).
 func configLine(e config.ProjectEntry) string {
 	if !ConfigOutside(e) {

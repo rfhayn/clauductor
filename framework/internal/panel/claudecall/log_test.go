@@ -330,7 +330,7 @@ func TestWatchLoop(t *testing.T) {
 func TestLogLivesInThePanelDirAndIsPrivate(t *testing.T) {
 	home := t.TempDir()
 	l := NewLog(home)
-	if want := filepath.Join(home, ".clauductor", "panel", "login-lock.jsonl"); l.Path != want {
+	if want := filepath.Join(home, ".stridal", "panel", "login-lock.jsonl"); l.Path != want {
 		t.Errorf("path %q, want %q", l.Path, want)
 	}
 	if err := l.Append(map[string]int{"a": 1}); err != nil {

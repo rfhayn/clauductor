@@ -21,19 +21,19 @@ func TestHostAllowListIsExact(t *testing.T) {
 	p := strconv.Itoa(testPort)
 	other := strconv.Itoa(testPort + 1)
 	allowed := []string{
-		"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p, "clauductor.localhost:" + p,
+		"127.0.0.1:" + p, "localhost:" + p, "[::1]:" + p, "stridal.localhost:" + p,
 		"myproject.localhost:" + p, // configured
 		// Host names compare case-insensitively (RFC 9110 §4.2.3).
-		"CLAUDUCTOR.localhost:" + p, "Clauductor.LocalHost:" + p, "LOCALHOST:" + p,
+		"STRIDAL.localhost:" + p, "Stridal.LocalHost:" + p, "LOCALHOST:" + p,
 	}
 	refused := []string{
 		"evil.localhost:" + p,                  // no wildcard
-		"clauductor.localhost.evil.com:" + p,   // a suffix is not the name
-		"x.clauductor.localhost:" + p,          // nor is a subdomain of it
-		"clauductor.localhost:" + other,        // wrong port
+		"stridal.localhost.evil.com:" + p,      // a suffix is not the name
+		"x.stridal.localhost:" + p,             // nor is a subdomain of it
+		"stridal.localhost:" + other,           // wrong port
 		"127.0.0.1:" + other, "[::1]:" + other, // wrong port
-		"clauductor.localhost", "127.0.0.1", // no port
-		"clauductor.localhost.:" + p, // trailing dot
+		"stridal.localhost", "127.0.0.1", // no port
+		"stridal.localhost.:" + p, // trailing dot
 		"[::2]:" + p, "0.0.0.0:" + p, "127.0.0.2:" + p,
 		"evil.com:" + p, "",
 	}
@@ -59,15 +59,15 @@ func TestOriginMustMatchThisRequestsHost(t *testing.T) {
 		host, origin string
 		want         int
 	}{
-		{"clauductor.localhost:" + p, "http://clauductor.localhost:" + p, 204},
+		{"stridal.localhost:" + p, "http://stridal.localhost:" + p, 204},
 		{"[::1]:" + p, "http://[::1]:" + p, 204},
-		{"CLAUDUCTOR.localhost:" + p, "http://clauductor.localhost:" + p, 204},
-		{"clauductor.localhost:" + p, "http://localhost:" + p, 403},      // cross-host
-		{"localhost:" + p, "http://clauductor.localhost:" + p, 403},      // cross-host
-		{"clauductor.localhost:" + p, "http://127.0.0.1:" + p, 403},      // cross-host
-		{"clauductor.localhost:" + p, "http://evil.localhost:" + p, 403}, // foreign
-		{"clauductor.localhost:" + p, "https://clauductor.localhost:" + p, 403},
-		{"clauductor.localhost:" + p, "", 403},
+		{"STRIDAL.localhost:" + p, "http://stridal.localhost:" + p, 204},
+		{"stridal.localhost:" + p, "http://localhost:" + p, 403},      // cross-host
+		{"localhost:" + p, "http://stridal.localhost:" + p, 403},      // cross-host
+		{"stridal.localhost:" + p, "http://127.0.0.1:" + p, 403},      // cross-host
+		{"stridal.localhost:" + p, "http://evil.localhost:" + p, 403}, // foreign
+		{"stridal.localhost:" + p, "https://stridal.localhost:" + p, 403},
+		{"stridal.localhost:" + p, "", 403},
 	}
 	for _, c := range cases {
 		w := do(s, "POST", "/api/refresh", "", withCookie(s), withHost(c.host), withHeader("Origin", c.origin))
@@ -75,9 +75,9 @@ func TestOriginMustMatchThisRequestsHost(t *testing.T) {
 			t.Errorf("POST Host %q Origin %q: %d, want %d", c.host, c.origin, w.Code, c.want)
 		}
 	}
-	// A page on localhost opening a terminal WebSocket for clauductor.localhost.
+	// A page on localhost opening a terminal WebSocket for stridal.localhost.
 	for _, origin := range []string{"http://localhost:" + p, "http://evil.localhost:" + p} {
-		w := do(s, "GET", "/ws/term?lane=x", "", withCookie(s), withHost("clauductor.localhost:"+p),
+		w := do(s, "GET", "/ws/term?lane=x", "", withCookie(s), withHost("stridal.localhost:"+p),
 			withHeader("Origin", origin), withHeader("Connection", "Upgrade"), withHeader("Upgrade", "websocket"))
 		if w.Code != 403 || !strings.Contains(w.Body.String(), "origin") {
 			t.Errorf("WS from %s: %d %q", origin, w.Code, w.Body.String())
@@ -85,7 +85,7 @@ func TestOriginMustMatchThisRequestsHost(t *testing.T) {
 	}
 }
 
-// Both listeners serve one server, and clauductor.localhost reaches it.
+// Both listeners serve one server, and stridal.localhost reaches it.
 func TestListenLoopbackServesBothAddresses(t *testing.T) {
 	t.Parallel()
 	ln4, ln6, why, err := ListenLoopback(0)
@@ -106,7 +106,7 @@ func TestListenLoopbackServesBothAddresses(t *testing.T) {
 	go srv.Serve(ln4)
 	go srv.Serve(ln6)
 	defer srv.Close()
-	for _, base := range []string{"http://127.0.0.1", "http://[::1]", "http://clauductor.localhost"} {
+	for _, base := range []string{"http://127.0.0.1", "http://[::1]", "http://stridal.localhost"} {
 		resp, err := http.Get(fmt.Sprintf("%s:%d/healthz", base, port))
 		if err != nil {
 			t.Fatalf("%s: %v", base, err)
@@ -124,7 +124,7 @@ func TestListenLoopbackServesBothAddresses(t *testing.T) {
 }
 
 // A process holding [::1]:<port> must be refused before the token is sent, since
-// clauductor.localhost resolves to ::1 first.
+// stridal.localhost resolves to ::1 first.
 func TestListenLoopbackRefusesAForeignV6Holder(t *testing.T) {
 	t.Parallel()
 	foreign, err := net.Listen("tcp6", "[::1]:0")

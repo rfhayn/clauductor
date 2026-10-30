@@ -26,8 +26,8 @@ var pluginBuildCmd = &cobra.Command{
 	Short: "Build plugin/ and .claude-plugin/marketplace.json from template/",
 	Long: `Assemble the Claude Code plugin from template/: the framework tier (skills, agents,
 hooks, the workflow, the checks and scripts) with its paths rewritten to the plugin root, and
-the project-owned files under plugin/scaffold/ for /clauductor:init. Writes plugin/ and
-.claude-plugin/marketplace.json in the clauductor repository. Run it after any template change;
+the project-owned files under plugin/scaffold/ for /stridal:init. Writes plugin/ and
+.claude-plugin/marketplace.json in the stridal repository. Run it after any template change;
 TestCommittedPluginIsCurrent fails until you do.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		repo, err := findRepo(pluginRepo)
@@ -57,7 +57,7 @@ var pluginCheckCmd = &cobra.Command{
 			return err
 		}
 		if len(diffs) > 0 {
-			return fmt.Errorf("plugin/ is stale against template/ (run `clauductor plugin build`):\n  %s", strings.Join(diffs, "\n  "))
+			return fmt.Errorf("plugin/ is stale against template/ (run `stridal plugin build`):\n  %s", strings.Join(diffs, "\n  "))
 		}
 		fmt.Println("plugin/ matches template/")
 		return nil
@@ -65,24 +65,24 @@ var pluginCheckCmd = &cobra.Command{
 }
 
 func init() {
-	pluginCmd.PersistentFlags().StringVar(&pluginRepo, "repo", "", "the clauductor repository (default: the git toplevel of the working directory)")
+	pluginCmd.PersistentFlags().StringVar(&pluginRepo, "repo", "", "the stridal repository (default: the git toplevel of the working directory)")
 	pluginCmd.AddCommand(pluginBuildCmd, pluginCheckCmd)
 	rootCmd.AddCommand(pluginCmd)
 }
 
-// findRepo is the clauductor repository: the flag, else the working directory's git toplevel,
+// findRepo is the stridal repository: the flag, else the working directory's git toplevel,
 // which must hold template/.
 func findRepo(flag string) (string, error) {
 	repo := flag
 	if repo == "" {
 		out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 		if err != nil {
-			return "", fmt.Errorf("not in a git repository; pass --repo <clauductor checkout>")
+			return "", fmt.Errorf("not in a git repository; pass --repo <stridal checkout>")
 		}
 		repo = strings.TrimSpace(string(out))
 	}
 	if _, err := os.Stat(filepath.Join(repo, "template", ".claude")); err != nil {
-		return "", fmt.Errorf("%s is not a clauductor checkout (no template/.claude)", repo)
+		return "", fmt.Errorf("%s is not a stridal checkout (no template/.claude)", repo)
 	}
 	return repo, nil
 }
@@ -90,7 +90,7 @@ func findRepo(flag string) (string, error) {
 // PluginDrift builds the plugin into a temporary directory and lists every path where it and the
 // committed plugin/ (or the committed marketplace.json) differ, in content or executable bit.
 func PluginDrift(repo string) ([]string, error) {
-	tmp, err := os.MkdirTemp("", "clauductor-plugin-")
+	tmp, err := os.MkdirTemp("", "stridal-plugin-")
 	if err != nil {
 		return nil, err
 	}

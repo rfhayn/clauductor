@@ -79,17 +79,17 @@ func TestPlistContent(t *testing.T) {
 			t.Fatalf("PATH %q lacks %s", path, want)
 		}
 	}
-	p := string(renderPlist(plistSpec{Home: home, Binary: "/Users/me/.clauductor/panel/bin/clauductor",
+	p := string(renderPlist(plistSpec{Home: home, Binary: "/Users/me/.stridal/panel/bin/stridal",
 		Project: "/Users/me/dev/a&b", Config: "/Users/me/cfg.json", Port: 4393, Path: path}))
 	for _, want := range []string{
-		"<key>Label</key>\n\t<string>com.clauductor.panel</string>",
-		"<string>/Users/me/.clauductor/panel/bin/clauductor</string>\n\t\t<string>panel</string>\n\t\t<string>--project</string>\n\t\t<string>/Users/me/dev/a&amp;b</string>\n\t\t<string>--config</string>\n\t\t<string>/Users/me/cfg.json</string>\n\t\t<string>--port</string>\n\t\t<string>4393</string>\n\t\t<string>--launchd</string>",
+		"<key>Label</key>\n\t<string>com.stridal.panel</string>",
+		"<string>/Users/me/.stridal/panel/bin/stridal</string>\n\t\t<string>panel</string>\n\t\t<string>--project</string>\n\t\t<string>/Users/me/dev/a&amp;b</string>\n\t\t<string>--config</string>\n\t\t<string>/Users/me/cfg.json</string>\n\t\t<string>--port</string>\n\t\t<string>4393</string>\n\t\t<string>--launchd</string>",
 		"<key>RunAtLoad</key>\n\t<true/>",
 		"<key>KeepAlive</key>\n\t<dict>\n\t\t<key>SuccessfulExit</key>\n\t\t<false/>",
 		"<key>PATH</key>\n\t\t<string>" + path + "</string>",
 		"<key>LANG</key>\n\t\t<string>en_US.UTF-8</string>",
-		"<string>/Users/me/.clauductor/panel/logs/panel.log</string>",
-		"<string>/Users/me/.clauductor/panel/logs/panel.err.log</string>",
+		"<string>/Users/me/.stridal/panel/logs/panel.log</string>",
+		"<string>/Users/me/.stridal/panel/logs/panel.err.log</string>",
 		"<key>LimitLoadToSessionType</key>\n\t<string>Aqua</string>",
 	} {
 		if !strings.Contains(p, want) {
@@ -100,8 +100,8 @@ func TestPlistContent(t *testing.T) {
 		t.Fatal("plist carries an API key variable")
 	}
 	// PANEL-16: with no project the agent serves projects.json, from the home.
-	p = string(renderPlist(plistSpec{Home: home, Binary: "/b/clauductor", Port: 4393, Path: path}))
-	if !strings.Contains(p, "<string>/b/clauductor</string>\n\t\t<string>panel</string>\n\t\t<string>--port</string>\n\t\t<string>4393</string>\n\t\t<string>--launchd</string>") ||
+	p = string(renderPlist(plistSpec{Home: home, Binary: "/b/stridal", Port: 4393, Path: path}))
+	if !strings.Contains(p, "<string>/b/stridal</string>\n\t\t<string>panel</string>\n\t\t<string>--port</string>\n\t\t<string>4393</string>\n\t\t<string>--launchd</string>") ||
 		strings.Contains(p, "--project") || !strings.Contains(p, "<key>WorkingDirectory</key>\n\t<string>"+home+"</string>") {
 		t.Fatalf("plist without a project:\n%s", p)
 	}
@@ -135,7 +135,7 @@ func TestInstallAndUninstallWithATempHome(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
 	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
-	self := filepath.Join(t.TempDir(), "clauductor")
+	self := filepath.Join(t.TempDir(), "stridal")
 	testbin.Write(t, self, "#!/bin/sh\n")
 	var calls []string
 	fake := func(argv ...string) ([]byte, error) {
@@ -182,8 +182,8 @@ func TestInstallAndUninstallWithATempHome(t *testing.T) {
 			t.Fatalf("install did not run %q; ran:\n%s", want, joined)
 		}
 	}
-	if appScript("/a b/clauductor") != `do shell script "'/a b/clauductor' panel open"` {
-		t.Fatalf("AppScript: %s", appScript("/a b/clauductor"))
+	if appScript("/a b/stridal") != `do shell script "'/a b/stridal' panel open"` {
+		t.Fatalf("AppScript: %s", appScript("/a b/stridal"))
 	}
 
 	calls = nil
@@ -217,7 +217,7 @@ func TestInstallRefusesAMissingConfigAndAForeignApp(t *testing.T) {
 	f := clock.NewFake(t0)
 	if err, _ := driven(f, 100*time.Millisecond, func() error {
 		return Install(InstallOptions{Clock: f, Home: home, Project: project, Port: 4393, App: true, Exec: ok, Self: "/bin/sh"})
-	}); err == nil || !strings.Contains(err.Error(), "not made by clauductor") {
+	}); err == nil || !strings.Contains(err.Error(), "not made by stridal") {
 		t.Fatalf("replaced a foreign app: %v", err)
 	}
 	if err := Uninstall(home, nil, ok); err != nil {
@@ -257,7 +257,7 @@ func TestReinstallWaitsForBootoutAndRetriesBootstrap(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
 	writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
-	self := filepath.Join(t.TempDir(), "clauductor")
+	self := filepath.Join(t.TempDir(), "stridal")
 	testbin.Write(t, self, "#!/bin/sh\n")
 	var calls []string
 	prints, bootstraps := 0, 0
@@ -306,7 +306,7 @@ func TestUninstallRemovesPanelFilesButKeepsLiveRegistries(t *testing.T) {
 	home := t.TempDir()
 	RotateToken(home)
 	dir := config.PanelDir(home)
-	for _, f := range []string{"browser-opened", "pid", "port", "cli.sock", "bin/clauductor", "logs/panel.log"} {
+	for _, f := range []string{"browser-opened", "pid", "port", "cli.sock", "bin/stridal", "logs/panel.log"} {
 		os.MkdirAll(filepath.Dir(filepath.Join(dir, f)), 0o700)
 		os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600)
 	}
@@ -342,7 +342,7 @@ func TestInstallStopsOnADisabledLabelNamingTheEnable(t *testing.T) {
 		home := t.TempDir()
 		project := t.TempDir()
 		writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
-		self := filepath.Join(t.TempDir(), "clauductor")
+		self := filepath.Join(t.TempDir(), "stridal")
 		testbin.Write(t, self, "#!/bin/sh\n")
 		var calls []string
 		fake := func(argv ...string) ([]byte, error) {
@@ -390,7 +390,7 @@ func TestInstallGoesOnUnlessTheLabelIsDisabled(t *testing.T) {
 		home := t.TempDir()
 		project := t.TempDir()
 		writeFile(t, filepath.Join(project, config.DefaultConfigRel), `{"name":"P"}`)
-		self := filepath.Join(t.TempDir(), "clauductor")
+		self := filepath.Join(t.TempDir(), "stridal")
 		testbin.Write(t, self, "#!/bin/sh\n")
 		bootstrapped := false
 		fake := func(argv ...string) ([]byte, error) {

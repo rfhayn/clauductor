@@ -119,7 +119,7 @@ const fail = (msg) => { console.error("FAIL: " + msg); process.exitCode = 1; };
       render();
       const out = { closed, stillClosed: !document.querySelector('#banners [data-k="warn:version:9.9.9"]'),
         otherShows: !!document.querySelector('#banners [data-k="warn:version:9.9.9:broken"]'),
-        kept: JSON.parse(localStorage.getItem("clauductor-panel-warn-closed") || "{}")["version:9.9.9"] === 1 };
+        kept: JSON.parse(localStorage.getItem("stridal-panel-warn-closed") || "{}")["version:9.9.9"] === 1 };
       S.warningItems = [];
       render();
       return out;

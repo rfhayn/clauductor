@@ -760,7 +760,7 @@ func TestStallNotifyOffSendsNothing(t *testing.T) {
 
 // [STALL-3-S11] End to end: a config that is not trusted names its project "Stalls",
 // and a lane with #152 open stalls: the notification and the push go out, each titled
-// "clauductor panel" and the lane, and neither title carries the untrusted name.
+// "stridal panel" and the lane, and neither title carries the untrusted name.
 func TestStallPushUntrustedTitle(t *testing.T) {
 	t.Parallel()
 	root, wt := stallRepo(t, "a")
@@ -793,8 +793,8 @@ func TestStallPushUntrustedTitle(t *testing.T) {
 		t.Fatalf("the push's arguments %q, want the title and the body", run)
 	}
 	for what, got := range map[string]string{"the notification's": title, "the push's": run[0]} {
-		if got != "clauductor panel · a" {
-			t.Errorf("%s title %q, want \"clauductor panel\" and the lane, never the untrusted name", what, got)
+		if got != "stridal panel · a" {
+			t.Errorf("%s title %q, want \"stridal panel\" and the lane, never the untrusted name", what, got)
 		}
 	}
 }
@@ -817,7 +817,7 @@ func TestPushBoundsAreTenSeconds(t *testing.T) {
 // pull request open throughout.
 func TestStallAcrossRestartPushesOnceWatched(t *testing.T) {
 	t.Parallel()
-	// The stall time, 3 s (scaled by CLAUDUCTOR_TEST_SLOW), is the second panel's
+	// The stall time, 3 s (scaled by STRIDAL_TEST_SLOW), is the second panel's
 	// window; the first watches the lane quiet for most of it.
 	window := testwait.Scale(3 * time.Second)
 	root, wt := stallRepoAt(t, strconv.FormatFloat(window.Minutes(), 'f', -1, 64), "a")
@@ -921,7 +921,7 @@ func TestSendCatchUpPushesItsNotice(t *testing.T) {
 // whole. It builds its bodies by hand and drives no fast-forward, so it cites no
 // scenario: the CATCHUP-3 tests in catchup_trust_integration_test.go drive them and
 // read each notice through catchUpNotifyArgv, as the Mac shows it. Review
-// 2026-10-22 found the trust notice of a checkout at /Users/rich/Development/clauductor
+// 2026-10-22 found the trust notice of a checkout at /Users/rich/Development/stridal
 // reaching osascript flattened and cut at 140 runes, its − line gone and its + line cut
 // mid-command, and a notice that waits, or names a load error, without its reason. The
 // catch-up source shows its notices with notifyCatchUp, never SendNotice's summary.
@@ -931,14 +931,14 @@ func TestCatchUpNoticeReachesTheMacWhole(t *testing.T) {
 	if reflect.ValueOf(c.notify).Pointer() != reflect.ValueOf(notifyCatchUp).Pointer() {
 		t.Fatal("with no test recording its notices, catch-up does not show them with notifyCatchUp")
 	}
-	root := "/Users/rich/Development/clauductor"
+	root := "/Users/rich/Development/stridal"
 	x, y := `card x runs ["sh" ".claude/x.sh"] (interval:60)`, `card y runs ["sh" ".claude/y.sh"] (interval:60)`
-	trust := catchUpNotice{root: root, key: "catch-up\x00k1", trusted: "Clauductor", body: trustBody(
+	trust := catchUpNotice{root: root, key: "catch-up\x00k1", trusted: "Stridal", body: trustBody(
 		"Catch-up trusted the new .claude/panel.json in "+root+" on arrival from #7, merged by rhayn.", []string{x}, []string{y})}
 	reason := "the loaded config was not the file the fast-forward started from (0123abc); the new config turns notices off (alerts.notify is false)"
 	waits := catchUpNotice{root: root, key: "catch-up\x00k2", waits: true, body: catchUpBody("Catch-up moved " + root +
 		" to abc1234 (#7, merged by rhayn), and did not trust its new .claude/panel.json: " + reason +
-		". The config waits for the owner: Trust config… on the page, or `clauductor panel trust`.")}
+		". The config waits for the owner: Trust config… on the page, or `stridal panel trust`.")}
 	loadErr := "panel config: card x: unknown field \"intervall\""
 	noLoad := catchUpNotice{root: root, key: "catch-up\x00k3", body: catchUpBody("Catch-up moved " + root +
 		" to abc1234 (#7, merged by rhayn), and its new .claude/panel.json does not load, so the panel keeps serving the config it had loaded: " + loadErr + ".")}
@@ -954,7 +954,7 @@ func TestCatchUpNoticeReachesTheMacWhole(t *testing.T) {
 		return argv[len(argv)-2], argv[len(argv)-1]
 	}
 	title, body := mac(0)
-	if title != "Clauductor" || body != trust.body {
+	if title != "Stridal" || body != trust.body {
 		t.Fatalf("the trust notice on the Mac: %q, %q; want the config's name and the whole notice %q", title, body, trust.body)
 	}
 	if !strings.Contains(body, "#7") || !strings.Contains(body, "rhayn") || !strings.Contains(body, "\n+ "+x) || !strings.Contains(body, "\n− "+y) {

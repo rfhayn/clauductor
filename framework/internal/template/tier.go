@@ -40,7 +40,7 @@ func isModelScript(rel string) bool {
 }
 
 // FrameworkDirs are the template directories whose every file is the model's code. A file a
-// project adds under one of them is reported by `clauductor diff` as extra.
+// project adds under one of them is reported by `stridal diff` as extra.
 var FrameworkDirs = []string{
 	".claude/skills/",
 	".claude/hooks/",
@@ -50,7 +50,7 @@ var FrameworkDirs = []string{
 	".claude/modules/",
 	".claude/examples/",
 	// The refusing pkill and killall (ST-14). The plugin packager's frameworkDirs lists bin the
-	// same way: install and the plugin must agree, or `clauductor update` never refreshes them.
+	// same way: install and the plugin must agree, or `stridal update` never refreshes them.
 	".claude/bin/",
 	// The lease conformance kit: the suite IS the protocol, so a project runs it as shipped and
 	// update refreshes it (P1.12).
@@ -81,7 +81,7 @@ func Classify(relPath string) Tier {
 		return TierSettings
 	}
 	// The project's own values live elsewhere (.claude/project.conf, model-roles.json,
-	// .clauductor/panel.json, scripts/ci/steps.sh, AGENTS.md, docs/), which fall through to the
+	// .stridal/panel.json, scripts/ci/steps.sh, AGENTS.md, docs/), which fall through to the
 	// doc tier and are never overwritten.
 	for _, d := range FrameworkDirs {
 		if strings.HasPrefix(relPath, d) {

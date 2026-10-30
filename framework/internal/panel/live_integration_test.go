@@ -226,7 +226,7 @@ func TestProjectAddedTrustedAndRemovedLive(t *testing.T) {
 	_ = tmux
 }
 
-// PANEL-22: `clauductor panel add` and `panel remove` while a panel runs take effect
+// PANEL-22: `stridal panel add` and `panel remove` while a panel runs take effect
 // live: the panel follows projects.json, and its owner record says so.
 func TestCLIAddAndRemoveAreLive(t *testing.T) {
 	t.Parallel()
@@ -389,7 +389,7 @@ func TestInitFromThePageAndDefaultHandOver(t *testing.T) {
 	if code, body := p.post(t, "/api/projects/init", map[string]string{"path": rootD}); code != 409 {
 		t.Fatalf("a second init: %d %v", code, body)
 	}
-	// Its socket would be clauductor-<id>: give it a throwaway one, so the panel never
+	// Its socket would be stridal-<id>: give it a throwaway one, so the panel never
 	// asks a real socket name.
 	written, _ := os.ReadFile(cfgPath)
 	writeFile(t, cfgPath, strings.Replace(string(written), "{\n", "{\n  \"tmux_socket\": \""+noServerSocket()+"\",\n", 1))
@@ -494,7 +494,7 @@ func TestRemoveConfirmationForAnAttachedProject(t *testing.T) {
 	side := pageWords(t, "removeNote", plans["side"])
 	// "and so does its config": the attached note's own words for the sidecar staying;
 	// alpha's note says "stay" too, so the bare word would prove nothing.
-	for _, want := range []string{"and so does its config, " + sidecar, "clauductor panel add --project " + rootB + " --config " + sidecar} {
+	for _, want := range []string{"and so does its config, " + sidecar, "stridal panel add --project " + rootB + " --config " + sidecar} {
 		if !strings.Contains(side, want) {
 			t.Errorf("side's confirmation lacks %q: %q", want, side)
 		}
@@ -519,7 +519,7 @@ func TestSidecarRecordedEarlierIsServedUntrusted(t *testing.T) {
 	rootB, sidecar := attachedRepo(t, home, "side", "")
 	body := `{"name":"Side","lanes":{"main":"orchestrator","change/":"build"},"tmux_socket":"` + noServerSocket() + `",
 		"cards":[{"id":"rep","title":"Report","command":["~/bin/report"],"refresh":"interval:1"}],
-		"queues":[{"id":"gate","lock":"clauductor/gate.lock","command":["make","gate"]}],
+		"queues":[{"id":"gate","lock":"stridal/gate.lock","command":["make","gate"]}],
 		"templates":[{"id":"st","title":"T","lane_type":"build","branch_pattern":"change/{name}","first_prompt":"hello"}]}`
 	writeFile(t, sidecar, body)
 	b, _ := json.Marshal(map[string]any{"configs": map[string]string{sidecar: install.ConfigHash([]byte(body))}})
@@ -595,7 +595,7 @@ func TestPageRefusesToTrustASidecarCommandOutside(t *testing.T) {
 	rootB, sidecar := attachedRepo(t, home, "side", "")
 	writeFile(t, sidecar, `{"name":"Side","lanes":{"main":"orchestrator"},"tmux_socket":"`+noServerSocket()+`",
 		"cards":[{"id":"report","title":"Report","command":["/usr/local/bin/report"],"refresh":"interval:60"}],
-		"queues":[{"id":"gate","lock":"clauductor/gate.lock","command":["sh","../other/gate.sh"]}]}`)
+		"queues":[{"id":"gate","lock":"stridal/gate.lock","command":["sh","../other/gate.sh"]}]}`)
 	p := startPanel(t, rootA, home, sockA)
 
 	code, body := p.post(t, "/api/projects/side/trust", map[string]any{"dryRun": true})

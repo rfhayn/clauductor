@@ -20,7 +20,7 @@ import (
 //
 //   - ports: each lane gets a stable port of its own (ports.base + k × ports.per_lane,
 //     the smallest k no other registered lane holds), kept in its registry record and
-//     exported to the lane as CLAUDUCTOR_PORT;
+//     exported to the lane as STRIDAL_PORT;
 //   - .worktreeinclude: the gitignored files it names are copied from the project root
 //     into a new worktree, with Claude Code's semantics (a file must match the file's
 //     .gitignore-syntax patterns AND be ignored, so a tracked file is never copied);
@@ -74,9 +74,9 @@ func (m *LaneManager) LanePort(id string) int {
 // hookArgv is a setup or teardown command with the lane's environment: /usr/bin/env
 // sets it, so the command still runs without a shell.
 func hookArgv(cmd []string, id string, port int) []string {
-	argv := []string{"/usr/bin/env", "CLAUDUCTOR_LANE=" + id}
+	argv := []string{"/usr/bin/env", "STRIDAL_LANE=" + id}
 	if port > 0 {
-		argv = append(argv, "CLAUDUCTOR_PORT="+strconv.Itoa(port))
+		argv = append(argv, "STRIDAL_PORT="+strconv.Itoa(port))
 	}
 	return append(argv, cmd...)
 }
@@ -90,7 +90,7 @@ func (m *LaneManager) runHook(ctx context.Context, what string, h *config.HookCo
 		return false, nil
 	}
 	if m.Trusted != nil && !m.Trusted() {
-		return false, fmt.Errorf("%s did not run: panel.json is not trusted as it is (clauductor panel trust)", what)
+		return false, fmt.Errorf("%s did not run: panel.json is not trusted as it is (stridal panel trust)", what)
 	}
 	cctx, cancel := context.WithTimeout(ctx, HookTimeout)
 	defer cancel()

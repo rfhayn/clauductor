@@ -28,7 +28,7 @@ import (
 	"github.com/rfhayn/stridal/internal/testwait"
 )
 
-// waitUntil waits up to d (scaled by CLAUDUCTOR_TEST_SLOW) for cond.
+// waitUntil waits up to d (scaled by STRIDAL_TEST_SLOW) for cond.
 func waitUntil(t *testing.T, what string, d time.Duration, cond func() bool) {
 	t.Helper()
 	testwait.For(t, what, d, cond)
@@ -215,7 +215,7 @@ const (
 	ticketPrefix                      = "ticket."
 	closeIdle    websocket.StatusCode = 4000
 	closeRotated websocket.StatusCode = 4001
-	hookTag                           = "clauductor-panel"
+	hookTag                           = "stridal-panel"
 )
 
 type termMsg struct {
@@ -353,7 +353,7 @@ func TestEnvCommandSeesClaudeBehindEnv(t *testing.T) {
 	for _, tc := range []struct{ argv, want []string }{
 		{lanes.ScrubbedArgv("claude", "auth", "status", "--json"), []string{"claude", "auth", "status", "--json"}},
 		{[]string{"/usr/bin/env", "-i", "-uX", "A=b", "--", "claude", "agents"}, []string{"claude", "agents"}},
-		{[]string{"/usr/bin/env", "CLAUDUCTOR_LANE=one", "true"}, []string{"true"}},
+		{[]string{"/usr/bin/env", "STRIDAL_LANE=one", "true"}, []string{"true"}},
 		{[]string{"/usr/bin/env", "-S", "claude agents"}, nil},
 		{[]string{"claude", "--version"}, []string{"claude", "--version"}},
 	} {
@@ -382,7 +382,7 @@ func testEnv(k string) (string, bool) {
 // helper panel (TestHelperPanelProcess) is only a panel: its parent stops it with
 // SIGTERM, which it must handle itself.
 func TestMain(m *testing.M) {
-	if os.Getenv("CLAUDUCTOR_PANEL_HELPER") == "1" {
+	if os.Getenv("STRIDAL_PANEL_HELPER") == "1" {
 		os.Exit(m.Run())
 	}
 	// A panel refuses to start a lane while an API key is in its environment, so a gate run from a

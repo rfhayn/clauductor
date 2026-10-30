@@ -14,7 +14,7 @@ import (
 	"github.com/rfhayn/stridal/internal/testbin"
 )
 
-// The plain-shell protocol in docs/panel.md is what a project without clauductor
+// The plain-shell protocol in docs/panel.md is what a project without stridal
 // (a project's own run-local.sh) runs. The test runs THAT text, extracted from the
 // page, against lock-run, so the documentation cannot drift from the protocol.
 func docLeaseSh(t *testing.T) string {
@@ -371,8 +371,8 @@ func TestShellLeaseWithoutPS(t *testing.T) {
 }
 
 // Round 2: the documented run-local.sh runs the gate unqueued, with one warning,
-// when neither clauductor nor lease.sh is there; it never aborts.
-func TestSnippetRunsUnqueuedWithoutClauductorOrLeaseSh(t *testing.T) {
+// when neither stridal nor lease.sh is there; it never aborts.
+func TestSnippetRunsUnqueuedWithoutStridalOrLeaseSh(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "panel.md"))
 	if err != nil {
@@ -399,7 +399,7 @@ func TestSnippetRunsUnqueuedWithoutClauductorOrLeaseSh(t *testing.T) {
 	cmd.Dir = dir
 	cmd.Env = []string{"PATH=" + path, "HOME=" + os.Getenv("HOME")}
 	out, err := cmd.CombinedOutput()
-	if err != nil || !strings.Contains(string(out), "gate-ran") || !strings.Contains(string(out), "neither clauductor nor lease.sh") {
+	if err != nil || !strings.Contains(string(out), "gate-ran") || !strings.Contains(string(out), "neither stridal nor lease.sh") {
 		t.Fatalf("%v: %s", err, out)
 	}
 }

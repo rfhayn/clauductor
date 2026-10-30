@@ -19,7 +19,7 @@ import (
 
 // The lane registry is the panel's durable memory of the lanes it started: which
 // lane id owns which Claude session id, in which directory, as which type. It lives
-// at ~/.clauductor/panel/<project-hash>/lanes.json.
+// at ~/.stridal/panel/<project-hash>/lanes.json.
 //
 // An intent is written BEFORE each action and marked done after it, so a panel that
 // crashes mid-action finds the half-done action on restart. The registry is never

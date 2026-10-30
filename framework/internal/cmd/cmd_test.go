@@ -18,20 +18,20 @@ import (
 	"time"
 )
 
-// TestMain lets the test binary act as the clauductor CLI (as cmd/clauductor/main
+// TestMain lets the test binary act as the stridal CLI (as cmd/stridal/main
 // runs it), so a test sees what a shell sees: the exit status, stdout and stderr.
 // lock-run leaves by os.Exit, which only a separate process can observe.
 func TestMain(m *testing.M) {
-	if args := os.Getenv("CLAUDUCTOR_CMD_HELPER_ARGS"); args != "" {
+	if args := os.Getenv("STRIDAL_CMD_HELPER_ARGS"); args != "" {
 		var argv []string
 		if err := json.Unmarshal([]byte(args), &argv); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
-		os.Args = append([]string{"clauductor"}, argv...)
-		if os.Getenv("CLAUDUCTOR_CMD_HELPER_RESTART") != "" {
+		os.Args = append([]string{"stridal"}, argv...)
+		if os.Getenv("STRIDAL_CMD_HELPER_RESTART") != "" {
 			// The panel's run as it ends after rebuilding itself (OPS-118 D4), under the
-			// login agent only: what `clauductor panel` does with that is the test.
+			// login agent only: what `stridal panel` does with that is the test.
 			runPanel = func(_ context.Context, o panel.Options) error {
 				if !o.Launchd {
 					return errors.New("the run was not told it is the login agent")
@@ -39,8 +39,8 @@ func TestMain(m *testing.M) {
 				return &panel.RestartError{Code: panel.ExitRestart, From: strings.Repeat("a", 40), To: strings.Repeat("b", 40)}
 			}
 		}
-		if w := os.Getenv("CLAUDUCTOR_CMD_HELPER_HANGUP"); w != "" {
-			// A closed terminal's hangup, through `clauductor panel`'s own stop signals
+		if w := os.Getenv("STRIDAL_CMD_HELPER_HANGUP"); w != "" {
+			// A closed terminal's hangup, through `stridal panel`'s own stop signals
 			// (#162): what stops the run is the test (hangupRun).
 			window, _ := time.ParseDuration(w)
 			runPanel = func(ctx context.Context, _ panel.Options) error { return hangupRun(ctx, window) }
@@ -55,8 +55,8 @@ type cliResult struct {
 	code           int
 }
 
-// cli runs `clauductor args...` with HOME set to home: nothing reaches the real
-// ~/.claude or ~/.clauductor, or a panel running on this machine.
+// cli runs `stridal args...` with HOME set to home: nothing reaches the real
+// ~/.claude or ~/.stridal, or a panel running on this machine.
 func cli(t *testing.T, home string, args ...string) cliResult {
 	t.Helper()
 	return cliIn(t, "", home, args...)
@@ -74,7 +74,7 @@ func cliEnv(t *testing.T, dir, home string, env []string, args ...string) cliRes
 	b, _ := json.Marshal(args)
 	c := exec.Command(os.Args[0], "-test.run=^$")
 	c.Dir = dir
-	c.Env = append(append(gitFreeEnv(), "CLAUDUCTOR_CMD_HELPER_ARGS="+string(b), "HOME="+home, "CLAUDUCTOR_LANE=", quickExit()), env...)
+	c.Env = append(append(gitFreeEnv(), "STRIDAL_CMD_HELPER_ARGS="+string(b), "HOME="+home, "STRIDAL_LANE=", quickExit()), env...)
 	var stdout, stderr strings.Builder
 	c.Stdout, c.Stderr = &stdout, &stderr
 	err := c.Run()
@@ -131,13 +131,13 @@ func TestLockRunExitsWithTheCommandsStatus(t *testing.T) {
 }
 
 // --lane and --ttl reach the lease the command runs under: the command reads its own
-// owner.json through CLAUDUCTOR_LOCK_HELD.
+// owner.json through STRIDAL_LOCK_HELD.
 func TestLockRunPutsLaneAndTTLInTheLease(t *testing.T) {
 	t.Parallel()
 	skipShortLockRun(t)
 	lock := filepath.Join(t.TempDir(), "gate.lock")
 	r := cli(t, t.TempDir(), "lock-run", "--lane", "fix-7", "--ttl", "90s", lock, "--",
-		"/bin/sh", "-c", `cat "$CLAUDUCTOR_LOCK_HELD/owner.json"`)
+		"/bin/sh", "-c", `cat "$STRIDAL_LOCK_HELD/owner.json"`)
 	if r.code != 0 {
 		t.Fatalf("exit %d: %s", r.code, r.stderr)
 	}
@@ -166,9 +166,9 @@ func TestLockRunRefusesMisplacedArguments(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"no --", append([]string{"lock-run", filepath.Join(dir, "l")}, touch...), "usage: clauductor lock-run"},
-		{"two locks", append([]string{"lock-run", filepath.Join(dir, "l"), "extra", "--"}, touch...), "usage: clauductor lock-run"},
-		{"no lock", append([]string{"lock-run", "--"}, touch...), "usage: clauductor lock-run"},
+		{"no --", append([]string{"lock-run", filepath.Join(dir, "l")}, touch...), "usage: stridal lock-run"},
+		{"two locks", append([]string{"lock-run", filepath.Join(dir, "l"), "extra", "--"}, touch...), "usage: stridal lock-run"},
+		{"no lock", append([]string{"lock-run", "--"}, touch...), "usage: stridal lock-run"},
 		{"no command", []string{"lock-run", filepath.Join(dir, "l")}, "requires at least 2 arg(s)"},
 		{"bad ttl", append([]string{"lock-run", "--ttl", "soon", filepath.Join(dir, "l"), "--"}, touch...), `invalid argument "soon"`},
 	} {
@@ -243,7 +243,7 @@ func TestPanelWithoutAConfigChangesNothing(t *testing.T) {
 	if r.code != 1 || !strings.Contains(r.stderr, "no panel config") {
 		t.Fatalf("exit %d, stderr %q; want 1 and the missing config", r.code, r.stderr)
 	}
-	for _, p := range []string{".claude", ".clauductor"} {
+	for _, p := range []string{".claude", ".stridal"} {
 		if _, err := os.Stat(filepath.Join(home, p)); !os.IsNotExist(err) {
 			t.Errorf("a refused start created ~/%s", p)
 		}
@@ -258,16 +258,16 @@ func TestPanelHousekeepingCommands(t *testing.T) {
 		t.Fatalf("--uninstall-hooks with none installed: exit %d, %q %q", r.code, r.stdout, r.stderr)
 	}
 	r = cli(t, home, "panel", "rotate-token")
-	token := filepath.Join(home, ".clauductor", "panel", "token")
+	token := filepath.Join(home, ".stridal", "panel", "token")
 	fi, err := os.Stat(token)
 	if r.code != 0 || err != nil || fi.Mode().Perm() != 0o600 || !strings.Contains(r.stdout, "Rotated "+token) {
 		t.Fatalf("rotate-token: exit %d, %q %q, token %v %v", r.code, r.stdout, r.stderr, fi, err)
 	}
 	project := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(project, ".clauductor"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(project, ".stridal"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(project, ".clauductor", "panel.json"), []byte(`{"name":"P"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, ".stridal", "panel.json"), []byte(`{"name":"P"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	r = cli(t, home, "panel", "trust", "--project", project)
@@ -309,7 +309,7 @@ func TestFailingCommandPrintsItsErrorOnce(t *testing.T) {
 			t.Errorf("%s: usage printed %v, want %v:\n%s", c.name, got, c.usage, r.stderr)
 		}
 	}
-	if r := cliIn(t, t.TempDir(), home, "nope"); !strings.Contains(r.stderr, "Run 'clauductor --help' for usage.") {
+	if r := cliIn(t, t.TempDir(), home, "nope"); !strings.Contains(r.stderr, "Run 'stridal --help' for usage.") {
 		t.Errorf("an unknown command does not point at --help:\n%s", r.stderr)
 	}
 	// cobra.NoArgs refuses an argument in the same words as an unknown command, but cobra printed

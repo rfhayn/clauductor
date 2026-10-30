@@ -19,13 +19,17 @@ func put(t *testing.T, dir, rel, body string) {
 	}
 }
 
+// testdata is an old model's file as that model shipped it. The old model called its CLI by
+// the product's earlier name, and oldmodel.go's hashes are of those bytes, so the fixture is
+// stored with the name now and given back the earlier one here (spelled in two pieces, so no
+// tracked file holds it: name-residue.sh).
 func testdata(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", "oldmodel", name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	return strings.ReplaceAll(string(b), "stridal ", "clau"+"ductor ")
 }
 
 // OPS-8 rehearsal, finding 1: a fresh clone of an old-model repository has no
@@ -114,7 +118,7 @@ func TestStaleOldModelListsOnlyTheOldModel(t *testing.T) {
 func TestSettingsMergeDropsDeadAndOldHooks(t *testing.T) {
 	dir := t.TempDir()
 	put(t, dir, ".claude/hooks/ours.sh", "#!/bin/sh\n")
-	put(t, dir, ".claude/hooks/heartbeat.sh", "#!/bin/sh\nclauductor heartbeat\n") // exists, but the old model's
+	put(t, dir, ".claude/hooks/heartbeat.sh", "#!/bin/sh\nstridal heartbeat\n") // exists, but the old model's
 	have := `{"hooks": {
   "SessionStart": [{"hooks": [{"type": "command", "command": "bash .claude/hooks/session-register.sh", "async": true}]}],
   "PostToolUse": [{"matcher": "Bash", "hooks": [

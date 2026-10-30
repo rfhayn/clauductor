@@ -16,7 +16,7 @@ import (
 
 // The status-line snippet in docs/panel.md is what projects paste into their
 // status-line script. The test runs THAT text: it posts to the recorded port only
-// while ~/.clauductor/panel/pid names a live process (a positive integer), and
+// while ~/.stridal/panel/pid names a live process (a positive integer), and
 // otherwise stays silent.
 func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 	for _, tool := range []string{"bash", "curl"} {
@@ -89,7 +89,7 @@ func TestStatusLineSnippetPostsOnlyToALivePanel(t *testing.T) {
 				t.Skip("no jq")
 			}
 			home := t.TempDir()
-			dir := filepath.Join(home, ".clauductor", "panel")
+			dir := filepath.Join(home, ".stridal", "panel")
 			os.MkdirAll(dir, 0o700)
 			os.WriteFile(filepath.Join(dir, "port"), []byte(u.Port()), 0o600)
 			if tc.pid != "" {

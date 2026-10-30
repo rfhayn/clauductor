@@ -28,7 +28,7 @@ const pw = L.loadPlaywright();
 const args = process.argv.slice(2);
 const opt = (name, d) => { const i = args.indexOf("--" + name); return i >= 0 ? args[i + 1] : d; };
 const R = L.run(args[0] && !args[0].startsWith("--") ? args[0] : null);
-const out = path.resolve(opt("out", path.join(require("os").tmpdir(), "clauductor-ux-out", "flows-" + R.runid)));
+const out = path.resolve(opt("out", path.join(require("os").tmpdir(), "stridal-ux-out", "flows-" + R.runid)));
 const groups = opt("flows", "lanes,attachments,projects").split(",");
 const only = opt("only", "") ? opt("only").split(",") : null;
 const F = new L.Findings(out, "flows:" + groups.join("+"));
@@ -47,8 +47,8 @@ const hasSession = (id) => { try { tmux("has-session", "-t", "=" + id); return t
 const branchExists = (b) => { try { git("-C", alpha, "rev-parse", "--verify", "-q", "refs/heads/" + b); return true; } catch (e) { return false; } };
 const typedFor = (lane) => { try { return fs.readFileSync(path.join(R.home, "fake", "typed", lane + ".log")).toString("latin1"); } catch (e) { return ""; } };
 function registry() {
-  // Every lane id in the run's lane registries (~/.clauductor/panel/<hash>/lanes.json).
-  const dir = path.join(R.home, ".clauductor", "panel"), ids = [];
+  // Every lane id in the run's lane registries (~/.stridal/panel/<hash>/lanes.json).
+  const dir = path.join(R.home, ".stridal", "panel"), ids = [];
   for (const d of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
     const f = path.join(dir, d, "lanes.json");
     if (!fs.existsSync(f)) continue;
@@ -60,7 +60,7 @@ function registry() {
 }
 // A lane's first-prompt state in the run's registries ("" when it has none).
 function promptState(id) {
-  const dir = path.join(R.home, ".clauductor", "panel");
+  const dir = path.join(R.home, ".stridal", "panel");
   for (const d of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
     const f = path.join(dir, d, "lanes.json");
     if (!fs.existsSync(f)) continue;
@@ -474,7 +474,7 @@ const projActs = async (id, act) => {
   await page.waitForSelector("#projacts:not([hidden])", { timeout: 3000 });
   await clickOrReport('#projacts [data-act="' + act + '"]', act);
 };
-const regIds = () => { try { return JSON.parse(fs.readFileSync(path.join(R.home, ".clauductor", "panel", "projects.json"), "utf8")).projects.map((p) => p.id); } catch (e) { return []; } };
+const regIds = () => { try { return JSON.parse(fs.readFileSync(path.join(R.home, ".stridal", "panel", "projects.json"), "utf8")).projects.map((p) => p.id); } catch (e) { return []; } };
 flow("projects", "remove-refused-lanes", async () => {
   await projActs("alpha", "remove");
   await page.waitForSelector("#pd-body ul.lanes", { timeout: 8000 });
@@ -499,7 +499,7 @@ flow("projects", "trust-from-menu", async () => {
 });
 flow("projects", "add-project-live", async () => {
   if (!R.candidates) throw new Error("this run has no candidates (up.sh before PANEL-22)");
-  const delta = R.candidates.delta, cfg = path.join(delta, ".clauductor", "panel.json");
+  const delta = R.candidates.delta, cfg = path.join(delta, ".stridal", "panel.json");
   await page.click("#projbtn");
   await clickOrReport("#addproj", "Add a project…");
   await page.waitForSelector("#adddlg:not([hidden])", { timeout: 3000 });
@@ -509,7 +509,7 @@ flow("projects", "add-project-live", async () => {
   await clickOrReport("#ad-init", "Create this config");
   await page.waitForSelector("#ad-trust:not([hidden])", { timeout: 8000 });
   if (!fs.existsSync(cfg)) throw new Error("Create this config wrote nothing");
-  // Its lanes would run on clauductor-delta: this run's own socket instead, before trust.
+  // Its lanes would run on stridal-delta: this run's own socket instead, before trust.
   fs.writeFileSync(cfg, fs.readFileSync(cfg, "utf8").replace("{\n", '{\n  "tmux_socket": "' + R.sockets[3] + '",\n'));
   await page.press("#ad-path", "Enter");
   await until("the trust report of the edited config", async () => /tmux socket\s*ux-/.test(await page.$eval("#ad-body", (e) => e.innerText)), 8000);
@@ -586,7 +586,7 @@ flow("metrics", "metrics-tabs-ranges-scope", async () => {
   const all = await mvText();
   if (!/All projects:.*Alpha.*Beta/s.test(all)) throw new Error("All projects does not name both projects: " + all.slice(0, 300).replace(/\s+/g, " "));
   if (!/The metrics command failed in Beta/.test(all)) throw new Error("All projects does not show Beta's metrics error");
-  const saved = await page.evaluate(() => localStorage.getItem("clauductor-panel-metrics"));
+  const saved = await page.evaluate(() => localStorage.getItem("stridal-panel-metrics"));
   if (!/"scope":"all"/.test(saved || "")) throw new Error("the scope is not kept: " + saved);
   await page.click('[data-k="mscope:project"]');
   await page.click('[data-k="mrange:30d"]');
@@ -628,7 +628,7 @@ flow("metrics", "flow-card-opens-metrics", async () => {
 
 // Economy: the fake's 5-hour quota is 42% (threshold 40, off below 37). Each session
 // posts every 5 s, the panel decides every 5 s, so 14 s is two decisions on the new reading.
-const economyFile = () => { try { return JSON.parse(readFile(path.join(R.home, ".clauductor", "panel", "economy.json"))); } catch (e) { return null; } };
+const economyFile = () => { try { return JSON.parse(readFile(path.join(R.home, ".stridal", "panel", "economy.json"))); } catch (e) { return null; } };
 const setQuota = (pct) => fs.writeFileSync(path.join(FAKE, "five_hour_pct"), String(pct));
 const badge = () => page.$('[data-k="q:eco"]').then((e) => !!e);
 flow("metrics", "economy-hysteresis", async () => {
@@ -649,7 +649,7 @@ flow("metrics", "economy-hysteresis", async () => {
     if ((await badge()) || economyFile()?.economy !== false) throw new Error("economy came back on at 39%");
     setQuota(41);
     await until("economy on again at 41%", async () => (await badge()) && economyFile()?.economy === true, 20000);
-    const mode = fs.statSync(path.join(R.home, ".clauductor", "panel", "economy.json")).mode & 0o777;
+    const mode = fs.statSync(path.join(R.home, ".stridal", "panel", "economy.json")).mode & 0o777;
     if (mode !== 0o600) throw new Error("economy.json has mode " + mode.toString(8));
   } finally { try { fs.unlinkSync(path.join(FAKE, "five_hour_pct")); } catch (e) { /* gone */ } }
 });
@@ -707,8 +707,8 @@ flow("metrics", "ports-header-env", async () => {
   if (!port) throw new Error("working has no port in the state");
   const head = await page.$eval('#lanehead [data-k="port"]', (e) => e.innerText).catch(() => "");
   if (!head.includes(String(port))) throw new Error("the header's Port reads " + JSON.stringify(head) + ", want " + port);
-  const env = tmux("show-environment", "-t", "=working", "CLAUDUCTOR_PORT").trim();
-  if (env !== "CLAUDUCTOR_PORT=" + port) throw new Error("tmux has " + JSON.stringify(env));
+  const env = tmux("show-environment", "-t", "=working", "STRIDAL_PORT").trim();
+  if (env !== "STRIDAL_PORT=" + port) throw new Error("tmux has " + JSON.stringify(env));
   const mark = readFile(path.join(WT, "working", ".ux-setup")).trim();
   if (mark !== "working " + port) throw new Error("setup's marker reads " + JSON.stringify(mark));
 });
@@ -747,8 +747,8 @@ flow("metrics", "worktreeinclude-setup-teardown", async () => {
   const td = readFile(path.join(FAKE, "teardown.log"));
   if (!/^ux-incl\b/m.test(td)) throw new Error("teardown did not run for ux-incl: " + JSON.stringify(td));
   if (fs.existsSync(dir)) throw new Error("the clean worktree is still on disk after Close: " + (await page.$eval("#closebar", (e) => e.innerText)).replace(/\s+/g, " "));
-  // docs/panel.md: teardown runs with CLAUDUCTOR_LANE and CLAUDUCTOR_PORT set.
-  if (!td.split("\n").includes("ux-incl " + port)) throw new Error("teardown ran without the lane's CLAUDUCTOR_PORT (" + port + "): teardown.log reads " + JSON.stringify(td));
+  // docs/panel.md: teardown runs with STRIDAL_LANE and STRIDAL_PORT set.
+  if (!td.split("\n").includes("ux-incl " + port)) throw new Error("teardown ran without the lane's STRIDAL_PORT (" + port + "): teardown.log reads " + JSON.stringify(td));
 });
 
 // Remote control (lanes mode): lanes start with --remote-control; the ⋯ item only asks,
@@ -818,7 +818,7 @@ flow("metrics", "needs-you-signals", async () => {
 });
 
 // ---- lifecycle (UX_LIFECYCLE=1) ----------------------------------------------------
-const hookPost = (body) => fetch(R.base + "/hook?src=clauductor-panel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const hookPost = (body) => fetch(R.base + "/hook?src=stridal-panel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 // Auto-resume: a usage-limit stop (StopFailure rate_limit) in an idle lane, the 5-hour
 // window resetting 20 s later: 30 s after the reset the panel types "continue" + Enter.
 flow("lifecycle", "auto-resume", async () => {
@@ -868,7 +868,7 @@ flow("lifecycle", "auto-close-on-merge", async () => {
   if (/[?!.]:/.test(ask)) throw new Error("the ask doubles its punctuation: " + ask);
   if (!fs.existsSync(path.join(WT, "shipdirty"))) throw new Error("the dirty worktree was removed");
   if (!branchExists("ship/shipdirty")) throw new Error("the dirty lane's branch was deleted");
-  if (!/^shipclean \d+$/m.test(readFile(path.join(FAKE, "teardown.log")))) throw new Error("the auto-close's teardown ran without CLAUDUCTOR_PORT: teardown.log reads " + JSON.stringify(readFile(path.join(FAKE, "teardown.log"))));
+  if (!/^shipclean \d+$/m.test(readFile(path.join(FAKE, "teardown.log")))) throw new Error("the auto-close's teardown ran without STRIDAL_PORT: teardown.log reads " + JSON.stringify(readFile(path.join(FAKE, "teardown.log"))));
 });
 
 // PANEL-21: at 1280 px and 175% the tabs overflow; "N more" says how many, its menu

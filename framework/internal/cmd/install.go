@@ -36,8 +36,8 @@ func tierLabel(t fileTier) string { return template.TierLabel(t) }
 
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Add Clauductor framework to an existing project",
-	Long: `Install Clauductor skills, docs, and orchestration infrastructure into
+	Short: "Add Stridal framework to an existing project",
+	Long: `Install Stridal skills, docs, and orchestration infrastructure into
 an existing project repository.
 
 File handling by tier:
@@ -58,21 +58,21 @@ and the template's is left out), and the roadmap, journal, insights, owner
 queue, ADRs, changes and specs where their keys say.
 
 A repository that runs an operating model of its own (skills, hooks or
-AGENTS.md that clauductor did not install) is refused, with the files an
-install would overwrite or add, unless --force. One that runs clauductor's
+AGENTS.md that stridal did not install) is refused, with the files an
+install would overwrite or add, unless --force. One that runs stridal's
 old model (recognised from tracked files: its skills, hooks and settings) is
-clauductor's, and is installed over; the old model's files the current one
+stridal's, and is installed over; the old model's files the current one
 replaced are listed and offered for removal (--prune removes them without
 asking; a project-owned or unknown file is never touched), and settings.json
 loses the hook registrations that run a script that will not exist.
 
-The template comes from --template-dir, CLAUDUCTOR_FRAMEWORK, next to the
+The template comes from --template-dir, STRIDAL_FRAMEWORK, next to the
 binary (a release ships its template), or the checkout the binary was built
 from, in that order; its version must match the binary's. The first line
 printed says which.
 
 Use --dry-run to preview changes, including the settings.json diff, without
-modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
+modifying anything. ` + "`stridal diff`" + ` compares without the guard.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		out := cmd.OutOrStdout()
 		targetDir, err := os.Getwd()
@@ -88,7 +88,7 @@ modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 			}
 		}
 
-		fmt.Fprintf(out, "Installing Clauductor framework into %s\n", targetDir)
+		fmt.Fprintf(out, "Installing Stridal framework into %s\n", targetDir)
 		ready, err := prepareInstall(out, targetDir, forceInstall)
 		var foreign foreignRefusal
 		if errors.As(err, &foreign) {
@@ -123,7 +123,7 @@ modifying anything. ` + "`clauductor diff`" + ` compares without the guard.`,
 			return err
 		}
 
-		fmt.Fprintln(out, "\nDone! Clauductor framework installed.")
+		fmt.Fprintln(out, "\nDone! Stridal framework installed.")
 		printPrereqs(out, tmplDir)
 		fmt.Fprintln(out, "Next steps:")
 		fmt.Fprintln(out, "  claude")
@@ -153,7 +153,7 @@ type foreignRefusal struct{ error }
 
 // prepareInstall is every check install makes before it prints its plan and every reading it plans
 // from, in install's order, writing nothing. install runs it, and so does doctor, which prints
-// `clauductor install` as a fix only when this returns no error (D8): one source for what install
+// `stridal install` as a fix only when this returns no error (D8): one source for what install
 // refuses, as planUpdate is for update. What it announces goes to out.
 func prepareInstall(out io.Writer, targetDir string, force bool) (*installReady, error) {
 	src, err := announceTemplate(out)
@@ -175,7 +175,7 @@ func prepareInstall(out io.Writer, targetDir string, force bool) (*installReady,
 
 	// A repository running its own operating model is left alone (ownguard.go).
 	announceOldModel(out, targetDir)
-	if !force && !ownedByClauductor(targetDir) {
+	if !force && !ownedByStridal(targetDir) {
 		overwrite, add, err := foreignModel(targetDir, tmplDir, allFiles)
 		if err != nil {
 			return nil, err
@@ -242,7 +242,6 @@ func planInstall(targetDir, tmplDir string, files []string) (*installPlan, error
 			p.skipped[rel] = skip
 			continue
 		}
-		dest = template.ProjectDest(targetDir, rel, dest)
 		pl := placed{rel: rel, dest: dest, key: key}
 		destPath := filepath.Join(targetDir, filepath.FromSlash(dest))
 		if !fileExists(destPath) {
@@ -523,8 +522,8 @@ func ensureGitignore(targetDir, entry string) error {
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		f.WriteString("\n")
 	}
-	if !strings.Contains(content, "# Clauductor\n") {
-		f.WriteString("\n# Clauductor\n")
+	if !strings.Contains(content, "# Stridal\n") {
+		f.WriteString("\n# Stridal\n")
 	}
 	f.WriteString(entry + "\n")
 	return nil

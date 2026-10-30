@@ -22,7 +22,7 @@ func TestInitNextStepsCdIsShellQuoted(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(signals.ResolvePath(t.TempDir()), "o'k proj")
-	r := cliEnv(t, "", t.TempDir(), []string{"CLAUDUCTOR_FRAMEWORK=" + framework}, "init", dir)
+	r := cliEnv(t, "", t.TempDir(), []string{"STRIDAL_FRAMEWORK=" + framework}, "init", dir)
 	if r.code != 0 {
 		t.Fatalf("init: exit %d: %s %s", r.code, r.stdout, r.stderr)
 	}

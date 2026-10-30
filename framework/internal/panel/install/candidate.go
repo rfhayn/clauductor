@@ -37,7 +37,7 @@ type Candidate struct {
 	Input      string `json:"input"`      // the path as typed
 	Root       string `json:"root"`       // its main worktree, resolved
 	CommonDir  string `json:"commonDir"`  // git's common dir, resolved
-	ConfigPath string `json:"configPath"` // <root>/.clauductor/panel.json
+	ConfigPath string `json:"configPath"` // <root>/.stridal/panel.json
 	HasConfig  bool   `json:"hasConfig"`
 	// ConfigError is why the config does not load; the project cannot be added until
 	// it does.
@@ -144,7 +144,7 @@ func mainRoot(ctx context.Context, run signals.Runner, path string) (root string
 // worktree path itself is in (the two differ in a linked worktree), both resolved:
 // git's top level for path, then the first worktree git lists for it. A path in no
 // repository with a working tree is a "not-git" *Refusal. It is how `panel add` and
-// `clauductor lane close` (PANEL-57) find a project from any of its checkouts.
+// `stridal lane close` (PANEL-57) find a project from any of its checkouts.
 func MainWorktree(ctx context.Context, run signals.Runner, path string) (main, top string, err error) {
 	top, err = gitOut(ctx, run, signals.ResolvePath(path), "rev-parse", "--show-toplevel")
 	if err != nil || top == "" {

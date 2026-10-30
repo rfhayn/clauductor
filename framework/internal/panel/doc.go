@@ -1,11 +1,11 @@
-// Package panel implements `clauductor panel`: a standalone, read-only, loopback-only
+// Package panel implements `stridal panel`: a standalone, read-only, loopback-only
 // web dashboard over the Claude Code sessions working in one project.
 //
-// It is deliberately independent of the rest of Clauductor. It needs no `clauductor
+// It is deliberately independent of the rest of Stridal. It needs no `stridal
 // install`, no template, no skills and no file locks. Its only
 // inputs are Claude Code's own signals (hooks posting to /hook, the status line's stdin,
 // `claude agents --json`), git, gh, and the commands a project names in its
-// .clauductor/panel.json.
+// .stridal/panel.json.
 //
 // This package wires the others together and runs them:
 //

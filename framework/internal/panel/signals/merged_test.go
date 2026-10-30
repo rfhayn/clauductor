@@ -11,7 +11,7 @@ import (
 
 // merged-real.json is recorded from a real `gh pr list --state merged --limit 5
 // --search merged:>=2026-07-01 --json number,title,headRefName,createdAt,mergedAt`
-// (rfhayn/clauductor, gh 2.x): keys sorted, times RFC 3339 in UTC. The parser reads
+// (rfhayn/stridal, gh 2.x): keys sorted, times RFC 3339 in UTC. The parser reads
 // that shape, and MergedArgv asks for exactly the fields the recording has.
 func TestParseMergedPRsRealShape(t *testing.T) {
 	t.Parallel()

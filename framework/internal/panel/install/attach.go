@@ -12,9 +12,9 @@ import (
 	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
-// `clauductor panel attach` (PANEL-42) serves a repository without writing to it: it
+// `stridal panel attach` (PANEL-42) serves a repository without writing to it: it
 // reads the repository as `panel init` does, writes the result outside it, to
-// ~/.clauductor/projects/<id>/panel.json (the sidecar), and registers the repository
+// ~/.stridal/projects/<id>/panel.json (the sidecar), and registers the repository
 // with that file as its config, untrusted. design.md D2 to D4.
 
 // AttachOptions attaches one repository.
@@ -61,7 +61,7 @@ func Attach(ctx context.Context, o AttachOptions) (AttachResult, error) {
 		_, ownErr := os.Lstat(config.OwnConfigPath(root))
 		if e.Config != "" || !errors.Is(ownErr, os.ErrNotExist) {
 			// The command lines are shell-quoted, so they run as printed (PANEL-47).
-			return AttachResult{}, fmt.Errorf("%s is registered already as %q, reading %s; `clauductor panel remove %s` first, or `clauductor panel add --project %s --config <file>` to switch its config on purpose",
+			return AttachResult{}, fmt.Errorf("%s is registered already as %q, reading %s; `stridal panel remove %s` first, or `stridal panel add --project %s --config <file>` to switch its config on purpose",
 				root, e.ID, e.ConfigPath(), ShellWord(e.ID), ShellWord(root))
 		}
 		if id != "" && id != e.ID {
@@ -98,7 +98,7 @@ func Attach(ctx context.Context, o AttachOptions) (AttachResult, error) {
 		}
 	}
 	exists := func() error {
-		serve := fmt.Sprintf("`clauductor panel add --project %s --config %s` serves it as it is", ShellWord(root), ShellWord(path))
+		serve := fmt.Sprintf("`stridal panel add --project %s --config %s` serves it as it is", ShellWord(root), ShellWord(path))
 		if inPlace { // D4 keeps the id, so another one is no way out
 			return fmt.Errorf("%s exists already, and attach never overwrites it: %s", path, serve)
 		}

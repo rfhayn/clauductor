@@ -1,4 +1,4 @@
-// Package lease is the on-disk queue lease (a shared gate, say) that `clauductor
+// Package lease is the on-disk queue lease (a shared gate, say) that `stridal
 // lock-run` holds and the panel only reads. Of the panel it imports only clock and
 // types, which have no dependencies, so lock-run links nothing else of the panel.
 package lease
@@ -571,7 +571,7 @@ func updateOwner(lock, nonce string, clk clock.Clock, mutate func(*LeaseOwner)) 
 // LockRunOptions configures one lock-run.
 type LockRunOptions struct {
 	Lock   string        // the lease directory
-	Lane   string        // shown to others; default $CLAUDUCTOR_LANE
+	Lane   string        // shown to others; default $STRIDAL_LANE
 	TTL    time.Duration // the lease; default DefaultLeaseTTL
 	Poll   time.Duration // how often a waiter looks; default 500 ms
 	Argv   []string      // the command to run while holding the lease
@@ -608,7 +608,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 		return 2, errors.New("lock-run: no clock")
 	}
 	if o.Lane == "" {
-		o.Lane = os.Getenv("CLAUDUCTOR_LANE")
+		o.Lane = os.Getenv("STRIDAL_LANE")
 	}
 	lock, err := filepath.Abs(o.Lock)
 	if err != nil {
@@ -623,7 +623,7 @@ func LockRun(ctx context.Context, o LockRunOptions) (int, error) {
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigs)
 	// Re-entry: a gate script that re-runs itself through lock-run already holds it.
-	if os.Getenv("CLAUDUCTOR_LOCK_HELD") == lock {
+	if os.Getenv("STRIDAL_LOCK_HELD") == lock {
 		return runChild(ctx, o, lock, nil, sigs)
 	}
 	if err := os.MkdirAll(waitersDir(lock), 0o755); err != nil {
@@ -741,7 +741,7 @@ func runChild(ctx context.Context, o LockRunOptions, lock string, held *LeaseOwn
 	if cmd.Stdout == nil {
 		cmd.Stdout = os.Stdout
 	}
-	cmd.Env = append(childEnv(os.Environ()), "CLAUDUCTOR_LOCK_HELD="+lock)
+	cmd.Env = append(childEnv(os.Environ()), "STRIDAL_LOCK_HELD="+lock)
 	// The command gets a process group of its own. A Ctrl-C from the terminal then
 	// reaches lock-run only, which passes it on ONCE; and lock-run can stop the whole
 	// gate (its dev server and test runners too) if the lease is lost. The cost: the
@@ -961,18 +961,18 @@ func tcsetpgrp(fd, pg int) error {
 // childEnv undoes the startup TERM workaround for the command. bubbletea's init
 // (linked in for the HUD until OPS-13 removed it) asked the terminal for its
 // background colour and waited up to 5 s on a pty that did not answer. This binary
-// no longer does, but the gate snippet must still serve an older clauductor on a
+// no longer does, but the gate snippet must still serve an older stridal on a
 // project's PATH, so callers keep sending the workaround and this keeps undoing it. A caller skips that by
-// starting lock-run with TERM=dumb, the real value in CLAUDUCTOR_TERM, and
-// CLAUDUCTOR_TERM_SET=1 if TERM was set at all (docs/panel.md's snippet does). The
+// starting lock-run with TERM=dumb, the real value in STRIDAL_TERM, and
+// STRIDAL_TERM_SET=1 if TERM was set at all (docs/panel.md's snippet does). The
 // command gets the real TERM back: set (even to "") if it was set, unset if not.
 func childEnv(env []string) []string {
 	orig, ok, wasSet := "", false, false
 	for _, kv := range env {
-		if v, found := strings.CutPrefix(kv, "CLAUDUCTOR_TERM="); found {
+		if v, found := strings.CutPrefix(kv, "STRIDAL_TERM="); found {
 			orig, ok = v, true
 		}
-		if kv == "CLAUDUCTOR_TERM_SET=1" {
+		if kv == "STRIDAL_TERM_SET=1" {
 			wasSet = true
 		}
 	}
@@ -981,7 +981,7 @@ func childEnv(env []string) []string {
 	}
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "CLAUDUCTOR_TERM=") || strings.HasPrefix(kv, "CLAUDUCTOR_TERM_SET=") || strings.HasPrefix(kv, "TERM=") {
+		if strings.HasPrefix(kv, "STRIDAL_TERM=") || strings.HasPrefix(kv, "STRIDAL_TERM_SET=") || strings.HasPrefix(kv, "TERM=") {
 			continue
 		}
 		out = append(out, kv)

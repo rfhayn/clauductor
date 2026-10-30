@@ -35,7 +35,7 @@ var (
 	panelOnly      bool
 )
 
-// panelCmd is standalone by design: it needs no `clauductor install` in the project.
+// panelCmd is standalone by design: it needs no `stridal install` in the project.
 var panelCmd = &cobra.Command{
 	Use:   "panel",
 	Short: "Serve a local, read-only web dashboard of the Claude sessions in a project",
@@ -62,7 +62,7 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 				return err
 			}
 			if changed {
-				fmt.Fprintf(out, "Removed panel hooks from %s (pre-panel backup: settings.json.clauductor-panel.bak).\n", install.SettingsPath(home))
+				fmt.Fprintf(out, "Removed panel hooks from %s (pre-panel backup: settings.json.stridal-panel.bak).\n", install.SettingsPath(home))
 			} else {
 				fmt.Fprintf(out, "No panel hooks in %s.\n", install.SettingsPath(home))
 			}
@@ -100,7 +100,7 @@ other hooks are untouched; they never delay or message a session). --uninstall-h
 		// is what tells launchd to start the new binary. main turns a returned error into
 		// 1, so the status is set here, as lock-run does.
 		if rs := (*panel.RestartError)(nil); errors.As(err, &rs) {
-			fmt.Fprintf(out, "clauductor panel: %v\n", rs)
+			fmt.Fprintf(out, "stridal panel: %v\n", rs)
 			stop()
 			os.Exit(rs.Code)
 		}
@@ -166,7 +166,7 @@ func panelStopSignals(ignored func(os.Signal) bool) []os.Signal {
 func init() {
 	panelCmd.Flags().StringVar(&panelProject, "project", "", "a project to serve and open on, registered if it is not (default: git toplevel of the current directory)")
 	panelCmd.Flags().BoolVar(&panelOnly, "only", false, "serve --project alone, not every registered project")
-	panelCmd.Flags().StringVar(&panelConfig, "config", "", "panel config file (default: the registered project's, else <project>/.clauductor/panel.json)")
+	panelCmd.Flags().StringVar(&panelConfig, "config", "", "panel config file (default: the registered project's, else <project>/.stridal/panel.json)")
 	panelCmd.Flags().IntVar(&panelPort, "port", 4393, "loopback port; the panel refuses to start if it is taken")
 	panelCmd.Flags().BoolVar(&panelNoOpen, "no-open", false, "print the URL instead of opening a browser")
 	panelCmd.Flags().BoolVar(&panelUninstall, "uninstall-hooks", false, "remove the panel's hooks from ~/.claude/settings.json and exit")
@@ -175,18 +175,18 @@ func init() {
 	_ = panelCmd.Flags().MarkHidden("launchd")
 	panelCmd.Flags().BoolVar(&panelTrust, "trust-config", false, "trust panel.json as it is now, even if it changed since it was last trusted")
 	panelTrustCmd.Flags().StringVar(&trustProject, "project", "", "project root (default: git toplevel of the current directory)")
-	panelTrustCmd.Flags().StringVar(&trustConfig, "config", "", "panel config file (default: the registered project's, else <project>/.clauductor/panel.json)")
+	panelTrustCmd.Flags().StringVar(&trustConfig, "config", "", "panel config file (default: the registered project's, else <project>/.stridal/panel.json)")
 
 	panelInstallCmd.Flags().StringVar(&installProject, "project", "", "add this project (trusting its config) and make it the default; without it the registry must hold one")
-	panelInstallCmd.Flags().StringVar(&installConfig, "config", "", "panel config file (default: the registered project's, else <project>/.clauductor/panel.json)")
+	panelInstallCmd.Flags().StringVar(&installConfig, "config", "", "panel config file (default: the registered project's, else <project>/.stridal/panel.json)")
 	panelInstallCmd.Flags().IntVar(&installPort, "port", 4393, "loopback port")
-	panelInstallCmd.Flags().BoolVar(&installApp, "app", false, "also create ~/Applications/Clauductor Panel.app, which runs `clauductor panel open`")
+	panelInstallCmd.Flags().BoolVar(&installApp, "app", false, "also create ~/Applications/Stridal Panel.app, which runs `stridal panel open`")
 	panelInstallCmd.Flags().StringVar(&installRemote, "remote-control", "", "all (every Claude session: remoteControlAtStartup), lanes (the panel's lanes start with --remote-control) or off; without it, asked once on a terminal")
 	panelOpenCmd.Flags().IntVar(&openPort, "port", 0, "port (default: the running panel's marker file, else 4393)")
 	panelOpenCmd.Flags().StringVar(&openProject, "project", "", "open on this project (an id or a path)")
 	panelInitCmd.Flags().StringVar(&initProject, "project", "", "project root (default: git toplevel of the current directory)")
 	panelAddCmd.Flags().StringVar(&addProject, "project", "", "project root (default: git toplevel of the current directory)")
-	panelAddCmd.Flags().StringVar(&addConfig, "config", "", "panel config file (default: <project>/.clauductor/panel.json)")
+	panelAddCmd.Flags().StringVar(&addConfig, "config", "", "panel config file (default: <project>/.stridal/panel.json)")
 	panelAddCmd.Flags().StringVar(&addID, "id", "", "the project's id in routes and the page (default: from its config's name)")
 	panelAddCmd.Flags().BoolVar(&addDefault, "default", false, "make it the default project")
 	panelAttachCmd.Flags().StringVar(&attachID, "id", "", "the project's id in routes, the page and the sidecar's folder (default: from the repository's name)")
@@ -221,13 +221,13 @@ var (
 var panelAttachCmd = &cobra.Command{
 	Use:   "attach [<repo>]",
 	Short: "Serve a repository from a config outside it, writing nothing into it",
-	Long: `Read the repository as 'clauductor panel init' does, write the result to
-~/.clauductor/projects/<id>/panel.json (the sidecar) with every command an argv
+	Long: `Read the repository as 'stridal panel init' does, write the result to
+~/.stridal/projects/<id>/panel.json (the sidecar) with every command an argv
 list and no shell text, and register the repository with that file as its config.
 Nothing is written into the repository. Like 'panel add', it does not trust the
-config: review it, then run 'clauductor panel trust --project <repo>'. An existing
+config: review it, then run 'stridal panel trust --project <repo>'. An existing
 sidecar is never overwritten. A registered project is refused, unless its registry
-entry names no config and <repo>/.clauductor/panel.json does not exist (it is then
+entry names no config and <repo>/.stridal/panel.json does not exist (it is then
 attached in place, keeping its id, socket and lanes). <repo> defaults to the
 current directory's git toplevel.`,
 	Args:          cobra.MaximumNArgs(1),
@@ -265,7 +265,7 @@ current directory's git toplevel.`,
 			fmt.Fprintf(out, "\nRegistered %s as %q (%s), on tmux socket %s, reading this file.\n", e.Root, e.ID, res.Add.Cfg.Name, e.Socket(res.Add.Cfg))
 		}
 		fmt.Fprintf(out, "Nothing was written into %s. The file is yours to edit.\n", e.Root)
-		fmt.Fprintf(out, "Its cards, queue commands and templates stay off until you review it and run `clauductor panel trust --project %s`.\n", install.ShellWord(e.Root))
+		fmt.Fprintf(out, "Its cards, queue commands and templates stay off until you review it and run `stridal panel trust --project %s`.\n", install.ShellWord(e.Root))
 		followRunningPanel(out, home, e.Root, true)
 		return nil
 	},
@@ -274,10 +274,10 @@ current directory's git toplevel.`,
 var panelAddCmd = &cobra.Command{
 	Use:   "add",
 	Short: "Register a project with the panel (one panel serves every registered project)",
-	Long: `Register a repository in ~/.clauductor/panel/projects.json, so the panel serves it
+	Long: `Register a repository in ~/.stridal/panel/projects.json, so the panel serves it
 beside the others. It loads and checks the project's panel.json and gives the
 project an id (from its name, or --id) and a tmux socket of its own. It does not
-trust the config: run 'clauductor panel trust' after reviewing it. A project is
+trust the config: run 'stridal panel trust' after reviewing it. A project is
 its main worktree; a linked worktree is refused. A running panel serves it
 within a second, with no restart (the page's project menu does the same).`,
 	Args:          cobra.NoArgs,
@@ -309,7 +309,7 @@ within a second, with no restart (the page's project menu does the same).`,
 		}
 		_, raw, err := config.LoadConfigRaw(res.Entry.ConfigPath())
 		if err == nil && !install.TrustedNow(home, res.Entry.Root, res.Entry.ConfigPath(), install.ConfigHash(raw)) {
-			fmt.Fprintf(out, "Its config %s is not trusted: its cards, queue commands and templates stay off until you review it and run `clauductor panel trust --project %s`.\n",
+			fmt.Fprintf(out, "Its config %s is not trusted: its cards, queue commands and templates stay off until you review it and run `stridal panel trust --project %s`.\n",
 				res.Entry.ConfigPath(), install.ShellWord(res.Entry.Root))
 		}
 		followRunningPanel(out, home, res.Entry.Root, true)
@@ -341,7 +341,7 @@ func followRunningPanel(out io.Writer, home, root string, serves bool) {
 var panelRemoveCmd = &cobra.Command{
 	Use:   "remove <id|path>",
 	Short: "Unregister a project (its lanes keep running; nothing is deleted)",
-	Long: `Remove a project from ~/.clauductor/panel/projects.json. It never stops a lane and
+	Long: `Remove a project from ~/.stridal/panel/projects.json. It never stops a lane and
 keeps the project's lane registry, so adding it again brings its lanes back. While
 lanes are registered it refuses unless --force. A running panel stops serving it
 within a second, with no restart. A config outside the repository (an attached
@@ -365,7 +365,7 @@ serves it again.`,
 			// design.md D6: a config outside the repository stays, and adding the
 			// repository by its path alone would not find it. The line's paths are
 			// shell-quoted, so it runs as printed.
-			fmt.Fprintf(out, "Its config stays where it is, outside the repository: %s, in %s.\nTo serve it again: clauductor panel add --project %s --config %s\n",
+			fmt.Fprintf(out, "Its config stays where it is, outside the repository: %s, in %s.\nTo serve it again: stridal panel add --project %s --config %s\n",
 				e.ConfigPath(), filepath.Dir(e.ConfigPath()), install.ShellWord(e.Root), install.ShellWord(e.ConfigPath()))
 		}
 		followRunningPanel(out, home, e.Root, false)
@@ -391,11 +391,11 @@ var panelListCmd = &cobra.Command{
 var panelInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Run the panel at login as a launchd agent, with no terminal",
-	Long: `Copy this binary to ~/.clauductor/panel/bin, write
-~/Library/LaunchAgents/com.clauductor.panel.plist (start at login, restart after a
-crash, logs in ~/.clauductor/panel/logs) and load it. The token persists in
-~/.clauductor/panel/token so 'clauductor panel open' can open the page. --app also
-creates ~/Applications/Clauductor Panel.app for the Dock and Spotlight.`,
+	Long: `Copy this binary to ~/.stridal/panel/bin, write
+~/Library/LaunchAgents/com.stridal.panel.plist (start at login, restart after a
+crash, logs in ~/.stridal/panel/logs) and load it. The token persists in
+~/.stridal/panel/token so 'stridal panel open' can open the page. --app also
+creates ~/Applications/Stridal Panel.app for the Dock and Spotlight.`,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -490,7 +490,7 @@ var panelOpenCmd = &cobra.Command{
 				e = reg.Find(signals.ResolvePath(openProject))
 			}
 			if e == nil {
-				return fmt.Errorf("no registered project %q (`clauductor panel list` names them)", openProject)
+				return fmt.Errorf("no registered project %q (`stridal panel list` names them)", openProject)
 			}
 			url += "&p=" + e.ID
 		}
@@ -502,10 +502,10 @@ var panelOpenCmd = &cobra.Command{
 var panelRotateCmd = &cobra.Command{
 	Use:   "rotate-token",
 	Short: "Replace the installed panel's token; old cookies and open terminals stop working",
-	Long: `Write a new ~/.clauductor/panel/token. The running login agent picks it up within
+	Long: `Write a new ~/.stridal/panel/token. The running login agent picks it up within
 2 s: every cookie issued for the old token gets 401, and every open terminal and
-event stream is closed. Then 'clauductor panel open' opens the page with the new one.
-'clauductor panel install' also rotates the token.`,
+event stream is closed. Then 'stridal panel open' opens the page with the new one.
+'stridal panel install' also rotates the token.`,
 	Args:          cobra.NoArgs,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -517,7 +517,7 @@ event stream is closed. Then 'clauductor panel open' opens the page with the new
 		if _, err := install.RotateToken(home); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Rotated %s. The running panel follows within 2 s; `clauductor panel open` opens it with the new token.\n", install.TokenPath(home))
+		fmt.Fprintf(cmd.OutOrStdout(), "Rotated %s. The running panel follows within 2 s; `stridal panel open` opens it with the new token.\n", install.TokenPath(home))
 		return nil
 	},
 }
@@ -530,16 +530,16 @@ var (
 
 var panelInitCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Write a starter .clauductor/panel.json for this project",
-	Long: `Write <project>/.clauductor/panel.json from what the repository already says: its
+	Short: "Write a starter .stridal/panel.json for this project",
+	Long: `Write <project>/.stridal/panel.json from what the repository already says: its
 name, its default branch (the base new lanes start from), where its worktrees
 live, the branch prefixes it uses, and a gate script it defines (a package.json
 script or Makefile target named gate, ci, check, verify or test) as a queue. It
 invents no card, and a queue's command runs only when you press RUN. A repository
-that runs Clauductor's operating model (.claude/owner-queue.sh or
+that runs Stridal's operating model (.claude/owner-queue.sh or
 .claude/roadmap-queue.sh) also gets its pinned cards, its five lane templates and
 its gate (scripts/ci/run-local.sh), for the scripts it has; each is printed with
-why, and none runs before "clauductor panel trust". It refuses to overwrite an
+why, and none runs before "stridal panel trust". It refuses to overwrite an
 existing file. The file names its JSON Schema, so an editor
 validates it. See docs/panel.md, "Configuration reference".`,
 	Args:          cobra.NoArgs,
@@ -560,8 +560,8 @@ validates it. See docs/panel.md, "Configuration reference".`,
 			fmt.Fprintf(out, "  %s\n", n)
 		}
 		fmt.Fprintf(out, "\nJSON has no comments, so the reasons are here. It declares \"version\": %d and \"$schema\", so an editor\n"+
-			"validates it. Review it, then run `clauductor panel trust`: until then the panel runs none of its commands.\n"+
-			"Then `clauductor panel add` registers it with the panel, beside your other projects.\n", config.LatestVersion)
+			"validates it. Review it, then run `stridal panel trust`: until then the panel runs none of its commands.\n"+
+			"Then `stridal panel add` registers it with the panel, beside your other projects.\n", config.LatestVersion)
 		return nil
 	},
 }
@@ -629,7 +629,7 @@ checkout is clean, on the base's branch and behind it, and only over pull
 requests merged from the account 'gh api user' names. Whatever it cannot do, it
 leaves as it was and says why once, as a notification.
 
-It is this machine's choice, kept in ~/.clauductor/panel/catch-up.json by the
+It is this machine's choice, kept in ~/.stridal/panel/catch-up.json by the
 project's root, and off until you turn it on; never a key of panel.json. With no
 on or off, it prints the project's state: on or off. A project whose config is
 outside its repository (an attached project) cannot turn it on. A running panel
@@ -690,7 +690,7 @@ func runCatchUp(out io.Writer, home, project string, args []string) error {
 	on := args[0] == "on"
 	if on {
 		if e == nil {
-			return fmt.Errorf("no registered project %q (`clauductor panel list` names them): catch-up is for a project the panel serves", project)
+			return fmt.Errorf("no registered project %q (`stridal panel list` names them): catch-up is for a project the panel serves", project)
 		}
 		if install.ConfigOutside(*e) {
 			// ATTACH-2: a repository the owner does not run the model in is never written

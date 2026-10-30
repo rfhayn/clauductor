@@ -24,7 +24,7 @@ func attach(t *testing.T, home, project, id string) (AttachResult, error) {
 	return Attach(context.Background(), AttachOptions{Home: home, Project: project, ID: id, Run: signals.ExecRunner, Now: time.Unix(1_790_000_000, 0)})
 }
 
-// [ATTACH-1-S1] Attach writes ~/.clauductor/projects/<id>/panel.json, registers the
+// [ATTACH-1-S1] Attach writes ~/.stridal/projects/<id>/panel.json, registers the
 // repository with that file as its config, and leaves it untrusted; the project loads.
 func TestAttachWritesTheSidecarAndRegisters(t *testing.T) {
 	t.Parallel()
@@ -34,7 +34,7 @@ func TestAttachWritesTheSidecarAndRegisters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(home, ".clauductor", "projects", "acme-web", "panel.json")
+	path := filepath.Join(home, ".stridal", "projects", "acme-web", "panel.json")
 	if res.Add.Entry.ID != "acme-web" || res.Add.Entry.Config != path || res.Init.Path != path || !res.Add.Added || res.InPlace {
 		t.Fatalf("entry %+v init path %s in place %v", res.Add.Entry, res.Init.Path, res.InPlace)
 	}
@@ -191,7 +191,7 @@ func TestAttachNeverOverwritesASidecar(t *testing.T) {
 	if err == nil {
 		t.Fatal("attached over an existing sidecar")
 	}
-	for _, want := range []string{path, "clauductor panel add --project " + root + " --config " + path, "--id"} {
+	for _, want := range []string{path, "stridal panel add --project " + root + " --config " + path, "--id"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not name %q: %v", want, err)
 		}
@@ -231,7 +231,7 @@ func TestAttachRefusalsQuoteTheirCommandLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := attach(t, home, working, "")
-	if want := "`clauductor panel remove web` first, or `clauductor panel add --project " + shq(working) + " --config <file>`"; err == nil || !strings.Contains(err.Error(), want) {
+	if want := "`stridal panel remove web` first, or `stridal panel add --project " + shq(working) + " --config <file>`"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("a working project's refusal does not say %q: %v", want, err)
 	}
 	// A sidecar there already: add it as it is.
@@ -240,20 +240,20 @@ func TestAttachRefusalsQuoteTheirCommandLines(t *testing.T) {
 	os.MkdirAll(filepath.Dir(path), 0o700)
 	os.WriteFile(path, []byte("someone else's"), 0o600)
 	_, err = attach(t, home, other, "other")
-	if want := "`clauductor panel add --project " + shq(other) + " --config " + shq(path) + "`"; err == nil || !strings.Contains(err.Error(), want) {
+	if want := "`stridal panel add --project " + shq(other) + " --config " + shq(path) + "`"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("an existing sidecar's refusal does not say %q: %v", want, err)
 	}
 }
 
 // [ATTACH-1-S4] A registered project whose registry config is empty and whose
-// repository has no .clauductor/panel.json (it cannot load) is attached in place: the
+// repository has no .stridal/panel.json (it cannot load) is attached in place: the
 // same id and socket, its lane registry unchanged, and it loads.
 func TestAttachInPlace(t *testing.T) {
 	t.Parallel()
 	home := signals.ResolvePath(t.TempDir())
 	root := newRepo(t, nil)
 	reg := &config.Projects{Version: config.ProjectsVersion, Default: "standingt",
-		Projects: []config.ProjectEntry{{ID: "standingt", Root: root, TmuxSocket: "clauductor-standingt", Added: 1}}}
+		Projects: []config.ProjectEntry{{ID: "standingt", Root: root, TmuxSocket: "stridal-standingt", Added: 1}}}
 	if err := config.SaveProjects(home, reg); err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestAttachInPlace(t *testing.T) {
 	os.MkdirAll(filepath.Dir(path), 0o700)
 	os.WriteFile(path, []byte("someone else's"), 0o600)
 	_, err = attach(t, home, root, "")
-	if err == nil || !strings.Contains(err.Error(), "clauductor panel add --project "+root+" --config "+path) || strings.Contains(err.Error(), "--id") {
+	if err == nil || !strings.Contains(err.Error(), "stridal panel add --project "+root+" --config "+path) || strings.Contains(err.Error(), "--id") {
 		t.Fatalf("an in-place attach over a sidecar: %v", err)
 	}
 	os.Remove(path)
@@ -286,7 +286,7 @@ func TestAttachInPlace(t *testing.T) {
 	if !res.InPlace || res.Add.Added || len(got.Projects) != 1 {
 		t.Fatalf("in place %v added %v: %+v", res.InPlace, res.Add.Added, got)
 	}
-	if e := got.Projects[0]; e.ID != "standingt" || e.TmuxSocket != "clauductor-standingt" || e.Config != path || e.Root != root || got.Default != "standingt" {
+	if e := got.Projects[0]; e.ID != "standingt" || e.TmuxSocket != "stridal-standingt" || e.Config != path || e.Root != root || got.Default != "standingt" {
 		t.Fatalf("the entry: %+v", e)
 	}
 	if _, err := config.LoadConfig(got.Projects[0].ConfigPath()); err != nil {
@@ -299,7 +299,7 @@ func TestAttachInPlace(t *testing.T) {
 }
 
 // [ATTACH-1-S5] A registered project whose config loads is refused with its id and
-// the config it reads, and nothing is written under ~/.clauductor/projects/. A linked
+// the config it reads, and nothing is written under ~/.stridal/projects/. A linked
 // worktree is refused as `panel add` refuses it.
 func TestAttachRefusesAWorkingProject(t *testing.T) {
 	t.Parallel()
@@ -319,8 +319,8 @@ func TestAttachRefusesAWorkingProject(t *testing.T) {
 	if _, err := attach(t, home, filepath.Join(root, ".worktrees", "x"), ""); err == nil || !strings.Contains(err.Error(), "linked worktree") {
 		t.Fatalf("a linked worktree: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(home, ".clauductor", "projects")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("a refused attach wrote under ~/.clauductor/projects: %v", err)
+	if _, err := os.Lstat(filepath.Join(home, ".stridal", "projects")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused attach wrote under ~/.stridal/projects: %v", err)
 	}
 }
 
@@ -333,16 +333,16 @@ func TestAttachRefusedRegistrationLeavesNothing(t *testing.T) {
 	other := newRepo(t, nil)
 	own := filepath.Join(other, config.DefaultConfigRel)
 	os.MkdirAll(filepath.Dir(own), 0o755)
-	os.WriteFile(own, []byte(`{"name":"Other","tmux_socket":"clauductor-acme-web"}`), 0o644)
+	os.WriteFile(own, []byte(`{"name":"Other","tmux_socket":"stridal-acme-web"}`), 0o644)
 	if _, err := AddProject(context.Background(), AddOptions{Home: home, Project: other, Run: signals.ExecRunner, Strict: true}); err != nil {
 		t.Fatal(err)
 	}
 	root := newRepo(t, nil)
 	_, err := attach(t, home, root, "")
-	if err == nil || !strings.Contains(err.Error(), `tmux socket "clauductor-acme-web" is other's already`) {
+	if err == nil || !strings.Contains(err.Error(), `tmux socket "stridal-acme-web" is other's already`) {
 		t.Fatalf("a taken socket: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(home, ".clauductor", "projects")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(filepath.Join(home, ".stridal", "projects")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the refused attach left its sidecar folder: %v", err)
 	}
 	reg, _ := config.LoadProjects(home)
@@ -368,7 +368,7 @@ func TestAttachFailedWriteLeavesNothing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("a failed write: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(home, ".clauductor", "projects")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(filepath.Join(home, ".stridal", "projects")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the failed attach left its sidecar or its folder: %v", err)
 	}
 	if reg, _ := config.LoadProjects(home); len(reg.Projects) != 0 {
@@ -382,7 +382,7 @@ func TestAttachFailedWriteLeavesNothing(t *testing.T) {
 // ATTACH-2's requirement, the home-inside-the-repository guard: a home inside the
 // repository (dotfiles kept in a work tree at ~) would
 // put the sidecar under the root: attach is refused before it writes anything, naming
-// the sidecar and the root. So is a home whose ~/.clauductor is a symlink into it,
+// the sidecar and the root. So is a home whose ~/.stridal is a symlink into it,
 // since the path is judged with symlinks evaluated.
 func TestAttachRefusesAHomeInsideTheRepository(t *testing.T) {
 	t.Parallel()
@@ -390,13 +390,13 @@ func TestAttachRefusesAHomeInsideTheRepository(t *testing.T) {
 	inside := filepath.Join(root, "home")
 	os.MkdirAll(inside, 0o755)
 	linked := signals.ResolvePath(t.TempDir())
-	target := filepath.Join(root, "dot-clauductor")
+	target := filepath.Join(root, "dot-stridal")
 	os.MkdirAll(target, 0o755)
-	if err := os.Symlink(target, filepath.Join(linked, ".clauductor")); err != nil {
+	if err := os.Symlink(target, filepath.Join(linked, ".stridal")); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ home, sidecar, written string }{
-		{inside, config.SidecarPath(inside, "acme-web"), filepath.Join(inside, ".clauductor")},
+		{inside, config.SidecarPath(inside, "acme-web"), filepath.Join(inside, ".stridal")},
 		{linked, filepath.Join(target, "projects", "acme-web", "panel.json"), target},
 	} {
 		_, err := attach(t, c.home, root, "")

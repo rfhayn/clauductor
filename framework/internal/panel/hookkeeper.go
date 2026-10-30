@@ -65,7 +65,7 @@ func (k *hookKeeper) check() bool {
 	}
 	switch {
 	case !k.installed && changed:
-		fmt.Fprintf(k.out, "Installed panel hooks in %s (pre-panel backup: settings.json.clauductor-panel.bak). Running sessions pick them up live (Claude Code 2.1.284); restart any that do not.\n", install.SettingsPath(k.home))
+		fmt.Fprintf(k.out, "Installed panel hooks in %s (pre-panel backup: settings.json.stridal-panel.bak). Running sessions pick them up live (Claude Code 2.1.284); restart any that do not.\n", install.SettingsPath(k.home))
 	case !k.installed:
 		fmt.Fprintf(k.out, "Panel hooks already present in %s.\n", install.SettingsPath(k.home))
 	case changed:

@@ -71,7 +71,7 @@ func attachRepoNamed(t *testing.T, name string) string {
 	return root
 }
 
-// [ATTACH-1-S1] [ATTACH-1-S2] [ATTACH-2-S1] `clauductor panel attach <repo>` writes the
+// [ATTACH-1-S1] [ATTACH-1-S2] [ATTACH-2-S1] `stridal panel attach <repo>` writes the
 // sidecar under the home, registers the repository with it, prints what it wrote,
 // init's notes one per choice and the trust line, and leaves every file under the
 // repository's root, .git included, exactly as it was.
@@ -113,7 +113,7 @@ func TestPanelAttachCommand(t *testing.T) {
 	if string(raw) != string(plan.Body) || len(cfg.Cards) != 2 {
 		t.Fatalf("the sidecar is not init's reading:\n%s", raw)
 	}
-	for _, want := range append([]string{"Wrote " + path, string(raw), "`clauductor panel trust --project " + root + "`", "Nothing was written into " + root},
+	for _, want := range append([]string{"Wrote " + path, string(raw), "`stridal panel trust --project " + root + "`", "Nothing was written into " + root},
 		plan.Notes...) {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("the output does not say %q:\n%s", want, r.stdout)
@@ -133,7 +133,7 @@ func TestPanelTrustLinesAreShellQuoted(t *testing.T) {
 	root := attachRepoNamed(t, "o'k web")
 	trustLine := func(stdout string) []string {
 		t.Helper()
-		_, line, found := strings.Cut(stdout, "run `clauductor ")
+		_, line, found := strings.Cut(stdout, "run `stridal ")
 		if !found {
 			t.Fatalf("no trust line:\n%s", stdout)
 		}
@@ -186,7 +186,7 @@ func TestPanelAttachDefaultsToTheCurrentRepository(t *testing.T) {
 	if r.code != 1 || !strings.Contains(r.stderr, `registered already as "web"`) {
 		t.Fatalf("a second attach: exit %d: %s %s", r.code, r.stdout, r.stderr)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(home, ".clauductor", "projects")); len(entries) != 1 {
+	if entries, _ := os.ReadDir(filepath.Join(home, ".stridal", "projects")); len(entries) != 1 {
 		t.Fatalf("the second attach wrote a sidecar: %v", entries)
 	}
 }
@@ -214,8 +214,8 @@ func TestPanelAttachDefault(t *testing.T) {
 	}
 }
 
-// [ATTACH-4-S2] In an attached repository with no .clauductor/panel.json of its own,
-// `clauductor panel trust --project <repo>` without --config trusts the registry's
+// [ATTACH-4-S2] In an attached repository with no .stridal/panel.json of its own,
+// `stridal panel trust --project <repo>` without --config trusts the registry's
 // config, the sidecar, and names its path.
 func TestPanelTrustReadsTheRegistrysConfig(t *testing.T) {
 	t.Parallel()
@@ -245,7 +245,7 @@ func TestPanelTrustReadsTheRegistrysConfig(t *testing.T) {
 }
 
 // [ATTACH-3-S1] An attached project whose sidecar has a card running
-// /usr/local/bin/report and a queue running `sh ../other/gate.sh`: `clauductor panel
+// /usr/local/bin/report and a queue running `sh ../other/gate.sh`: `stridal panel
 // trust --project <repo>` refuses (exit non-zero), prints each of the two lines marked
 // as not allowed in a sidecar with the word that resolves outside and the remedy, and
 // records nothing in the project's trusted-config.json.
@@ -259,7 +259,7 @@ func TestPanelTrustRefusesASidecarCommandOutside(t *testing.T) {
 	path := config.SidecarPath(home, "acme-web")
 	if err := os.WriteFile(path, []byte(`{"name":"acme-web","lanes":{"main":"orchestrator"},
 		"cards":[{"id":"report","title":"Report","command":["/usr/local/bin/report"],"refresh":"interval:60"}],
-		"queues":[{"id":"gate","lock":"clauductor/gate.lock","command":["sh","../other/gate.sh"]}]}`), 0o600); err != nil {
+		"queues":[{"id":"gate","lock":"stridal/gate.lock","command":["sh","../other/gate.sh"]}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r := cli(t, home, "panel", "trust", "--project", root)
@@ -319,7 +319,7 @@ func shellWords(t *testing.T, line string) []string {
 	return strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
 }
 
-// [ATTACH-5-S1] `clauductor panel remove <id>` of an attached project with no lanes
+// [ATTACH-5-S1] `stridal panel remove <id>` of an attached project with no lanes
 // keeps its sidecar byte for byte, and says where it is and the `panel add --config`
 // line; running that line serves the project again from the same file, still trusted.
 // The home holds a space and a quote, so the line runs as printed only if it is
@@ -350,7 +350,7 @@ func TestPanelRemoveKeepsTheSidecar(t *testing.T) {
 	if after, err := os.ReadFile(path); err != nil || string(after) != string(before) {
 		t.Fatalf("remove changed the sidecar (%v)", err)
 	}
-	for _, want := range []string{path, filepath.Dir(path), "To serve it again: clauductor panel add "} {
+	for _, want := range []string{path, filepath.Dir(path), "To serve it again: stridal panel add "} {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("remove does not say %q:\n%s", want, r.stdout)
 		}
@@ -361,7 +361,7 @@ func TestPanelRemoveKeepsTheSidecar(t *testing.T) {
 
 	// The line it printed, split by a shell, is the add command, and serves it again
 	// from the same file, still trusted.
-	_, line, _ := strings.Cut(r.stdout, "To serve it again: clauductor ")
+	_, line, _ := strings.Cut(r.stdout, "To serve it again: stridal ")
 	line, _, _ = strings.Cut(line, "\n")
 	words := shellWords(t, line)
 	if want := []string{"panel", "add", "--project", root, "--config", path}; strings.Join(words, "\x00") != strings.Join(want, "\x00") {

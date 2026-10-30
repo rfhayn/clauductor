@@ -15,7 +15,7 @@ import (
 // time, broken down by lane type, model and branch, so the Metrics view has spend
 // for 90 days and a change's budget can be checked against everything its lanes
 // spent, across panel restarts. It is the project's own file,
-// ~/.clauductor/panel/<project hash>/spend.json (0600).
+// ~/.stridal/panel/<project hash>/spend.json (0600).
 
 // LedgerDays is how far back the ledger keeps spend: the longest window, and a month.
 const LedgerDays = 120

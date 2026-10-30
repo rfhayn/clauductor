@@ -34,11 +34,11 @@ func TestOpenURLChecksBothLoopbacks(t *testing.T) {
 	os.WriteFile(filepath.Join(config.PanelDir(home), "pid"), []byte("4242\n"), 0o600)
 	ctx := context.Background()
 
-	// Ours on both: open clauductor.localhost.
+	// Ours on both: open stridal.localhost.
 	_, port := serveHealthz(t, "tcp4", "127.0.0.1:0", "ok pid=4242")
 	serveHealthz(t, "tcp6", fmt.Sprintf("[::1]:%d", port), "ok pid=4242")
 	u, err := openURLChecked(ctx, home, port, "tok")
-	if err != nil || u != fmt.Sprintf("http://clauductor.localhost:%d/?t=tok", port) {
+	if err != nil || u != fmt.Sprintf("http://stridal.localhost:%d/?t=tok", port) {
 		t.Fatalf("both ours: %q %v", u, err)
 	}
 
@@ -63,7 +63,7 @@ func TestOpenURLChecksBothLoopbacks(t *testing.T) {
 	}
 }
 
-// F6: `clauductor panel open` sends the token only to the panel whose PID is in the
+// F6: `stridal panel open` sends the token only to the panel whose PID is in the
 // pid file.
 func TestOpenURLOnlyTrustsThePanelsPID(t *testing.T) {
 	t.Parallel()

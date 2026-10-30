@@ -31,13 +31,13 @@ F="$HOME/fake"
 mkdir -p "$F/agents" "$F/status" "$F/typed" "$F/role" "$F/argv"
 
 now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
-port() { cat "$HOME/.clauductor/panel/port" 2>/dev/null; }
+port() { cat "$HOME/.stridal/panel/port" 2>/dev/null; }
 post() { # post <path> <json>
   local p; p=$(port)
   [ -n "$p" ] || return 0
   curl -s --max-time 1 -X POST -H 'Content-Type: application/json' --data-binary "$2" "http://127.0.0.1:$p$1" >/dev/null 2>&1 || true
 }
-hook() { post "/hook?src=clauductor-panel" "$1"; }
+hook() { post "/hook?src=stridal-panel" "$1"; }
 
 case "${1:-}" in
   --version) echo "2.1.284 (Claude Code)"; exit 0 ;;
@@ -74,7 +74,7 @@ esac
 
 # Interactive.
 argv="$*"
-lane=${CLAUDUCTOR_LANE:-}
+lane=${STRIDAL_LANE:-}
 sid=""
 while [ $# -gt 0 ]; do
   case "$1" in

@@ -37,9 +37,9 @@ const MODES = ["system", "light", "dark"];
 
 window.PanelTheme = (function () {
   const root = document.documentElement;
-  const KEY_THEME = "clauductor-panel-theme", KEY_MODE = "clauductor-panel-mode", KEY_TYPE = "clauductor-panel-type";
+  const KEY_THEME = "stridal-panel-theme", KEY_MODE = "stridal-panel-mode", KEY_TYPE = "stridal-panel-type";
   const dark = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
-  const KEY_TUNED = "clauductor-panel-tuned";
+  const KEY_TUNED = "stridal-panel-tuned";
   let theme = "hmi", mode = "system", type = null; // type null: the theme's suggestion
   let tuned = Object.assign({}, window.PanelTuned ? window.PanelTuned.defaults : {});
   // Storage can be missing or throw (a private window, blocked site data): the page
@@ -115,7 +115,7 @@ window.PanelTheme = (function () {
 // Ctrl+Alt+−; the browser's own zoom keys stay the browser's).
 window.PanelScale = (function () {
   const root = document.documentElement;
-  const KEY = "clauductor-panel-scale";
+  const KEY = "stridal-panel-scale";
   const MIN = 85, MAX = 175, STEP = 5;
   const STEPS = [];
   for (let v = MIN; v <= MAX; v += STEP) STEPS.push(v);

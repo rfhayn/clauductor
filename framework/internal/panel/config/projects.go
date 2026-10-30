@@ -9,11 +9,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/rfhayn/stridal/internal/brand"
 )
 
-// The projects one panel serves (PANEL-16): ~/.clauductor/panel/projects.json. It is
+// The projects one panel serves (PANEL-16): ~/.stridal/panel/projects.json. It is
 // the machine's, not a repository's, so nothing a repository says can add a project,
 // pick a socket for one, or make another the default.
 
@@ -21,18 +19,18 @@ import (
 const ProjectsVersion = 1
 
 // ProjectIDRe is a project id: it names the project in routes, the page and a tmux
-// socket (clauductor-<id>), so it is kept to what is safe in all three.
+// socket (stridal-<id>), so it is kept to what is safe in all three.
 var ProjectIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,40}$`)
 
 // ProjectEntry is one registered project.
 type ProjectEntry struct {
 	ID   string `json:"id"`
 	Root string `json:"root"` // the main worktree, resolved
-	// Config is the panel.json path, "" for <root>/.clauductor/panel.json.
+	// Config is the panel.json path, "" for <root>/.stridal/panel.json.
 	Config string `json:"config"`
 	// TmuxSocket is the socket its lanes run on unless panel.json names one. The
-	// first project keeps the historical "clauductor", so lanes already running
-	// there carry on; each project added after gets clauductor-<id>.
+	// first project keeps the historical "stridal", so lanes already running
+	// there carry on; each project added after gets stridal-<id>.
 	TmuxSocket string `json:"tmux_socket"`
 	Added      int64  `json:"added"` // unix seconds
 }
@@ -45,17 +43,11 @@ func (e ProjectEntry) ConfigPath() string {
 	return OwnConfigPath(e.Root)
 }
 
-// OwnConfigPath is the panel.json a project keeps in its own repository (DefaultConfigRel),
-// or a legacy name's while only that one exists (brand.Names). The panel and install both
-// find it here, so they never read two different files for one project.
-func OwnConfigPath(root string) string { return ownConfigPath(root, brand.Names()) }
-
-func ownConfigPath(root string, names []string) string {
-	ps := make([]string, len(names))
-	for i, n := range names {
-		ps[i] = filepath.Join(root, brand.Dir(n), "panel.json")
-	}
-	return brand.Existing(ps...)
+// OwnConfigPath is the panel.json a project keeps in its own repository (DefaultConfigRel).
+// The panel and install both find it here, so they never read two different files for one
+// project.
+func OwnConfigPath(root string) string {
+	return filepath.Join(root, filepath.FromSlash(DefaultConfigRel))
 }
 
 // Socket is the tmux socket the project's lanes use: panel.json's tmux_socket when
@@ -199,8 +191,8 @@ func (p *Projects) Slug(name string) string {
 }
 
 // NewSocket is the socket a newly added project records: the historical
-// "clauductor" for the first (lanes started before PANEL-16 run there), and
-// clauductor-<id> for every one after, so no two projects share a tmux server.
+// "stridal" for the first (lanes started before PANEL-16 run there), and
+// stridal-<id> for every one after, so no two projects share a tmux server.
 func (p *Projects) NewSocket(id string) string {
 	for _, e := range p.Projects {
 		if e.TmuxSocket == DefaultTmuxSocket {

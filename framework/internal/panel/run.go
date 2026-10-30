@@ -32,7 +32,7 @@ type Options struct {
 	// Project is a project to serve and make the default, registered in
 	// projects.json first if it is not (PANEL-16). "" serves the registry as it is.
 	Project    string
-	ConfigPath string // "" → the registered project's, else <Project>/.clauductor/panel.json
+	ConfigPath string // "" → the registered project's, else <Project>/.stridal/panel.json
 	// Only serves Project alone, not the rest of the registry (--only; tests).
 	Only   bool
 	Port   int
@@ -59,7 +59,7 @@ type Options struct {
 	Launchd bool
 	// TmuxSocket overrides the config's tmux_socket (tests use a throwaway socket).
 	TmuxSocket string
-	// CLISocket is where the panel listens for `clauductor lane close` (PANEL-57 D1);
+	// CLISocket is where the panel listens for `stridal lane close` (PANEL-57 D1);
 	// "" is install.CLISocketPath(Home). Tests pass a short path: a t.TempDir() home
 	// can be longer than a Unix socket's path may be.
 	CLISocket string
@@ -100,7 +100,7 @@ type Options struct {
 	// Unexported: a test of trust on arrival stands one in.
 	selfUpdate func(ctx context.Context, t catchUpTarget, res catchUpResult, cfgPath string) *rebuilt
 	// rebuild stands in for what the rebuild reads of the process (its build stamp,
-	// its path, go, the PATH's clauductor, the build's bound); nil reads the process's.
+	// its path, go, the PATH's stridal, the build's bound); nil reads the process's.
 	rebuild *rebuildEnv
 }
 
@@ -126,7 +126,7 @@ type Ticks struct {
 	PromptKick    time.Duration // the most often those drive a `claude agents` poll
 	Obs           time.Duration // the observability counters, into the model
 	Notify        time.Duration // alerts, into OS notifications
-	Trust         time.Duration // an untrusted config, for `clauductor panel trust`
+	Trust         time.Duration // an untrusted config, for `stridal panel trust`
 	Token         time.Duration // the token file, for a rotation (launchd)
 	Hub           time.Duration // the hub's re-derivation when nothing arrives
 	HubCoalesce   time.Duration // how long an update waits for more before the push
@@ -244,7 +244,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	if o.Project == "" && len(reg.Projects) == 0 {
-		return errors.New("no project to serve: run it inside a repository, pass --project <path>, or `clauductor panel add --project <path>`")
+		return errors.New("no project to serve: run it inside a repository, pass --project <path>, or `stridal panel add --project <path>`")
 	}
 
 	// One panel per machine (install/singleton.go): refuse before touching the port,
@@ -308,7 +308,7 @@ func Run(ctx context.Context, o Options) error {
 			return err
 		}
 		if res.Added {
-			fmt.Fprintf(o.Out, "registered %s as project %q in %s (its config stays untrusted until `clauductor panel trust`)\n",
+			fmt.Fprintf(o.Out, "registered %s as project %q in %s (its config stays untrusted until `stridal panel trust`)\n",
 				res.Entry.Root, res.Entry.ID, config.ProjectsPath(o.Home))
 		}
 		primary = res.Entry.ID
@@ -492,7 +492,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	serveErr := make(chan error, 2)
 	go func() { serveErr <- httpSrv.Serve(ln) }()
-	if ln6 != nil { // [::1]: clauductor.localhost resolves there first
+	if ln6 != nil { // [::1]: stridal.localhost resolves there first
 		go func() { serveErr <- httpSrv.Serve(ln6) }()
 	}
 	// The command socket's server is its own, over CLIHandler alone, so none of the
@@ -520,10 +520,10 @@ func Run(ctx context.Context, o Options) error {
 	}
 	if o.Launchd {
 		// stdout is a log file under launchd: the token stays in its 0600 file.
-		fmt.Fprintf(o.Out, "clauductor panel: %s\n  http://%s:%d/ (token in %s; `clauductor panel open` opens it)\n",
+		fmt.Fprintf(o.Out, "stridal panel: %s\n  http://%s:%d/ (token in %s; `stridal panel open` opens it)\n",
 			served, web.PanelHost(ln6 != nil), port, install.TokenPath(o.Home))
 	} else {
-		fmt.Fprintf(o.Out, "clauductor panel: %s\n  %s\n  marker: %s · Ctrl-C to stop\n", served, url, marker)
+		fmt.Fprintf(o.Out, "stridal panel: %s\n  %s\n  marker: %s · Ctrl-C to stop\n", served, url, marker)
 	}
 	if o.OnReady != nil {
 		o.OnReady(url)
@@ -575,7 +575,7 @@ func Run(ctx context.Context, o Options) error {
 // without it, and owner.json names no socket.
 func listenCLISocket(path string, out io.Writer) net.Listener {
 	without := func(format string, a ...any) net.Listener {
-		fmt.Fprintf(out, "no command socket, so `clauductor lane close` cannot reach this panel: %s\n", fmt.Sprintf(format, a...))
+		fmt.Fprintf(out, "no command socket, so `stridal lane close` cannot reach this panel: %s\n", fmt.Sprintf(format, a...))
 		return nil
 	}
 	if err := config.EnsurePrivateDir(filepath.Dir(path)); err != nil {
@@ -651,9 +651,9 @@ func checkConfigTrust(o Options, root, cfgPath string, raw []byte, trustNow bool
 	trustState := "trusted"
 	if !tv.Trusted {
 		if tv.Prev == "" {
-			trustState = "UNTRUSTED: not trusted yet; its commands and templates are off until you review it and run `clauductor panel trust`"
+			trustState = "UNTRUSTED: not trusted yet; its commands and templates are off until you review it and run `stridal panel trust`"
 		} else {
-			trustState = "UNTRUSTED: it changed since you trusted " + config.ShortHash(tv.Prev) + "; its commands and templates are off until `clauductor panel trust`"
+			trustState = "UNTRUSTED: it changed since you trusted " + config.ShortHash(tv.Prev) + "; its commands and templates are off until `stridal panel trust`"
 		}
 	}
 	if tv.Note != "" {

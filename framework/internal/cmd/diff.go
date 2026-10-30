@@ -26,7 +26,7 @@ var errDiverged = errors.New("the repository differs from the template (diff --e
 var diffCmd = &cobra.Command{
 	Use:   "diff",
 	Short: "Compare this repository with the template, file by file and key by key",
-	Long: `Compare the repository in the current directory with the Clauductor template,
+	Long: `Compare the repository in the current directory with the Stridal template,
 changing nothing. It reads any repository, including one that runs an operating
 model of its own (install and update refuse those; diff only reads).
 
@@ -85,9 +85,9 @@ func init() {
 
 func printSurvey(out io.Writer, r *template.Report, all bool) {
 	if r.Source != nil {
-		fmt.Fprintf(out, "clauductor diff: %s against %s\n", r.Repo, r.Source)
+		fmt.Fprintf(out, "stridal diff: %s against %s\n", r.Repo, r.Source)
 	} else {
-		fmt.Fprintf(out, "clauductor diff: %s against %s\n", r.Repo, r.Template)
+		fmt.Fprintf(out, "stridal diff: %s against %s\n", r.Repo, r.Template)
 	}
 	marks := map[string]string{"identical": "=", "differs": "~", "missing": "-", "extra": "+", "skipped": "s", "present": "="}
 	for _, tier := range []string{"framework", "doc", "config"} {

@@ -20,7 +20,7 @@ var (
 )
 
 func addTemplateFlag(c *cobra.Command) {
-	c.Flags().StringVar(&template.OverrideDir, "template-dir", "", "Use this template (a template directory, or a clauductor checkout or release holding template/), even if its version is not this binary's")
+	c.Flags().StringVar(&template.OverrideDir, "template-dir", "", "Use this template (a template directory, or a stridal checkout or release holding template/), even if its version is not this binary's")
 }
 
 // announceTemplate resolves the template and says which one this run copies from.
@@ -43,7 +43,7 @@ type extras struct {
 	roles         []byte             // model-roles.json with the template's new keys added (nil: nothing to add)
 	rolesAdded    []string           // the keys added
 	panelProblems []string           // panel.json disagrees with the BRANCH_* keys
-	panelRel      string             // the panel.json read (template.ProjectPanelPath)
+	panelRel      string             // the panel.json read (template.PanelPath)
 	agentsRows    []string           // AGENTS.md table rows the template has and the project lacks
 	old           []template.OldFile // the old model's files the current model replaced
 	oldStubs      []placed           // project skills that are the old model's unedited stubs: replaced
@@ -69,7 +69,6 @@ func planExtras(targetDir, tmplDir string, files []string) (*extras, error) {
 		if skip != "" {
 			continue
 		}
-		dest = template.ProjectDest(targetDir, rel, dest)
 		pl := placed{rel: rel, dest: dest, key: key}
 		if !fileExists(filepath.Join(targetDir, filepath.FromSlash(dest))) {
 			x.docNew = append(x.docNew, pl)
@@ -92,7 +91,7 @@ func planExtras(targetDir, tmplDir string, files []string) (*extras, error) {
 			}
 		}
 	}
-	x.panelRel = template.ProjectPanelPath(targetDir)
+	x.panelRel = template.PanelPath
 	if have, ok := read(targetDir, x.panelRel); ok {
 		x.panelProblems = template.PanelBranchProblems(have, conf)
 	}
@@ -143,7 +142,7 @@ func (x *extras) print(out io.Writer, showDocNew bool) {
 		fmt.Fprintln(out)
 	}
 	if len(x.old) > 0 {
-		fmt.Fprintf(out, "  OLD MODEL — files of clauductor's old model that the current model replaced (%d):\n", len(x.old))
+		fmt.Fprintf(out, "  OLD MODEL — files of stridal's old model that the current model replaced (%d):\n", len(x.old))
 		for _, f := range x.old {
 			note := "edited since the old template shipped it"
 			if f.Unchanged {
@@ -179,7 +178,7 @@ func (x *extras) offerPrune(out io.Writer, targetDir string) error {
 		return nil
 	}
 	if !pruneOld && !confirm(fmt.Sprintf("Remove the old model's %d replaced file(s) listed above?", len(x.old))) {
-		fmt.Fprintln(out, "  Kept them. `clauductor diff` lists them as extra; `--prune` removes them.")
+		fmt.Fprintln(out, "  Kept them. `stridal diff` lists them as extra; `--prune` removes them.")
 		return nil
 	}
 	removed, err := template.PruneOldModel(targetDir, x.old)

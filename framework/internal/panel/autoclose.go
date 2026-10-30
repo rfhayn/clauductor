@@ -204,7 +204,7 @@ func (r *Runtime) notifyOnce(ctx context.Context, key, title, body string) {
 	if send == nil {
 		send = func(n state.Notice) error { return SendNotice(ctx, n) }
 	}
-	name := "clauductor panel"
+	name := "stridal panel"
 	if r.trusted() {
 		name = r.cfg.Name
 	}

@@ -15,7 +15,7 @@ import (
 // panel-suggest.sh reads origin/main, which a working-tree watch never sees move, and an ops lane
 // named after a queued row builds that row; a starter that kept the old values would do neither.
 func TestInitTemplatesMatchTheShippedConfig(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "template", ".clauductor", "panel.json"))
+	body, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "template", ".stridal", "panel.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

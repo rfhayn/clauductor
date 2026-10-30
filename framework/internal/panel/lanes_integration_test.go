@@ -99,7 +99,7 @@ func startPanelWith(t *testing.T, root, home, sock string, tweak func(*Options))
 		pu, _ := url.Parse(u)
 		port, _ := strconv.Atoi(pu.Port())
 		p := &panelRun{home: home, base: "http://" + pu.Host, origin: "http://" + pu.Host,
-			cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, pu.Query().Get("t")), cancel: cancel, done: done, polls: polls}
+			cookie: fmt.Sprintf("stridal_panel_%d=%s", port, pu.Query().Get("t")), cancel: cancel, done: done, polls: polls}
 		t.Cleanup(p.stop)
 		return p
 	case err := <-done:
@@ -551,7 +551,7 @@ func TestTokenRotationClosesTerminalsAndCookies(t *testing.T) {
 	}
 	bu, _ := url.Parse(p.base)
 	port := bu.Port()
-	fresh := liveClient{base: p.base, cookie: "clauductor_panel_" + port + "=" + newTok}
+	fresh := liveClient{base: p.base, cookie: "stridal_panel_" + port + "=" + newTok}
 	if v := fresh.state(t); v.Name != "T" {
 		t.Fatalf("new token: %+v", v.Name)
 	}

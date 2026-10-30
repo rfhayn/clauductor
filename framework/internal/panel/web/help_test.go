@@ -10,7 +10,7 @@ import (
 	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
-const guideURL = "https://github.com/rfhayn/clauductor/blob/main/docs/guide.md"
+const guideURL = "https://github.com/rfhayn/stridal/blob/main/docs/guide.md"
 
 // PANEL-17: the Help dialog. A "?" in the header and the ? key open it; it is a
 // labelled modal dialog; its guide link opens in a new tab with noopener; nothing in

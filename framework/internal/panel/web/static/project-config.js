@@ -22,14 +22,14 @@
 
   // removeNote is the Remove from panel… confirmation's opening, from the remove plan
   // (live.go, removePlan). For a config outside the repository, adding the project
-  // from the page would not find it (it reads only <root>/.clauductor/panel.json), so
+  // from the page would not find it (it reads only <root>/.stridal/panel.json), so
   // the note names the file and the command that serves it again, its paths quoted so
   // it runs as printed.
   function removeNote(plan) {
     if (!plan || !plan.configOutside) return KEPT;
     return "This only unregisters it. Nothing on disk is deleted: the repository, its worktrees and its lane registry stay where they are, " +
       "and so does its config, " + plan.configPath + ", which is outside the repository. To serve it again from that config, run: " +
-      "clauductor panel add --project " + shellWord(plan.root) + " --config " + shellWord(plan.configPath);
+      "stridal panel add --project " + shellWord(plan.root) + " --config " + shellWord(plan.configPath);
   }
 
   root.ProjectConfig = { menuLine, removeNote };

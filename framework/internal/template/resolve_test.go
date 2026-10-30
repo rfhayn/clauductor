@@ -31,22 +31,22 @@ func withVersion(t *testing.T, v string) {
 	t.Cleanup(func() { BinaryVersion, OverrideDir = old, oldOverride })
 }
 
-// OPS-8 rehearsal, finding 3: with CLAUDUCTOR_FRAMEWORK unset, the binary took its template from
-// ~/Development/clauductor, a checkout on whatever branch. Now that guess is never consulted: a
+// OPS-8 rehearsal, finding 3: with STRIDAL_FRAMEWORK unset, the binary took its template from
+// ~/Development/stridal, a checkout on whatever branch. Now that guess is never consulted: a
 // HOME holding a decoy checkout there does not decide the template.
 func TestResolveNeverGuessesFromHome(t *testing.T) {
 	withVersion(t, "0.1.0")
 	home := t.TempDir()
-	decoy := fakeTemplate(t, filepath.Join(home, "Development", "clauductor", "template"), "0.1.0")
+	decoy := fakeTemplate(t, filepath.Join(home, "Development", "stridal", "template"), "0.1.0")
 	t.Setenv("HOME", home)
-	t.Setenv("CLAUDUCTOR_FRAMEWORK", "")
-	t.Setenv("CLAUDUCTOR_SHARE", filepath.Join(home, "share"))
+	t.Setenv("STRIDAL_FRAMEWORK", "")
+	t.Setenv("STRIDAL_SHARE", filepath.Join(home, "share"))
 	s, err := Resolve()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s.Dir == decoy {
-		t.Fatalf("Resolve took the ambient ~/Development/clauductor template %s", decoy)
+		t.Fatalf("Resolve took the ambient ~/Development/stridal template %s", decoy)
 	}
 	want, _ := filepath.Abs(filepath.Join(repoRoot(t), "template"))
 	if got, _ := filepath.Abs(s.Dir); got != want || s.How != "the source checkout this binary was built from" {
@@ -60,8 +60,8 @@ func TestResolveReleaseShare(t *testing.T) {
 	withVersion(t, "v9.8.7")
 	share := t.TempDir()
 	want := fakeTemplate(t, filepath.Join(share, "v9.8.7", "template"), "9.8.7")
-	t.Setenv("CLAUDUCTOR_FRAMEWORK", "")
-	t.Setenv("CLAUDUCTOR_SHARE", share)
+	t.Setenv("STRIDAL_FRAMEWORK", "")
+	t.Setenv("STRIDAL_SHARE", share)
 	s, err := Resolve()
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestResolveRefusesAVersionMismatch(t *testing.T) {
 	withVersion(t, "0.2.0")
 	root := t.TempDir()
 	fakeTemplate(t, filepath.Join(root, "template"), "0.1.0")
-	t.Setenv("CLAUDUCTOR_FRAMEWORK", root)
+	t.Setenv("STRIDAL_FRAMEWORK", root)
 	_, err := Resolve()
 	if err == nil || !strings.Contains(err.Error(), "version 0.1.0") || !strings.Contains(err.Error(), "v0.2.0") {
 		t.Fatalf("want a refusal naming both versions; got %v", err)
@@ -85,7 +85,7 @@ func TestResolveRefusesAVersionMismatch(t *testing.T) {
 
 	unmarked := t.TempDir()
 	fakeTemplate(t, filepath.Join(unmarked, "template"), "")
-	t.Setenv("CLAUDUCTOR_FRAMEWORK", unmarked)
+	t.Setenv("STRIDAL_FRAMEWORK", unmarked)
 	if _, err := Resolve(); err == nil || !strings.Contains(err.Error(), "no "+VersionFile) {
 		t.Fatalf("want a refusal of a template with no marker; got %v", err)
 	}

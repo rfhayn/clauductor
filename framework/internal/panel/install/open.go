@@ -31,7 +31,7 @@ func healthz(ctx context.Context, base string) (string, error) {
 }
 
 // openURLChecked returns the tokened URL to open, after checking that BOTH loopback
-// addresses the browser may use for clauductor.localhost answer as this panel (the
+// addresses the browser may use for stridal.localhost answer as this panel (the
 // PID beside the marker). If nothing listens on [::1], the 127.0.0.1 URL is used.
 func openURLChecked(ctx context.Context, home string, port int, token string) (string, error) {
 	pidFile := filepath.Join(config.PanelDir(home), "pid")

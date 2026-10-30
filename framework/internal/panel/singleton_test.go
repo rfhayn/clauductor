@@ -27,7 +27,7 @@ import (
 )
 
 // PANEL-5: one panel per machine is enforced, not assumed. The hook URL in
-// ~/.claude/settings.json and ~/.clauductor/panel/{port,pid,owner.json} are
+// ~/.claude/settings.json and ~/.stridal/panel/{port,pid,owner.json} are
 // per-machine, so a second panel would silently re-point every hook and, on exit,
 // delete the first panel's marker.
 
@@ -184,14 +184,14 @@ func TestStalePanelRecordDoesNotBlockAStart(t *testing.T) {
 }
 
 // PANEL-57 D1: RunningPanel hands back the command socket owner.json names, the path
-// `clauductor lane close` dials; an owner.json from before the socket has no field, and
+// `stridal lane close` dials; an owner.json from before the socket has no field, and
 // comes back with none.
 func TestRunningPanelNamesItsSocket(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name, socket string
 	}{
-		{"owner.json names a socket", "/Users/me/.clauductor/panel/cli.sock"},
+		{"owner.json names a socket", "/Users/me/.stridal/panel/cli.sock"},
 		{"owner.json from before the socket", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -239,7 +239,7 @@ func runPanel(t *testing.T, o Options) (int, liveClient, func()) {
 	}
 	u, _ := url.Parse(launch)
 	port, _ := strconv.Atoi(u.Port())
-	c := liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("clauductor_panel_%d=%s", port, u.Query().Get("t"))}
+	c := liveClient{base: "http://" + u.Host, cookie: fmt.Sprintf("stridal_panel_%d=%s", port, u.Query().Get("t"))}
 	stop := func() {
 		cancel()
 		select {
@@ -440,7 +440,7 @@ func TestSlowAgentsPollNeverFlickersStale(t *testing.T) {
 // TestHelperPanelProcess is not a test: TestTwoPanelsStartedTogether runs this test
 // binary as a separate panel process through it.
 func TestHelperPanelProcess(t *testing.T) {
-	if os.Getenv("CLAUDUCTOR_PANEL_HELPER") != "1" {
+	if os.Getenv("STRIDAL_PANEL_HELPER") != "1" {
 		t.Skip("helper process for TestTwoPanelsStartedTogether")
 	}
 	root, home := os.Getenv("HELPER_ROOT"), os.Getenv("HELPER_HOME")
@@ -474,7 +474,7 @@ func TestTwoPanelsStartedTogether(t *testing.T) {
 		var ps []*proc
 		for i := 0; i < 2; i++ {
 			cmd := exec.Command(os.Args[0], "-test.run=^TestHelperPanelProcess$")
-			cmd.Env = append(os.Environ(), quickExit(), "CLAUDUCTOR_PANEL_HELPER=1", "HELPER_ROOT="+root, "HELPER_HOME="+home)
+			cmd.Env = append(os.Environ(), quickExit(), "STRIDAL_PANEL_HELPER=1", "HELPER_ROOT="+root, "HELPER_HOME="+home)
 			p := &proc{cmd: cmd, out: &strings.Builder{}, mu: &sync.Mutex{}, done: make(chan error, 1)}
 			cmd.Stdout = &syncWriter{w: p.out, mu: p.mu}
 			cmd.Stderr = cmd.Stdout
@@ -522,7 +522,7 @@ func TestTwoPanelsStartedTogether(t *testing.T) {
 			p.mu.Lock()
 			out := p.out.String()
 			p.mu.Unlock()
-			if ee, ok := exited[i].(*exec.ExitError); !ok || ee.ExitCode() != 3 || !strings.Contains(out, "another clauductor panel is running") {
+			if ee, ok := exited[i].(*exec.ExitError); !ok || ee.ExitCode() != 3 || !strings.Contains(out, "another stridal panel is running") {
 				t.Fatalf("round %d: a panel exited without a refusal (%v):\n%s", round, exited[i], out)
 			}
 			refused = append(refused, p)

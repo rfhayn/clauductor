@@ -29,19 +29,19 @@ var (
 
 // errDoctorFailed makes `doctor` exit 1 when any line fails, as `diff --exit-code` does. It is
 // reported: the report's last line is the count, so neither cobra nor Main prints an error after it.
-var errDoctorFailed = fmt.Errorf("%w: doctor found a problem that stops Clauductor working here (see the FAIL lines)", errReported)
+var errDoctorFailed = fmt.Errorf("%w: doctor found a problem that stops Stridal working here (see the FAIL lines)", errReported)
 
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
 	Short: "Check this machine's setup and the project's, and say what to do about each problem",
-	Long: `Check that Clauductor can work here, changing nothing: the tools the operating model
+	Long: `Check that Stridal can work here, changing nothing: the tools the operating model
 uses, the template this binary reads, whether gh is signed in, and (on macOS) the panel. In a
-git repository it also checks whose operating model the repository runs, whether Clauductor's
+git repository it also checks whose operating model the repository runs, whether Stridal's
 matches the template, and whether the panel serves and trusts the project.
 
 Each line is ok, FAIL, warn or note. A problem carries the command that fixes it (fix:), or
 for a missing tool this system's install hint (install:), when doctor can tell what clears it. FAIL
-means Clauductor cannot work here until it is fixed; warn means something is degraded; a note
+means Stridal cannot work here until it is fixed; warn means something is degraded; a note
 is a fact. Doctor exits 1 when any line fails. It writes nothing and runs none of the fixes it
 prints: each is a command you should see the effect of.`,
 	Args:          cobra.NoArgs,
@@ -102,7 +102,7 @@ type doctorGroup struct {
 type doctorReport struct {
 	groups []*doctorGroup
 	// checks is what doctor names and does not run (the model's own checks, D4), when the
-	// repository holds Clauductor's model. It is appended to the count line, so the count is the
+	// repository holds Stridal's model. It is appended to the count line, so the count is the
 	// last line in every report and that line names the checks.
 	checks string
 }

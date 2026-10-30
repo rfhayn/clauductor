@@ -43,7 +43,7 @@ func listen(port int) (net.Listener, error) {
 	ln, err := net.Listen("tcp4", net.JoinHostPort(LoopbackHost, strconv.Itoa(port)))
 	if err != nil {
 		if errors.Is(err, syscall.EADDRINUSE) {
-			return nil, fmt.Errorf("port %d on %s is already in use (another panel? see ~/.clauductor/panel/port). "+
+			return nil, fmt.Errorf("port %d on %s is already in use (another panel? see ~/.stridal/panel/port). "+
 				"The panel does not fall back to another port, because its hooks post to a fixed URL; free the port or pass --port", port, LoopbackHost)
 		}
 		return nil, err
@@ -138,7 +138,7 @@ type Server struct {
 	viewers map[string]map[*termViewer]struct{} // open terminals by lane id
 }
 
-func (s *Server) cookieName() string { return "clauductor_panel_" + strconv.Itoa(s.Port) }
+func (s *Server) cookieName() string { return "stridal_panel_" + strconv.Itoa(s.Port) }
 
 // hostOK and originOK use the exact allow-list in hosts.go.
 func (s *Server) hostOK(host string) bool { return s.hostAllowed(host) }
@@ -225,7 +225,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.authed(r) {
-			http.Error(w, "unauthorized: open the URL `clauductor panel` printed", http.StatusUnauthorized)
+			http.Error(w, "unauthorized: open the URL `stridal panel` printed", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)
@@ -285,7 +285,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.authed(r) {
-		http.Error(w, "unauthorized: open the URL `clauductor panel` printed", http.StatusUnauthorized)
+		http.Error(w, "unauthorized: open the URL `stridal panel` printed", http.StatusUnauthorized)
 		return
 	}
 	page, _ := webFS.ReadFile("index.html")

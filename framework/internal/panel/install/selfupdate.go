@@ -24,8 +24,8 @@ import (
 // The panel's rebuild of itself (OPS-118 D4): after catch-up fast-forwards the
 // repository whose framework/ is the panel's own source, the login agent's panel builds
 // the new commit beside its installed binary, checks the build, and puts it in place
-// with two renames, keeping the old one as clauductor.prev. The token, the plist and
-// the user's hooks are never opened for writing: `clauductor panel install` would
+// with two renames, keeping the old one as stridal.prev. The token, the plist and
+// the user's hooks are never opened for writing: `stridal panel install` would
 // rotate the token (E6). The restart that follows is the panel's (run.go).
 
 // RebuildTimeout bounds the build.
@@ -34,12 +34,12 @@ const RebuildTimeout = 5 * time.Minute
 // UpdateByHand is how a notice says to update a login agent's panel that did not
 // rebuild itself. The notice names the checkout, so the commands say framework/, not
 // its path: the body is cut at a length a deep checkout's path would otherwise fill.
-const UpdateByHand = "To update it, run `go build -o clauductor ./cmd/clauductor && ./clauductor panel install` in framework/."
+const UpdateByHand = "To update it, run `go build -o stridal ./cmd/stridal && ./stridal panel install` in framework/."
 
 // preflightTimeout bounds each of the new binary's preflight commands.
 const preflightTimeout = 30 * time.Second
 
-// installFiles are what `clauductor panel install` writes beyond the binary: a rebuild
+// installFiles are what `stridal panel install` writes beyond the binary: a rebuild
 // whose range changed either says to run it once.
 var installFiles = []string{"framework/internal/panel/install/launchd.go", "framework/internal/panel/install/hooks.go"}
 
@@ -112,7 +112,7 @@ type Rebuild struct {
 	Exe  string
 	// Go is the go command, from the panel's PATH ("go") unless a test stands one in.
 	Go string
-	// PathBinary is the clauductor the panel's PATH names, "" for none: replaced as the
+	// PathBinary is the stridal the panel's PATH names, "" for none: replaced as the
 	// installed one is, when its own stamp names this module and a commit of Root.
 	PathBinary string
 	// Timeout bounds the build: RebuildTimeout when 0.
@@ -136,7 +136,7 @@ type Plan struct {
 	// Skip is why the panel does not rebuild ("" when it does), and How how to update
 	// it instead: one notice says both.
 	Skip, How string
-	// Install names the files `clauductor panel install` writes that Base..To changed.
+	// Install names the files `stridal panel install` writes that Base..To changed.
 	Install []string
 }
 
@@ -195,10 +195,10 @@ func (r *Rebuild) Decide(ctx context.Context) Plan {
 	case !r.Launchd:
 		exe := r.Exe
 		if exe == "" {
-			exe = "clauductor"
+			exe = "stridal"
 		}
 		p.Skip = "it was started by hand, not as the login agent, so it does not replace itself"
-		p.How = fmt.Sprintf("To update it, run `go build -o %s ./cmd/clauductor` in framework/, then stop this panel and start it again.", ShellWord(exe))
+		p.How = fmt.Sprintf("To update it, run `go build -o %s ./cmd/stridal` in framework/, then stop this panel and start it again.", ShellWord(exe))
 		return p
 	case rev == "":
 		p.Skip = "its binary carries no VCS build information, so its commit is not known"
@@ -247,7 +247,7 @@ func (r *Rebuild) installChanged(ctx context.Context, base string) ([]string, er
 	return strings.Split(out, "\n"), nil
 }
 
-// Build runs `go build -o <NewBinary> ./cmd/clauductor` in Root/framework under the
+// Build runs `go build -o <NewBinary> ./cmd/stridal` in Root/framework under the
 // timeout, with the go the panel's PATH names. It writes nothing in the repository: the
 // output goes beside the installed binary, and Go's caches are outside it. A failure
 // leaves no NewBinary.
@@ -267,11 +267,11 @@ func (r *Rebuild) Build(ctx context.Context) error {
 	}
 	path, err := exec.LookPath(goCmd)
 	if err != nil {
-		return fmt.Errorf("go is not on the panel's PATH (`clauductor panel install` adds its directory): %v", err)
+		return fmt.Errorf("go is not on the panel's PATH (`stridal panel install` adds its directory): %v", err)
 	}
 	bctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(bctx, path, "build", "-o", out, "./cmd/clauductor")
+	cmd := exec.CommandContext(bctx, path, "build", "-o", out, "./cmd/stridal")
 	cmd.Dir = filepath.Join(r.Root, "framework")
 	cmd.Env = buildEnv()
 	// A group of its own, killed whole at the timeout: the compiler and linker go
@@ -378,7 +378,7 @@ func (r *Rebuild) runNew(ctx context.Context, args ...string) error {
 func (r *Rebuild) Discard() { _ = os.Remove(r.NewBinary()) }
 
 // Swap puts NewBinary in place of the installed binary with two renames, the old one
-// kept as clauductor.prev, then does the same for PathBinary when its own stamp names
+// kept as stridal.prev, then does the same for PathBinary when its own stamp names
 // this module and a commit of Root, copying the new binary beside it first. err is the
 // installed binary's swap, which leaves it as it was and no NewBinary; pathErr the
 // PATH one's, which leaves that one as it was. replaced is the PATH binary replaced,

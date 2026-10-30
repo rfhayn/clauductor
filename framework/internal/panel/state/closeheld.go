@@ -8,7 +8,7 @@ import (
 	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
-// The close verdict (PANEL-57 D2): whether a lane's work has ended, so that `clauductor
+// The close verdict (PANEL-57 D2): whether a lane's work has ended, so that `stridal
 // lane close` and auto-close may close it. TermLaneView.CloseHeld carries it: "" when
 // the lane may close, otherwise why not, in auto-close's words. A failed or missing
 // read keeps more: it holds a lane, never releases one.

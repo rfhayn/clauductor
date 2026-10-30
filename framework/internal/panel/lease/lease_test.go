@@ -25,7 +25,7 @@ import (
 	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
-// TestMain lets the test binary act as `clauductor lock-run`, so the lease is
+// TestMain lets the test binary act as `stridal lock-run`, so the lease is
 // exercised by real, separate processes with real pids.
 func TestMain(m *testing.M) {
 	if lock := os.Getenv("LOCKRUN_HELPER_LOCK"); lock != "" {
@@ -566,9 +566,9 @@ func TestLockRunForwardsSignalAndReleases(t *testing.T) {
 func TestLockRunReentry(t *testing.T) {
 	lock := filepath.Join(t.TempDir(), "gate.lock")
 	abs, _ := filepath.Abs(lock)
-	t.Setenv("CLAUDUCTOR_LOCK_HELD", abs)
+	t.Setenv("STRIDAL_LOCK_HELD", abs)
 	var out bytes.Buffer
-	code, err := LockRun(context.Background(), LockRunOptions{Clock: clock.System, Lock: lock, Argv: []string{"/bin/sh", "-c", "echo $CLAUDUCTOR_LOCK_HELD"}, Stdout: &out})
+	code, err := LockRun(context.Background(), LockRunOptions{Clock: clock.System, Lock: lock, Argv: []string{"/bin/sh", "-c", "echo $STRIDAL_LOCK_HELD"}, Stdout: &out})
 	if err != nil || code != 0 || strings.TrimSpace(out.String()) != abs {
 		t.Fatalf("re-entry: %d %v %q", code, err, out.String())
 	}
@@ -699,19 +699,19 @@ func TestLockRunCtrlCOnATerminalReachesTheCommandOnce(t *testing.T) {
 	}
 }
 
-// The TERM workaround: started as TERM=dumb CLAUDUCTOR_TERM=<real>, the command
+// The TERM workaround: started as TERM=dumb STRIDAL_TERM=<real>, the command
 // gets the real TERM back.
 func TestLockRunRestoresTheRealTERM(t *testing.T) {
 	t.Parallel()
-	env := childEnv([]string{"PATH=/bin", "TERM=dumb", "CLAUDUCTOR_TERM=xterm-256color", "CLAUDUCTOR_TERM_SET=1"})
+	env := childEnv([]string{"PATH=/bin", "TERM=dumb", "STRIDAL_TERM=xterm-256color", "STRIDAL_TERM_SET=1"})
 	if strings.Join(env, " ") != "PATH=/bin TERM=xterm-256color" {
 		t.Fatalf("env %v", env)
 	}
 	// Round 3: unset stays unset; set-but-empty stays set and empty.
-	if env := childEnv([]string{"TERM=dumb", "CLAUDUCTOR_TERM=", "CLAUDUCTOR_TERM_SET="}); len(env) != 0 {
+	if env := childEnv([]string{"TERM=dumb", "STRIDAL_TERM=", "STRIDAL_TERM_SET="}); len(env) != 0 {
 		t.Fatalf("an unset TERM must stay unset: %v", env)
 	}
-	if env := childEnv([]string{"TERM=dumb", "CLAUDUCTOR_TERM=", "CLAUDUCTOR_TERM_SET=1"}); strings.Join(env, " ") != "TERM=" {
+	if env := childEnv([]string{"TERM=dumb", "STRIDAL_TERM=", "STRIDAL_TERM_SET=1"}); strings.Join(env, " ") != "TERM=" {
 		t.Fatalf("a set, empty TERM must stay set: %v", env)
 	}
 	if env := childEnv([]string{"TERM=vt100"}); env[0] != "TERM=vt100" {
