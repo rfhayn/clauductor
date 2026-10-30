@@ -30,6 +30,9 @@ change.
 owner. Return `blocked` for an environment fault you cannot fix (a service down, a missing
 credential). A guess is the expensive failure here: it passes the gate and reads as correct.
 
+**A classifier refusal is a stop.** If a safety or permission classifier refuses a step, return
+`blocked` naming what was refused and why it was being done; never retry that step another way.
+
 **When fixing review findings or gate failures**
 - Fix the finding at its SOURCE, not where it shows. If a fix needs a new mechanism (a retry, a
   background process, a new layer), say so in `notes`; prefer deleting the thing that needs
