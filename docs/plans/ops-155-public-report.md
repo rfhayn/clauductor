@@ -122,9 +122,10 @@ means:
 
 - **The old name becomes public and permanent.** It is in every file, the plugin id, the
   marketplace (`/plugin marketplace add` with the old repository slug, `README.md:39`), 23 other
-  files that name that slug (13 of them as a `github.com` link), the history and every PR. OPS-104 keeps class-C names and does
-  not rename the plugin id, and its `name-residue.sh` allow-list keeps the journal and
-  `changes/archive/` as they are, so the old name stays visible after the sweep too.
+  files that name that slug (13 of them as a `github.com` link), the history and every PR. OPS-104 was then planned to keep class-C names
+  and the plugin id, and to leave the journal and `changes/archive/` as they were; the owner's
+  ruling of 2026-10-30 had the sweep rename all of those too, so after it the old name stays
+  visible only in git history and past PR titles.
 - **The repository's own rename** comes with or after OPS-104. GitHub redirects the old URL for
   clones, links and the raw schema URL (`template/.stridal/panel.json:2`) until someone
   creates a new repository under the old name. Anyone who forks or stars in the gap sees the
