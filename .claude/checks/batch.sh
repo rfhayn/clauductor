@@ -96,6 +96,14 @@ run record 41 A-1 A-2 A-3 >/dev/null; out=$(run record 41 A-1 A-3); rc=$?
   && ok "batch record: a row that left the batch comes out of Also closes, the authors' rows stay" \
   || fail "batch record: a row that left: exit $rc: $out; $(grep Also "$F"/docs/journal.d/*.md | tr '\n' '~')"
 
+# A fragment outside the batch that already closes a listed row: record stops, and leaves it alone.
+setup; frag A-1 11; frag Z-1 9 'A-2'; g add -A; g commit -qm frags; z=$(cksum < "$F/docs/journal.d/Z-1.md")
+out=$(run record 40 A-1 A-2); rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'Z-1.md outside this batch' && [ "$(cksum < "$F/docs/journal.d/Z-1.md")" = "$z" ] \
+  && [ -z "$(g status --porcelain)" ] \
+  && ok "batch record: a row another fragment closes outside the batch stops it, that fragment untouched" \
+  || fail "batch record: outside close: exit $rc: $out"
+
 # A fragment that fails the shape stops record, and the fragments rewritten before it are restored.
 setup; frag A-1 11; frag A-3 13; grep -v 'Gate' "$F/docs/journal.d/A-3.md" > "$S/a3"; cat "$S/a3" > "$F/docs/journal.d/A-3.md"
 g add -A; g commit -qm frags

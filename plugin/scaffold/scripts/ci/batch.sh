@@ -80,14 +80,23 @@ case $cmd in
     trap 'rm -f "$tmp"' EXIT
     # A stop part way restores the fragments, so it leaves the tree as it found it.
     undo() { git -C "$ROOT" checkout -q -- "$d"; stop "$@"; }
-    # The rows an earlier record ADDED (its commits' Batch-added: line) come out of every Also
-    # closes first, so a run with the rows that remain is the whole recovery when a row leaves
+    # The rows an earlier record ADDED (its commits' Batch-added: line) come out of the listed
+    # fragments' Also closes first, so a run with the rows that remain is the whole recovery when a row leaves
     # the batch, however many record commits came before. Rows a fragment's author wrote stay.
     prior=$(git -C "$ROOT" log --format=%B "origin/$MAIN_BRANCH..HEAD" 2>/dev/null \
       | sed -n 's/^Batch-added: //p' | tr ',' ' ' | xargs)
+    # A fragment outside the batch that closes a listed row would be a second close the fold
+    # refuses: stop here, naming it, and never touch that fragment.
+    for f in "$d"/*.md; do
+      [ -f "$f" ] || continue
+      case " $* " in *" $(basename "$f" .md) "*) continue ;; esac
+      for id in $(fragment_rows "$f"); do
+        case " $* " in *" $id "*) stop "$id is already closed by $(basename "$f") outside this batch: leave it out, or fix that fragment" ;; esac
+      done
+    done
     if [ -n "$prior" ]; then
-      for f in "$d"/*.md; do
-        [ -f "$f" ] || continue
+      for id in "$@"; do
+        f="$d/$id.md"; [ -f "$f" ] || continue
         awk -v drop=" $prior " '
           /^(```|~~~)/ { fence = !fence }
           !fence && !done && /^## / { done = 1 }
