@@ -9,7 +9,7 @@
   (*batch gates catch repo-wide checks*, *merge origin/main right before gating*)
 
 ## Context
-A full gate takes about 33–55 minutes on the owner's Mac (S16's passing runs in
+A full gate takes about 33–56 minutes on the owner's Mac (S16's passing runs in
 `gate-runs.log`), and two full gates on one machine never overlap (`run-local.sh`'s lease). With
 a dozen reviewed lanes ready in one session, a gate per PR queues them for most of a day, and each
 merge moves `main` under the next PR's receipt.
@@ -34,7 +34,7 @@ fragment names, which for a batched row is the lane PR that was closed, not the 
    adjusted as the session goes: a row that becomes ready joins the next batch, a row that is not
    ready waits for a later one.
 3. **A batch is frozen once its gate starts.** Nothing joins it after; a late row waits for the
-   next batch. A fix the gate asks for is the one exception (step 7).
+   next batch. A fix the gate asks for is the one exception (step 8).
 4. **Merge order:** the lane branches merge into the integration branch `--no-ff`, in the planned
    order, a row that changes a rule other rows are judged by (a guard, a check, the gate) first.
 5. **Regenerate `plugin/`** (`scripts/build-plugin.sh`) after the merges, since every lane's
