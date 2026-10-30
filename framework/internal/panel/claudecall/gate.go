@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // The gate's numbers (design D2–D4). PANEL-25's retry reuses the waits and retries.

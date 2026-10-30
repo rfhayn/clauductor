@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/metrics"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/metrics"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // laneRoutes adds the v1 routes. Every one except /healthz needs the auth cookie; the

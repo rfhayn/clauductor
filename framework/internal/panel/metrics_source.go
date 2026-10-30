@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/metrics"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/metrics"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // PANEL-19: the Metrics view's sources. The project's metrics command runs like a

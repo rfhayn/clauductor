@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/web"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/web"
 )
 
 // loadedProject is a registered project whose config and worktrees were read.

@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/brand"
+	"github.com/rfhayn/stridal/internal/brand"
 )
 
 // The projects one panel serves (PANEL-16): ~/.clauductor/panel/projects.json. It is

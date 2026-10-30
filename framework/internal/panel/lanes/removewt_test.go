@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // worktree adds a worktree with no lane: on a new branch, or detached when branch is "".

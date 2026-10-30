@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-13: a Claude Code the panel has not verified is checked against the hooks the

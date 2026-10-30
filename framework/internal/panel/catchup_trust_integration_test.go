@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // OPS-118 group 2 (D1): a panel.json the panel's own fast-forward brings is trusted on

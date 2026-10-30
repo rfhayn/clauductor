@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // Hub owns the model and fans snapshots out to SSE subscribers.

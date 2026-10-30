@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/metrics"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/metrics"
 )
 
 // metricsPanel runs a panel whose config has a metrics command, answered by the

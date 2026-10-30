@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/testgit"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/testgit"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // closeRepo is a project whose lanes are orphans (registry records, no tmux server):

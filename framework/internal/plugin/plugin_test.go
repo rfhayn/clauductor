@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
 // The plugin and `clauductor install`/`update` must agree on what is the framework's: a file the

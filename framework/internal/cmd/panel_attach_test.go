@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testgit"
-	"github.com/clauductor/clauductor/internal/treesnap"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testgit"
+	"github.com/rfhayn/stridal/internal/treesnap"
 )
 
 // gitFreeRunner is signals.ExecRunner for the test's own reads, with gitFreeEnv: the

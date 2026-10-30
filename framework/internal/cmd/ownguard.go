@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/brand"
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/brand"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
 // A repository can run its own operating model — skills, hooks and scripts with the same names as

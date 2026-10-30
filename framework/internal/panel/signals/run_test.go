@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // holderEnv makes this test binary a holder of its stdout outside the group of the

@@ -19,8 +19,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/clauductor/clauductor/internal/panel/claudecall"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/claudecall"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // transcriptReader is the one shipped source that may reach a transcript (PANEL-49

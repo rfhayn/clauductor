@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/testgit"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/testgit"
 )
 
 // PANEL-29: an existing branch is never a raw git error. The HTTP reply carries the

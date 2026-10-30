@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // Notice is one OS notification: all the new alerts of one lane, grouped.

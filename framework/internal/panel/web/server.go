@@ -20,10 +20,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
 )
 
 // webFS is the page: index.html, its static files and the vendored xterm.js.

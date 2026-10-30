@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // v2Runner runs git and plain commands for real and fakes claude and gh. `claude

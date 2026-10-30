@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // AddOptions registers a project with the machine's panel (PANEL-16).

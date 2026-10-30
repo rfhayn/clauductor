@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/clock"
 )
 
 // lock-run's writes to owner.json after it acquires (the command's pid, renewals)

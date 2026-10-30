@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // CLIHandler serves `clauductor lane close` (PANEL-57 D1, D4): one route, POST

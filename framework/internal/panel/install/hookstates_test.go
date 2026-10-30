@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-23. The panel's hooks run in EVERY Claude Code session on the machine, so they

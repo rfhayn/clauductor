@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-22: the page's "Add a project…" names a path, and the panel checks it before

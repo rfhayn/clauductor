@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 // Suggestion is one row a template's suggest command offers the Start dialog: what

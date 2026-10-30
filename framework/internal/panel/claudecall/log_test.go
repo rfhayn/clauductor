@@ -16,11 +16,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // otherHolder starts a process that is not the panel's, to stand as a lock's holder.

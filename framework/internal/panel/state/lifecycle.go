@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-20: what the lane lifecycle hands the page. A lane whose pull request merged

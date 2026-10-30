@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // fakeProgram puts an executable sh script named name first on PATH, for this test

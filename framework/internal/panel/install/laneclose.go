@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/clauductor/clauductor/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
 )
 
 // LaneCloseAnswer is the panel's answer to a close asked on its command socket: the

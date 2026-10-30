@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-47: the `cd` line init prints as a next step runs as printed. The project's

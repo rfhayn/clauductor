@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // The guard is the claude a test meets on PATH (#93): it refuses, says why, and

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/install"
 )
 
 // checkPanel adds the panel's lines on macOS, the only system the panel runs on: its state on this

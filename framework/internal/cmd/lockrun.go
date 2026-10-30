@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/lease"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/lease"
 	"github.com/spf13/cobra"
 )
 

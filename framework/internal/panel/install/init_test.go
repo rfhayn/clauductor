@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testgit"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testgit"
 )
 
 func initGit(t *testing.T, dir string, args ...string) {

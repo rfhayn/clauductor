@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/brand"
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/brand"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 // After the rename (OPS-104), the panel is opened at the new name's host, and a bookmark at

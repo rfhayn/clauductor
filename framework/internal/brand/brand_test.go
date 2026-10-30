@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/testgit"
+	"github.com/rfhayn/stridal/internal/testgit"
 )
 
 // Rename step 3 changes nothing a user sees: the name and the legacy name are one, so every

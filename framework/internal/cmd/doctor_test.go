@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/template"
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testgit"
-	"github.com/clauductor/clauductor/internal/treesnap"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/template"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testgit"
+	"github.com/rfhayn/stridal/internal/treesnap"
 )
 
 // allTools is every tool prereqs.sh lists.

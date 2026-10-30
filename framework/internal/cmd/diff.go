@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/template"
 	"github.com/spf13/cobra"
 )
 

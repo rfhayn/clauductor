@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/template"
-	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/rfhayn/stridal/internal/template"
+	"github.com/rfhayn/stridal/internal/testbin"
 )
 
 // stubPath is a PATH holding only executables named tools, so the report sees exactly those.

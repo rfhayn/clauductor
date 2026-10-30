@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/metrics"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/metrics"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-19: what the model hands the Metrics view, and what it shows of it. The

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/brand"
+	"github.com/rfhayn/stridal/internal/brand"
 )
 
 // After the rename (OPS-104), the hooks an earlier panel installed carry the legacy name's tag.

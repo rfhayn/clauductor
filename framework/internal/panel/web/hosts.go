@@ -9,8 +9,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/clauductor/clauductor/internal/brand"
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/brand"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 // The panel is opened at http://clauductor.localhost:<port>. macOS (and every

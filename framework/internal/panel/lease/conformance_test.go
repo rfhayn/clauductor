@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/testbin"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // fastEnv is the driver's bounds for the controls and mutants. WAIT is how long a

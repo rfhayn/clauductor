@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/brand"
+	"github.com/rfhayn/stridal/internal/brand"
 )
 
 // PanelDir is ~/.clauductor/panel: the machine's panel files (port, pid, owner,

@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // hookKeeper keeps this panel's hooks installed: at start, then every interval.

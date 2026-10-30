@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	pclock "github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
-	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/panel/web"
+	pclock "github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/web"
 )
 
 // dispatchProject is a project runtime with only what the dispatcher touches.

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/brand"
-	"github.com/clauductor/clauductor/internal/panel/install"
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/brand"
+	"github.com/rfhayn/stridal/internal/panel/install"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
 // doctorRepo is the repository doctor runs in, found once for the project's lines (D6): the files

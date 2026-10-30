@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/types"
-	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/rfhayn/stridal/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/testbin"
 )
 
 // The plain-shell protocol in docs/panel.md is what a project without clauductor

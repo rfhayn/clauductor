@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 // The spend ledger keeps what the status line says each session cost, a day at a

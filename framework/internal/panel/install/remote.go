@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 // Remote control (PANEL-19): Claude Code's Remote Control lets a session be driven

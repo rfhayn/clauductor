@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 // An image dropped (or pasted) on a lane's terminal (PANEL-15b). In a native terminal

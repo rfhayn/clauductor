@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/testbin"
+	"github.com/rfhayn/stridal/internal/testbin"
 )
 
 // Prefix begins the name of every tmux socket a test makes.

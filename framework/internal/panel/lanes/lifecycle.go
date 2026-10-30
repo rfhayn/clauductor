@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 // PANEL-20: what a new worktree needs before claude starts in it, and what one needs

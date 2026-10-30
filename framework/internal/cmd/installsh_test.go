@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/testbin"
 	"github.com/creack/pty"
+	"github.com/rfhayn/stridal/internal/testbin"
 )
 
 // installRoot is a throwaway copy of what install.sh reads: the script itself (it finds the

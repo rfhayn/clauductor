@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // PANEL-13: re-verifying the subagent pairing on a new Claude Code, from the hooks

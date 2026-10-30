@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // The lane registry is the panel's durable memory of the lanes it started: which

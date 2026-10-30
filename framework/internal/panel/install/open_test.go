@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 func serveHealthz(t *testing.T, network, addr, body string) (net.Listener, int) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
 // tmplDir is this checkout's template, which install reads through CLAUDUCTOR_FRAMEWORK.

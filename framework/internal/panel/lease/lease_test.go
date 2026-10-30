@@ -3,8 +3,8 @@ package lease
 import (
 	"bytes"
 	"fmt"
-	"github.com/clauductor/clauductor/internal/leakcheck"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/leakcheck"
+	"github.com/rfhayn/stridal/internal/testwait"
 	"io"
 
 	"context"
@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/types"
 	"github.com/creack/pty"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // TestMain lets the test binary act as `clauductor lock-run`, so the lease is

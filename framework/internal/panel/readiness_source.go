@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // PANEL-20: merge readiness's reads: each worktree's gate receipt (a file in its git

@@ -21,7 +21,7 @@ vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"), { window, URL });
 const L = window.TermLinks;
 const find = (s) => L.findURLs(s).map((m) => [m.url, s.slice(m.start, m.end) === m.url]);
 console.log(JSON.stringify({
-  plain: find("PR: https://github.com/clauductor/clauductor/pull/12 is open"),
+  plain: find("PR: https://github.com/rfhayn/stridal/pull/12 is open"),
   sentence: find("See https://example.com/a. Then (https://example.com/b), or https://example.com/c!"),
   wiki: find("https://en.wikipedia.org/wiki/Go_(language)"),
   quoted: find("<https://example.com/x> \"https://example.com/y\" ` + "`" + `https://example.com/z` + "`" + `"),
@@ -73,7 +73,7 @@ func TestTermLinks(t *testing.T) {
 		return out
 	}
 	want := map[string]any{
-		"plain":            urls("https://github.com/clauductor/clauductor/pull/12"),
+		"plain":            urls("https://github.com/rfhayn/stridal/pull/12"),
 		"sentence":         urls("https://example.com/a", "https://example.com/b", "https://example.com/c"),
 		"wiki":             urls("https://en.wikipedia.org/wiki/Go_(language)"),
 		"quoted":           urls("https://example.com/x", "https://example.com/y", "https://example.com/z"),

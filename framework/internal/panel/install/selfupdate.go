@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // The panel's rebuild of itself (OPS-118 D4): after catch-up fast-forwards the

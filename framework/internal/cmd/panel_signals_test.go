@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // hangupRun is the panel's run in the hangup test's helper: it sends its own process

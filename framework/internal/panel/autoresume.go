@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // pollAutoResume types quota_resume_line into each lane the usage limit stopped, once,

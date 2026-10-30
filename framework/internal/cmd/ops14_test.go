@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
 // The template's version marker is the binary's version: a release built from a tag ships the

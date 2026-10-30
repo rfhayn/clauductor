@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/brand"
+	"github.com/rfhayn/stridal/internal/brand"
 )
 
 // After the rename (OPS-104), a repository install or the plugin marked under the legacy name

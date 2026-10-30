@@ -28,7 +28,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/template"
+	"github.com/rfhayn/stridal/internal/template"
 )
 
 // Name is the plugin's name, which namespaces every component (`/clauductor:session-start`), and

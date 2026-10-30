@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 const guideURL = "https://github.com/rfhayn/clauductor/blob/main/docs/guide.md"

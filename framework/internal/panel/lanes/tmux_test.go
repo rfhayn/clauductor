@@ -2,8 +2,8 @@ package lanes
 
 import (
 	"context"
-	"github.com/clauductor/clauductor/internal/leakcheck"
-	"github.com/clauductor/clauductor/internal/testwait"
+	"github.com/rfhayn/stridal/internal/leakcheck"
+	"github.com/rfhayn/stridal/internal/testwait"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/clock"
 )
 
 // Typed text that starts with "-" must reach the lane as text, not as a send-keys

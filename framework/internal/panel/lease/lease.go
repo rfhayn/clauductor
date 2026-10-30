@@ -25,8 +25,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/types"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/types"
 )
 
 // The lease protocol serialises a shared resource (a full test gate that binds a

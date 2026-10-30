@@ -3,7 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
-	"github.com/clauductor/clauductor/internal/leakcheck"
+	"github.com/rfhayn/stridal/internal/leakcheck"
 	"net"
 	"net/http"
 	"net/http/httptest"

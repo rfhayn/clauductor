@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/config"
 )
 
 // healthz asks one loopback address whether it is the panel with this PID.

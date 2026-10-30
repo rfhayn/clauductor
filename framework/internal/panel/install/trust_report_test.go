@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clauductor/clauductor/internal/panel/signals"
+	"github.com/rfhayn/stridal/internal/panel/signals"
 )
 
 // Trusting a config (`panel trust`, and `panel install`, which trusts what it

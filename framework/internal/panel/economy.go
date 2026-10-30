@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // Economy mode (PANEL-19). The quota is the machine's, so economy mode is too: while

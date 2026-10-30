@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/leakcheck"
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/config"
-	"github.com/clauductor/clauductor/internal/panel/state"
+	"github.com/rfhayn/stridal/internal/leakcheck"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/config"
+	"github.com/rfhayn/stridal/internal/panel/state"
 )
 
 // twoProjects is a server for projects "a" (the default) and "b", each with its own

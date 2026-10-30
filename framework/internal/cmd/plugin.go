@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/plugin"
+	"github.com/rfhayn/stridal/internal/plugin"
 	"github.com/spf13/cobra"
 )
 

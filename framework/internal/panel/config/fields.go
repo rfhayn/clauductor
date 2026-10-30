@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clauductor/clauductor/internal/brand"
+	"github.com/rfhayn/stridal/internal/brand"
 )
 
 // Config versions. A config declares the version it is written for, and may use

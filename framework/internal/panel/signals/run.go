@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/clock"
 )
 
 // Runner runs one command in dir and returns its stdout. Injectable for tests.

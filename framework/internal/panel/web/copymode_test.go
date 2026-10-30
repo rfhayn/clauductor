@@ -2,7 +2,7 @@ package web
 
 import (
 	"context"
-	"github.com/clauductor/clauductor/internal/leakcheck"
+	"github.com/rfhayn/stridal/internal/leakcheck"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clauductor/clauductor/internal/panel/clock"
-	"github.com/clauductor/clauductor/internal/panel/lanes"
-	"github.com/clauductor/clauductor/internal/testwait"
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
+	"github.com/rfhayn/stridal/internal/panel/clock"
+	"github.com/rfhayn/stridal/internal/panel/lanes"
+	"github.com/rfhayn/stridal/internal/testwait"
 )
 
 // The mouse wheel over a lane scrolls tmux's history instead of reaching claude as
