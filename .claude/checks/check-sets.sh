@@ -312,7 +312,7 @@ ci_read() {
 ci_problems() { ci_read "$1" | grep -v '^@job '; }
 ci_job() { ci_read "$1" | sed -n 's/^@job //p'; }
 job=$(ci_job "$CI") out=$(ci_problems "$CI")
-[ -z "$out" ] && ok "test.yml's job $job runs this repo's whole set: one step, run: sh .claude/checks/run.sh from working-directory: ., of listed keys only; no CHECKS_SKIP in the workflow, the job's own keys or the step; no continue-on-error on the job; no shell: in the workflow or the job; no GITHUB_ENV or GITHUB_PATH named before it" \
+[ -z "$out" ] && ok "test.yml's job $job runs this repo's whole set: one step, run: sh .claude/checks/run.sh from working-directory: ., of listed keys only; no CHECKS_SKIP in the workflow, the job's own keys or the step; no continue-on-error on the job; no shell: in the workflow or the job outside its steps; no GITHUB_ENV or GITHUB_PATH named before it" \
   || fail "test.yml's process-checks step is no longer this repo's whole set with its failure counted, so nothing runs CHECKS_ONCE over this repo's project.conf: $(printf '%s' "$out" | tr '\n' ';')"
 # variant MODE ARG [TEXT]: a copy of test.yml in $S/ci.yml, changed one way (sed EXPR; append TEXT;
 # after LINE TEXT, inserted after the first line that is exactly LINE); fails if nothing changed.
@@ -358,6 +358,7 @@ passes "a job-level if: (OPS-98's draft filter)" after "$JOBL" "    if: github.e
 passes "continue-on-error and CHECKS_SKIP in another job" append "$(printf '  other:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n    env:\n      CHECKS_SKIP: gate\n    steps:\n      - run: echo other')"
 passes "another step's own CHECKS_SKIP" after '    steps:' '      - run: CHECKS_SKIP=x sh template/.claude/checks/run.sh'
 passes "a timeout on the step" after "$RUNL" '        timeout-minutes: 30'
+passes "an id on the step" after "$RUNL" '        id: checks'
 passes "a trailing comment on the step's run:" sed 's|^\(        run: sh \.claude/checks/run\.sh\)$|\1  # whole set|'
 passes "a trailing comment on the step's working-directory:" sed 's|^\(        working-directory: \.\)$|\1  # the root|'
 passes "GITHUB_ENV written by a later step" append '      - run: echo "X=1" >> "$GITHUB_ENV"'
