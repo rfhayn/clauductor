@@ -27,15 +27,15 @@ What the engine does **not** have yet, and which row builds it:
 
 | Missing | Built by |
 |---|---|
-| a subagent's model, tokens, cost and last words (`SubagentView` carries none of them) | PANEL-61, from the transcript; its proposal may split it into its own row |
-| context by part (messages, tool results, tools, memory files) against the compaction point | PANEL-50 (it reads the same transcript for contributors), else PANEL-61 |
+| a subagent's model, tokens, cost and last words (`SubagentView` carries none of them) | **no row yet**: no row's text contains it (open question 6) |
+| context by part (messages, tool results, tools, memory files) against the compaction point | **no row yet**: PANEL-50's text covers top contributors, not parts (open question 6) |
 | $/hr over the last ten minutes (the engine's is over the last hour) and "× your average" session | PANEL-61's design defines both windows |
 | finished unread: a session that stopped since the owner last selected it | PANEL-61's design defines the read marker |
 | a session's colour carried into its terminal (the panel keeps tmux's status bar off today, `docs/panel.md`, *The page*) | PANEL-62, which opens lanes, once the owner answers open question 3 |
 
 PANEL-61's roadmap row names only part of this (state, time, context, cost, the filter, $/hr, the raise, the docs
-link). The jump key, subagent detail, context by part and the read marker are added to it when the owner approves this
-PRD, or at its proposal.
+link). The jump key and the read marker are added to it when the owner approves this PRD, or at its proposal; subagent
+detail and context by part wait on open question 6.
 
 **The states.** The screens and ADR-0009 each name states; this table is the one mapping, from the engine up:
 
@@ -159,3 +159,5 @@ panel per machine*).
 4. **Which browser views return.** Of the cancelled rows, Pulse's routines and Today (PANEL-37, PANEL-38) are left
    out here. Confirm they stay out.
 5. **The colour tokens.** One theme in the terminal's own dark or light, or follow the terminal's background?
+6. **A row for the missing engine work.** A subagent's model, tokens, cost and last words, and context by part, are in
+   no row's text. Widen PANEL-61 (or PANEL-50 for context by part), or add a new engine row ahead of PANEL-61?
