@@ -226,3 +226,32 @@ func importsTestgit(f *ast.File, module string) bool {
 	}
 	return false
 }
+
+// No git a test starts runs auto maintenance or gc, in any repository, Outer's or not: a write
+// may start it in the background, and it takes and drops .git/objects/maintenance.lock while a
+// test walks .git (#343, #361). A plain git with the process's environment, in a repository
+// made outside Outer, reads both off.
+func TestNoTestGitRunsMaintenance(t *testing.T) {
+	if Path == "" {
+		t.Skip("git is not installed")
+	}
+	dir := t.TempDir()
+	if out, err := exec.Command(Path, "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	for key, want := range map[string]string{"maintenance.auto": "false", "gc.auto": "0"} {
+		for _, env := range [][]string{os.Environ(), Env(), WithConfig(Env(), "core.excludesFile", "/dev/null")} {
+			c := exec.Command(Path, "-C", dir, "config", "--get", key)
+			c.Env = env
+			out, _ := c.Output()
+			if got := strings.TrimSpace(string(out)); got != want {
+				t.Errorf("%s is %q under a test's git, want %q", key, got, want)
+			}
+		}
+	}
+	c := exec.Command(Path, "-C", dir, "config", "--get", "core.excludesFile")
+	c.Env = WithConfig(Env(), "core.excludesFile", "/dev/null")
+	if out, _ := c.Output(); strings.TrimSpace(string(out)) != "/dev/null" {
+		t.Errorf("WithConfig's own pair is lost: %q", out)
+	}
+}

@@ -108,8 +108,8 @@ func diskClaudeDirs(root string) ([]string, error) {
 func gitEnv(isolated bool) []string {
 	env := testgit.Env()
 	if isolated {
-		env = append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
-			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.excludesFile", "GIT_CONFIG_VALUE_0=/dev/null")
+		env = testgit.WithConfig(append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"),
+			"core.excludesFile", "/dev/null")
 	}
 	return env
 }
