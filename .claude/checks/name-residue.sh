@@ -88,9 +88,8 @@ credit() {
 # residue DIR: the tracked files under DIR (all of them when DIR is its repository's top, as $ROOT
 # is) that name the earlier name in their text, their path or their link target, and those outside
 # split_ok that split it on one line with joiners holding no letter. Fails (status 2) when DIR is
-# not a repository, git cannot read it, or a tracked file is missing from the working tree or not
-# there as its type (a sparse checkout's, a deleted one, a file turned link), so an unread tree is
-# never a clean one.
+# not a repository, git cannot read it, or git grep did not read every regular file the index
+# lists, so an unread tree is never a clean one.
 residue() {
   git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 2
   _r=$(mktemp -d "${TMPDIR:-/tmp}/name-residue.XXXXXX") || return 2
@@ -100,33 +99,37 @@ residue() {
   grep -i -e "$old" "$_r/p" >>"$_r/found"
   [ $? -le 1 ] || { rm -rf "$_r"; return 2; }
   # git grep reads the working tree and skips, without a word, a tracked file that is not there as
-  # a regular file: a skip-worktree one (tag S), and one deleted or changed in type (D, T; git
-  # diff passes over skip-worktree files, hence both).
-  tracked "$1" -t >"$_r/t" || { rm -rf "$_r"; return 2; }
-  grep -q '^S ' "$_r/t"
-  [ $? -eq 1 ] || { rm -rf "$_r"; return 2; }
-  git -C "$1" diff --no-ext-diff --ignore-submodules --name-only --diff-filter=DT -- . >"$_r/d" ||
-    { rm -rf "$_r"; return 2; }
-  [ ! -s "$_r/d" ] || { rm -rf "$_r"; return 2; }
-  # A symlink's target, read from its blob: every character but a letter deleted, as a line is.
+  # a regular file it can open: a sparse checkout's, a deleted one, one changed in type, one it may
+  # not read. So the files it read (-l: those with a line; -L: the empty ones) must be every
+  # regular file the index lists (mode 100644 or 100755), the authority, rather than each cause
+  # being refused in turn.
   tracked "$1" -s >"$_r/s" || { rm -rf "$_r"; return 2; }
+  LC_ALL=C awk -F "$tab" '$1 ~ /^100(644|755) / { print $2 }' "$_r/s" >"$_r/w" ||
+    { rm -rf "$_r"; return 2; }
+  LC_ALL=C sort -u "$_r/w" >"$_r/want" || { rm -rf "$_r"; return 2; }
+  scan "$1" -l -e '' >"$_r/r"; rc=$?
+  [ "$rc" -le 1 ] || { rm -rf "$_r"; return 2; }
+  scan "$1" -L -e '' >>"$_r/r"; rc=$?
+  [ "$rc" -le 1 ] || { rm -rf "$_r"; return 2; }
+  LC_ALL=C sort -u "$_r/r" >"$_r/read" || { rm -rf "$_r"; return 2; }
+  cmp -s "$_r/want" "$_r/read" || { rm -rf "$_r"; return 2; }
+  scan "$1" -n -e '' >"$_r/g"; rc=$?
+  [ "$rc" -le 1 ] || { rm -rf "$_r"; return 2; }
+  # A symlink's target, read from its blob, joins the lines as the link's line 1, so credit reads
+  # it as it reads a line: every character but a letter deleted.
   while IFS= read -r _l; do
     case $_l in 120000\ *) ;; *) continue ;; esac
     _o=${_l#120000 }; _o=${_o%% *}
     _tg=$(git -C "$1" cat-file blob "$_o") || { rm -rf "$_r"; return 2; }
-    case $(printf '%s' "$_tg" | LC_ALL=C tr -cd 'A-Za-z' | LC_ALL=C tr 'A-Z' 'a-z') in
-      *"$old"*) printf '%s\n' "${_l#*"$tab"}" >>"$_r/found" ;;
-    esac
+    printf '%s:1:%s\n' "${_l#*"$tab"}" "$_tg" >>"$_r/g" || { rm -rf "$_r"; return 2; }
   done <"$_r/s"
-  scan "$1" -n -e '' >"$_r/g"; rc=$?
-  [ "$rc" -le 1 ] || { rm -rf "$_r"; return 2; }
   # LC_ALL=C: tr and awk read bytes, so a binary file's bytes are not an illegal sequence (tr
   # stopped there, cutting the scan short with no error), nor a multibyte error in awk.
   # A NUL inside a line is turned into \001 first: macOS awk would end a record there.
   LC_ALL=C tr '\000' '\001' <"$_r/g" >"$_r/c" || { rm -rf "$_r"; return 2; }
   [ "$(wc -l <"$_r/c")" -eq "$(wc -l <"$_r/g")" ] || { rm -rf "$_r"; return 2; }
   credit "$_r/p" "$_r/c" >>"$_r/found" || { rm -rf "$_r"; return 2; }
-  sort -u "$_r/found"
+  sort -u "$_r/found" || { rm -rf "$_r"; return 2; }
   rm -rf "$_r"
 }
 
@@ -257,12 +260,16 @@ fi
 # catches what the exit under test lets through ("short:" cuts tr's output to one line instead),
 # and credit's count, must fail the scan with status 2, never pass on what was read before it.
 open=""
-for call in 'git:* -i -l -e *' 'git:* ls-files' 'git:* ls-files -t' 'git:* ls-files -s' \
-  'git:* diff *' 'git:* cat-file blob *' 'git:* -n -e *' 'grep:-i -e *' 'grep:-q ^S *' \
-  'tr:*001' 'short:*001' 'credit:'; do
+for call in 'git:* -i -l -e *' 'git:* ls-files' 'git:* ls-files -s' 'grep:-i -e *' 'awk:-F*' \
+  'sort:-u */w' 'git:* -a -l -e *' 'git:* -L -e *' 'sort:-u */r' 'cmp:*' 'git:* -n -e *' \
+  'git:* cat-file blob *' 'printf:%s:1:%s*' 'tr:*001' 'short:*001' 'credit:' 'sort:-u */found'; do
   (
     git() { command git "$@"; _s=$?; case "git:$*" in $call) return 128 ;; esac; return $_s; }
     grep() { command grep "$@"; _s=$?; case "grep:$*" in $call) return 2 ;; esac; return $_s; }
+    awk() { command awk "$@"; _s=$?; case "awk:$*" in $call) return 2 ;; esac; return $_s; }
+    sort() { command sort "$@"; _s=$?; case "sort:$*" in $call) return 2 ;; esac; return $_s; }
+    cmp() { command cmp "$@"; _s=$?; case "cmp:$*" in $call) return 2 ;; esac; return $_s; }
+    printf() { command printf "$@"; _s=$?; case "printf:$*" in $call) return 1 ;; esac; return $_s; }
     tr() {
       case "short:$*" in $call) command tr "$@" | head -n 1; return ;; esac
       command tr "$@"; _s=$?; case "tr:$*" in $call) return 1 ;; esac; return $_s
@@ -277,9 +284,9 @@ if [ -z "$open" ]; then
 else
   fail "the scan did not fail (status 2) with these failing:$open"
 fi
-# A tracked file not in the working tree as itself, where git grep reads, is not read: the scan
-# fails rather than pass clean over the split it could not read. A sparse checkout leaves it out,
-# a deletion not yet committed removes it, and a link put in its place changes its type.
+# A tracked file git grep cannot read in the working tree is not read: the scan fails rather than
+# pass clean over the split it could not read. A sparse checkout leaves it out, a deletion not yet
+# committed removes it, a link put in its place changes its type, and mode 000 shuts it.
 sp="$t/sparse"
 git init -q "$sp"
 mkdir "$sp/a" "$sp/b"
@@ -312,6 +319,16 @@ if residue "$gone" >/dev/null; then
   fail "a tracked file turned into a link in the working tree passed clean, unread"
 else
   ok "a tracked file turned into a link in the working tree fails the scan"
+fi
+rm "$gone/typed.go"
+git -C "$gone" checkout -q -- typed.go
+chmod 000 "$gone/split.go"
+if [ -r "$gone/split.go" ]; then
+  fail "the unreadable case cannot shut a file here (run as root?), so it cannot check the scan"
+elif residue "$gone" >/dev/null 2>&1; then
+  fail "a tracked file git grep may not open passed clean, unread"
+else
+  ok "a tracked file git grep may not open fails the scan"
 fi
 # A file named after an exempt path and a line number is its own file, not the exempt one.
 e="$t/exempt"
