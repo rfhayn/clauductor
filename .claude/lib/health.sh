@@ -335,12 +335,13 @@ health_coauthor() {
     # A shallow clone shows its boundary commit as adding every file: that is its depth, not the
     # line's arrival, and reading from it would quietly narrow the check.
     if [ "$(git -C "$ROOT" rev-parse --is-shallow-repository 2>/dev/null)" = true ] \
-       && [ "$(git -C "$ROOT" rev-list --parents -n 1 "$_hc_base" | wc -w | tr -d ' ')" = 1 ]; then
+       && [ "$(git -C "$ROOT" rev-list --parents -n 1 "$_hc_base" 2>/dev/null | wc -w | tr -d ' ')" = 1 ]; then
       echo "CANNOT CHECK — this clone is shallow, and the commit that added $1 is past its depth (git fetch --unshallow, or set COAUTHOR_HEALTH_SINCE); $_hc_unk"; return 0
     fi
     _hc_how="the commit that added $1"
   fi
-  _hc_since=$(git -C "$ROOT" rev-parse --short "$_hc_base")
+  # A tool's warning on stderr would reach session-start as a line with no verdict.
+  _hc_since=$(git -C "$ROOT" rev-parse --short "$_hc_base" 2>/dev/null)
   _hc_n=$(git -C "$ROOT" rev-list --count "$_hc_base..$_hc_tip" 2>/dev/null) \
     && _hc_log=$(git -C "$ROOT" log --format='%x1e%h %s%x1f%B' "$_hc_base..$_hc_tip" 2>/dev/null) || {
       echo "CANNOT CHECK — git could not read $_hc_main since $_hc_since; $_hc_unk"; return 0; }
@@ -349,7 +350,7 @@ health_coauthor() {
     { i = index($0, "\037"); if (!i) next
       n = split(substr($0, i + 1), L, "\n")
       for (k = 1; k <= n; k++) if (tolower(L[k]) ~ /^[[:space:]]*co-authored-by[[:space:]]*:/) { print substr($0, 1, i - 1); break } }')
-  _hc_top=$(git -C "$ROOT" rev-parse --short "$_hc_tip")
+  _hc_top=$(git -C "$ROOT" rev-parse --short "$_hc_tip" 2>/dev/null)
   if [ -z "$_hc_bad" ]; then
     echo "OK no Co-authored-by on $_hc_main ($_hc_top) since $_hc_since ($_hc_how): $_hc_n commit(s) read"
     return 0

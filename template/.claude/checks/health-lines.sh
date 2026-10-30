@@ -383,10 +383,12 @@ has "coauthor: MAIN_BRANCH=master reads origin/master" "$out" "FAILED Co-authore
 has "coauthor: ...and names that branch in the fix" "$out" "rewrite master to remove the trailer from it"
 # This project's own copy of the line, only where it keeps one: on the same fixture it must say
 # exactly what the thin caller says (it adds only the CANNOT CHECK lines for a missing library).
+# Its stdout only: a tool's warning on stderr (git's, naming a temporary file) differs run to run.
+CO1() { (cd "$C" && sh .claude/health/coauthor-trailers.sh 2>/dev/null); }
 if [ -f "$ROOT/.claude/health/coauthor-trailers.sh" ]; then
-  want=$(CO)
+  want=$(CO1)
   must cp "$ROOT/.claude/health/coauthor-trailers.sh" "$C/.claude/health/coauthor-trailers.sh"
-  got=$(CO)
+  got=$(CO1)
   must cp "$d/coauthor-caller.sh" "$C/.claude/health/coauthor-trailers.sh"
   [ -n "$want" ] && [ "$got" = "$want" ] && ok "coauthor: this project's .claude/health/coauthor-trailers.sh says what the fixture's caller says" \
     || fail "coauthor: this project's coauthor-trailers.sh differs from the caller over lib/health.sh. Want: $want  Got: $got"
