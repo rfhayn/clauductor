@@ -326,12 +326,14 @@ gate_cmd() {
 # name, run-local.sh; a project's own runner (any other name) leaves it at scripts/ci/ (OPS-72).
 # A runner at the repository root puts it at ./gate-wait.sh, as Go's path.Dir (".") does: a bare
 # gate-wait.sh would not match the settings install wrote, nor run off PATH.
-gate_wait_path() {
+gate_wait_path() { gate_file_path gate-wait.sh; }
+# gate_file_path NAME: the same rule for any template file that moves with the runner (batch.sh).
+gate_file_path() {
   _gr=$(clean_rel "$GATE_RUN")
   case "$_gr" in
-    run-local.sh) printf '%s\n' ./gate-wait.sh ;;
-    */run-local.sh) printf '%s\n' "${_gr%/run-local.sh}/gate-wait.sh" ;;
-    *) printf '%s\n' scripts/ci/gate-wait.sh ;;
+    run-local.sh) printf './%s\n' "$1" ;;
+    */run-local.sh) printf '%s\n' "${_gr%/run-local.sh}/$1" ;;
+    *) printf 'scripts/ci/%s\n' "$1" ;;
   esac
 }
 

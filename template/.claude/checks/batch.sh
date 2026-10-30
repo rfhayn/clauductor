@@ -10,7 +10,7 @@
 
 S=$(scratch)
 # Beside GATE_RUN, where install puts it (B10: never a typed scripts/ci path).
-B="$ROOT/$(dirname "$GATE_RUN")/batch.sh"
+B="$ROOT/$(gate_file_path batch.sh)"
 g() { git -C "$F" "$@"; }
 setup() {  # an origin, a clone on a batch branch, two lane branches, one that conflicts, one fragment
   rm -rf "$S/o" "$S/w"; F="$S/w"
@@ -90,10 +90,24 @@ head=$(g rev-parse HEAD); out=$(run record 40 A-1 A-2 A-3 X-9); rc=$?
 [ $rc -eq 0 ] && [ "$(g rev-parse HEAD)" = "$head" ] && grep -qx -- '- \*\*Also closes\*\*: X-8, A-2' "$F/docs/journal.d/A-1.md" \
   && ok "batch record: a rerun (a row another fragment closes included) changes nothing" \
   || fail "batch record: rerun: exit $rc: $out; $(grep Also "$F"/docs/journal.d/*.md)"
-# A row that leaves the batch after record: revert the record commit, run record with the rest.
-g revert --no-edit HEAD >/dev/null 2>&1; out=$(run record 40 A-1 A-3); rc=$?
-[ $rc -eq 0 ] && grep -qx -- '- \*\*Also closes\*\*: X-8' "$F/docs/journal.d/A-1.md" \
-  && ok "batch record: after a revert, a row that left the batch is not recorded" || fail "batch record: after a revert: exit $rc: $out"
+# A row that leaves the batch after two record runs: a run with the rest takes it out again.
+run record 41 A-1 A-2 A-3 >/dev/null; out=$(run record 41 A-1 A-3); rc=$?
+[ $rc -eq 0 ] && grep -qx -- '- \*\*Also closes\*\*: X-8' "$F/docs/journal.d/A-1.md" && grep -qx -- '- \*\*Also closes\*\*: X-9' "$F/docs/journal.d/A-3.md" \
+  && ok "batch record: a row that left the batch comes out of Also closes, the authors' rows stay" \
+  || fail "batch record: a row that left: exit $rc: $out; $(grep Also "$F"/docs/journal.d/*.md | tr '\n' '~')"
+
+# A fragment that fails the shape stops record, and the fragments rewritten before it are restored.
+setup; frag A-1 11; frag A-3 13; grep -v 'Gate' "$F/docs/journal.d/A-3.md" > "$S/a3"; cat "$S/a3" > "$F/docs/journal.d/A-3.md"
+g add -A; g commit -qm frags
+out=$(run record 50 A-1 A-3); rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'lost its shape' && [ -z "$(g status --porcelain)" ] && grep -qx -- '- \*\*PR\*\*: #11' "$F/docs/journal.d/A-1.md" \
+  && ok "batch record: a stop on a malformed fragment leaves every fragment as it was" || fail "batch record: undo: exit $rc: $out; $(g status --porcelain)"
+
+# Where the check finds batch.sh is where install puts it (conf.go's Mapping).
+[ "$(GATE_RUN=tools/ci/run-local.sh gate_file_path batch.sh)" = tools/ci/batch.sh ] \
+  && [ "$(GATE_RUN=tools/gate.sh gate_file_path batch.sh)" = scripts/ci/batch.sh ] \
+  && [ "$(GATE_RUN=run-local.sh gate_file_path batch.sh)" = ./batch.sh ] \
+  && ok "batch: found beside a moved run-local.sh, at scripts/ci beside a project's own runner" || fail "batch: gate_file_path does not follow install"
 
 out=$(run record 41 A-2); [ $? -ne 0 ] && printf '%s' "$out" | grep -q 'no fragment' \
   && ok "batch record: no row with a fragment is refused" || fail "batch record: no fragment: $out"

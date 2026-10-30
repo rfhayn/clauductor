@@ -76,6 +76,30 @@ case $cmd in
     for id in "$@"; do printf '%s' "$id" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*$' || usage; done
     clean
     d="$ROOT/$JOURNAL_FRAGMENTS"; first="" closed=""
+    tmp=$(mktemp "${TMPDIR:-/tmp}/batch.XXXXXX") || stop "no temp file"
+    trap 'rm -f "$tmp"' EXIT
+    # A stop part way restores the fragments, so it leaves the tree as it found it.
+    undo() { git -C "$ROOT" checkout -q -- "$d"; stop "$@"; }
+    # The rows an earlier record ADDED (its commits' Batch-added: line) come out of every Also
+    # closes first, so a run with the rows that remain is the whole recovery when a row leaves
+    # the batch, however many record commits came before. Rows a fragment's author wrote stay.
+    prior=$(git -C "$ROOT" log --format=%B "origin/$MAIN_BRANCH..HEAD" 2>/dev/null \
+      | sed -n 's/^Batch-added: //p' | tr ',' ' ' | xargs)
+    if [ -n "$prior" ]; then
+      for f in "$d"/*.md; do
+        [ -f "$f" ] || continue
+        awk -v drop=" $prior " '
+          /^(```|~~~)/ { fence = !fence }
+          !fence && !done && /^## / { done = 1 }
+          !fence && !done && /^- \*\*Also closes\*\*:/ {
+            v = $0; sub(/^- \*\*Also closes\*\*:[ \t]*/, "", v); n = split(v, a, /[ \t]*,[ \t]*/); out = ""
+            for (i = 1; i <= n; i++) { gsub(/^[ \t]+|[ \t]+$/, "", a[i]); if (a[i] != "" && index(drop, " " a[i] " ") == 0) out = out (out == "" ? "" : ", ") a[i] }
+            if (out == "") next
+            $0 = "- **Also closes**: " out
+          }
+          { print }' "$f" > "$tmp" && cat "$tmp" > "$f" || undo "could not write $f"
+      done
+    fi
     # A row a listed fragment already closes (its own, or under Also closes) is not added again,
     # so a rerun changes nothing and the fold never sees one row closed twice.
     for id in "$@"; do
@@ -88,10 +112,6 @@ case $cmd in
     for id in "$@"; do
       case " $closed " in *" $id "*) ;; *) missing="$missing${missing:+, }$id"; closed="$closed $id" ;; esac
     done
-    tmp=$(mktemp "${TMPDIR:-/tmp}/batch.XXXXXX") || stop "no temp file"
-    trap 'rm -f "$tmp"' EXIT
-    # A stop part way restores the fragments, so it leaves the tree as it found it.
-    undo() { git -C "$ROOT" checkout -q -- "$d"; stop "$@"; }
     for id in "$@"; do
       f="$d/$id.md"; [ -f "$f" ] || continue
       add=""; [ "$id" = "$first" ] && add=$missing
@@ -107,7 +127,9 @@ case $cmd in
       p=$(fragment_problems "$f") || undo "$f lost its shape: $p"
     done
     [ -n "$(git -C "$ROOT" status --porcelain -- "$d")" ] || { echo "batch: #$pr already recorded for $*; nothing changed"; exit 0; }
-    git -C "$ROOT" add -- "$d" && git -C "$ROOT" commit -qm "$first: Record batch PR #$pr in the rows' fragments" \
+    { printf '%s: Record batch PR #%s in the rows%s fragments\n' "$first" "$pr" "'"
+      [ -z "$missing" ] || printf '\nBatch-added: %s\n' "$missing"; } > "$tmp"
+    git -C "$ROOT" add -- "$d" && git -C "$ROOT" commit -q -F "$tmp" \
       || stop "could not commit the fragments"
     note=""; [ -z "$missing" ] || note=" ($missing under the Also closes of $first)"
     echo "batch: #$pr recorded in $JOURNAL_FRAGMENTS for $*$note"
