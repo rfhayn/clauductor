@@ -120,12 +120,13 @@ race_scope() {
 #   report-back      the merge-pr and apply-change skills and build-change.js
 #   review-lane      skills/merge-pr/review-lane.sh, on fixture diffs
 #   risk-register    modules/risk-register, through extensions.sh in a fixture
+#   run-parallel     checks/run.sh, lib.sh and lib/conf.sh, in fixture projects (OPS-175)
 #   write-surfaces   modules/write-surfaces' guard rule, on fixture PRs
 # Not here, though most of each is fixtures: merge-guard, evals, build-change, change-tools and
 # metrics build fixtures from ROOT's model-roles.json; hooks, settings, skills and panel-contract read
 # settings.json or AGENTS.md; statusline and quota-reading render ROOT's project.conf; session-context
 # and health-lines read ROOT's records and workflows; the rest read the records themselves.
-CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals machine-quiet modules people premise-check report-back review-lane risk-register write-surfaces"
+CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals machine-quiet modules people premise-check report-back review-lane risk-register run-parallel write-surfaces"
 
 # The project.conf keys that may differ between the two ROOTs: no CHECKS_ONCE check reads them
 # (check-sets.sh fails one that names any). Every other key must be the same in both.
