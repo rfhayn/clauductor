@@ -275,8 +275,7 @@ func TestEveryGitPrefixFilterKeepsTheConfig(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		src := string(b)
-		if strings.Contains(src, `"GIT_")`) && !strings.Contains(src, "testgit.WithConfig(") && !strings.Contains(src, "testgit.Env()") {
+		if dropsGitConfig(string(b)) {
 			rel, _ := filepath.Rel(root, p)
 			bad = append(bad, rel)
 		}
@@ -287,5 +286,41 @@ func TestEveryGitPrefixFilterKeepsTheConfig(t *testing.T) {
 	}
 	if len(bad) > 0 {
 		t.Errorf("these drop every GIT_ variable and never restore testgit's config, so their git runs auto maintenance: %v", bad)
+	}
+}
+
+// dropsGitConfig says a Go source names the GIT_ prefix (any filter of it: HasPrefix, a const, a
+// comparison) outside a comment, and neither restores testgit's config (Env, WithConfig) nor
+// spares GIT_CONFIG_ itself. Per file, not per function: a second helper's restore still counts.
+// An environment built from a literal is out of reach; today only reads run under one, and a read
+// never starts maintenance.
+func dropsGitConfig(src string) bool {
+	var code []string
+	for _, l := range strings.Split(src, "\n") {
+		if t := strings.TrimSpace(l); !strings.HasPrefix(t, "//") {
+			code = append(code, l)
+		}
+	}
+	s := strings.Join(code, "\n")
+	return strings.Contains(s, `"GIT_"`) && !strings.Contains(s, "testgit.WithConfig(") &&
+		!strings.Contains(s, "testgit.Env()") && !strings.Contains(s, `"GIT_CONFIG_"`)
+}
+
+func TestDropsGitConfig(t *testing.T) {
+	filter := "if strings.HasPrefix(k, \"GIT_\") {\n\tcontinue\n}\n"
+	for _, c := range []struct {
+		name, src string
+		want      bool
+	}{
+		{"a prefix filter alone", filter, true},
+		{"a prefix filter, the restore only in a comment", filter + "// unlike testgit.Env()\n", true},
+		{"a prefix filter through a const", "const p = \"GIT_\"\nstrings.HasPrefix(k, p)\n", true},
+		{"a prefix filter, then WithConfig", filter + "return testgit.WithConfig(e)\n", false},
+		{"named keys only", "k == \"GIT_DIR\" || k == \"GIT_WORK_TREE\" || k == \"GIT_INDEX_FILE\"\n", false},
+		{"a prefix filter that spares GIT_CONFIG_", "if strings.HasPrefix(k, \"GIT_\") && !strings.HasPrefix(k, \"GIT_CONFIG_\") {\n", false},
+	} {
+		if got := dropsGitConfig(c.src); got != c.want {
+			t.Errorf("%s: dropsGitConfig = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
