@@ -17,8 +17,7 @@ import (
 // Both listeners serve one server and one state.
 //
 // The Host allow-list is EXACT: 127.0.0.1, localhost, [::1] and config.DefaultHostName
-// on the panel's port (and a legacy name's <name>.localhost, brandHosts), plus names a
-// config adds, each of the form <label>.localhost.
+// on the panel's port, plus names a config adds, each of the form <label>.localhost.
 // There are no wildcards: evil.localhost is refused. A *.localhost name can never
 // be an attacker's DNS name (browsers never ask DNS for it), so the list still
 // defeats DNS rebinding. Host names compare case-insensitively (RFC 9110 §4.2.3).

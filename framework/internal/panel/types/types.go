@@ -82,7 +82,7 @@ type QueueView struct {
 type TmuxLane struct {
 	ID         string
 	Path       string // the pane's cwd (resolved), falling back to the session's start dir
-	Type       string // the lane type the panel started it as (brand.TmuxOption "type": @stridal_type, or a legacy name's)
+	Type       string // the lane type the panel started it as (brand.TmuxOption "type": @stridal_type)
 	Project    string // the project id it was started for (brand.TmuxOption "project"; "" before PANEL-16)
 	Created    int64  // unix seconds
 	Attached   int    // attached clients
