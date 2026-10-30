@@ -1,6 +1,6 @@
 # PRAC 0015: A classifier stop is a park signal, by a rule agreed before the retry
 
-- **Status**: Proposed
+- **Status**: Accepted (by the owner, 2026-10-30)
 - **Date**: 2026-10-30
 - **Tags**: process, lanes, safety, classifiers
 - **Source**: Standing Tee's PRAC-0044 (Accepted there 2026-10-17), ported as roadmap row ST-13

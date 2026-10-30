@@ -47,4 +47,4 @@ older records as written). Never renumber a record on `main`; supersede it.
 |------|-------|--------|
 | [0010](0010-close-the-class-not-the-instance.md) | Close the class, not the instance, when review keeps finding the next one | Accepted |
 | [0013](0013-batch-reviewed-lanes-one-gate-per-batch.md) | Batch reviewed lanes into one integration branch, one gate per batch | Accepted |
-| [0015](0015-a-classifier-stop-is-a-park-signal.md) | A classifier stop is a park signal, by a rule agreed before the retry | Proposed |
+| [0015](0015-a-classifier-stop-is-a-park-signal.md) | A classifier stop is a park signal, by a rule agreed before the retry | Accepted |
