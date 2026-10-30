@@ -8,8 +8,11 @@
 # Every tracked file is read, binary-attributed ones too (git grep -a): a binary attribute is a
 # diff setting, and a name inside such a file still ships.
 #
-# The name split into quoted pieces ("ab""cd", 'ab' + 'cd') counts as the name, everywhere but
-# the two files that must build it, and nothing else:
+# The name split into pieces on one line counts as the name: each line is compared with every
+# character but a letter deleted, so any joiner goes (quotes, +, ., a Join's commas and brackets,
+# however many pieces). Out of reach, and so not claimed: a split across lines, and pieces joined
+# through a variable whose name holds letters (`x=ab; y="${x}cd"` leaves "xabyxcd"). The split
+# name is allowed in the two files that must build it, and nothing else:
 #   - this file, which needs the name to look for it;
 #   - framework/internal/template/oldmodel_test.go, whose fixture gives back the bytes the old
 #     model shipped, which oldmodel.go's hashes are of.
@@ -30,16 +33,16 @@ residue() {
   git -C "$1" grep -a -i -l -e "$old" >"$_r"; rc=$?
   [ "$rc" -le 1 ] || { rm -f "$_r"; return 2; }
   git -C "$1" ls-files | grep -i -e "$old" >>"$_r"
-  # A split always leaves one piece of at least half the name: its first five letters or its
-  # last five. Lines holding either are read with quotes, plus signs and spaces taken out.
-  head5=$(printf '%s' "$old" | cut -c1-5); tail5=$(printf '%s' "$old" | cut -c6-)
-  git -C "$1" grep -a -i -n -E -e "$head5" -e "$tail5" >"$_r.c"; rc=$?
+  # Every tracked line, with every character but a letter deleted, in one awk pass: whatever
+  # joins the pieces on one line (quotes, +, ., a Join's commas and brackets) goes with it.
+  git -C "$1" grep -a -n -e '' >"$_r.c"; rc=$?
   [ "$rc" -le 1 ] || { rm -f "$_r" "$_r.c"; return 2; }
-  while IFS= read -r line; do
-    f=${line%%:*}
-    case " $split_ok " in *" $f "*) continue ;; esac
-    printf '%s' "${line#*:*:}" | tr -d "\"'+ " | grep -q -i -e "$old" && printf '%s\n' "$f" >>"$_r"
-  done <"$_r.c"
+  # LC_ALL=C: awk reads bytes, so a binary file's bytes are not a multibyte error.
+  LC_ALL=C awk -v ok=" $split_ok " -v n="$old" '{
+    f = $0; sub(/:.*/, "", f); if (index(ok, " " f " ")) next
+    l = $0; sub(/^[^:]*:[0-9]*:/, "", l); l = tolower(l); gsub(/[^a-z]/, "", l)
+    if (index(l, n)) print f
+  }' "$_r.c" >>"$_r" || { rm -f "$_r" "$_r.c"; return 2; }
   sort -u "$_r"
   rm -f "$_r" "$_r.c"
 }
@@ -56,15 +59,20 @@ printf 'x\n' > "$t/$old-path.txt"
 printf 'X_%s=1\n' "$(printf '%s' "$old" | tr '[:lower:]' '[:upper:]')" > "$t/upper.sh"
 printf '%s\n' "$old" > "$t/blob.bin"
 printf '*.bin binary\n' > "$t/.gitattributes"
-printf 'n = "%s" + "%s"\n' "$(printf '%s' "$old" | cut -c1-4)" "$(printf '%s' "$old" | cut -c5-)" > "$t/split.go"
+a=$(printf '%s' "$old" | cut -c1-3); b=$(printf '%s' "$old" | cut -c4-6); c=$(printf '%s' "$old" | cut -c7-)
+p=$(printf '%s' "$old" | cut -c1-4); q=$(printf '%s' "$old" | cut -c5-)
+printf 'n = "%s" + "%s"\n' "$p" "$q" > "$t/split.go"
+printf 'n = "%s" + "%s" + "%s"\n' "$a" "$b" "$c" > "$t/three.go"
+printf '$n = "%s" . "%s";\n' "$p" "$q" > "$t/dot.php"
+printf 'n := strings.Join([]string{"%s", "%s"}, "")\n' "$p" "$q" > "$t/join.go"
 printf 'clean, and Claude is not the name\n' > "$t/clean.md"
 git -C "$t" add -A
 got=$(residue "$t" | tr '\n' ' ')
-want=$(printf '%s\n' "$old-path.txt" blob.bin split.go text.md upper.sh | sort | tr '\n' ' ')
+want=$(printf '%s\n' "$old-path.txt" blob.bin dot.php join.go split.go text.md three.go upper.sh | sort | tr '\n' ' ')
 if [ "$got" = "$want" ]; then
-  ok "the scan finds the earlier name in text, a path, upper case, a binary file and quoted pieces"
+  ok "the scan finds the earlier name in text, a path, upper case, a binary file, and split by +, ., a Join and into three"
 else
-  fail "the scan's own negative case found: '$got' (want the five planted files)"
+  fail "the scan's own negative case found: '$got' (want the eight planted files)"
 fi
 mkdir "$t/not-a-repo"
 if GIT_CEILING_DIRECTORIES="$t" residue "$t/not-a-repo" >/dev/null; then
