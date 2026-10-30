@@ -321,7 +321,15 @@ func TestGateLogsNoSignalItDidNotSend(t *testing.T) {
 	// The gate marks the call stopped in context.AfterFunc's own goroutine, which the
 	// caller's return does not wait for: released before it runs, the call ends first
 	// and is never marked stopped (#343, Linux -race).
-	waitCalls(t, g, "the call's stop", 1, func(c call) bool { return c.stopped })
+	for deadline := time.Now().Add(testwait.Scale(30 * time.Second)); ; time.Sleep(20 * time.Millisecond) {
+		if cs := g.calls(); len(cs) == 1 && cs[0].stopped {
+			break
+		}
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatalf("the call was never marked stopped: history %+v", g.calls())
+		}
+	}
 	close(release)
 	cs := waitCalls(t, g, "the call's end", 1, ended)
 	if !cs[0].stopped || cs[0].term {
