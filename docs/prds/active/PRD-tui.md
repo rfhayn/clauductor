@@ -2,7 +2,7 @@
 
 **Status:** awaiting the owner's approval (PANEL-60, S18). Not approved. It supersedes `PRD-ui.md`, which already
 marks itself superseded by the direction shift of 2026-10-27. The rows it sets are PANEL-61 to PANEL-64 in
-`docs/roadmap.md` (Phase 6), with PANEL-50, PANEL-56 and PANEL-25 feeding them. Each row is still proposed just in
+`docs/roadmap.md` (Phase 4, *The terminal UI*), with PANEL-50, PANEL-56 and PANEL-25 feeding them. Each row is still proposed just in
 time and approved on its own `design.md`. This PRD gives direction; it does not approve a design.
 
 ## Why
@@ -18,6 +18,10 @@ What the engine already has, and the terminal UI only needs to draw (`framework/
   transcript (`docs/panel.md`, *The status line*, *Transcripts: an attached project's lanes*);
 - the "needs you" items (`NeedView`), alerts, stalled lanes, the gate lease and merge readiness;
 - running and finished subagents per session (`state/nesting.go`, at most 20 finished per session).
+
+The four states the screens show are derived, not stored: needs you from a `NeedView` or a blocking ask, running
+from `busy`, idle from `idle` or `waiting` with nothing asked. **Finished unread** has no engine state today: it needs
+a read marker (a session that stopped since the owner last selected it), which PANEL-61's design settles.
 
 ## What it takes from the Ghostty Dock article
 
