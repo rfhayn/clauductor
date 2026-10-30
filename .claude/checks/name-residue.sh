@@ -8,7 +8,8 @@
 # Every tracked file is read, binary-attributed ones too (git grep -a): a binary attribute is a
 # diff setting, and a name inside such a file still ships. git grep skips a tracked symlink, so
 # each link's target, the blob `git ls-files -s` names with mode 120000, is read on its own. A
-# submodule is another repository's files, not this one's: only its path is read.
+# submodule is another repository's files, not this one's: only its path is read. git grep reads
+# the working tree, so a sparse checkout's skipped files go unread: one fails the scan.
 #
 # The name split into pieces on one line counts as the name: each line is compared with every
 # character but a letter deleted, so any joiner goes (quotes, +, ., a Join's commas and brackets,
@@ -35,8 +36,11 @@ tab=$(printf '\t')
 # grep.extendedRegexp (-F), grep.lineNumber (-n, given by the caller that reads line numbers),
 # core.quotePath (pinned on both calls, so the two quote a path alike). grep.threads changes no
 # output; grep.fallbackToNoIndex applies only outside a repository, which residue refuses first.
-# The "shaped" case below sets every grep key `git help --config` lists, so a key a later git adds
-# fails the check until it is pinned here.
+# Two pins hold settings that today change nothing the scan compares, so no case fails without
+# them: a column is digits and a colon, which the letters-only compare deletes, and the patterns
+# ('' and the plain name) match the same lines as Perl or extended ones. The "shaped" case below
+# sets every grep key `git help --config` lists, so a key a later git adds fails the check until
+# it is pinned here.
 scan() {
   _d=$1; shift
   git -c core.quotePath=true -C "$_d" grep --no-color --no-recurse-submodules --no-full-name \
@@ -56,6 +60,9 @@ tracked() {
 # inside a binary file's line.) Every line git grep prints belongs to a tracked path, so a line
 # with no candidate fails (status 3): a scan that reads less than every tracked line never reports
 # clean (color forced on in the repository's config was one such road, before the pins above).
+# The other way round, a mirrored name can lend its own split to the file it mirrors (a file named
+# "x.go:1:<first piece>" holding "<rest>" reads as x.go's "<first piece>:1:<rest>"): the scan
+# still fails, naming x.go, so this is a misplaced report, never a clean pass.
 credit() {
   LC_ALL=C awk -v ok=" $split_ok " -v n="$old" -v paths="$1" '
     BEGIN { while ((getline p < paths) > 0) tracked[p] = 1 }
@@ -77,10 +84,10 @@ credit() {
     END { if (bad) exit 3 }' "$2"
 }
 
-# residue DIR: the tracked files under DIR (all of them when DIR is its repository's top, as
-# $ROOT is) that name the earlier name in their text,
-# their path or their link target, and those outside split_ok that split it on one line with
-# joiners holding no letter. Fails (status 2) when DIR is not a repository or git cannot read it,
+# residue DIR: the tracked files under DIR (all of them when DIR is its repository's top, as $ROOT
+# is) that name the earlier name in their text, their path or their link target, and those outside
+# split_ok that split it on one line with joiners holding no letter. Fails (status 2) when DIR is
+# not a repository, git cannot read it or a sparse checkout leaves a file out of the working tree,
 # so an unread tree is never a clean one.
 residue() {
   git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 2
@@ -90,6 +97,10 @@ residue() {
   tracked "$1" >"$_r/p" || { rm -rf "$_r"; return 2; }
   grep -i -e "$old" "$_r/p" >>"$_r/found"
   [ $? -le 1 ] || { rm -rf "$_r"; return 2; }
+  # A skip-worktree file (tag S) is tracked but absent, so git grep reads nothing of it.
+  tracked "$1" -t >"$_r/t" || { rm -rf "$_r"; return 2; }
+  grep -q '^S ' "$_r/t"
+  [ $? -eq 1 ] || { rm -rf "$_r"; return 2; }
   # A symlink's target, read from its blob: every character but a letter deleted, as a line is.
   tracked "$1" -s >"$_r/s" || { rm -rf "$_r"; return 2; }
   while IFS= read -r _l; do
@@ -114,6 +125,11 @@ residue() {
 
 t=$(mktemp -d "${TMPDIR:-/tmp}/name-residue.XXXXXX")
 trap 'rm -rf "$t"' EXIT
+# commit DIR: commit what DIR's index holds, whoever runs the check and whatever hooks they set.
+commit() {
+  git -C "$1" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false \
+    commit -q --no-verify -m case
+}
 
 # The negative cases first, so a pass below means the scan looked: the name in a file's text, in
 # a path, in upper case, in a binary-attributed file, split on one line (also in a file whose path
@@ -166,8 +182,7 @@ s="$t/shaped"
 git init -q "$t/inner"
 printf '%s\n' "$old" > "$t/inner/named.txt"
 git -C "$t/inner" add -A
-git -C "$t/inner" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false \
-  commit -q --no-verify -m inner
+commit "$t/inner"
 git init -q "$s"
 mkdir "$s/d"
 git -C "$s" -c protocol.file.allow=always submodule add -q "$t/inner" d/sub >/dev/null 2>&1 ||
@@ -229,6 +244,35 @@ if [ "$got" = "plain split " ]; then
   ok "a tracked symlink whose target names or splits the name is found"
 else
   fail "a tracked symlink's target was not read: found '$got' (want 'plain split')"
+fi
+# Every road by which residue fails closed, reached on that repository: each git call it makes
+# failing in turn, and credit's count, must fail the scan (status 2), never pass on what was read.
+open=""
+for call in '* -i -l -e *' '* ls-files' '* ls-files -t' '* ls-files -s' '* cat-file blob *' '* -n -e *'; do
+  ( git() { case "$*" in $call) return 128 ;; esac; command git "$@"; }; residue "$lk" >/dev/null ) &&
+    open="$open '$call'"
+done
+( credit() { return 3; }; residue "$lk" >/dev/null ) && open="$open credit"
+if [ -z "$open" ]; then
+  ok "a failing git call, or credit's count, fails the scan rather than passing on a partial read"
+else
+  fail "the scan passed with these failing:$open"
+fi
+# A sparse checkout leaves a tracked file out of the working tree, where git grep reads: the scan
+# fails rather than pass clean over the split it could not read.
+sp="$t/sparse"
+git init -q "$sp"
+mkdir "$sp/a" "$sp/b"
+printf 'clean\n' > "$sp/a/ok.txt"
+printf 'n = "%s" + "%s"\n' "$p" "$q" > "$sp/b/split.go"
+git -C "$sp" add -A
+commit "$sp"
+if ! git -C "$sp" sparse-checkout set a >/dev/null 2>&1; then
+  fail "the sparse case could not set up its sparse checkout"
+elif residue "$sp" >/dev/null; then
+  fail "a sparse checkout passed clean with a tracked file left unread"
+else
+  ok "a sparse checkout that leaves a tracked file unread fails the scan"
 fi
 # A file named after an exempt path and a line number is its own file, not the exempt one.
 e="$t/exempt"
