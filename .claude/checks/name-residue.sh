@@ -280,14 +280,14 @@ fi
 # pass on what was read before it. credit is reached through its awk.
 open=""
 mkdir "$t/stubtmp"
-for call in 'mktemp:*' 'git:* ls-files' 'git:* ls-files -s' 'awk:-F*' 'sort:-u */w' \
+for call in 'git:* ls-files' 'git:* ls-files -s' 'awk:-F*' 'sort:-u */w' \
   'git:* -a -l -e *' 'git:* -a -L -e *' 'git:* --cached -l -e *' 'git:* --cached -L -e *' \
   'sort:-u */r' 'comm:*' 'git:* -a -n -e *' 'git:* --cached -n -e *' 'awk:{*' \
   'git:* cat-file blob *' 'printf:%s:1:%s*' 'tr:*001' 'short:*001' 'awk:-v ok=*' \
-  'sort:-u */found'; do
+  'sort:-u */found' 'mktemp:*'; do # mktemp-in-tmpdir: a stub key, not a call
   (
     TMPDIR="$t/stubtmp"
-    mktemp() { command mktemp "$@"; _s=$?; case "mktemp:$*" in $call) return 1 ;; esac; return $_s; }
+    mktemp() { command mktemp "$@"; _s=$?; case "mktemp:$*" in $call) return 1 ;; esac; return $_s; } # mktemp-in-tmpdir: a stub, it passes on the template residue gives
     git() { command git "$@"; _s=$?; case "git:$*" in $call) return 128 ;; esac; return $_s; }
     awk() { command awk "$@"; _s=$?; case "awk:$*" in $call) return 2 ;; esac; return $_s; }
     sort() { command sort "$@"; _s=$?; case "sort:$*" in $call) return 2 ;; esac; return $_s; }
