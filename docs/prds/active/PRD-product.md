@@ -1,7 +1,7 @@
 # PRD: The product module: an idea carries its bet, is shaped into rows, and its actual cost and outcome roll back up to it
 
 **Status:** awaiting the owner's approval (PROD-1, session 18). Phase 5's rows (PROD-2 to PROD-5, ST-20) stay
-`planned` until the owner approves this PRD; each capability row is then proposed just in time and approved on
+unproposed until the owner approves this PRD; each capability row is then proposed just in time and approved on
 its own `design.md`. This PRD gives direction; it does not approve a design. The questions under *Open* are the
 owner's; nothing here decides them.
 
@@ -58,8 +58,8 @@ module. So does every screen this PRD describes. ST-20 is what switches them on.
   (`roadmap-queue.sh --check`).
 - Every row it writes names the idea it came from, in a form a script reads, so the roll-up needs no guessing.
 - The idea's status moves to `roadmap` when the shaping PR merges, not when it is drafted.
-- Shaping proposes; the owner approves the PRD, as today. Delegated approval (`APPROVAL_DELEGATED`) does not
-  extend to a PRD.
+- Shaping proposes; the owner approves the PRD, as today. Whether delegated approval (`APPROVAL_DELEGATED`)
+  may extend to a shaped PRD is open question 9.
 
 ### 3. The ROI roll-up (PROD-4)
 
@@ -94,7 +94,7 @@ module. So does every screen this PRD describes. ST-20 is what switches them on.
 - **A claude.ai artifact page**, the portfolio: ideas ranked by return, confidence and cost, each with its rows
   and actuals. Shareable and usable from a phone; registered and kept current through the artifacts module like
   any other page.
-- **The terminal UI's read-only summary** (PANEL-63, from PRD-tui): ideas and their rows, with estimated and
+- **The terminal UI's read-only summary** (PANEL-63, from the terminal UI's PRD, which PANEL-60 is writing): ideas and their rows, with estimated and
   actual cost, read from the same files. It writes nothing.
 - Both read the repository's files; neither is a second source of the numbers.
 
@@ -121,3 +121,5 @@ module. So does every screen this PRD describes. ST-20 is what switches them on.
 8. **The lite questions still open** (owner queue, 2026-10-28): review in lite (R50, PRD Q2) and scenario checks
    in lite (R52, PRD Q5) decide how much of a shaped row's process lite runs; this PRD follows whatever they
    decide.
+9. **Delegated approval and a shaped PRD.** May `APPROVAL_DELEGATED` cover a PRD that `/shape` drafts, or does
+   the owner always approve it, as this PRD proposes?
