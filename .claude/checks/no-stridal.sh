@@ -1,4 +1,5 @@
 #!/bin/sh
+# run.sh: serial (its INT fixture needs INT, which a background check starts with ignored)
 # A repository works without stridal installed (the no-stridal invariant). Everything a
 # contributor needs runs in Claude Code alone; the stridal binary, its panel and the plugin are
 # conveniences on top, never dependencies. With `stridal` absent from PATH (every other tool
@@ -188,14 +189,17 @@ fx CHECKS_DOUBLE_PASS=1; expect_rc 1 $? "...and fails under CHECKS_DOUBLE_PASS=1
 # ignores INT, but can still send one), and waits for the check's marker before it sends.
 sig_fx() {  # sig_fx SIG
   G="$d/sig-$1"; fx_project "$G"; mkdir -p "$G/tmp"
+  # Both declared serial (OPS-175): a background check starts with INT ignored, so only a check
+  # run.sh runs in its foreground can receive one, and "the next never starts" needs them in turn.
   cat > "$G/.claude/checks/a.sh" <<'EOF'
+# run.sh: serial (receives the fixture's signal in the foreground)
 trap 'kill "$z" 2>/dev/null; touch "$ROOT/a.stopped"; exit 1' INT TERM
 sleep 60 & z=$!
 echo $$ > "$ROOT/a.started"
 wait "$z"
 touch "$ROOT/a.done"
 EOF
-  printf 'touch "$ROOT/b.started"\n' > "$G/.claude/checks/b.sh"
+  printf '# run.sh: serial (runs after a)\ntouch "$ROOT/b.started"\n' > "$G/.claude/checks/b.sh"
   # The sender signals only once the check has started (so the run is alive and its pid not reused),
   # and is stopped when the run returns.
   # The check runs 60 s unless stopped, and the sender waits on its marker (lib.sh wait_for), so a

@@ -120,12 +120,13 @@ race_scope() {
 #   report-back      the merge-pr and apply-change skills and build-change.js
 #   review-lane      skills/merge-pr/review-lane.sh, on fixture diffs
 #   risk-register    modules/risk-register, through extensions.sh in a fixture
+#   run-parallel     checks/run.sh, lib.sh and lib/conf.sh, in fixture projects (OPS-175)
 #   write-surfaces   modules/write-surfaces' guard rule, on fixture PRs
 # Not here, though most of each is fixtures: merge-guard, evals, build-change, change-tools and
 # metrics build fixtures from ROOT's model-roles.json; hooks, settings, skills and panel-contract read
 # settings.json or AGENTS.md; statusline and quota-reading render ROOT's project.conf; session-context
 # and health-lines read ROOT's records and workflows; the rest read the records themselves.
-CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals machine-quiet modules people premise-check report-back review-lane risk-register write-surfaces"
+CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals machine-quiet modules people premise-check report-back review-lane risk-register run-parallel write-surfaces"
 
 # The project.conf keys that may differ between the two ROOTs: no CHECKS_ONCE check reads them
 # (check-sets.sh fails one that names any). Every other key must be the same in both.
@@ -133,8 +134,9 @@ CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals
 # APPROVAL_DELEGATED and GATE_DOCS: this repo's own are "1" (OPS-89, OPS-127). Only
 # change-approval.sh and run-local.sh read them; no CHECKS_ONCE check runs change-approval.sh, gate
 # and ci-status run run-local.sh only in fixtures whose project.conf they write, and conf.sh sets
-# both defaults before it reads one (OPS-170).
-CONF_NOT_READ="PROJECT_NAME PROJECT_SLUG STATUS_MARK OWNER_NAME INSIGHT_AREAS TEST_GLOBS FORMAT_CMD FORMAT_EXT GATE_PR_CHECKS APPROVAL_DELEGATED GATE_DOCS"
+# both defaults before it reads one (OPS-170). BATCH_REGENERATE: this repo's rebuilds plugin/; only
+# scripts/ci/batch.sh reads it, and checks/batch.sh runs it in a fixture whose project.conf it writes.
+CONF_NOT_READ="PROJECT_NAME PROJECT_SLUG STATUS_MARK OWNER_NAME INSIGHT_AREAS TEST_GLOBS FORMAT_CMD FORMAT_EXT GATE_PR_CHECKS APPROVAL_DELEGATED GATE_DOCS BATCH_REGENERATE"
 # The compared keys this repo may set apart from the template's, accepting that every gate then runs
 # CHECKS_ONCE in both sets. check-sets.sh fails any other key that differs (OPS-170).
 CONF_DOUBLE_RUN_OK=""

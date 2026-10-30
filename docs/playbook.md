@@ -117,6 +117,33 @@ started from the panel's **New lane** (or by hand), on one branch:
   this repo, `checks-double-pass.yml` runs the double pass weekly on `main` with a freshly built
   `stridal` on `PATH` (`local:double-pass` holds it there).
 
+### Batching reviewed lanes
+
+When several reviewed lanes are ready, they can land as one batch with one gate instead of one gate
+each (PRAC-0013 in this repo; adopt it as a practice of your own if it fits). Before its PR, every
+lane runs the **pre-PR pass**, the quick gate over its worktree, `scripts/ci/gate.sh -C <worktree>
+--quick`, so the batch gate is not the first run of a repo-wide check. Review stays per lane PR.
+Then, on an integration branch in its own worktree, cut from `origin/<main>`:
+
+1. `scripts/ci/batch.sh merge <first row id> <lane branch>…` merges the lanes `--no-ff` in the order given (a row
+   that changes a rule the others are judged by goes first), then runs `BATCH_REGENERATE`
+   (`.claude/project.conf`) and commits what it changed. A conflict stops it, naming the branch,
+   with the merge aborted and the earlier ones kept.
+2. Push and open the batch PR as a draft, titled by its first row's id and naming every row; then
+   `scripts/ci/batch.sh record <PR> <row id>…` writes the PR into each row's fragment and names a row
+   with no fragment under the first one's **Also closes** (and commits), so the fold marks every
+   row merged by the PR that merged, not by its closed lane PR.
+3. `scripts/ci/batch.sh sync` merges `origin/<main>`: run it right before **every** gate, so the
+   receipt covers a head GitHub will merge (a conflict stops here, not at GitHub's merge).
+4. The gate; a failure is fixed in the batch, one commit per row, its id in the subject, and steps
+   3–4 run again. A row that leaves the batch instead: `git revert -m 1` its lane merge and run
+   `record` again with the rows that remain, which takes back the rows it added before; otherwise
+   the fold marks the row merged by the batch PR. If the revert conflicts on the row's own
+   fragment (`record` edited it), `git rm` the fragment (it leaves with its lane) and
+   `git revert --continue`. Then merge, and close each lane PR with a comment naming the batch PR.
+
+`checks/batch.sh` holds the script; the order, the pre-PR pass and which rows join: **Nothing. You.**
+
 ## Several people
 
 Each person has their own Claude and **merges only their own PRs**. `session-start` stars
