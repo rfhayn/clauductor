@@ -2,9 +2,11 @@
 # batch.sh: a batch of reviewed lanes, run the way PRAC-0013 describes it (OPS-176). Run it on the
 # integration branch, in its own worktree, cut from origin/<main>:
 #
-#   scripts/ci/batch.sh merge <lane branch>…    merge each --no-ff in the order given (a row that
+#   scripts/ci/batch.sh merge <first row id> <lane branch>…
+#                                               merge each --no-ff in the order given (a row that
 #                                               changes a rule the others are judged by goes first),
 #                                               then run BATCH_REGENERATE and commit what it changed
+#                                               under the first row's id
 #   scripts/ci/batch.sh sync                    fetch, merge origin/<main>: run it right before EVERY
 #                                               gate, so the receipt covers a head GitHub will merge
 #   scripts/ci/batch.sh record <PR> <row id>…   once the batch PR is open: write #PR into each row's
@@ -25,7 +27,7 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "batch: not inside a
 # shellcheck disable=SC1091
 . "$ROOT/.claude/lib/fragments.sh"
 
-usage() { echo "batch: usage: batch.sh merge <branch>… | sync | record <PR number> <row id>…" >&2; exit 2; }
+usage() { echo "batch: usage: batch.sh merge <first row id> <branch>… | sync | record <PR number> <row id>…" >&2; exit 2; }
 stop() { echo "batch: STOPPED — $*" >&2; exit 1; }
 clean() { [ -z "$(git -C "$ROOT" status --porcelain)" ] || stop "the tree is not clean: commit or stash first"; }
 # Every arm commits, and catch-up-guard reads git commands in the Bash line, not inside this script:
@@ -44,7 +46,10 @@ merge_one() {  # merge_one REF: --no-ff; a conflict is aborted and stops the run
 cmd=${1:-}; [ $# -gt 0 ] && shift
 case $cmd in
   merge)
-    [ $# -gt 0 ] || usage
+    # The first row's id names the regenerate commit, as every commit names its row.
+    [ $# -ge 2 ] || usage
+    row=$1; shift
+    printf '%s' "$row" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*$' || usage
     clean
     for b in "$@"; do
       git -C "$ROOT" rev-parse -q --verify "$b^{commit}" >/dev/null || stop "$b is not a branch or commit here (fetch it first)"
@@ -54,7 +59,7 @@ case $cmd in
     if [ -n "${BATCH_REGENERATE:-}" ]; then
       (cd "$ROOT" && sh -c "$BATCH_REGENERATE") >/dev/null || stop "BATCH_REGENERATE ($BATCH_REGENERATE) failed"
       if [ -n "$(git -C "$ROOT" status --porcelain)" ]; then
-        git -C "$ROOT" add -A && git -C "$ROOT" commit -qm "Regenerate after merging $(printf '%s ' "$@" | sed 's/ $//')" \
+        git -C "$ROOT" add -A && git -C "$ROOT" commit -qm "$row: Regenerate after merging $(printf '%s ' "$@" | sed 's/ $//')" \
           || stop "could not commit what BATCH_REGENERATE changed"
         echo "batch: regenerated ($BATCH_REGENERATE) and committed"
       else

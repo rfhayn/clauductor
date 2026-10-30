@@ -125,7 +125,7 @@ lane runs the **pre-PR pass**, the quick gate over its worktree, `scripts/ci/gat
 --quick`, so the batch gate is not the first run of a repo-wide check. Review stays per lane PR.
 Then, on an integration branch in its own worktree, cut from `origin/<main>`:
 
-1. `scripts/ci/batch.sh merge <lane branch>…` merges the lanes `--no-ff` in the order given (a row
+1. `scripts/ci/batch.sh merge <first row id> <lane branch>…` merges the lanes `--no-ff` in the order given (a row
    that changes a rule the others are judged by goes first), then runs `BATCH_REGENERATE`
    (`.claude/project.conf`) and commits what it changed. A conflict stops it, naming the branch,
    with the merge aborted and the earlier ones kept.

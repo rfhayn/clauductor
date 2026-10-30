@@ -37,16 +37,16 @@ frag() {  # frag ID PR [Also closes]
 run() { (cd "$F" && sh "$B" "$@" 2>&1); }
 
 setup
-out=$(run merge ops/a ops/b); rc=$?
+out=$(run merge A-1 ops/a ops/b); rc=$?
 [ $rc -eq 0 ] && [ "$(g log --merges --format=%s main..HEAD | sed -n '2p;1p' | tr '\n' ' ')" = "Merge branch 'ops/b' into ops/batch Merge branch 'ops/a' into ops/batch " ] \
   && ok "batch merge: the lanes merge --no-ff, in the order given" || fail "batch merge: exit $rc: $out; $(g log --format=%s main..HEAD | tr '\n' '~')"
 [ "$(cat "$F/gen.out" 2>/dev/null | tr '\n' ' ')" = "a b " ] && [ -z "$(g status --porcelain)" ] \
-  && g log -1 --format=%s | grep -q 'Regenerate' \
-  && ok "batch merge: BATCH_REGENERATE runs after the merges and its output is committed" \
+  && g log -1 --format=%s | grep -q '^A-1: Regenerate' \
+  && ok "batch merge: BATCH_REGENERATE runs after the merges, committed under the first row's id" \
   || fail "batch merge: regenerate: $(cat "$F/gen.out" 2>/dev/null); status: $(g status --porcelain)"
 
 setup
-out=$(run merge ops/a ops/c ops/b); rc=$?
+out=$(run merge A-1 ops/a ops/c ops/b); rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'ops/c' && [ "$(g log --merges --format=%s main..HEAD | wc -l | tr -d ' ')" = 1 ] \
   && [ ! -f "$F/.git/MERGE_HEAD" ] && [ -z "$(g status --porcelain)" ] && [ ! -f "$F/b" ] \
   && ok "batch merge: a conflict stops it naming the branch, the earlier merge kept, none half done" \
@@ -54,10 +54,10 @@ out=$(run merge ops/a ops/c ops/b); rc=$?
 
 # A file no lane touches, so only the script's own check can refuse it.
 setup; printf 'dirty\n' > "$F/z"
-out=$(run merge ops/a); [ $? -ne 0 ] && printf '%s' "$out" | grep -q 'not clean' && [ -z "$(g log --merges --format=%s main..HEAD)" ] \
+out=$(run merge A-1 ops/a); [ $? -ne 0 ] && printf '%s' "$out" | grep -q 'not clean' && [ -z "$(g log --merges --format=%s main..HEAD)" ] \
   && ok "batch merge: a dirty tree is refused, nothing merged" || fail "batch merge: dirty tree: $out"
 
-setup; out=$(cd "$F" && git checkout -q main && sh "$B" merge ops/a 2>&1); rc=$?
+setup; out=$(cd "$F" && git checkout -q main && sh "$B" merge A-1 ops/a 2>&1); rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'integration branch' && [ -z "$(g log --merges --format=%s)" ] \
   && ok "batch: on <main> it refuses, nothing merged" || fail "batch: on main: exit $rc: $out"
 
@@ -67,11 +67,11 @@ moved() {  # moved FILE: a commit on origin/main this clone has not fetched
   printf 'm\n' > "$S/o2/$1"; git -C "$S/o2" add -A
   git -C "$S/o2" -c user.name=M -c user.email=m@example.com commit -qm m; git -C "$S/o2" push -q origin main 2>/dev/null
 }
-setup; run merge ops/a >/dev/null; moved a
+setup; run merge A-1 ops/a >/dev/null; moved a
 out=$(run sync); rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "origin/main" && [ ! -f "$F/.git/MERGE_HEAD" ] && [ -z "$(g status --porcelain)" ] \
   && ok "batch sync: a conflict with origin/main is caught before the gate, the merge aborted" || fail "batch sync: conflict: exit $rc: $out"
-setup; run merge ops/a >/dev/null; moved m
+setup; run merge A-1 ops/a >/dev/null; moved m
 out=$(run sync); rc=$?
 [ $rc -eq 0 ] && [ -f "$F/m" ] && g merge-base --is-ancestor origin/main HEAD \
   && ok "batch sync: fetches origin/main and merges it" || fail "batch sync: exit $rc: $out"
