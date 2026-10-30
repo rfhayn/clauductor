@@ -141,35 +141,131 @@ if [ $# -eq 0 ] && [ -n "${CHECKS_SKIP:-}" ]; then
 fi
 unset CHECKS_SKIP
 
+# ── Parallel (OPS-175) ──────────────────────────────────────────────────────────────────────────
+# The checks run CHECKS_JOBS at a time (default: the processor count), each one's output kept in
+# its own file and printed in the order above, so the report reads as a serial run's. A check that
+# shares state with another (a fixed path, a port, a socket, a lease, the shared HOME, a process
+# table it scans, or a signal it must receive in the foreground) says so in a line of its own:
+#
+#   # run.sh: serial (<the state it shares>)
+#
+# and runs alone, in this shell's foreground, after the parallel ones, so it overlaps no other
+# check and keeps INT (a background job starts with INT ignored, and no sh can undo that). Which
+# checks declare it is found by reading what each writes (checks/run-parallel.sh holds a pair that
+# fails in parallel without it). The declaration is the file's, so a new check that needs it
+# carries it, as the directory is the list.
+[ -n "${_scratch:-}" ] || use_lib
+RES="$_scratch/results"; mkdir -p "$RES"
+jobs=${CHECKS_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null)}
+case $jobs in '' | *[!0-9]* | 0) jobs=4 ;; esac
+# stop_jobs: TERM every check still running in the background (its pid is the check's own process:
+# its traps clean up), for a run stopped by INT or TERM. Waiting launches never start: the
+# scheduler is this shell.
+stop_jobs() {
+  for _p in "$RES"/*.pid; do
+    [ -f "$_p" ] && [ ! -f "${_p%.pid}.rc" ] && kill -TERM "$(cat "$_p")" 2>/dev/null
+  done
+}
+trap 'stop_jobs; rm -rf "$_scratch"; trap - INT; kill -INT $$' INT
+trap 'stop_jobs; rm -rf "$_scratch"; trap - TERM; kill -TERM $$' TERM
+
 failed=""
 count=0
+i=0
 for n in $names; do
+  i=$((i + 1))
   case $n in
     *:*) f=$(printf '%s\n' "$ext" | awk -v n="$n" '!got && $1 == n { print $2; got = 1 }') ;;
     *) f="$dir/$n.sh" ;;
   esac
-  if [ -z "$f" ] || [ ! -f "$f" ]; then
-    echo "FAIL $n: no such check (${f:-not in an enabled module or .claude/local/checks})"
-    failed="$failed $n"
-    continue
+  if [ -z "$f" ] || [ ! -f "$f" ]; then k=missing
+  elif grep -q '^# run.sh: serial' "$f"; then k=serial
+  else k=parallel
+  fi
+  eval "cn_$i=\$n cf_$i=\$f ck_$i=\$k"
+done
+total=$i
+
+# launch I: start check I in the background; its status lands in $RES/I.rc and its number on fd 4.
+launch() {
+  eval "_n=\$cn_$1 _f=\$cf_$1"
+  (
+    case $_n in
+      *:*)
+        _ri=$(shebang_interp "$_f")
+        if command -v "${_ri%% *}" >/dev/null 2>&1; then
+          # shellcheck disable=SC2086
+          $_ri "$_f" > "$RES/$1.out" 2>&1 4>&- &
+        else
+          echo "CANNOT CHECK — $_f needs ${_ri%% *} (its #! line), which is not installed" > "$RES/$1.out"
+          (exit 127) &
+        fi ;;
+      *) sh "$_f" > "$RES/$1.out" 2>&1 4>&- & ;;
+    esac
+    echo $! > "$RES/$1.pid"
+    wait $!
+    echo $? > "$RES/$1.rc"
+    echo "$1" >&4
+  ) &
+}
+
+# report I [RC]: print check I's result, once it has one.
+report() {
+  eval "_n=\$cn_$1 _f=\$cf_$1 _k=\$ck_$1"
+  if [ "$_k" = missing ]; then
+    echo "FAIL $_n: no such check (${_f:-not in an enabled module or .claude/local/checks})"
+    failed="$failed $_n"
+    return
   fi
   count=$((count + 1))
-  case $n in
-    *:*) out=$(run_shebang "$f" 2>&1) ;;
-    *) out=$(sh "$f" 2>&1) ;;
-  esac
-  rc=$?
+  out=$(cat "$RES/$1.out")
+  rc=${2:-$(cat "$RES/$1.rc")}
   if [ "$rc" -eq 0 ]; then
-    echo "PASS $n ($(printf '%s\n' "$out" | grep -c '^ok'))"
+    echo "PASS $_n ($(printf '%s\n' "$out" | grep -c '^ok'))"
     # A part a passing check could not run is named under its PASS line, never folded into the count.
     printf '%s\n' "$out" | grep '^ok   SKIPPED' | sed 's/^/    /'
   else
-    echo "FAIL $n"
+    echo "FAIL $_n"
     printf '%s\n' "$out" | grep -v '^ok' | sed 's/^/    /'
-    failed="$failed $n"
+    failed="$failed $_n"
   fi
-done
+}
 
+# The parallel phase: keep `jobs` running; print each result once every check before it has been
+# printed, up to the first serial one.
+mkfifo "$RES/done" && exec 4<>"$RES/done"
+next=1 running=0 shown=1
+while :; do
+  while [ "$running" -lt "$jobs" ] && [ "$next" -le "$total" ]; do
+    eval "_k=\$ck_$next"
+    [ "$_k" = parallel ] && { launch "$next"; running=$((running + 1)); }
+    next=$((next + 1))
+  done
+  while [ "$shown" -le "$total" ]; do
+    eval "_k=\$ck_$shown"
+    [ "$_k" = serial ] && break
+    [ "$_k" = missing ] || [ -f "$RES/$shown.rc" ] || break
+    report "$shown"; shown=$((shown + 1))
+  done
+  [ "$running" -gt 0 ] || break
+  read -r _d <&4 || break
+  running=$((running - 1))
+done
+exec 4>&-
+# The serial phase: each declared check alone, in the foreground; the rest printed in order around it.
+while [ "$shown" -le "$total" ]; do
+  eval "_k=\$ck_$shown _f=\$cf_$shown _n=\$cn_$shown"
+  if [ "$_k" = serial ]; then
+    case $_n in
+      *:*) run_shebang "$_f" > "$RES/$shown.out" 2>&1 ;;
+      *) sh "$_f" > "$RES/$shown.out" 2>&1 ;;
+    esac
+    report "$shown" $?
+  else
+    report "$shown"
+  fi
+  shown=$((shown + 1))
+done
 [ -z "$skipped" ] || echo "checks: left to another run by CHECKS_SKIP:$skipped"
 if [ -n "$failed" ]; then
   echo "checks: FAILED:$failed (of $count run, in $ROOT)"

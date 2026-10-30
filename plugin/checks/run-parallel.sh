@@ -1,0 +1,125 @@
+#!/bin/sh
+STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (framework/internal/plugin)
+# checks/run.sh runs the checks in parallel (OPS-175), and a check that shares state with another
+# declares it (`# run.sh: serial (...)`) and runs alone. Held in fixture projects that carry this
+# directory's run.sh and lib.sh:
+#   1. a pair that shares a fixed path fails run in parallel without the declaration, the failing
+#      one named, and passes with it;
+#   2. a pair that can only pass side by side passes: the checks do run at the same time;
+#   3. the report is in the checks' order, each check's lines under its own name, whichever ends
+#      first;
+#   4. a TERM to the run stops its running check, never starts a waiting one, and the run dies of
+#      TERM with its scratch removed.
+# Named runs, so a fixture run needs no no-stridal environment of its own.
+. "$(dirname "$0")/lib.sh"
+need git
+d=$(scratch)
+dir=$(cd "$(dirname "$0")" && pwd)
+
+fx_project() {  # fx_project DIR: a project with this directory's run.sh and lib.sh, and no checks
+  new_repo "$1"; mkdir -p "$1/.claude/checks" "$1/.claude/lib" "$1/tmp"
+  cp "$dir/run.sh" "$dir/lib.sh" "$1/.claude/checks/"
+  cp "$STRIDAL_FW/lib/conf.sh" "$1/.claude/lib/"
+}
+# fx DIR [VAR=VALUE...] -- CHECK...: a named run in DIR, its output in DIR/out, its status returned.
+fx() {
+  fxd=$1; shift; _fe=""
+  while [ "$1" != -- ]; do _fe="$_fe $1"; shift; done; shift
+  # shellcheck disable=SC2086
+  (cd "$fxd" && unmarked TMPDIR="$fxd/tmp" $_fe sh .claude/checks/run.sh "$@") > "$fxd/out" 2>&1
+}
+
+# ── 1. A shared fixed path ──────────────────────────────────────────────────────────────────────
+# a holds $ROOT/lock until b has tried it; b tries only once a holds it. Side by side, b finds it
+# held and fails; one after the other, a's wait runs out, a lets go, and b takes it.
+P="$d/pair"; fx_project "$P"
+cat > "$P/.claude/checks/a.sh" <<'EOF'
+. "$(dirname "$0")/lib.sh"
+mkdir "$ROOT/lock" && ok "a holds the lock" || fail "a found the lock held"
+touch "$ROOT/a.in"
+tried() { [ -e "$ROOT/b.tried" ]; }
+wait_for 2 tried
+rmdir "$ROOT/lock"; rm -f "$ROOT/a.in" "$ROOT/b.tried"
+finish
+EOF
+cat > "$P/.claude/checks/b.sh" <<'EOF'
+. "$(dirname "$0")/lib.sh"
+held() { [ -e "$ROOT/a.in" ]; }
+wait_for 2 held
+mkdir "$ROOT/lock" && { ok "b holds the lock"; rmdir "$ROOT/lock"; } || fail "b found the lock held by a check running beside it"
+touch "$ROOT/b.tried"
+finish
+EOF
+fx "$P" CHECKS_JOBS=2 -- a b; expect_rc 1 $? "falsified: two checks sharing a fixed path, undeclared, fail run side by side"
+grep -qx 'FAIL b' "$P/out" && grep -q '^    FAIL b found the lock held' "$P/out" \
+  && ok "...and the run names the failing check and its line" || fail "the shared-state failure is not named: $(cat "$P/out")"
+for c in a b; do
+  printf '# run.sh: serial (the fixed path $ROOT/lock)\n' | cat - "$P/.claude/checks/$c.sh" > "$d/x" && mv "$d/x" "$P/.claude/checks/$c.sh"
+done
+rm -rf "$P/lock" "$P/a.in" "$P/b.tried"
+fx "$P" CHECKS_JOBS=2 -- a b; expect_rc 0 $? "...and pass once both declare it: they run alone, one after the other"
+
+# ── 2. Side by side ─────────────────────────────────────────────────────────────────────────────
+# Each passes only if the other starts while it waits: a serial run fails both.
+S="$d/side"; fx_project "$S"
+for c in x y; do
+  o=y; [ $c = x ] || o=x
+  cat > "$S/.claude/checks/$c.sh" <<EOF
+. "\$(dirname "\$0")/lib.sh"
+touch "\$ROOT/$c.up"
+up() { [ -e "\$ROOT/$o.up" ]; }
+wait_for "\$(cat "\$ROOT/patience")" up && ok "$c saw $o running beside it" || fail "$c never saw $o running"
+finish
+EOF
+done
+echo 30 > "$S/patience"
+fx "$S" CHECKS_JOBS=2 -- x y; expect_rc 0 $? "two checks run side by side under CHECKS_JOBS=2"
+rm -f "$S"/*.up
+printf '# run.sh: serial (falsifies the case above)\n' | cat - "$S/.claude/checks/x.sh" > "$d/x" && mv "$d/x" "$S/.claude/checks/x.sh"
+echo 1 > "$S/patience"
+fx "$S" CHECKS_JOBS=2 -- x y; expect_rc 1 $? "falsified: ...and fail when one runs alone"
+
+# ── 3. Order ────────────────────────────────────────────────────────────────────────────────────
+# slow ends after fast, and is printed first, with its own lines under it.
+O="$d/order"; fx_project "$O"
+cat > "$O/.claude/checks/slow.sh" <<'EOF'
+. "$(dirname "$0")/lib.sh"
+done_() { [ -e "$ROOT/fast.done" ]; }
+wait_for 30 done_ && ok "slow ended after fast" || fail "slow: fast never ended"
+fail "slow's own line"
+finish
+EOF
+printf '. "$(dirname "$0")/lib.sh"\nfail "fast'"'"'s own line"\ntouch "$ROOT/fast.done"\nfinish\n' > "$O/.claude/checks/fast.sh"
+fx "$O" CHECKS_JOBS=2 -- slow fast
+want='FAIL slow
+    FAIL slow'"'"'s own line
+FAIL fast
+    FAIL fast'"'"'s own line'
+[ "$(grep -v '^checks:' "$O/out")" = "$want" ] && ok "the report keeps the checks' order and each check's lines under it, though the second ended first" \
+  || fail "the report is out of order or interleaved: $(cat "$O/out")"
+
+# ── 4. TERM ─────────────────────────────────────────────────────────────────────────────────────
+# One job: a runs in the background (60 s unless stopped), b waits for the slot. The sender waits
+# for a's marker, then TERMs the run alone; run.sh must pass it on.
+T="$d/term"; fx_project "$T"
+cat > "$T/.claude/checks/a.sh" <<'EOF'
+trap 'kill "$z" 2>/dev/null; touch "$ROOT/a.stopped"; exit 1' TERM
+sleep 60 & z=$!
+echo $$ > "$ROOT/a.started"
+wait "$z"
+touch "$ROOT/a.done"
+EOF
+printf 'touch "$ROOT/b.started"\n' > "$T/.claude/checks/b.sh"
+(started() { [ -s "$T/a.started" ]; }; wait_for 30 started && kill -TERM "$(cat "$T/run.pid")") 2>/dev/null &
+_sp=$!
+(cd "$T" && unmarked TMPDIR="$T/tmp" CHECKS_JOBS=1 sh -c 'echo $$ > "$1"; exec sh .claude/checks/run.sh a b' term "$T/run.pid") > "$T/out" 2>&1; _rc=$?
+kill "$_sp" 2>/dev/null; wait "$_sp" 2>/dev/null
+stopped() { [ -f "$T/a.stopped" ]; }
+wait_for 10 stopped
+[ "$_rc" -eq 143 ] && [ -f "$T/a.stopped" ] && [ ! -f "$T/a.done" ] \
+  && ok "a TERM to the run reaches its background check, which stops, and the run dies of TERM (exit $_rc)" \
+  || fail "TERM did not stop the background check and the run (exit $_rc, want 143; stopped: $([ -f "$T/a.stopped" ] && echo yes || echo no), finished: $([ -f "$T/a.done" ] && echo yes || echo no))"
+[ ! -f "$T/b.started" ] && ok "...and the waiting check never starts" || fail "the waiting check started after the TERM"
+[ -z "$(ls -A "$T/tmp")" ] && ok "...and the run's scratch is removed" || fail "TERM left $(ls -A "$T/tmp") behind"
+
+finish
