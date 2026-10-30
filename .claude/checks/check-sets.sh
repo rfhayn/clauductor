@@ -5,7 +5,7 @@
 # repo's set, by CHECKS_SKIP, while the framework and the project.conf values those checks can read
 # match the template's. This repo's own check: the template ships one check set and no CHECKS_ONCE.
 #
-# Four parts:
+# Five parts:
 #  1. The gate's real steps, full and quick, captured by a stand-in `step`: exactly two whole-set
 #     runs, one per set, each passing its own CHECKS_SKIP (never the caller's); against the
 #     AUTHORITY, the two directories, every check runs in at least one set; a check left out of one
@@ -16,10 +16,15 @@
 #     the caller's CHECKS_SKIP.
 #  3. What decides "matches", on fixtures: the diff report's verdict fails closed (no report, no
 #     file list, a file that differs, an extra file outside .claude/checks/), project.conf values
-#     are compared but for CONF_NOT_READ, and no CHECKS_ONCE check names a CONF_NOT_READ key. This
-#     repo's own project.conf is the template's but for CONF_NOT_READ and CONF_DOUBLE_RUN_OK.
+#     are compared but for CONF_NOT_READ. This repo's own project.conf is the template's but for
+#     CONF_NOT_READ and CONF_DOUBLE_RUN_OK.
 #  4. run.sh's CHECKS_SKIP on a fixture: it leaves out what it names and says so, a named run
 #     ignores it, and no check inherits it.
+#  5. That no CHECKS_ONCE check reads a CONF_NOT_READ key is CI's to find, not a reading of check
+#     source (OPS-171): test.yml runs this repo's whole set over its own project.conf on every PR.
+#     A fixture shows such a read passing the local gate's form and failing CI's; test.yml's step
+#     is held to that form, each way out of it shown failing; and while GATE_PR_CHECKS does not
+#     name test.yml's job, the merge guard's half is a SKIPPED line under the PASS.
 . "$(dirname "$0")/lib.sh"
 need git jq
 
@@ -204,19 +209,6 @@ verdict_fails() { (CONF_DOUBLE_RUN_OK=$1; _fails=0; double_run_verdict "$2" "$3"
 [ "$(verdict_fails "" "$C/a" "$C/none")" = 1 ] && grep -q "^FAIL cannot compare" "$S/verdict" && ! grep -q "CONF_DOUBLE_RUN_OK" "$S/verdict" \
   && ok "...and fails an unreadable project.conf with its own message, not the remedies" || fail "the verdict on an unreadable project.conf: $(cat "$S/verdict")"
 double_run_verdict "$ROOT" "$ROOT/template"
-# No CHECKS_ONCE check reads a key the comparison ignores.
-key_reads() {  # key_reads CHECKS KEYS: each `check:key` where a check names $KEY or ${KEY
-  for _n in $1; do
-    for _k in $2; do
-      grep -nE "\\\$\\{?$_k([^A-Za-z0-9_]|\$)" "$TMPL_DIR/$_n.sh" >/dev/null 2>&1 && printf ' %s:%s' "$_n" "$_k"
-    done
-  done
-}
-[ "$(key_reads modules MODULES)" = " modules:MODULES" ] && ok "falsified: the key-read scan finds a key a check reads (modules:MODULES)" \
-  || fail "the key-read scan misses modules reading MODULES: '$(key_reads modules MODULES)'"
-reads=$(key_reads "$CHECKS_ONCE" "$CONF_NOT_READ")
-[ -z "$reads" ] && ok "no CHECKS_ONCE check reads a CONF_NOT_READ key ($CONF_NOT_READ)" \
-  || fail "CHECKS_ONCE checks read keys the comparison ignores:$reads"
 
 # ── 4. run.sh's CHECKS_SKIP ──────────────────────────────────────────────────────────────────
 F="$S/fixture"
@@ -233,4 +225,63 @@ case $o in *"PASS alpha"*"PASS gamma"*) ok "...runs every check it does not name
 case $o in *"PASS beta"*) fail "CHECKS_SKIP=beta still ran beta: $o" ;; *"left to another run by CHECKS_SKIP: beta"*) ok "...leaves out the one it names, and says so" ;; *) fail "CHECKS_SKIP run does not name what it left out: $o" ;; esac
 o=$(env CHECKS_SKIP="beta" sh "$F/.claude/checks/run.sh" beta 2>&1)
 case $o in *"PASS beta"*) ok "a named run ignores CHECKS_SKIP" ;; *) fail "a named run of beta with CHECKS_SKIP=beta: $o" ;; esac
+
+# ── 5. What runs CHECKS_ONCE over this repo's project.conf: CI ─────────────────────────────
+# A check left to the template's set must not read a CONF_NOT_READ key. Reading a check's source
+# cannot tell (a key read by a file it runs, in any of a shell's forms, OPS-171), and comparing
+# runs on every gate costs the run the local gate leaves out. CI's process-checks step runs this
+# repo's whole set, CHECKS_ONCE included, over this repo's project.conf, on every PR.
+# A check that reads PROJECT_NAME through a file it runs (`cd "$ROOT" && sh <relative path>`):
+# the local gate's form leaves it out and passes; CI's form runs it and fails.
+G="$S/ci"
+mkdir -p "$G/.claude/checks" "$G/.claude/lib"
+cp "$TMPL_DIR/run.sh" "$TMPL_DIR/lib.sh" "$G/.claude/checks/"
+cp "$ROOT/template/.claude/lib/conf.sh" "$ROOT/template/.claude/lib/modules.sh" "$G/.claude/lib/"
+printf 'PROJECT_NAME="Mine"\n' > "$G/.claude/project.conf"
+printf '. ./.claude/lib/conf.sh\n[ "$PROJECT_NAME" = Template ]\n' > "$G/.claude/brand.sh"
+printf '. "$(dirname "$0")/lib.sh"\ncd "$ROOT" && sh .claude/brand.sh && ok "the template'"'"'s name" || fail "not the template'"'"'s name"\nfinish\n' > "$G/.claude/checks/once.sh"
+o=$(env CHECKS_BARE= CHECKS_SET= CHECKS_DOUBLE_PASS= CHECKS_SKIP="once" sh "$G/.claude/checks/run.sh" 2>&1); rc=$?
+o2=$(env CHECKS_BARE= CHECKS_SET= CHECKS_DOUBLE_PASS= CHECKS_SKIP= sh "$G/.claude/checks/run.sh" 2>&1); rc2=$?
+[ "$rc" = 0 ] && [ "$rc2" != 0 ] && case $o2 in *"FAIL once"*) true ;; *) false ;; esac \
+  && ok "falsified: a check reading a key through a file it runs passes the local gate's form (CHECKS_SKIP) and fails CI's (the whole set)" \
+  || fail "the run-form fixture: the local form exited $rc ($o), CI's $rc2 ($o2)"
+
+# ci_problems FILE: one line per way FILE's process-checks step stops being this repo's whole set
+# with its failure counted; nothing when it is. Forms are refused, not parsed: the step's whole
+# command is `sh .claude/checks/run.sh`; CHECKS_SKIP and continue-on-error appear on no line.
+ci_problems() {
+  [ -f "$1" ] || { echo "is missing"; return; }
+  awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*(-[[:space:]]+)?run:[[:space:]]*sh \.claude\/checks\/run\.sh[[:space:]]*$/ { runs++ }
+    /CHECKS_SKIP/ { print "names CHECKS_SKIP (line " NR "): CI could leave checks out of this repo'"'"'s set too" }
+    /continue-on-error/ { print "tolerates a failure: continue-on-error (line " NR ")" }
+    END { if (!runs) print "has no step whose run: is exactly sh .claude/checks/run.sh (this repo'"'"'s whole set)" }
+  ' "$1"
+}
+CI="$ROOT/.github/workflows/test.yml"
+out=$(ci_problems "$CI")
+[ -z "$out" ] && ok "CI (test.yml) runs this repo's whole set, CHECKS_ONCE included, over its own project.conf, on every PR" \
+  || fail "test.yml no longer runs this repo's whole set in CI, so nothing runs CHECKS_ONCE over this repo's project.conf: $(printf '%s' "$out" | tr '\n' ';')"
+# doctor WHY SED-OR-APPEND: a copy of test.yml changed one way, which ci_problems must name.
+doctor() {
+  if [ "${2#append:}" != "$2" ]; then cp "$CI" "$S/ci.yml" && printf '%s\n' "${2#append:}" >> "$S/ci.yml"
+  else sed "$2" "$CI" > "$S/ci.yml"; fi
+  if cmp -s "$CI" "$S/ci.yml"; then fail "falsified: $1: the doctored copy is test.yml unchanged"
+  elif [ -n "$(ci_problems "$S/ci.yml")" ]; then ok "falsified: $1 fails"
+  else fail "falsified: $1 passes"; fi
+}
+doctor "CHECKS_SKIP on the step's command" 's|run: sh \.claude/checks/run\.sh$|run: CHECKS_SKIP="gate" sh .claude/checks/run.sh|'
+doctor "CHECKS_SKIP in the step's env" 'append:          CHECKS_SKIP: "gate"'
+doctor "a set run by name" 's|run: sh \.claude/checks/run\.sh$|run: sh .claude/checks/run.sh hooks|'
+doctor "a set whose failure is swallowed" 's|run: sh \.claude/checks/run\.sh$|run: sh .claude/checks/run.sh \|\| true|'
+doctor "the step gone" '/run: sh \.claude\/checks\/run\.sh$/d'
+doctor "continue-on-error on the step" 'append:        continue-on-error: true'
+cp "$CI" "$S/ci.yml" && printf '        # CHECKS_SKIP: a comment\n' >> "$S/ci.yml"
+[ -z "$(ci_problems "$S/ci.yml")" ] && ok "...and a comment naming CHECKS_SKIP does not count" || fail "a comment naming CHECKS_SKIP counted: $(ci_problems "$S/ci.yml")"
+# The merge guard waits for that run only while GATE_PR_CHECKS names test.yml's job (OPS-98).
+case " ${GATE_PR_CHECKS:-} " in
+  *" test "*) ok "...and the merge guard requires its result (GATE_PR_CHECKS: $GATE_PR_CHECKS)" ;;
+  *) ok "SKIPPED the merge guard's half: GATE_PR_CHECKS ('${GATE_PR_CHECKS:-}') does not name test.yml's job, test, so a merge need not wait for CI's run of CHECKS_ONCE (OPS-98)" ;;
+esac
 finish
