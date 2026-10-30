@@ -26,8 +26,10 @@ STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (
 # running the set again. Every other variable passes through: GH_TOKEN, SSH_AUTH_SOCK,
 # GIT_CONFIG_GLOBAL and XDG_CONFIG_HOME still reach a check when the caller sets them. The run
 # `exec`s itself into the environment, so it stays one process in the caller's foreground: an INT
-# (Ctrl-C) or a TERM reaches it and its running check as before, stops the set, and removes the
-# environment. A signal sent to run.sh's pid alone takes effect once the running check ends.
+# (Ctrl-C) or a TERM reaches it, stops the set, and removes the environment. It TERMs every check
+# running in the background, and their children, before it goes (the parallel phase, below); a
+# serial check runs in its foreground, so a signal sent to run.sh's pid alone takes effect once
+# that check ends.
 # Named runs are not wrapped: they run in the caller's environment, for working on one check.
 # CHECKS_DOUBLE_PASS=1 restores the old double pass: no wrap, and no-stridal.sh re-runs this
 # directory's checks inside the environment. Markers every check inherits: CHECKS_SET=whole on
@@ -44,8 +46,8 @@ export ROOT CHECKS_LIB
 
 # The single pass (ADR-0006's 2026-10-18 amendment): a whole-set run builds the no-stridal
 # environment once (lib.sh's bare_env) in its scratch, and `exec`s itself inside it: one process,
-# so INT and TERM reach the running check (a background child would ignore INT, and a foreground
-# child would hold a TERM until the whole set ended). The `exec` drops lib.sh's traps, so the inner
+# so INT and TERM reach run.sh itself (a background run.sh would ignore INT, and a foreground child
+# would hold a TERM until the whole set ended), which passes them on to its checks. The `exec` drops lib.sh's traps, so the inner
 # run is told the directory (CHECKS_BARE_RM) and removes it on EXIT, INT and TERM. CHECKS_BARE is
 # the stop condition, and no-stridal.sh checks the real state behind it. CHECKS_SET=whole tells
 # no-stridal.sh it runs under a whole-set run.
@@ -153,18 +155,37 @@ unset CHECKS_SKIP
 # check and keeps INT (a background job starts with INT ignored, and no sh can undo that). Which
 # checks declare it is found by reading what each writes (checks/run-parallel.sh holds a pair that
 # fails in parallel without it). The declaration is the file's, so a new check that needs it
-# carries it, as the directory is the list.
+# carries it, as the directory is the list. Only the leading comment block is read, so a fixture
+# written by a heredoc further down never declares its writer. Nothing checks that a check sharing
+# state declares it: the reading is the control (Nothing. You.).
 [ -n "${_scratch:-}" ] || use_lib
 RES="$_scratch/results"; mkdir -p "$RES"
+# The default is the processor count, at most 8: a check's own fixture runs of run.sh take the same
+# default again, so load multiplies.
 jobs=${CHECKS_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null)}
 case $jobs in '' | *[!0-9]* | 0) jobs=4 ;; esac
-# stop_jobs: TERM every check still running in the background (its pid is the check's own process:
-# its traps clean up), for a run stopped by INT or TERM. Waiting launches never start: the
-# scheduler is this shell.
-stop_jobs() {
-  for _p in "$RES"/*.pid; do
-    [ -f "$_p" ] && [ ! -f "${_p%.pid}.rc" ] && kill -TERM "$(cat "$_p")" 2>/dev/null
+[ -n "${CHECKS_JOBS:-}" ] || [ "$jobs" -le 8 ] || jobs=8
+# kill_tree PID: TERM PID's descendants, then PID. A background check starts with INT ignored and
+# holds a TERM until its foreground child ends, so the children are told first. By pid, never by
+# pattern; where ps cannot run (a sandbox) only PID is told.
+kill_tree() {
+  for _c in $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$1" '$2 == p { print $1 }'); do
+    kill_tree "$_c"
   done
+  kill -TERM "$1" 2>/dev/null
+}
+# stop_jobs: for a run stopped by INT or TERM. Every check still running in the background is told
+# (and its children); a launch that has not yet recorded its check's pid is TERMed itself, before
+# it starts one. Then every launch is waited for, so none writes into the scratch the trap removes.
+# Waiting launches never start: the scheduler is this shell.
+stop_jobs() {
+  for _w in "$RES"/*.wpid; do
+    [ -f "$_w" ] || continue
+    _i=${_w%.wpid}
+    [ -f "$_i.done" ] && continue
+    if [ -s "$_i.pid" ]; then kill_tree "$(cat "$_i.pid")"; else kill -TERM "$(cat "$_w")" 2>/dev/null; fi
+  done
+  wait
 }
 trap 'stop_jobs; rm -rf "$_scratch"; trap - INT; kill -INT $$' INT
 trap 'stop_jobs; rm -rf "$_scratch"; trap - TERM; kill -TERM $$' TERM
@@ -179,14 +200,15 @@ for n in $names; do
     *) f="$dir/$n.sh" ;;
   esac
   if [ -z "$f" ] || [ ! -f "$f" ]; then k=missing
-  elif grep -q '^# run.sh: serial' "$f"; then k=serial
+  elif sed -n '1,/^[^#]/p' "$f" | grep -q '^# run.sh: serial'; then k=serial
   else k=parallel
   fi
   eval "cn_$i=\$n cf_$i=\$f ck_$i=\$k"
 done
 total=$i
 
-# launch I: start check I in the background; its status lands in $RES/I.rc and its number on fd 4.
+# launch I: start check I in the background; its status lands in $RES/I.rc, then I.done marks it
+# finished (a rename, so a reader never sees half a status), and its number goes to fd 4.
 launch() {
   eval "_n=\$cn_$1 _f=\$cf_$1"
   (
@@ -202,11 +224,13 @@ launch() {
         fi ;;
       *) sh "$_f" > "$RES/$1.out" 2>&1 4>&- & ;;
     esac
-    echo $! > "$RES/$1.pid"
+    echo $! > "$RES/$1.pid.w" && mv "$RES/$1.pid.w" "$RES/$1.pid"
     wait $!
     echo $? > "$RES/$1.rc"
+    : > "$RES/$1.done.w" && mv "$RES/$1.done.w" "$RES/$1.done"
     echo "$1" >&4
   ) &
+  echo $! > "$RES/$1.wpid"
 }
 
 # report I [RC]: print check I's result, once it has one.
@@ -233,7 +257,10 @@ report() {
 
 # The parallel phase: keep `jobs` running; print each result once every check before it has been
 # printed, up to the first serial one.
-mkfifo "$RES/done" && exec 4<>"$RES/done"
+# A run that cannot make its fifo stops: without one it could not tell when a check ends, and a
+# serial check could start beside a running one.
+mkfifo "$RES/fifo" || { echo "FAIL run.sh: cannot make the fifo $RES/fifo the parallel phase needs"; exit 1; }
+exec 4<>"$RES/fifo"
 next=1 running=0 shown=1
 while :; do
   while [ "$running" -lt "$jobs" ] && [ "$next" -le "$total" ]; do
@@ -244,7 +271,7 @@ while :; do
   while [ "$shown" -le "$total" ]; do
     eval "_k=\$ck_$shown"
     [ "$_k" = serial ] && break
-    [ "$_k" = missing ] || [ -f "$RES/$shown.rc" ] || break
+    [ "$_k" = missing ] || [ -f "$RES/$shown.done" ] || break
     report "$shown"; shown=$((shown + 1))
   done
   [ "$running" -gt 0 ] || break
@@ -252,6 +279,8 @@ while :; do
   running=$((running - 1))
 done
 exec 4>&-
+# A serial check never starts beside a parallel one, whatever ended the loop.
+wait
 # The serial phase: each declared check alone, in the foreground; the rest printed in order around it.
 while [ "$shown" -le "$total" ]; do
   eval "_k=\$ck_$shown _f=\$cf_$shown _n=\$cn_$shown"

@@ -38,25 +38,28 @@ cat > "$P/.claude/checks/a.sh" <<'EOF'
 mkdir "$ROOT/lock" && ok "a holds the lock" || fail "a found the lock held"
 touch "$ROOT/a.in"
 tried() { [ -e "$ROOT/b.tried" ]; }
-wait_for 2 tried
+wait_for "$(cat "$ROOT/patience")" tried
 rmdir "$ROOT/lock"; rm -f "$ROOT/a.in" "$ROOT/b.tried"
 finish
 EOF
 cat > "$P/.claude/checks/b.sh" <<'EOF'
 . "$(dirname "$0")/lib.sh"
 held() { [ -e "$ROOT/a.in" ]; }
-wait_for 2 held
+wait_for "$(cat "$ROOT/patience")" held
 mkdir "$ROOT/lock" && { ok "b holds the lock"; rmdir "$ROOT/lock"; } || fail "b found the lock held by a check running beside it"
 touch "$ROOT/b.tried"
 finish
 EOF
+# Side by side each waits for the other's step, so a long patience costs nothing; one after the
+# other, a's wait must run out, so the declared run's is short.
+echo 30 > "$P/patience"
 fx "$P" CHECKS_JOBS=2 -- a b; expect_rc 1 $? "falsified: two checks sharing a fixed path, undeclared, fail run side by side"
 grep -qx 'FAIL b' "$P/out" && grep -q '^    FAIL b found the lock held' "$P/out" \
   && ok "...and the run names the failing check and its line" || fail "the shared-state failure is not named: $(cat "$P/out")"
 for c in a b; do
   printf '# run.sh: serial (the fixed path $ROOT/lock)\n' | cat - "$P/.claude/checks/$c.sh" > "$d/x" && mv "$d/x" "$P/.claude/checks/$c.sh"
 done
-rm -rf "$P/lock" "$P/a.in" "$P/b.tried"
+rm -rf "$P/lock" "$P/a.in" "$P/b.tried"; echo 1 > "$P/patience"
 fx "$P" CHECKS_JOBS=2 -- a b; expect_rc 0 $? "...and pass once both declare it: they run alone, one after the other"
 
 # ── 2. Side by side ─────────────────────────────────────────────────────────────────────────────
@@ -99,23 +102,27 @@ FAIL fast
   || fail "the report is out of order or interleaved: $(cat "$O/out")"
 
 # ── 4. TERM ─────────────────────────────────────────────────────────────────────────────────────
-# One job: a runs in the background (60 s unless stopped), b waits for the slot. The sender waits
-# for a's marker, then TERMs the run alone; run.sh must pass it on.
+# One job: a runs in the background, its 60 s child in ITS foreground (so a's own TERM trap waits
+# for that child), and b waits for the slot. The sender waits for the child's marker, then TERMs
+# the run alone; run.sh must pass it on to a and its child.
 T="$d/term"; fx_project "$T"
 cat > "$T/.claude/checks/a.sh" <<'EOF'
-trap 'kill "$z" 2>/dev/null; touch "$ROOT/a.stopped"; exit 1' TERM
-sleep 60 & z=$!
+trap 'touch "$ROOT/a.stopped"; exit 1' TERM
 echo $$ > "$ROOT/a.started"
-wait "$z"
+sh -c 'echo $$ > "$1/child.pid"; exec sleep 60' child "$ROOT"
 touch "$ROOT/a.done"
 EOF
 printf 'touch "$ROOT/b.started"\n' > "$T/.claude/checks/b.sh"
-(started() { [ -s "$T/a.started" ]; }; wait_for 30 started && kill -TERM "$(cat "$T/run.pid")") 2>/dev/null &
+(started() { [ -s "$T/child.pid" ]; }; wait_for 30 started && kill -TERM "$(cat "$T/run.pid")") 2>/dev/null &
 _sp=$!
 (cd "$T" && unmarked TMPDIR="$T/tmp" CHECKS_JOBS=1 sh -c 'echo $$ > "$1"; exec sh .claude/checks/run.sh a b' term "$T/run.pid") > "$T/out" 2>&1; _rc=$?
 kill "$_sp" 2>/dev/null; wait "$_sp" 2>/dev/null
-stopped() { [ -f "$T/a.stopped" ]; }
-wait_for 10 stopped
+# No wait here: the run waits for its checks to stop before it dies, so all is settled when it returns.
+_cp=$(cat "$T/child.pid" 2>/dev/null)
+if [ -n "$_cp" ] && kill -0 "$_cp" 2>/dev/null; then
+  fail "the check's foreground child (pid $_cp) outlived the run: run.sh told only the check, whose trap waits for it"
+  kill "$_cp" 2>/dev/null
+else ok "...the check's foreground child is stopped with it"; fi
 [ "$_rc" -eq 143 ] && [ -f "$T/a.stopped" ] && [ ! -f "$T/a.done" ] \
   && ok "a TERM to the run reaches its background check, which stops, and the run dies of TERM (exit $_rc)" \
   || fail "TERM did not stop the background check and the run (exit $_rc, want 143; stopped: $([ -f "$T/a.stopped" ] && echo yes || echo no), finished: $([ -f "$T/a.done" ] && echo yes || echo no))"
