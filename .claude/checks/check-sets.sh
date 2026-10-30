@@ -24,9 +24,10 @@
 #     a reading of check source (OPS-171): test.yml's process-checks step is the command that runs
 #     this repo's whole set over its own project.conf. The step is held to that form, each refused
 #     form shown failing; a fixture shows such a read passing the local gate's form and failing
-#     the step's command. Today nothing enforces it: main's go test fails (#343) before the step,
-#     and GATE_PR_CHECKS is empty, a SKIPPED line under the PASS (Nothing. You. until OPS-98, which
-#     makes CI green and required); GATE_PR_CHECKS naming other checks but not that job fails.
+#     the step's command. Today nothing enforces it: GATE_PR_CHECKS is empty, so no merge waits
+#     for the step, and go test fails intermittently (#343), so many runs stop before it. That is
+#     a SKIPPED line under the PASS (Nothing. You. until OPS-98, which makes CI green and
+#     required); GATE_PR_CHECKS naming other checks but not that job fails.
 . "$(dirname "$0")/lib.sh"
 need git jq
 
@@ -234,8 +235,9 @@ case $o in *"PASS beta"*) ok "a named run ignores CHECKS_SKIP" ;; *) fail "a nam
 # runs on every gate costs the run the local gate leaves out. CI's process-checks step (test.yml)
 # is the command that runs this repo's whole set, CHECKS_ONCE included, over this repo's
 # project.conf; it counts only once its job passes and the merge guard waits for it
-# (GATE_PR_CHECKS). Today neither holds: main's go test fails (#343), so the job stops before the
-# step, and GATE_PR_CHECKS is empty. OPS-98 (#350) closes that; until then, Nothing. You.
+# (GATE_PR_CHECKS). Today GATE_PR_CHECKS is empty, so no merge waits for it, and go test fails
+# intermittently (#343), so many runs stop before the step. OPS-98 (#350) makes CI green and
+# required; until then, Nothing. You.
 CI="$ROOT/.github/workflows/test.yml"
 # ci_read FILE: one line per way FILE's process-checks step stops being this repo's whole set with
 # its failure counted, then `@job <check name>`, the job that holds it. Forms are refused, not
@@ -314,7 +316,7 @@ ci_read() {
 ci_problems() { ci_read "$1" | grep -v '^@job '; }
 ci_job() { ci_read "$1" | sed -n 's/^@job //p'; }
 job=$(ci_job "$CI") out=$(ci_problems "$CI")
-[ -z "$out" ] && ok "test.yml's job $job runs this repo's whole set: one step, run: sh .claude/checks/run.sh from working-directory: ., of listed keys only; no CHECKS_SKIP in the workflow, the job's own keys or the step; no continue-on-error on the job; no shell: in the workflow or the job outside its steps; no GITHUB_ENV or GITHUB_PATH named before it" \
+[ -z "$out" ] && ok "test.yml's job $job holds the step that runs this repo's whole set: one step, run: sh .claude/checks/run.sh from working-directory: ., of listed keys only; no CHECKS_SKIP in the workflow, the job's own keys or the step; no continue-on-error on the job; no shell: in the workflow or the job outside its steps; no GITHUB_ENV or GITHUB_PATH named before it" \
   || fail "test.yml's process-checks step is no longer this repo's whole set with its failure counted, so nothing runs CHECKS_ONCE over this repo's project.conf: $(printf '%s' "$out" | tr '\n' ';')"
 # variant MODE ARG [TEXT]: a copy of test.yml in $S/ci.yml, changed one way (sed EXPR; append TEXT;
 # after LINE TEXT, inserted after the first line that is exactly LINE); fails if nothing changed.
