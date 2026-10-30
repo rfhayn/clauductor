@@ -200,7 +200,7 @@ func TestInstallFollowsGateRun(t *testing.T) {
 		t.Fatalf("install: %v\n%s", err, out)
 	}
 	for _, f := range []string{"tools/ci/run-local.sh", "tools/ci/gate.sh", "tools/ci/lease.sh", "tools/ci/steps.sh",
-		"tools/ci/lib/steps.sh", "tools/ci/lib/gate-state.sh", "tools/ci/gate-wait.sh",
+		"tools/ci/lib/steps.sh", "tools/ci/lib/gate-state.sh", "tools/ci/gate-wait.sh", "tools/ci/batch.sh",
 		"tools/ci/lease-conformance/run.sh", "tools/ci/lease-conformance/VERSION"} {
 		if !fileExists(filepath.Join(dir, f)) {
 			t.Errorf("%s was not installed", f)

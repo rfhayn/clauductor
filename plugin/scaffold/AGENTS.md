@@ -97,6 +97,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | A script's temporary file lands in `$TMPDIR`: every `mktemp` line holds a `${TMPDIR:-` template or says why not | **`checks/mktemp-in-tmpdir.sh`** over every tracked shell script |
 | No unmarked `date +%s` clock read in a check: each says why (`# wall-clock:`); a check waits with `wait_for` (`checks/lib.sh`), never a fixed-count poll or a guessed sleep | **`checks/wall-clock.sh`** over every check `run.sh` runs; the polls and sleeps: **Nothing. You.** |
+| A batch merges its lanes `--no-ff` in order, merges `origin/<main>` before each gate, and names its PR in each row's fragment | **`scripts/ci/batch.sh`** (the playbook's batch steps); **`checks/batch.sh`**; running it: **Nothing. You.** |
 | **This file stays a budget, not an archive** | **`${CLAUDE_PLUGIN_ROOT}/checks/agents-md-budget.sh`** |
 | **Everything else in this file and `docs/conventions.md`** | **Nothing. You.** Including all four rules above. |
 
