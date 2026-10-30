@@ -410,7 +410,7 @@ merge_half() {
   echo fail
 }
 case $(merge_half "${GATE_PR_CHECKS:-}" "$job") in
-  waits) ok "...and the merge guard waits for it: GATE_PR_CHECKS ($GATE_PR_CHECKS) names job $job, which passes only once the step has run CHECKS_ONCE over this repo's project.conf and passed" ;;
+  waits) ok "...and the merge guard waits for it: GATE_PR_CHECKS ($GATE_PR_CHECKS) names job $job, so a merge waits for the step to pass (bar what an earlier step executes: #365)" ;;
   off) ok "SKIPPED the merge guard's half: GATE_PR_CHECKS is empty, so no merge waits for CI's run of CHECKS_ONCE over this repo's project.conf (and that run needs its job's earlier steps green): Nothing. You. until GATE_PR_CHECKS names job $job (OPS-98)" ;;
   *) fail "GATE_PR_CHECKS ($GATE_PR_CHECKS) does not name test.yml's job that runs this repo's whole set ($job): no merge waits for the run of CHECKS_ONCE over this repo's project.conf" ;;
 esac
