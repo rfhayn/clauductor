@@ -13,11 +13,11 @@ Sessions here run in auto mode. Two kinds of classifier can refuse a step: the s
 on what a session writes or does, and the auto-mode permission classifier on a tool call. A
 refusal is not a fault in the session's code, and it does not always mean the step is wrong.
 
-Standing Tee met it three times before writing its PRAC-0044: two worktree sessions stopped in a
-row while designing a change that refused `$` in a location (its #698), where a rule agreed before
-the second try (a second stop parks) meant the second stop needed no decision; a deliberate break of a security control, refused as
-"Security Test Removal", which the founder then ran outside auto mode; and an `rm` and a secrets
-scan on a server, left for the founder and written down as not done.
+Standing Tee met it three times before writing its PRAC-0044: two worktree sessions stopped in a row
+while designing a change that refused `$` in a location (its #698), where a rule agreed before the
+second try (a second stop parks) meant the second stop needed no decision; a deliberate break of a
+security control, refused as "Security Test Removal", which the founder then ran outside auto mode;
+and an `rm` and a secrets scan on a server, left for the founder and written down as not done.
 
 This repo has met them too, and each time the session parked rather than routed around:
 - **2026-10-17.** The classifier refused the merge of #142 while two PRs merged by the same command
@@ -29,8 +29,10 @@ This repo has met them too, and each time the session parked rather than routed 
 - **2026-10-24, OPS-127.** Claude's own edit turning delegated approval on was refused; it was done
   in #246 on the owner's direct instruction.
 
-The log declined to promote those rows: the classifier is the owner's control doing its job, and
-the harness already forbids running a step an agent was denied. Both hold, and neither is what
+The log declined to promote those rows: the classifier is the owner's control doing its job; the
+harness already forbids running a step an agent was denied; and the classifier is Claude Code's,
+not this repo's, so the owner's `/permissions` rule fixed it. All three hold (the last is rule 2 at
+work: the retry was decided outside the session), and neither is what
 this record adds. They say what to do once a refusal is recognised as one. This record says what
 a session does next in its own work (no rewording, no other path, no pieces that pass), who
 decides a retry, and that the retry's stop rule is agreed before it runs. None of that was written
@@ -75,8 +77,9 @@ under the pressure of the task it was given.
   denied (permission laundering), which holds rule 1 across sessions.
 - **Known limits.** `merge-pr`, `session-close` and a main session get no line of their own: only
   the harness notice and this record reach them. Both lines are instructions to a model: nothing
-  checks that a session obeys them, or detects a retry it made anyway. A session started without either brief gets nothing.
-  Decision 2 has no executor beyond the session that opened the lane and the owner.
+  checks that a session obeys them, or detects a retry it made anyway. A session started without
+  either brief gets nothing. Decision 2 has no executor beyond the session that opened the lane and
+  the owner.
 
 ## Related
 - Standing Tee PRAC-0044, which this ports.
