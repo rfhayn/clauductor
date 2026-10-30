@@ -824,7 +824,7 @@ state_err=$(grep . "$state_errf" | head -n 1); rm -f "$state_errf"
 # prints it), whatever gh also wrote to stderr: GH_DEBUG or a notice there must not hide a red check.
 # Otherwise stderr is gh saying why it has none, kept for GATE_PR_CHECKS below.
 checks_errf=$(mktemp "${TMPDIR:-/tmp}/guard-checks.XXXXXX") || block "cannot make a temp file to read PR #$pr's checks"
-checks_out=$(ghpr checks --json name,state,bucket 2>"$checks_errf")
+checks_out=$(ghpr checks --json name,state,bucket,workflow 2>"$checks_errf")
 checks_stderr=$(cat "$checks_errf"); rm -f "$checks_errf"
 if printf '%s' "$checks_out" | jq -e 'type == "array"' >/dev/null 2>&1; then
   checks=$checks_out checks_err=""
@@ -854,9 +854,10 @@ fi
 # is an explicit opt-in: empty, nothing changes. Each name must have reported AND passed on the
 # head; a name matches a check of exactly that name, or that name followed by " (" (a matrix job:
 # `test` matches `test (ubuntu-latest)`). A skipped required check is not a pass. The one excused:
-# the bare name skipped beside a pass of a matrix job, since a draft's skipped run leaves a bare
-# `test`=skipping on the head and the run `gh pr ready` starts reports `test (ubuntu-latest)` on
-# the same head. A skipped matrix job (`test (e2e)`) still blocks.
+# the bare name skipped beside a pass of a matrix job of the SAME workflow, since a draft's skipped
+# run leaves a bare `test`=skipping on the head and the run `gh pr ready` starts reports
+# `test (ubuntu-latest)` on the same head. A skipped matrix job (`test (e2e)`), or a bare skip from
+# another workflow, still blocks.
 if [ -n "${GATE_PR_CHECKS:-}" ]; then
   [ -z "$checks_err" ] || block "cannot read PR #$pr's checks (gh: $checks_err), and GATE_PR_CHECKS requires $GATE_PR_CHECKS to have passed. That is a gh problem (auth or network), not CI: fix it (gh auth status), then retry."
   missing="" notgreen=""
@@ -866,8 +867,9 @@ if [ -n "${GATE_PR_CHECKS:-}" ]; then
     if [ -z "$got" ]; then missing="$missing $want"; continue; fi
     bad=$(printf '%s' "$checks" | jq -r --arg w "$want" \
       '[ .[] | select(.name == $w or (.name | startswith($w + " ("))) ] as $m
-       | ($m | any(.bucket == "pass")) as $passed
-       | [ $m[] | select(.bucket != "pass") | select(.bucket != "skipping" or .name != $w or ($passed | not))
+       | [ $m[] | select(.bucket != "pass") | . as $c
+           | select(.bucket != "skipping" or .name != $w
+               or ($m | any(.bucket == "pass" and .name != $w and .workflow == $c.workflow) | not))
            | "\(.name)=\(.bucket)" ] | join(", ")')
     [ -z "$bad" ] || notgreen="${notgreen:+$notgreen, }$bad"
   done
