@@ -318,6 +318,10 @@ func TestGateLogsNoSignalItDidNotSend(t *testing.T) {
 		close(release)
 		t.Fatalf("err %v, want the timeout", err)
 	}
+	// The gate marks the call stopped in context.AfterFunc's own goroutine, which the
+	// caller's return does not wait for: released before it runs, the call ends first
+	// and is never marked stopped (#343, Linux -race).
+	waitCalls(t, g, "the call's stop", 1, func(c call) bool { return c.stopped })
 	close(release)
 	cs := waitCalls(t, g, "the call's end", 1, ended)
 	if !cs[0].stopped || cs[0].term {

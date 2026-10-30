@@ -88,6 +88,10 @@ func Outer(t testing.TB) (env []string, touched func() string) {
 		{"init", "-q"},
 		{"config", "core.untrackedCache", "false"},
 		{"config", "core.fsmonitor", "false"},
+		// A write (a branch, a worktree) may start auto maintenance in the background, which
+		// takes and drops .git/objects/maintenance.lock while the snapshot walks .git (#343).
+		{"config", "maintenance.auto", "false"},
+		{"config", "gc.auto", "0"},
 		{"commit", "-q", "--allow-empty", "-m", "outer"},
 	} {
 		c := Command(outer, args...)

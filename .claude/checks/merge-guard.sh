@@ -407,6 +407,9 @@ guard 2 "GATE_PR_CHECKS=test: one matrix job pending" "gh pr merge 5 --squash" G
 guard 2 "GATE_PR_CHECKS=test: one matrix job failed" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test (macos-latest)","state":"FAILURE","bucket":"fail"},{"name":"test (ubuntu-latest)","state":"SUCCESS","bucket":"pass"}]'
 guard 2 "GATE_PR_CHECKS=test: a skipped required check (rule 2(a) alone passes it)" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test","state":"SKIPPED","bucket":"skipping"}]'
 grep -q "required checks (GATE_PR_CHECKS) are not green: test=skipping" "$d/err" && ok "...and names the check that is not green" || fail "not-green message: $(cat "$d/err")"
+guard 0 "GATE_PR_CHECKS=test: a draft's skipped run beside the ready run's pass" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test","state":"SKIPPED","bucket":"skipping"},{"name":"test (ubuntu-latest)","state":"SUCCESS","bucket":"pass"}]'
+guard 2 "GATE_PR_CHECKS=test: a draft's skipped run beside the ready run still pending" "gh pr merge 5 --squash" GH_CHECKS='[{"name":"test","state":"SKIPPED","bucket":"skipping"},{"name":"test (ubuntu-latest)","state":"PENDING","bucket":"pending"}]'
+grep -q "non-passing checks: test (ubuntu-latest)=pending" "$d/err" && ok "...and names the pending one" || fail "skip+pending message: $(cat "$d/err")"
 guard 0 "GATE_PR_CHECKS=test: every matrix job green" "gh pr merge 5 --squash" GH_CHECKS="$M"
 guard 2 "GATE_PR_CHECKS=test: gh itself fails" "gh pr merge 5 --squash" GH_CHECKS_ERR="HTTP 401: Bad credentials (https://api.github.com/graphql)"
 grep -q "cannot read PR #5's checks (gh: HTTP 401" "$d/err" && grep -q "not CI" "$d/err" && ! grep -q "has not reported" "$d/err" \
