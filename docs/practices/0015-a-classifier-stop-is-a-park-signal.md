@@ -33,8 +33,8 @@ The log declined to promote those rows: the classifier is the owner's control do
 harness already forbids running a step an agent was denied; and the classifier is Claude Code's,
 not this repo's, so the owner's `/permissions` rule settled #142's refusal. All three hold (the
 last is this record's Practice item 2 at work: the retry was decided outside the session), and none
-is what this record adds. They say what to do once a refusal is recognised as one. This record says what
-a session does next in its own work (no rewording, no other path, no pieces that pass), who
+is what this record adds. They say what to do once a refusal is recognised as one. This record
+says what a session does next in its own work (no rewording, no other path, no pieces that pass), who
 decides a retry, and that the retry's stop rule is agreed before it runs. None of that was written
 down here, and every one of those sessions did it by judgment.
 
