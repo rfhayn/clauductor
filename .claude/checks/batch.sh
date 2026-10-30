@@ -52,8 +52,9 @@ out=$(run merge ops/a ops/c ops/b); rc=$?
   && ok "batch merge: a conflict stops it naming the branch, the earlier merge kept, none half done" \
   || fail "batch merge: conflict: exit $rc: $out; status: $(g status --porcelain)"
 
-setup; printf 'dirty\n' >> "$F/shared"
-out=$(run merge ops/a); [ $? -ne 0 ] && printf '%s' "$out" | grep -q 'clean' && [ -z "$(g log --merges --format=%s main..HEAD)" ] \
+# A file no lane touches, so only the script's own check can refuse it.
+setup; printf 'dirty\n' > "$F/z"
+out=$(run merge ops/a); [ $? -ne 0 ] && printf '%s' "$out" | grep -q 'not clean' && [ -z "$(g log --merges --format=%s main..HEAD)" ] \
   && ok "batch merge: a dirty tree is refused, nothing merged" || fail "batch merge: dirty tree: $out"
 
 setup; out=$(cd "$F" && git checkout -q main && sh "$B" merge ops/a 2>&1); rc=$?
