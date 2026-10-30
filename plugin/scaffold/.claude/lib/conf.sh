@@ -70,6 +70,7 @@ MKTEMP_CHECK_PATHS=""
 COAUTHOR_HEALTH_SINCE=""
 CHANGE_RECORD_EXTRA=""
 GATE_QUICK_FLAGS="--quick"
+BATCH_REGENERATE=""
 # Derived from BRANCH_OPS after project.conf is read, unless the project names its own (or "").
 BRANCH_SESSION_CLOSE="@default"
 

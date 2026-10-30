@@ -69,10 +69,13 @@ fragment names, which for a batched row is the lane PR that was closed, not the 
 - The steps are by hand, so a step can be skipped without anything noticing.
 
 ## Enforcement
-**Nothing yet.** Every step above is done by hand by the session running the batch. OPS-176
-(`ops/ops-176-batch-lane`) is the change that gives it a mechanism: one script for the merges,
-the plugin, the `origin/main` merge and the batch PR in each fragment, and the pre-PR pass every
-lane runs. The guard rules that hold any PR (`pr-merge-guard.sh`: gate evidence for the exact
+**`scripts/ci/batch.sh`** (OPS-176) runs steps 4–6 and the fragments: `merge` (the `--no-ff`
+merges in the order given, then `BATCH_REGENERATE`, which rebuilds `plugin/` here), `sync` (the
+`origin/main` merge before each gate) and `record` (the batch PR into each row's fragment, or
+under **Also closes**, so the fold records the PR that merged); **`checks/batch.sh`** holds it,
+and `docs/playbook.md` (*Batching reviewed lanes*) names the order. Step 9's pre-PR pass is
+`scripts/ci/gate.sh -C <worktree> --quick`. Planning, the order, the freeze, step 7 and the
+pre-PR pass being run: **Nothing. You.** The guard rules that hold any PR (`pr-merge-guard.sh`: gate evidence for the exact
 head, rule 8 for the records) hold a batch PR too, but none of them knows it is a batch.
 
 ## Related

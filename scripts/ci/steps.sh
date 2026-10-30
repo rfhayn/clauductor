@@ -133,8 +133,9 @@ CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals
 # APPROVAL_DELEGATED and GATE_DOCS: this repo's own are "1" (OPS-89, OPS-127). Only
 # change-approval.sh and run-local.sh read them; no CHECKS_ONCE check runs change-approval.sh, gate
 # and ci-status run run-local.sh only in fixtures whose project.conf they write, and conf.sh sets
-# both defaults before it reads one (OPS-170).
-CONF_NOT_READ="PROJECT_NAME PROJECT_SLUG STATUS_MARK OWNER_NAME INSIGHT_AREAS TEST_GLOBS FORMAT_CMD FORMAT_EXT GATE_PR_CHECKS APPROVAL_DELEGATED GATE_DOCS"
+# both defaults before it reads one (OPS-170). BATCH_REGENERATE: this repo's rebuilds plugin/; only
+# scripts/ci/batch.sh reads it, and checks/batch.sh runs it in a fixture whose project.conf it writes.
+CONF_NOT_READ="PROJECT_NAME PROJECT_SLUG STATUS_MARK OWNER_NAME INSIGHT_AREAS TEST_GLOBS FORMAT_CMD FORMAT_EXT GATE_PR_CHECKS APPROVAL_DELEGATED GATE_DOCS BATCH_REGENERATE"
 # The compared keys this repo may set apart from the template's, accepting that every gate then runs
 # CHECKS_ONCE in both sets. check-sets.sh fails any other key that differs (OPS-170).
 CONF_DOUBLE_RUN_OK=""
