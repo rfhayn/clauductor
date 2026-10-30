@@ -6,7 +6,9 @@
 # titles are not files and keep the earlier name.
 #
 # Every tracked file is read, binary-attributed ones too (git grep -a): a binary attribute is a
-# diff setting, and a name inside such a file still ships.
+# diff setting, and a name inside such a file still ships. git grep skips a tracked symlink, so
+# each link's target, the blob `git ls-files -s` names with mode 120000, is read on its own. A
+# submodule is another repository's files, not this one's: only its path is read.
 #
 # The name split into pieces on one line counts as the name: each line is compared with every
 # character but a letter deleted, so any joiner goes (quotes, +, ., a Join's commas and brackets,
@@ -23,50 +25,91 @@
 
 old="clau""ductor"
 split_ok=".claude/checks/name-residue.sh framework/internal/template/oldmodel_test.go"
+tab=$(printf '\t')
 
-# residue DIR: the tracked files of DIR's repository that name the earlier name in their text or
-# their path, and those outside split_ok that split it on one line with joiners holding no letter. Fails (status 2) when
-# DIR is not a repository or git cannot read it, so an unread tree is never a clean one.
-residue() {
-  git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 2
-  _r=$(mktemp "${TMPDIR:-/tmp}/name-residue.XXXXXX")
-  git -C "$1" grep --no-color -a -i -l -e "$old" >"$_r"; rc=$?
-  [ "$rc" -le 1 ] || { rm -f "$_r"; return 2; }
-  git -C "$1" ls-files | grep -i -e "$old" >>"$_r"
-  # Every tracked line, with every character but a letter deleted, in one awk pass: whatever
-  # joins the pieces on one line (quotes, +, ., a Join's commas and brackets) goes with it.
-  # A line is "path:number:text", and a path may hold a colon, so the path is the LONGEST prefix
-  # ending at a colon that `git ls-files` names and that a line number follows: a file named
-  # "<exempt path>:1:x" is its own, not the exempt one (git grep -z would end each line at a NUL
-  # too, which awk cannot tell from a NUL inside a binary file's line). Every line git grep prints
-  # belongs to a tracked path, so a line whose path does not parse fails the scan (status 2):
-  # a scan that reads less than every tracked line never reports clean (color forced on in the
-  # repository's config was one such road, so --no-color too; tr's truncation was another).
-  # A NUL inside a line is turned into \001 first: macOS awk would end a record there.
-  git -C "$1" ls-files >"$_r.p" || { rm -f "$_r" "$_r.p"; return 2; }
-  git -C "$1" grep --no-color -a -n -e '' >"$_r.g"; rc=$?
-  [ "$rc" -le 1 ] || { rm -f "$_r" "$_r.g" "$_r.p"; return 2; }
-  # LC_ALL=C: tr and awk read bytes, so a binary file's bytes are not an illegal sequence (tr
-  # stopped there, cutting the scan short with no error), nor a multibyte error in awk.
-  LC_ALL=C tr '\000' '\001' <"$_r.g" >"$_r.c" || { rm -f "$_r" "$_r.g" "$_r.c" "$_r.p"; return 2; }
-  [ "$(wc -l <"$_r.c")" -eq "$(wc -l <"$_r.g")" ] || { rm -f "$_r" "$_r.g" "$_r.c" "$_r.p"; return 2; }
-  LC_ALL=C awk -v ok=" $split_ok " -v n="$old" -v paths="$_r.p" '
+# scan DIR ARGS...: git grep over DIR's tracked files, and tracked DIR ARGS...: git ls-files.
+# Every setting that shapes what git grep prints is pinned on its call line, so no configuration,
+# the repository's or the user's, changes what the scan reads: color.grep (--no-color),
+# submodule.recurse (--no-recurse-submodules: a submodule's lines name no path ls-files lists),
+# grep.fullName (--no-full-name), grep.column (--no-column), grep.patternType and
+# grep.extendedRegexp (-F), grep.lineNumber (-n, given by the caller that reads line numbers),
+# core.quotePath (pinned on both calls, so the two quote a path alike). grep.threads changes no
+# output; grep.fallbackToNoIndex applies only outside a repository, which residue refuses first.
+# The "shaped" case below sets every grep key `git help --config` lists, so a key a later git adds
+# fails the check until it is pinned here.
+scan() {
+  _d=$1; shift
+  git -c core.quotePath=true -C "$_d" grep --no-color --no-recurse-submodules --no-full-name \
+    --no-column -F -a "$@"
+}
+tracked() {
+  _d=$1; shift
+  git -c core.quotePath=true -C "$_d" ls-files "$@"
+}
+
+# credit PATHS LINES: the paths outside split_ok whose lines in LINES (git grep's "path:number:text",
+# a NUL turned into \001) split the name with joiners holding no letter. A path may hold a colon,
+# so every prefix ending at a colon that PATHS names and that a line number follows is a candidate,
+# and each is read: a file named "x.go:1:<the name's first piece>" beside x.go cannot take the
+# credit for x.go's line and hide its split, nor a file named "<exempt path>:1:x" pass as the
+# exempt one. (git grep -z would end each path at a NUL too, which awk cannot tell from a NUL
+# inside a binary file's line.) Every line git grep prints belongs to a tracked path, so a line
+# with no candidate fails (status 3): a scan that reads less than every tracked line never reports
+# clean (color forced on in the repository's config was one such road, before the pins above).
+credit() {
+  LC_ALL=C awk -v ok=" $split_ok " -v n="$old" -v paths="$1" '
     BEGIN { while ((getline p < paths) > 0) tracked[p] = 1 }
     {
-      f = ""; rest = $0; pre = ""; text = ""
+      rest = $0; pre = ""; read = 0
       while ((i = index(rest, ":")) > 0) {
         pre = pre substr(rest, 1, i - 1); rest = substr(rest, i + 1)
-        if ((pre in tracked) && rest ~ /^[0-9]+:/) { f = pre; text = rest }
+        if ((pre in tracked) && rest ~ /^[0-9]+:/) {
+          read++
+          if (!index(ok, " " pre " ")) {
+            l = rest; sub(/^[0-9]+:/, "", l); l = tolower(l); gsub(/[^a-z]/, "", l)
+            if (index(l, n)) print pre
+          }
+        }
         pre = pre ":"
       }
-      if (f == "") { bad++; next }
-      if (index(ok, " " f " ")) next
-      l = text; sub(/^[0-9]+:/, "", l); l = tolower(l); gsub(/[^a-z]/, "", l)
-      if (index(l, n)) print f
+      if (!read) bad++
     }
-    END { if (bad) exit 3 }' "$_r.c" >>"$_r" || { rm -f "$_r" "$_r.g" "$_r.c" "$_r.p"; return 2; }
-  sort -u "$_r"
-  rm -f "$_r" "$_r.g" "$_r.c" "$_r.p"
+    END { if (bad) exit 3 }' "$2"
+}
+
+# residue DIR: the tracked files under DIR (all of them when DIR is its repository's top, as
+# $ROOT is) that name the earlier name in their text,
+# their path or their link target, and those outside split_ok that split it on one line with
+# joiners holding no letter. Fails (status 2) when DIR is not a repository or git cannot read it,
+# so an unread tree is never a clean one.
+residue() {
+  git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 2
+  _r=$(mktemp -d "${TMPDIR:-/tmp}/name-residue.XXXXXX") || return 2
+  scan "$1" -i -l -e "$old" >"$_r/found"; rc=$?
+  [ "$rc" -le 1 ] || { rm -rf "$_r"; return 2; }
+  tracked "$1" >"$_r/p" || { rm -rf "$_r"; return 2; }
+  grep -i -e "$old" "$_r/p" >>"$_r/found"
+  [ $? -le 1 ] || { rm -rf "$_r"; return 2; }
+  # A symlink's target, read from its blob: every character but a letter deleted, as a line is.
+  tracked "$1" -s >"$_r/s" || { rm -rf "$_r"; return 2; }
+  while IFS= read -r _l; do
+    case $_l in 120000\ *) ;; *) continue ;; esac
+    _o=${_l#120000 }; _o=${_o%% *}
+    _tg=$(git -C "$1" cat-file blob "$_o") || { rm -rf "$_r"; return 2; }
+    case $(printf '%s' "$_tg" | LC_ALL=C tr -cd 'A-Za-z' | LC_ALL=C tr 'A-Z' 'a-z') in
+      *"$old"*) printf '%s\n' "${_l#*"$tab"}" >>"$_r/found" ;;
+    esac
+  done <"$_r/s"
+  scan "$1" -n -e '' >"$_r/g"; rc=$?
+  [ "$rc" -le 1 ] || { rm -rf "$_r"; return 2; }
+  # LC_ALL=C: tr and awk read bytes, so a binary file's bytes are not an illegal sequence (tr
+  # stopped there, cutting the scan short with no error), nor a multibyte error in awk.
+  # A NUL inside a line is turned into \001 first: macOS awk would end a record there.
+  LC_ALL=C tr '\000' '\001' <"$_r/g" >"$_r/c" || { rm -rf "$_r"; return 2; }
+  [ "$(wc -l <"$_r/c")" -eq "$(wc -l <"$_r/g")" ] || { rm -rf "$_r"; return 2; }
+  credit "$_r/p" "$_r/c" >>"$_r/found" || { rm -rf "$_r"; return 2; }
+  sort -u "$_r/found"
+  rm -rf "$_r"
 }
 
 t=$(mktemp -d "${TMPDIR:-/tmp}/name-residue.XXXXXX")
@@ -105,19 +148,87 @@ if GIT_CEILING_DIRECTORIES="$t" residue "$t/not-a-repo" >/dev/null; then
 else
   ok "a directory that is not a repository fails the scan"
 fi
-# Color forced on in the repository's own config puts an escape code before every line git grep
-# prints: the split must still be found, or the scan fail, never pass clean having read nothing.
-c="$t/color"
-git init -q "$c"
-git -C "$c" config color.ui always
-git -C "$c" config color.grep always
-printf 'n = "%s" + "%s"\n' "$p" "$q" > "$c/split.go"
-git -C "$c" add -A
-if got=$(residue "$c"); then
-  if [ "$got" = split.go ]; then ok "color forced on in the repository's config does not hide a split"
-  else fail "color forced on in the repository's config hid a split: found '$got'"; fi
+# The fail-closed count, fed a line itself: a line whose path git does not list must fail the
+# scan, never be skipped. With every setting pinned no road to it is known (grep.fullName from a
+# subdirectory was the last; the shaped case below shows it closed), and a count nothing reaches
+# is untested unless a case reaches it.
+mkdir "$t/credit"
+printf 'kept.go\n' > "$t/credit/p"
+printf 'kept.go:1:fine\ngone.go:1:n = "%s" + "%s"\n' "$p" "$q" > "$t/credit/c"
+credit "$t/credit/p" "$t/credit/c" >/dev/null; rc=$?
+expect_rc 3 "$rc" "a line whose path git does not list fails the scan rather than being skipped"
+# Every setting that shapes what git grep prints, set against the scan in one repository: color
+# forced on, a column, no line numbers, Perl patterns, full names (the scan run from a
+# subdirectory, where they bite), submodules recursed into (one under that subdirectory, holding
+# the plain name), paths unquoted (a planted file's name holds a byte git quotes). The scan must
+# find exactly the planted splits. Unpinned, it failed (status 2): loudly, but falsely.
+s="$t/shaped"
+git init -q "$t/inner"
+printf '%s\n' "$old" > "$t/inner/named.txt"
+git -C "$t/inner" add -A
+git -C "$t/inner" -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false \
+  commit -q --no-verify -m inner
+git init -q "$s"
+mkdir "$s/d"
+git -C "$s" -c protocol.file.allow=always submodule add -q "$t/inner" d/sub >/dev/null 2>&1 ||
+  fail "the shaped case could not add its submodule"
+printf 'n = "%s" + "%s"\n' "$p" "$q" > "$s/d/split.go"
+printf 'n = "%s" + "%s"\n' "$p" "$q" > "$s/d/$(printf '\303\251').go"
+git -C "$s" add -A
+shaped="color.ui=always color.grep=always core.quotePath=false grep.column=true
+  grep.extendedRegexp=true grep.fallbackToNoIndex=true grep.fullName=true grep.lineNumber=false
+  grep.patternType=perl grep.threads=1 submodule.recurse=true"
+for kv in $shaped; do git -C "$s" config "${kv%%=*}" "${kv#*=}"; done
+for k in $(git help --config 2>/dev/null | grep '^color\.grep\.'); do git -C "$s" config "$k" red; done
+if got=$(residue "$s/d"); then
+  got=$(printf '%s\n' "$got" | tr '\n' ' ')
+  if [ "$got" = '"\303\251.go" split.go ' ]; then
+    ok "no setting of git grep's output changes what the scan finds (color, column, line numbers, patterns, full names, submodules, quoting)"
+  else
+    fail "a setting of git grep's output changed what the scan finds: '$got' (want '\"\\303\\251.go\" split.go ')"
+  fi
 else
-  ok "color forced on in the repository's config fails the scan rather than passing clean"
+  fail "a setting of git grep's output failed the scan (status 2): a setting the scan does not pin"
+fi
+# The authority is git's own list of its grep settings: one this case does not set (a key a later
+# git adds) fails here until scan's call line pins it and the case above sets it.
+keys=$(git help --config 2>/dev/null | grep '^grep\.')
+if [ -z "$keys" ]; then
+  fail "git help --config listed no grep.* setting: cannot tell whether the scan pins them all"
+else
+  miss=""
+  for k in $keys; do
+    case " $(printf '%s' "$shaped" | tr '\n' ' ') " in *" $k="*) ;; *) miss="$miss $k" ;; esac
+  done
+  if [ -z "$miss" ]; then ok "every grep.* setting git lists is pinned and set against the scan"
+  else fail "git lists grep settings the scan does not pin (pin each in scan, set it in the shaped case):$miss"; fi
+fi
+# A file named after another and a line number cannot take the credit for that file's line: x.go's
+# line 1 reads "x.go:1:<first piece>:2:<rest>", and the longest tracked path, "x.go:1:<first
+# piece>", would leave "<rest>" alone. Every candidate is read, so x.go's split is found.
+m="$t/mirror"
+git init -q "$m"
+printf '%s:2:%s\n' "$p" "$q" > "$m/x.go"
+printf 'clean\n' > "$m/x.go:1:$p"
+git -C "$m" add -A
+got=$(residue "$m" | tr '\n' ' ')
+if [ "$got" = "x.go " ]; then
+  ok "a file named after another file and a line number does not hide that file's split"
+else
+  fail "a file named 'x.go:1:<first piece>' hid x.go's split: found '$got' (want 'x.go')"
+fi
+# git grep skips a symlink, but its target ships: one naming the name, one splitting it with a /.
+lk="$t/links"
+git init -q "$lk"
+ln -s "../$old/x" "$lk/plain"
+ln -s "$(printf '%s' "$p" | tr '[:lower:]' '[:upper:]')/$q" "$lk/split"
+ln -s ../elsewhere "$lk/clean"
+git -C "$lk" add -A
+got=$(residue "$lk" | tr '\n' ' ')
+if [ "$got" = "plain split " ]; then
+  ok "a tracked symlink whose target names or splits the name is found"
+else
+  fail "a tracked symlink's target was not read: found '$got' (want 'plain split')"
 fi
 # A file named after an exempt path and a line number is its own file, not the exempt one.
 e="$t/exempt"
