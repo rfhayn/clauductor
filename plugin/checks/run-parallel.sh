@@ -122,7 +122,7 @@ printf 'touch "$ROOT/b.started"\n' > "$T/.claude/checks/b.sh"
 _sp=$!
 (cd "$T" && unmarked TMPDIR="$T/tmp" CHECKS_JOBS=1 sh -c 'echo $$ > "$1"; exec sh .claude/checks/run.sh a b' term "$T/run.pid") > "$T/out" 2>&1; _rc=$?
 kill "$_sp" 2>/dev/null; wait "$_sp" 2>/dev/null
-# No wait here: the run waits for its checks to stop before it dies, so all is settled when it returns.
+# No wait here for the check and its child: the run waits for its checks to stop before it dies.
 _cp=$(cat "$T/child.pid" 2>/dev/null)
 if [ -z "$ps_ok" ]; then
   ok "SKIPPED the check's foreground child: ps cannot run here, so run.sh can tell only the check"
@@ -131,9 +131,12 @@ elif [ -f "$T/child.finished" ] || { [ -n "$_cp" ] && kill -0 "$_cp" 2>/dev/null
   kill "$_cp" 2>/dev/null
 else ok "the check's foreground child is stopped with it, never finishing"; fi
 # ...and the whole tree: the child's own child (a sleep) too, not only the depths below the launch.
+# The grandchild is orphaned when its parent dies first, so nothing in the run reaps it: wait for
+# it to go, a zombie counting as gone (kill -0 reaches a zombie on Linux).
 _gp=$(cat "$T/gc.pid" 2>/dev/null)
+gc_gone() { case $(ps -o stat= -p "$_gp" 2>/dev/null) in '' | Z*) return 0 ;; esac; return 1; }
 if [ -z "$ps_ok" ]; then :
-elif [ -n "$_gp" ] && kill -0 "$_gp" 2>/dev/null; then
+elif [ -n "$_gp" ] && ! wait_for 5 gc_gone; then
   fail "the check's grandchild (pid $_gp) outlived the run: run.sh told only the top of the tree"
   kill "$_gp" 2>/dev/null
 else ok "...and the child's own child, the bottom of the tree"; fi
