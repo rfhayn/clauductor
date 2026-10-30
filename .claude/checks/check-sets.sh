@@ -241,9 +241,11 @@ CI="$ROOT/.github/workflows/test.yml"
 # timeout-minutes, working-directory: ., run and env (no if:, continue-on-error:, shell:: a key
 # not listed is refused until someone reads what it does and lists it); CHECKS_SKIP appears
 # neither outside the jobs, nor in that job outside its steps, nor in the step; and the job has no
-# continue-on-error; no earlier step of the job names GITHUB_ENV or GITHUB_PATH. Other jobs and
-# the job's later steps are not read, nor what an earlier `uses:` action exports (setup-go sets
-# GOROOT): test.yml's actions are pinned to a commit, and none sets CHECKS_SKIP.
+# continue-on-error; neither the workflow nor the job sets a shell: (defaults.run.shell reaches the
+# step); no earlier step of the job names GITHUB_ENV or GITHUB_PATH (or github.env, github.path).
+# Other jobs and the job's later steps are not read. Nor is what an earlier step EXECUTES: a
+# script, `go test` or a `uses:` action (setup-go sets GOROOT) can write either file without naming
+# it, which no reading of test.yml can see; its actions are pinned to a commit.
 ci_read() {
   [ -f "$1" ] || { echo "is missing"; return; }
   awk '
@@ -296,7 +298,9 @@ ci_read() {
       if (!wd) print "has no working-directory: . on the step, so a default decides which set it runs"
       for (i = 1; i <= n; i++) if ((J[i] == "" || (J[i] == tj && !ST[i]) || (i in IN)) && L[i] ~ /CHECKS_SKIP/) print "names CHECKS_SKIP where the step inherits it, in the workflow, job " tj " or the step (line " N[i] "): CI could leave checks out of this repo'"'"'s set too"
       # An earlier step of the job reaches this one through the files GitHub reads between steps.
-      for (i = 1; i < t; i++) if (J[i] == tj && L[i] ~ /GITHUB_ENV|GITHUB_PATH/) print "writes GITHUB_ENV or GITHUB_PATH in job " tj " before the step (line " N[i] "), which can set its CHECKS_SKIP or the sh it runs"
+      for (i = 1; i < t; i++) if (J[i] == tj && L[i] ~ /GITHUB_ENV|GITHUB_PATH|github[.](env|path)/) print "writes GITHUB_ENV or GITHUB_PATH in job " tj " before the step (line " N[i] "), which can set its CHECKS_SKIP or the sh it runs"
+      # defaults.run.shell, of the workflow or the job, is the shell of every step without its own.
+      for (i = 1; i <= n; i++) if ((J[i] == "" || (J[i] == tj && !ST[i])) && key(L[i]) == "shell") print "sets a shell: for job " tj "'"'"'s steps (line " N[i] "), which decides what the step runs and what its status is"
       if (tj in jcoe) print "tolerates a failure: continue-on-error on job " tj " (line " jcoe[tj] ")"
       print "@job " ((tj in jname) ? jname[tj] : tj)
     }
@@ -305,7 +309,7 @@ ci_read() {
 ci_problems() { ci_read "$1" | grep -v '^@job '; }
 ci_job() { ci_read "$1" | sed -n 's/^@job //p'; }
 job=$(ci_job "$CI") out=$(ci_problems "$CI")
-[ -z "$out" ] && ok "test.yml's job $job runs this repo's whole set: one step, run: sh .claude/checks/run.sh from working-directory: ., of listed keys only; no CHECKS_SKIP in the workflow, the job's own keys or the step; no continue-on-error on the job; no GITHUB_ENV or GITHUB_PATH before it" \
+[ -z "$out" ] && ok "test.yml's job $job runs this repo's whole set: one step, run: sh .claude/checks/run.sh from working-directory: ., of listed keys only; no CHECKS_SKIP in the workflow, the job's own keys or the step; no continue-on-error on the job; no shell: in the workflow or the job; no GITHUB_ENV or GITHUB_PATH named before it" \
   || fail "test.yml's process-checks step is no longer this repo's whole set with its failure counted, so nothing runs CHECKS_ONCE over this repo's project.conf: $(printf '%s' "$out" | tr '\n' ';')"
 # variant MODE ARG [TEXT]: a copy of test.yml in $S/ci.yml, changed one way (sed EXPR; append TEXT;
 # after LINE TEXT, inserted after the first line that is exactly LINE); fails if nothing changed.
@@ -343,12 +347,20 @@ doctor "the step run from template/" sed 's|^        working-directory: \.$|    
 doctor "the step with no working-directory of its own" sed '/^        working-directory: \.$/d'
 doctor "continue-on-error on the job" after "$JOBL" '    continue-on-error: true'
 doctor "an earlier step writing CHECKS_SKIP to GITHUB_ENV" after '      - run: go vet ./...' '      - run: echo "CHECKS_SKIP=gate" >> "$GITHUB_ENV"'
+doctor "...or to github.env" after '      - run: go vet ./...' '      - run: echo "CHECKS_SKIP=gate" >> "${{ github.env }}"'
+doctor "the job's default shell" after '        working-directory: framework' '        shell: "true {0}"'
+doctor "the workflow's default shell" append "$(printf 'defaults:\n  run:\n    shell: "true {0}"')"
 passes "a comment naming CHECKS_SKIP" append '        # CHECKS_SKIP: a comment'
 passes "a job-level if: (OPS-98's draft filter)" after "$JOBL" "    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false"
 passes "continue-on-error and CHECKS_SKIP in another job" append "$(printf '  other:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n    env:\n      CHECKS_SKIP: gate\n    steps:\n      - run: echo other')"
 passes "another step's own CHECKS_SKIP" after '    steps:' '      - run: CHECKS_SKIP=x sh template/.claude/checks/run.sh'
 passes "a timeout on the step" after "$RUNL" '        timeout-minutes: 30'
-passes "trailing comments on the step's run: and working-directory:" sed 's|^\(        run: sh \.claude/checks/run\.sh\)$|\1  # whole set|; s|^\(        working-directory: \.\)$|\1  # the root|'
+passes "a trailing comment on the step's run:" sed 's|^\(        run: sh \.claude/checks/run\.sh\)$|\1  # whole set|'
+passes "a trailing comment on the step's working-directory:" sed 's|^\(        working-directory: \.\)$|\1  # the root|'
+passes "GITHUB_ENV written by a later step" append '      - run: echo "X=1" >> "$GITHUB_ENV"'
+passes "a default shell and GITHUB_ENV in another job" append "$(printf '  other:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        shell: bash\n    steps:\n      - run: echo "X=1" >> "$GITHUB_ENV"')"
+variant after "$JOBL" '    name: test # the suite' && [ "$(ci_job "$S/ci.yml")" = test ] \
+  && ok "...and a trailing comment on the job's name: is no part of it" || fail "name: test # the suite read as '$(ci_job "$S/ci.yml")'"
 # The check the merge guard would wait for is the job's name, else its id: moved or renamed, the
 # step's job is read as such, so GATE_PR_CHECKS naming `test` no longer counts it (merge_half).
 variant after "$JOBL" "    name: 'suite'" && cp "$S/ci.yml" "$S/ci-renamed.yml" && [ "$(ci_job "$S/ci.yml")" = suite ] \
