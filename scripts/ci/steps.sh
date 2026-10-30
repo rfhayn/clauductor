@@ -7,7 +7,7 @@
 # filter keys on that), runs the command, and a non-zero exit fails the gate. `|| return 1` stops at
 # the first failure; drop it on a step to run the rest anyway.
 #
-# No step needs an installed `clauductor` (ADR-0006, the no-clauductor invariant): the plugin
+# No step needs an installed `stridal` (ADR-0006, the no-stridal invariant): the plugin
 # check runs the CLI from this checkout's source with `go run`.
 
 # gofmt -l prints the files it would change and exits 0 either way, so the output is the verdict.
@@ -26,7 +26,7 @@ gofmt_clean() {
 # race step's scope is the `==> test (race): ...` line in the log.
 #
 # The mapping is what the tests READ outside framework/ (each read is a grep away):
-#   template/                internal/cmd (install/update tests read it via CLAUDUCTOR_FRAMEWORK;
+#   template/                internal/cmd (install/update tests read it via STRIDAL_FRAMEWORK;
 #                            TestCommittedPluginIsCurrent), internal/plugin, internal/template
 #   plugin/, .claude-plugin/ internal/cmd (TestCommittedPluginIsCurrent), internal/plugin
 #   docs/panel.md            internal/template, internal/panel/{config,install,lease,metrics,state,web}
@@ -139,7 +139,7 @@ CONF_NOT_READ="PROJECT_NAME PROJECT_SLUG STATUS_MARK OWNER_NAME INSIGHT_AREAS TE
 # CHECKS_ONCE in both sets. check-sets.sh fails any other key that differs (OPS-170).
 CONF_DOUBLE_RUN_OK=""
 
-# framework_verdict: reads `clauductor diff --json` on stdin; passes when every framework file is the
+# framework_verdict: reads `stridal diff --json` on stdin; passes when every framework file is the
 # template's (an extra file passes only under .claude/checks/: a check of this repo's own, which this
 # set runs), else prints the ones that are not and fails. Fails closed: no report, or one without
 # its file list, fails.
@@ -174,14 +174,14 @@ conf_differs() {
 
 # framework_matches_template: every framework file of this repository is the template's, byte for
 # byte, and the project.conf values a CHECKS_ONCE check can read are the same. The authority on the
-# files is `clauductor diff` (the tiers install and update use), built from this checkout's source,
+# files is `stridal diff` (the tiers install and update use), built from this checkout's source,
 # as the plugin step runs it. Prints what differs when they do not match.
 framework_matches_template() {
   _ft=$(mktemp -d "${TMPDIR:-/tmp}/framework.XXXXXX") || { echo "no temp directory"; return 1; }
-  if ! (cd framework && go build -o "$_ft/clauductor" ./cmd/clauductor) >/dev/null 2>&1; then
+  if ! (cd framework && go build -o "$_ft/stridal" ./cmd/stridal) >/dev/null 2>&1; then
     rm -rf "$_ft"; echo "the CLI does not build from framework/"; return 1
   fi
-  if ! _fj=$(env -u CLAUDUCTOR_FRAMEWORK "$_ft/clauductor" diff --json --template-dir template 2>/dev/null); then
+  if ! _fj=$(env -u STRIDAL_FRAMEWORK "$_ft/stridal" diff --json --template-dir template 2>/dev/null); then
     rm -rf "$_ft"; echo "the framework diff failed"; return 1
   fi
   rm -rf "$_ft"
@@ -234,7 +234,7 @@ gate_steps() {
   # them, CHECKS_ONCE included, and never a CHECKS_SKIP from the caller.
   step "template checks" env CHECKS_SKIP= sh template/.claude/checks/run.sh || return 1
   # plugin/ is generated from template/; a template edit without a rebuild ships a stale plugin.
-  step "plugin is current" sh -c 'root=$PWD; cd framework && go run ./cmd/clauductor plugin check --repo "$root"' || return 1
+  step "plugin is current" sh -c 'root=$PWD; cd framework && go run ./cmd/stridal plugin check --repo "$root"' || return 1
 
   [ "$mode" = full ] || return 0
 

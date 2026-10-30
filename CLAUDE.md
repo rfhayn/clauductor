@@ -1,6 +1,6 @@
-# CLAUDE.md — Clauductor framework repo
+# CLAUDE.md — Stridal framework repo
 
-This repo builds Clauductor (an operating model for Claude Code, its local panel and its plugin)
+This repo builds Stridal (an operating model for Claude Code, its local panel and its plugin)
 and runs that same model on itself. The working conventions every session applies are in
 `AGENTS.md`, imported below. This file adds only what is specific to the framework repo.
 
@@ -10,10 +10,10 @@ product: what every project receives. Change the template with care; it ships.
 ## Architecture
 
 ```
-clauductor/
+stridal/
 ├── AGENTS.md, .claude/       ← this repo's own operating model (installed from template/)
 ├── framework/                ← Go source: the CLI and the panel
-│   ├── cmd/clauductor/       ← CLI entrypoint
+│   ├── cmd/stridal/       ← CLI entrypoint
 │   └── internal/
 │       ├── cmd/              ← commands: install, update, plugin, panel, lock-run, ...
 │       ├── panel/            ← the local panel (server, lanes, web UI; docs/panel.md)
@@ -23,8 +23,8 @@ clauductor/
 │       ├── testbin/          ← test support: writes a stand-in executable no parallel fork holds open
 │       ├── treesnap/         ← test support: a snapshot of a repository's files, to prove a command left them untouched
 │       ├── testgit/          ← test support: every test binary imports it, and its init drops the GIT_ variables, so a hook's repository stays untouched
-│       └── testwait/         ← test support: waits with deadlines scaled by CLAUDUCTOR_TEST_SLOW
-├── template/                 ← the operating model projects receive (`clauductor install`)
+│       └── testwait/         ← test support: waits with deadlines scaled by STRIDAL_TEST_SLOW
+├── template/                 ← the operating model projects receive (`stridal install`)
 │   ├── AGENTS.md, CLAUDE.md  ← project-level instructions
 │   ├── .claude/              ← skills, agents, hooks, checks, workflows, project.conf
 │   ├── scripts/ci/           ← the gate: run-local.sh, gate.sh, lease.sh, steps.sh
@@ -38,7 +38,7 @@ clauductor/
 ## Build, test, gate
 
 ```bash
-go -C framework build -o clauductor ./cmd/clauductor
+go -C framework build -o stridal ./cmd/stridal
 go -C framework test -short ./...              # seconds, while working
 scripts/ci/gate.sh                             # the full gate (steps: scripts/ci/steps.sh); a lane: -C <worktree>
 sh .claude/checks/run.sh                       # this repo's process checks
@@ -50,9 +50,9 @@ CI (`.github/workflows/test.yml`) runs gofmt, vet, `go test -race` and the proce
 for every PR, and on macOS and Ubuntu for every push to `main` (OPS-26, temporary until OPS-28;
 the local gate's short suite and scoped race run on the owner's Mac for a PR).
 
-After a template change, bring this repo's own copy along: `framework/clauductor update` from the
+After a template change, bring this repo's own copy along: `framework/stridal update` from the
 repo root, with the binary built from this checkout. It reads the template beside it, unless
-`CLAUDUCTOR_FRAMEWORK` is set, which wins (`resolve.go`); it prints which. Attribution and
+`STRIDAL_FRAMEWORK` is set, which wins (`resolve.go`); it prints which. Attribution and
 provenance are off in `.claude/model-roles.json` alone: build-change reads them at run time, so
 no framework file differs on purpose.
 

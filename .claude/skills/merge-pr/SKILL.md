@@ -190,11 +190,11 @@ worktree is never the root you ask about.
 
 ```bash
 main=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
-if cu=$(clauductor panel catch-up --project "$main" 2>/dev/null) && [ "$cu" = on ]; then echo on; else echo off; fi
+if cu=$(stridal panel catch-up --project "$main" 2>/dev/null) && [ "$cu" = on ]; then echo on; else echo off; fi
 ```
 
 Catch-up counts as on only when that command exits 0 and prints `on`. Anything else is off:
-`clauductor` not on PATH, an older one with no `panel catch-up`, or an error. Then take the one
+`stridal` not on PATH, an older one with no `panel catch-up`, or an error. Then take the one
 branch that applies:
 
 - **Catch-up on:** leave the main checkout to the panel, and do not pull it, even from the main
@@ -214,8 +214,8 @@ summary, or the `reportTo` message) ends with what the owner runs in the main ch
 nothing else runs it:
 - `git pull --ff-only`, unless step 5 pulled;
 - after a change to the panel's own source (`framework/`, in the repository the panel is built
-  from): `./install.sh`, then `clauductor panel install`;
-- after a change to `.clauductor/panel.json`: `clauductor panel trust`.
+  from): `./install.sh`, then `stridal panel install`;
+- after a change to `.stridal/panel.json`: `stridal panel trust`.
 
 With catch-up on, the report names none of them: the panel fast-forwards the checkout, trusts or
 holds the config, rebuilds itself, and sends a notice for whatever it could not do.

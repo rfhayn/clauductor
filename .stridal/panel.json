@@ -1,0 +1,102 @@
+{
+  "$schema": "https://raw.githubusercontent.com/rfhayn/stridal/main/docs/panel.schema.json",
+  "name": "Stridal",
+  "version": 6,
+  "lanes": {
+    "change/": "build",
+    "fix/": "fix",
+    "ops/": "ops",
+    "main": "orchestrator"
+  },
+  "lane_types": {
+    "build": { "model": "opus", "effort": "high" },
+    "fix": { "model": "opus", "effort": "high" },
+    "ops": { "model": "opus", "effort": "high" },
+    "orchestrator": { "model": "opus", "effort": "high" }
+  },
+  "tmux_socket": "stridal",
+  "worktree_dir": ".claude/worktrees",
+  "base": "origin/main",
+  "lanes_auto_close": "on_merge",
+  "launch": { "context_window": 200000, "claudeai_connectors": false },
+  "templates": [
+    {
+      "id": "build",
+      "title": "Build an approved change (its proposal is on main)",
+      "lane_type": "build",
+      "branch_pattern": "change/{name}",
+      "first_prompt": "/build-change {\"change\": \"{name}\"}",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "build"], "refresh": "interval:120" }
+    },
+    {
+      "id": "propose",
+      "title": "Propose the next roadmap row (a change to what a user can do; a one-sentence diff takes Fix or Ops instead)",
+      "lane_type": "build",
+      "branch_pattern": "change/{name}",
+      "first_prompt": "/propose {name}: its row of the change queue (sh .claude/roadmap-queue.sh --text). Put it in front of the owner for approval and stop there.",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "propose"], "refresh": "interval:120" }
+    },
+    {
+      "id": "fix",
+      "title": "Fix an issue (fast path: a diff that fits in one sentence needs no proposal)",
+      "lane_type": "fix",
+      "branch_pattern": "fix/{name}",
+      "first_prompt": "Run /session-start; as its row step run sh .claude/skills/session-start/marker.sh (no arguments: it finds this branch's row and its session). Fix GitHub issue {issue} on this branch. Start from the code as built, not the issue's write-up: find what it names in the code and check the premise first. This is the fast path, with no proposal: if the fix turns out to change what a user can do, or will not fit in one sentence, stop and say it needs /propose. Before the final gate, if this lane builds a roadmap row, write its fragment, docs/journal.d/<row id>.md (session-close, A row's close), and check it with sh .claude/checks/run.sh journal. Then gate with scripts/ci/gate.sh and land it with /merge-pr.",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "fix"], "refresh": "interval:300" }
+    },
+    {
+      "id": "ops",
+      "title": "Ops task (fast path: tooling, docs or process; no change proposal)",
+      "lane_type": "ops",
+      "branch_pattern": "ops/{name}",
+      "first_prompt": "Run /session-start; as its row step run sh .claude/skills/session-start/marker.sh (no arguments: it finds this branch's row and its session). This lane is the ops task {name}: tooling, docs or process, no change proposal. If a queued roadmap row's change id ends in /{name} (grep the roadmap, ROADMAP in .claude/project.conf), that row is the task: build it through merge, by what its row says. Otherwise say in one line that you are ready and wait for the task. Before the final gate, if this lane builds a roadmap row, write its fragment, docs/journal.d/<row id>.md (session-close, A row's close), and check it with sh .claude/checks/run.sh journal. Then gate with scripts/ci/gate.sh and land it with /merge-pr.",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "ops"], "refresh": "interval:120" }
+    },
+    {
+      "id": "close",
+      "title": "Close the day's session (every planned row has landed)",
+      "lane_type": "ops",
+      "branch_pattern": "ops/{name}",
+      "first_prompt": "/session-close This lane is the daily close {name}, on its own branch cut from origin/main. Fold the day's row fragments (sh .claude/skills/session-close/fold.sh with the session's number), then land the close PR with /merge-pr.",
+      "suggest": { "command": ["sh", ".claude/panel-suggest.sh", "close"], "refresh": "interval:300" }
+    }
+  ],
+  "queues": [
+    {
+      "id": "gate",
+      "title": "Full gate (scripts/ci/run-local.sh)",
+      "lock": "stridal/gate.lock",
+      "command": ["scripts/ci/run-local.sh"]
+    }
+  ],
+  "alerts": {
+    "idle_minutes": 20,
+    "context_pct": 80,
+    "five_hour_pct": 90,
+    "waiting_seconds": 120
+  },
+  "quota_guard": { "five_hour_pct": 95 },
+  "metrics": { "command": ["sh", "-c", "sh .claude/metrics.sh 2>&1"], "refresh": "interval:600" },
+  "cards": [
+    {
+      "id": "owner-queue",
+      "title": "Owner queue",
+      "command": ["sh", "-c", "sh .claude/owner-queue.sh 2>&1"],
+      "refresh": "watch:docs/owner-queue.md",
+      "pin": true
+    },
+    {
+      "id": "change-queue",
+      "title": "Change queue",
+      "command": ["sh", "-c", "sh .claude/roadmap-queue.sh --text 2>&1"],
+      "refresh": "watch:docs/roadmap.md",
+      "pin": true
+    },
+    {
+      "id": "health",
+      "title": "Health",
+      "command": ["sh", "-c", "sh .claude/extensions.sh health 2>&1"],
+      "refresh": "interval:600"
+    }
+  ]
+}

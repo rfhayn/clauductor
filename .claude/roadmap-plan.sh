@@ -1,7 +1,7 @@
 #!/bin/sh
 # roadmap-plan.sh: THE parser of the roadmap's optional `## Session plan` table, which orders the
 # queue's rows into working sessions. The panel's Up next (panel-suggest.sh) and a project's own
-# readers (Clauductor's roadmap tracker) call it, never a second copy of its grammar. The rows
+# readers (Stridal's roadmap tracker) call it, never a second copy of its grammar. The rows
 # themselves, and their states, come from roadmap_queue (lib/conf.sh): this script parses only the
 # plan's own table, whose header is not the queue header, so the queue parser skips it, and asks
 # roadmap_queue for each row's kind (a `(proposal)` belongs to a change row).

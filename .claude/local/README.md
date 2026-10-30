@@ -1,8 +1,8 @@
 # The local layer
 
-`.claude/local/` is this project's own extension of the operating model. **`clauductor install`
-and `clauductor update` never write a file here** (the doc tier: this README is created once, if
-missing), and the plugin's `/clauductor:init` only scaffolds it. Put here what is yours and would
+`.claude/local/` is this project's own extension of the operating model. **`stridal install`
+and `stridal update` never write a file here** (the doc tier: this README is created once, if
+missing), and the plugin's `/stridal:init` only scaffolds it. Put here what is yours and would
 otherwise be an edit to a framework file that the next update overwrites.
 
 It is always on. It offers the same points as a module (`.claude/modules/README.md`), and its parts

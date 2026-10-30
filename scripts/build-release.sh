@@ -1,5 +1,5 @@
 #!/bin/sh
-# build-release.sh [--out DIR] [TARGET...]: cross-compile clauductor for release, from any machine.
+# build-release.sh [--out DIR] [TARGET...]: cross-compile stridal for release, from any machine.
 #
 #   scripts/build-release.sh                       # the four release targets, into dist/
 #   scripts/build-release.sh linux/amd64           # just one
@@ -10,11 +10,11 @@
 # This script checks that claim for each binary (`go version -m`) instead of trusting it: a
 # dependency that brings cgo back fails the build here, not on a user's machine.
 #
-# Each target becomes dist/clauductor-<os>-<arch>.tar.gz holding the binary, the template (tracked
+# Each target becomes dist/stridal-<os>-<arch>.tar.gz holding the binary, the template (tracked
 # files only) beside it, where `install`, `init` and `update` find it ("shipped next to the
 # binary", framework/internal/template/resolve.go), the LICENSE, the README and the CHANGELOG when
 # there is one. Then dist/checksums.txt (SHA-256). The names carry no version, so a release's
-# `releases/latest/download/clauductor-<os>-<arch>.tar.gz` URL never changes. The version is the
+# `releases/latest/download/stridal-<os>-<arch>.tar.gz` URL never changes. The version is the
 # binary's own (Version in framework/internal/cmd/root.go), which the template's must match.
 #
 # The panel runs on macOS only (launchctl, osascript), but the CLI (install, update, init, diff,
@@ -50,14 +50,14 @@ trap 'rm -rf "$stage"' EXIT INT TERM
 
 for t in $targets; do
   os=${t%/*} arch=${t#*/}
-  name="clauductor-$os-$arch"
+  name="stridal-$os-$arch"
   dir="$stage/$name"
   mkdir -p "$dir"
   echo "build-release: $name (CGO_ENABLED=0)"
   (cd "$root/framework" && CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
-    go build -trimpath -ldflags "-s -w" -o "$dir/clauductor" ./cmd/clauductor)
+    go build -trimpath -ldflags "-s -w" -o "$dir/stridal" ./cmd/stridal)
   # The binary records its build settings: hold it to the claim above.
-  info=$(go version -m "$dir/clauductor")
+  info=$(go version -m "$dir/stridal")
   for want in "CGO_ENABLED=0" "GOOS=$os" "GOARCH=$arch"; do
     printf '%s\n' "$info" | grep -q "build[[:space:]]*$want\$" || {
       echo "build-release: $name was not built with $want:" >&2
@@ -75,7 +75,7 @@ done
 # Checksums over every archive in the output directory, so a partial run's set stays verifiable.
 (
   cd "$out"
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum clauductor-*.tar.gz
-  else shasum -a 256 clauductor-*.tar.gz; fi
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum stridal-*.tar.gz
+  else shasum -a 256 stridal-*.tar.gz; fi
 ) > "$out/checksums.txt"
 echo "build-release: $(wc -l < "$out/checksums.txt" | tr -d ' ') archive(s) in $out"

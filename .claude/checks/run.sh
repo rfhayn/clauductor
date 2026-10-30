@@ -18,17 +18,17 @@
 # (`local:<check>`), found by lib/modules.sh and run per their own #! line. Those source
 # "$CHECKS_LIB" (this directory's lib.sh) for the helpers.
 #
-# The whole set runs ONCE, inside the no-clauductor environment (ADR-0006): `clauductor` off PATH, a
-# fresh HOME with no panel, CI and CLAUDUCTOR_LOCK_HELD empty. So every check, the modules' and the
+# The whole set runs ONCE, inside the no-stridal environment (ADR-0006): `stridal` off PATH, a
+# fresh HOME with no panel, CI and STRIDAL_LOCK_HELD empty. So every check, the modules' and the
 # local layer's included, runs without the caller's HOME (the gh login, ssh keys and git signing
-# read from it) and without CI=true, and no-clauductor.sh asserts the environment instead of
+# read from it) and without CI=true, and no-stridal.sh asserts the environment instead of
 # running the set again. Every other variable passes through: GH_TOKEN, SSH_AUTH_SOCK,
 # GIT_CONFIG_GLOBAL and XDG_CONFIG_HOME still reach a check when the caller sets them. The run
 # `exec`s itself into the environment, so it stays one process in the caller's foreground: an INT
 # (Ctrl-C) or a TERM reaches it and its running check as before, stops the set, and removes the
 # environment. A signal sent to run.sh's pid alone takes effect once the running check ends.
 # Named runs are not wrapped: they run in the caller's environment, for working on one check.
-# CHECKS_DOUBLE_PASS=1 restores the old double pass: no wrap, and no-clauductor.sh re-runs this
+# CHECKS_DOUBLE_PASS=1 restores the old double pass: no wrap, and no-stridal.sh re-runs this
 # directory's checks inside the environment. Markers every check inherits: CHECKS_SET=whole on
 # every whole-set run, CHECKS_BARE (the environment's directory) inside it. A check that starts a
 # whole-set run of its own clears them first (lib.sh's `unmarked`).
@@ -38,16 +38,16 @@ ROOT=$(cd "$dir/../.." && pwd)
 CHECKS_LIB="$dir/lib.sh"
 export ROOT CHECKS_LIB
 # A module's or the local layer's check sources CHECKS_LIB, whose plugin-build copy finds the
-# model's libraries through CLAUDUCTOR_FW: pass it on when this runner has one.
-[ -z "${CLAUDUCTOR_FW:-}" ] || export CLAUDUCTOR_FW
+# model's libraries through STRIDAL_FW: pass it on when this runner has one.
+[ -z "${STRIDAL_FW:-}" ] || export STRIDAL_FW
 
-# The single pass (ADR-0006's 2026-10-18 amendment): a whole-set run builds the no-clauductor
+# The single pass (ADR-0006's 2026-10-18 amendment): a whole-set run builds the no-stridal
 # environment once (lib.sh's bare_env) in its scratch, and `exec`s itself inside it: one process,
 # so INT and TERM reach the running check (a background child would ignore INT, and a foreground
 # child would hold a TERM until the whole set ended). The `exec` drops lib.sh's traps, so the inner
 # run is told the directory (CHECKS_BARE_RM) and removes it on EXIT, INT and TERM. CHECKS_BARE is
-# the stop condition, and no-clauductor.sh checks the real state behind it. CHECKS_SET=whole tells
-# no-clauductor.sh it runs under a whole-set run.
+# the stop condition, and no-stridal.sh checks the real state behind it. CHECKS_SET=whole tells
+# no-stridal.sh it runs under a whole-set run.
 # run.sh sources lib.sh for its helpers only: lib.sh's CONTEXT_OFFLINE=1 is for the checks that
 # source it, so the caller's value (or its absence) is put back, and a check run by its own #! line
 # sees what it would see unwrapped.
@@ -61,7 +61,7 @@ whole=""
 if [ $# -eq 0 ]; then
   whole=1
   CHECKS_SET=whole; export CHECKS_SET
-  # wrap: start (no-clauductor.sh's fixture deletes from here to `wrap: end` to remove the wrap)
+  # wrap: start (no-stridal.sh's fixture deletes from here to `wrap: end` to remove the wrap)
   if [ "${CHECKS_DOUBLE_PASS:-}" != 1 ] && [ -z "${CHECKS_BARE:-}" ]; then
     use_lib
     # The exec window (OPS-121): a signal after the `exec` and before the inner run sets its traps
@@ -127,7 +127,7 @@ else
   names="$(cd "$dir" && ls ./*.sh | sed 's|^\./||; s|\.sh$||' | grep -vx 'run\|lib') $(printf '%s\n' "$ext" | cut -d' ' -f1)"
 fi
 # CHECKS_SKIP: the checks a whole-set run leaves out because another run covers them (a repository
-# that runs two check sets over one model, as clauductor's own gate does). Named runs ignore it.
+# that runs two check sets over one model, as stridal's own gate does). Named runs ignore it.
 # Read once and unset, so no check, and no fixture run a check starts, inherits it; every check it
 # left out is named below, before the verdict.
 skipped=""
@@ -174,8 +174,8 @@ if [ -n "$failed" ]; then
   echo "checks: FAILED:$failed (of $count run, in $ROOT)"
   exit 1
 fi
-# "without clauductor" only when this whole-set run is in the environment by its real state, never
+# "without stridal" only when this whole-set run is in the environment by its real state, never
 # by the marker alone.
 where=""
-[ -z "$whole" ] || [ -z "${CHECKS_BARE:-}" ] || ! bare_assert >/dev/null || where=", without clauductor"
+[ -z "$whole" ] || [ -z "${CHECKS_BARE:-}" ] || ! bare_assert >/dev/null || where=", without stridal"
 echo "checks: all $count passed (in $ROOT$where)"

@@ -136,7 +136,7 @@ sec=$(printf '%s\n' "$out" | awk 'done { next } index($0, "Remote branches with 
 case "$sec" in *"CANNOT CHECK"*) ok "session-start context: remote branches says CANNOT CHECK offline, never none" ;; *) fail "session-start remote branches offline: $sec" ;; esac
 # Without lib/context.sh the sections say so, and the script still reaches its last section. The
 # model's files are this project's .claude, or the plugin root when this check runs from the plugin.
-F="$d/full"; mkdir -p "$F"; cp -R "${CLAUDUCTOR_FW:-$ROOT/.claude}" "$F/.claude"; rm -f "$F/.claude/lib/context.sh"; new_repo "$F"
+F="$d/full"; mkdir -p "$F"; cp -R "${STRIDAL_FW:-$ROOT/.claude}" "$F/.claude"; rm -f "$F/.claude/lib/context.sh"; new_repo "$F"
 out=$(sh "$F/.claude/skills/session-close/context.sh" 2>&1)
 has "session-close context: lib/context.sh missing is CANNOT CHECK by name" "$out" "lib/context.sh is missing"
 has "session-close context: ...and the sections after it still print" "$out" "This session's cost"

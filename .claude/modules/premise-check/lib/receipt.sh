@@ -51,12 +51,12 @@ premise_receipt_missing() {
 
 # premise_command ROOT MODULE_DIR: the command a reader runs to produce a receipt, as they would
 # type it at ROOT. The module's own copy when it sits in the repository; the plugin's resolver when
-# the module comes from the clauductor plugin; else the script's full path.
+# the module comes from the stridal plugin; else the script's full path.
 premise_command() {
   case $2 in
     "$1"/*) printf 'sh %s/premise-check.sh\n' "${2#"$1"/}" ;;
-    *) if [ -f "$1/scripts/ci/clauductor-model.sh" ]; then
-         printf 'sh scripts/ci/clauductor-model.sh modules/premise-check/premise-check.sh\n'
+    *) if [ -f "$1/scripts/ci/stridal-model.sh" ]; then
+         printf 'sh scripts/ci/stridal-model.sh modules/premise-check/premise-check.sh\n'
        else printf 'sh %s/premise-check.sh\n' "$2"; fi ;;
   esac
 }

@@ -12,7 +12,7 @@
 # (the cap per case, default $EVAL_BUDGET_USD or 3), --out DIR (where the receipt goes, default
 # .claude/evals/receipts), --keep (keep each case's scratch repository and the raw output).
 #
-# HOW THE AGENT IS RUN: `claude -p`, not the Agent SDK. The CLI is what every Clauductor project
+# HOW THE AGENT IS RUN: `claude -p`, not the Agent SDK. The CLI is what every Stridal project
 # already has, it runs the agent with the same tools, skills and permission model as a real
 # review, and its JSON result carries the run's cost and usage. Per case:
 #   claude -p "<build-change's review prompt>" --agents <the agent, as JSON> --agent <name>

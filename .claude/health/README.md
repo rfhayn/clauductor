@@ -3,7 +3,7 @@
 `session-start` runs every `*.sh` in this directory and prints each one's output under its name.
 The directory is the list (nothing to register): add a script and it runs next session; delete it
 and it stops. After these come the enabled modules' `health/*.sh` and the project's own
-`.claude/local/health/*.sh` (which `clauductor update` never touches), all through
+`.claude/local/health/*.sh` (which `stridal update` never touches), all through
 `.claude/extensions.sh health`. Each runs under the interpreter its `#!` line names
 (`#!/usr/bin/env bash` runs under bash, never forced through `sh`, which is dash on Ubuntu); a file
 with no `#!` line runs under `sh`.
@@ -37,10 +37,10 @@ needs a named addressee*, `docs/principles.md`).
 | `scheduled-workflows.sh` | Each workflow whose `on:` has a `schedule:` (every spelling of `on:`): its last scheduled run's result, date, age and cron, `STALE` past 45 days (GitHub disables a schedule at 60), `STUCK` when queued for days. A failure says whether the run ever started (zero steps: a billing block, not a finding) and when the last clean run on the default branch was, drawing no conclusion from it. |
 | `push-main.sh` | Each workflow whose `on:` has `push`: its latest push run on `main`, its age and URL, and its subject: `OK` only when it ran on the current `origin/main`, `STALE` with the count of commits it does not cover otherwise. |
 | `flow.sh` | Flow and cost over the last 30 days, from `.claude/metrics.sh --line`: median cycle and lead time, merges per week, change-fail rate, approval wait, review rounds, spend per week, work in flight. A figure it cannot compute is "—", and the line says why. |
-| `quota.sh` | The account's quota, from the status line's reading (`~/.clauductor/quota-reading.json`): each window's use and reset on the owner's clock, and when it was saved. A window past its reset shows no number; no reading is `CANNOT CHECK`; `HIGH` when a seven-day window is at `QUOTA_LANE_STOP_PCT`, where `.claude/quota-gate.sh` stops a new build-change run; `FAILED` when that threshold is not a number. Its logic is `.claude/lib/quota.sh`'s. |
+| `quota.sh` | The account's quota, from the status line's reading (`~/.stridal/quota-reading.json`): each window's use and reset on the owner's clock, and when it was saved. A window past its reset shows no number; no reading is `CANNOT CHECK`; `HIGH` when a seven-day window is at `QUOTA_LANE_STOP_PCT`, where `.claude/quota-gate.sh` stops a new build-change run; `FAILED` when that threshold is not a number. Its logic is `.claude/lib/quota.sh`'s. |
 | `dependency-audit.sh` | The weekly dependency audit (`.github/workflows/dependency-audit.yml`): `ADVISORIES` when its last run found one of high severity, `STALE` past two weeks. |
 | `coauthor-trailers.sh` | While `attribution.enabled` in `.claude/model-roles.json` is not true: each commit on `origin/<main>` that carries a `Co-authored-by` trailer, by short sha and title (never the trailer), `FAILED`. It reads the commits after (not including) the one that added this line, or after `COAUTHOR_HEALTH_SINCE` in `.claude/project.conf`; with no `model-roles.json` it is `OK`, not checked, and with one that does not parse, `CANNOT CHECK`. Merge-guard rule 15 stops Claude Code's merges; this sees a merge made anywhere else (Cursor, the website) and a co-author line GitHub appends itself. Local git only. |
 
-The two GitHub ones and `coauthor-trailers.sh` are thin callers: their logic is `.claude/lib/health.sh`, which `clauductor
+The two GitHub ones and `coauthor-trailers.sh` are thin callers: their logic is `.claude/lib/health.sh`, which `stridal
 update` keeps current while this directory stays yours. Delete the two GitHub ones if you do not use Actions. Project-specific health (a dependency audit, a
 migration ledger, a backup's age) goes here as its own script.

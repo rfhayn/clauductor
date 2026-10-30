@@ -6,7 +6,7 @@
 # panel's Metrics view. A figure it cannot compute shows "—" and the line says why.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 if [ "${CONTEXT_OFFLINE:-}" = 1 ]; then echo "CANNOT CHECK — offline"; exit 0; fi
-# This checkout's metrics.sh, else the plugin's (CLAUDUCTOR_FW, exported by extensions.sh).
-m="$ROOT/.claude/metrics.sh"; [ -f "$m" ] || m="${CLAUDUCTOR_FW:-}/metrics.sh"
+# This checkout's metrics.sh, else the plugin's (STRIDAL_FW, exported by extensions.sh).
+m="$ROOT/.claude/metrics.sh"; [ -f "$m" ] || m="${STRIDAL_FW:-}/metrics.sh"
 [ -f "$m" ] || { echo "CANNOT CHECK — .claude/metrics.sh is missing"; exit 0; }
 sh "$m" --line --window 30d

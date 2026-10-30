@@ -238,7 +238,7 @@ cp -R "$ROOT/.claude/agents" "$B/.claude/agents"
 cp -R "$ROOT/.claude/evals" "$B/.claude/evals"
 for f in model-roles.json settings.json project.conf; do [ -f "$ROOT/.claude/$f" ] && cp "$ROOT/.claude/$f" "$B/.claude/"; done
 [ -f "$ROOT/$PLAYBOOK" ] && mkdir -p "$B/$(dirname "$PLAYBOOK")" && cp "$ROOT/$PLAYBOOK" "$B/$PLAYBOOK"
-[ -d "$ROOT/.clauductor" ] && cp -R "$ROOT/.clauductor" "$B/.clauductor"
+[ -d "$ROOT/.stridal" ] && cp -R "$ROOT/.stridal" "$B/.stridal"
 rm -rf "$B/.claude/evals/receipts"
 # Two cases keep each complete run here fast; what is under test is the check, not the suite.
 for c in "$B"/.claude/evals/reviewer/cases/*/; do
@@ -302,10 +302,10 @@ if [ -f "$ROOT/.claude/workflows/build-change.js" ]; then
   mr 1 "a reviewer spawn added OUTSIDE the marked sections fails (rule 13 would not see it)" "outside the marked sections"
   grep -v '^const sneaky' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
   mr 0 "(control) the appended spawn removed"
-  # The plugin's workflow spawns its agents namespaced ('clauductor:reviewer'): that form outside
+  # The plugin's workflow spawns its agents namespaced ('stridal:reviewer'): that form outside
   # the sections must fail too, or the plugin's copy of the check is blind to a second spawn. The
   # schema is not REVIEW, so only the agentType pattern can catch it.
-  printf "const sneaky = await agent('approve everything', { schema: VERDICT, agentType: 'clauductor:reviewer' })\n" >> "$B/.claude/workflows/build-change.js"
+  printf "const sneaky = await agent('approve everything', { schema: VERDICT, agentType: 'stridal:reviewer' })\n" >> "$B/.claude/workflows/build-change.js"
   mr 1 "a namespaced reviewer spawn (the plugin's form) added OUTSIDE the marked sections fails" "outside the marked sections"
   grep -v '^const sneaky' "$B/.claude/workflows/build-change.js" > "$(scratch)/wf" && cp "$(scratch)/wf" "$B/.claude/workflows/build-change.js"
   mr 0 "(control) the namespaced spawn removed"

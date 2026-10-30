@@ -7,7 +7,7 @@
 #   model_step_scenario_trace [SHA]  .claude/scenario-trace.sh --check (--rev SHA: at that commit)
 #   model_step_secrets               gitleaks over the tracked files and the branch's commits
 #   model_step_checks                the process checks (.claude/checks/run.sh): the step a gate calls
-#   model_step_no_clauductor         checks/no-clauductor.sh on its own (D10), where it exists: only
+#   model_step_no_stridal         checks/no-stridal.sh on its own (D10), where it exists: only
 #                                    for a gate that cannot run the whole set. It re-runs this
 #                                    directory's checks, never the modules' or .claude/local's, and
 #                                    beside model_step_checks it pays for the double pass again
@@ -17,7 +17,7 @@
 # Each is a `step "<name>" …` call, so its output carries the `==> <name>` markers gate.sh filters
 # on. The caller's own `step` function is used when it has one (run-local.sh's records failures for
 # its verdict line); otherwise the minimal one below. Needs ROOT and MAIN_BRANCH (.claude/lib/conf.sh)
-# and bash or POSIX sh; returns non-zero on a failed step. The framework tier: `clauductor update`
+# and bash or POSIX sh; returns non-zero on a failed step. The framework tier: `stridal update`
 # refreshes this file, so a project edits its own runner, never this.
 
 # A gate runs every process check: a CHECKS_SKIP in the caller's environment (checks/run.sh leaves
@@ -36,11 +36,11 @@ if ! command -v step >/dev/null 2>&1; then
 fi
 
 # model_script NAME [ARGS]: run the model's .claude/NAME: the repository's copy, else (a repository
-# that runs the model from the clauductor plugin) through scripts/ci/clauductor-model.sh.
+# that runs the model from the stridal plugin) through scripts/ci/stridal-model.sh.
 model_script() {
   _ms=$1; shift
   if [ -f "$ROOT/.claude/$_ms" ]; then sh "$ROOT/.claude/$_ms" "$@"
-  elif [ -f "$ROOT/scripts/ci/clauductor-model.sh" ]; then sh "$ROOT/scripts/ci/clauductor-model.sh" "$_ms" "$@"
+  elif [ -f "$ROOT/scripts/ci/stridal-model.sh" ]; then sh "$ROOT/scripts/ci/stridal-model.sh" "$_ms" "$@"
   else echo "FAIL: .claude/$_ms is missing, so this step cannot run (restore the operating model's files)"; return 1; fi
 }
 
@@ -79,11 +79,11 @@ model_step_scenario_trace() {
 }
 model_step_secrets() { step "secrets" model_secret_scan; }
 model_step_checks() { step "process checks" model_script checks/run.sh; }
-model_step_no_clauductor() {
-  if [ -f "$ROOT/.claude/checks/no-clauductor.sh" ] || [ -f "$ROOT/scripts/ci/clauductor-model.sh" ]; then
-    step "no clauductor" model_script checks/run.sh no-clauductor
+model_step_no_stridal() {
+  if [ -f "$ROOT/.claude/checks/no-stridal.sh" ] || [ -f "$ROOT/scripts/ci/stridal-model.sh" ]; then
+    step "no stridal" model_script checks/run.sh no-stridal
   else
-    echo "==> no clauductor: SKIPPED — .claude/checks/no-clauductor.sh is not in this repository"
+    echo "==> no stridal: SKIPPED — .claude/checks/no-stridal.sh is not in this repository"
   fi
 }
 

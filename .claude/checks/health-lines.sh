@@ -404,19 +404,19 @@ all=$( { SW GH_FAIL=1; SW GH_SCHED="$F0"; PM GH_PUSH="$(pushrun success complete
 bad=$(printf '%s\n' "$all" | grep -vE '^(OK|FAILED|STALE|STUCK|RUNNING|NEVER RAN|CANNOT CHECK —) ')
 [ -z "$bad" ] && ok "every health line starts with its verdict (.claude/health/README.md)" || fail "lines without a verdict: $bad"
 # A plugin project: its health lines are its own files, but lib/health.sh is the plugin's. The
-# runner exports the plugin root (CLAUDUCTOR_FW), and the line finds the library there.
+# runner exports the plugin root (STRIDAL_FW), and the line finds the library there.
 mkdir -p "$d/fw/lib"; mv "$R/.claude/lib/health.sh" "$d/fw/lib/health.sh"
-has "a health line with no lib/health.sh in its checkout, and no plugin, says so by name" "$(cd "$R" && CONTEXT_OFFLINE=1 CLAUDUCTOR_FW= sh .claude/health/push-main.sh)" "lib/health.sh is missing"
-has "a health line finds the plugin's lib/health.sh through CLAUDUCTOR_FW" "$(cd "$R" && CONTEXT_OFFLINE=1 CLAUDUCTOR_FW="$d/fw" sh .claude/health/scheduled-workflows.sh)" "CANNOT CHECK — offline"
+has "a health line with no lib/health.sh in its checkout, and no plugin, says so by name" "$(cd "$R" && CONTEXT_OFFLINE=1 STRIDAL_FW= sh .claude/health/push-main.sh)" "lib/health.sh is missing"
+has "a health line finds the plugin's lib/health.sh through STRIDAL_FW" "$(cd "$R" && CONTEXT_OFFLINE=1 STRIDAL_FW="$d/fw" sh .claude/health/scheduled-workflows.sh)" "CANNOT CHECK — offline"
 mv "$d/fw/lib/health.sh" "$R/.claude/lib/health.sh"
-# ...and the runner hands CLAUDUCTOR_FW on. The plugin's copy sets it, NOT exported, in a prologue;
+# ...and the runner hands STRIDAL_FW on. The plugin's copy sets it, NOT exported, in a prologue;
 # that is simulated here by an unexported assignment just before the export line (so it is the
 # export line, and nothing in the caller's environment, that can make it reach the health line).
-printf '#!/bin/sh\necho "OK fw=${CLAUDUCTOR_FW:-unset}"\n' > "$R/.claude/health/zz-fw.sh"
-awk -v fw="$d/fw" 'index($0, "|| export CLAUDUCTOR_FW") { print "CLAUDUCTOR_FW=" fw } { print }' "$R/.claude/extensions.sh" > "$R/.claude/extensions-fw.sh"
-out=$(cd "$R" && CONTEXT_OFFLINE=1 CLAUDUCTOR_FW= sh .claude/extensions-fw.sh health | grep -A1 'Health: zz-fw')
+printf '#!/bin/sh\necho "OK fw=${STRIDAL_FW:-unset}"\n' > "$R/.claude/health/zz-fw.sh"
+awk -v fw="$d/fw" 'index($0, "|| export STRIDAL_FW") { print "STRIDAL_FW=" fw } { print }' "$R/.claude/extensions.sh" > "$R/.claude/extensions-fw.sh"
+out=$(cd "$R" && CONTEXT_OFFLINE=1 STRIDAL_FW= sh .claude/extensions-fw.sh health | grep -A1 'Health: zz-fw')
 rm -f "$R/.claude/extensions-fw.sh"
-case "$out" in *"OK fw=unset"*|"") fail "extensions.sh does not export CLAUDUCTOR_FW to a health line: $out" ;; *"OK fw="*) ok "extensions.sh exports CLAUDUCTOR_FW to the health lines it runs" ;; esac
+case "$out" in *"OK fw=unset"*|"") fail "extensions.sh does not export STRIDAL_FW to a health line: $out" ;; *"OK fw="*) ok "extensions.sh exports STRIDAL_FW to the health lines it runs" ;; esac
 rm -f "$R/.claude/health/zz-fw.sh"
 printf '#!/bin/sh\necho "CANNOT CHECK — said on stderr" >&2\n' > "$R/.claude/health/zz-stderr.sh"
 has "the runner (extensions.sh health) merges a health line's stderr, so a CANNOT CHECK there is read" \

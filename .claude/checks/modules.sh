@@ -9,7 +9,7 @@
 #   - a section that fails or prints nothing says CANNOT CHECK, never nothing;
 #   - a failing module check fails checks/run.sh (so the run is not a silently shorter list).
 #   Those whole-set runs clear the CHECKS_* markers (lib.sh's unmarked), so each wraps itself in the
-#   no-clauductor environment as a real one does, never inheriting the run this check is inside.
+#   no-stridal environment as a real one does, never inheriting the run this check is inside.
 # Then this project's own modules: each shipped or vendored module's module.conf names its
 # directory, declares exactly the parts it has, and each script part parses under its #! line;
 # every module MODULES enables loads. The guard.d point is held by checks/merge-guard.sh.
@@ -45,9 +45,9 @@ printf 'name="needy"\nrequires="demo"\nenables=""\n' > "$R/.claude/modules/needy
 
 conf() { printf '%s\n' "$@" > "$R/.claude/project.conf"; }
 ext() { (cd "$R" && sh .claude/extensions.sh "$@") 2>&1; }
-# inr SCRIPT: sh code run in the project with its config read. CLAUDUCTOR_FW names its .claude/ too:
+# inr SCRIPT: sh code run in the project with its config read. STRIDAL_FW names its .claude/ too:
 # the plugin build's copy of conf.sh finds its sibling libraries through it.
-inr() { (cd "$R" && ROOT="$R" CLAUDUCTOR_FW="$R/.claude" sh -c ". .claude/lib/conf.sh; $1") 2>&1; }
+inr() { (cd "$R" && ROOT="$R" STRIDAL_FW="$R/.claude" sh -c ". .claude/lib/conf.sh; $1") 2>&1; }
 has() {  # has WANT(yes|no) TEXT HAYSTACK LABEL
   case "$3" in *"$2"*) got=yes ;; *) got=no ;; esac
   [ "$got" = "$1" ] && ok "$4" || fail "$4 (looked for '$2'): $(printf '%s' "$3" | head -c 400)"
@@ -170,7 +170,7 @@ door=.claude/roadmap-queue
 printf '#!/bin/sh\ncat >/dev/null\nsh %s.sh --tsv > "$ROOT/inner.out" 2>&1\nexit 0\n' "$door" > "$R/.claude/local/roadmap.d/reads-queue.sh"
 sed -i.bak 's/Mallory/Ana/' "$R/docs/roadmap.md" && rm -f "$R/docs/roadmap.md.bak"
 . "$ROOT/.claude/lib/modules.sh"
-v=$(cd "$R" && ROOT="$R" CLAUDUCTOR_FW="$R/.claude" with_timeout 60 sh -c '. .claude/lib/conf.sh; roadmap_queue --check' 2>&1; echo "rc=$?")
+v=$(cd "$R" && ROOT="$R" STRIDAL_FW="$R/.claude" with_timeout 60 sh -c '. .claude/lib/conf.sh; roadmap_queue --check' 2>&1; echo "rc=$?")
 has yes "rc=0" "$v" "roadmap.d: a rule that reads the queue does not recurse (the outer read finishes)"
 has yes "a rule reads its rows on stdin, never the queue" "$(cat "$R/inner.out" 2>/dev/null)" "roadmap.d: ...its own read of the queue is refused by name"
 rm -rf "$R/.claude/local/roadmap.d" "$R/inner.out"

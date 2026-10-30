@@ -2,9 +2,9 @@
 # readers (OPS-167): .claude/health/quota.sh, session start's health line (quota_health), and
 # .claude/quota-gate.sh, the guard build-change's preflight stops on (quota_stop_pct, quota_over). ONE file
 # per machine, written on every status-line refresh that carries `rate_limits`, with or without the
-# panel, so nothing needs the clauductor binary or the panel to read it (ADR-0006). Needs jq.
+# panel, so nothing needs the stridal binary or the panel to read it (ADR-0006). Needs jq.
 #
-# THE FILE: ~/.clauductor/quota-reading.json, mode 0600, beside the panel's directory. Its fields are
+# THE FILE: ~/.stridal/quota-reading.json, mode 0600, beside the panel's directory. Its fields are
 # a subset of the panel's (framework/internal/panel/state/quota.go, `state.Quota`), in its units:
 #   {"windows":[{"key":"five_hour","pct":12.5,"resetsAt":1790644200}, ...], "at":1790630000000}
 # `key` is the status line's own (`five_hour`, `seven_day`, `seven_day_opus`, or any a plan adds),
@@ -43,7 +43,7 @@
 # QUOTA_NOW             the clock the reader uses, in unix seconds (default: now), for a caller's test
 
 quota_file() {
-  printf '%s' "$HOME/.clauductor/quota-reading.json"
+  printf '%s' "$HOME/.stridal/quota-reading.json"
 }
 
 # The windows are kept as the panel's signals.RateLimits keeps them: a key of at most 64 word
@@ -168,8 +168,8 @@ quota_health() {
     return 0
   fi
   command -v jq >/dev/null 2>&1 || { echo "CANNOT CHECK — jq is not installed, so the quota reading cannot be read; the quota is UNKNOWN"; return 0; }
-  [ -f "$(quota_file)" ] || { echo "CANNOT CHECK — no quota reading at ~/.clauductor/quota-reading.json (the status line saves one on each refresh that carries rate_limits); the quota is UNKNOWN, not low"; return 0; }
-  _qh=$(quota_read) || { echo "CANNOT CHECK — ~/.clauductor/quota-reading.json cannot be read (not the shape lib/quota.sh writes); the quota is UNKNOWN"; return 0; }
+  [ -f "$(quota_file)" ] || { echo "CANNOT CHECK — no quota reading at ~/.stridal/quota-reading.json (the status line saves one on each refresh that carries rate_limits); the quota is UNKNOWN, not low"; return 0; }
+  _qh=$(quota_read) || { echo "CANNOT CHECK — ~/.stridal/quota-reading.json cannot be read (not the shape lib/quota.sh writes); the quota is UNKNOWN"; return 0; }
   _qh_tab=$(printf '\t') _qh_parts="" _qh_cur=""
   while IFS="$_qh_tab" read -r _qh_k _qh_p _qh_r; do
     [ -n "$_qh_k" ] || continue

@@ -7,7 +7,7 @@
 # is optional), matched on whole path segments anywhere in a path, so `.claude/hooks` covers
 # `template/.claude/hooks/x.sh`.
 #
-# This file is the framework's list: `clauductor update` keeps it current, so add nothing here.
+# This file is the framework's list: `stridal update` keeps it current, so add nothing here.
 # Your own paths go in .claude/local/approval-guarded.txt, the same format. The key and both lists
 # are read from origin/<MAIN_BRANCH>, never from the branch under test, so a branch cannot loosen
 # them for itself (a repository with no remote reads the disk). An empty list refuses every

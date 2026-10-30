@@ -1,5 +1,5 @@
 # health.sh: sourced (never run) by the model's health lines in .claude/health/. The logic
-# lives here, in a framework file that `clauductor update` refreshes, and each health line is a
+# lives here, in a framework file that `stridal update` refreshes, and each health line is a
 # thin caller: .claude/health/ is project-owned (created once, never overwritten), so logic kept
 # there would never receive a fix. POSIX sh, git, jq and awk only.
 #

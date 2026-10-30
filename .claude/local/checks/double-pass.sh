@@ -1,15 +1,15 @@
 #!/bin/sh
 # The weekly double pass exists, keeps its parts, and cannot pass when a set fails (OPS-93, D5).
-# Every gate runs the process checks once, inside the no-clauductor environment (ADR-0006, amended
-# 2026-10-18); the case that gives up, a check that fails only WITH clauductor on PATH, is found by
+# Every gate runs the process checks once, inside the no-stridal environment (ADR-0006, amended
+# 2026-10-18); the case that gives up, a check that fails only WITH stridal on PATH, is found by
 # .github/workflows/checks-double-pass.yml alone. This repo's own layer holds it, since the workflow
-# is this repo's (O5) and `clauductor update` never touches .claude/local/. It fails when:
+# is this repo's (O5) and `stridal update` never touches .claude/local/. It fails when:
 #   - the workflow is missing, or its `on:` has no `schedule:` with a cron (lib/health.sh's own
 #     reading, the one scheduled-workflows.sh reports from);
 #   - it has more than one job: `$GITHUB_PATH` is per job, so a set run in a second job would run
 #     without the binary;
-#   - it does not build clauductor (`go build -o …/clauductor ./cmd/clauductor`), add it to
-#     `$GITHUB_PATH`, and then, in a later step, `run: command -v clauductor`, all before the first
+#   - it does not build stridal (`go build -o …/stridal ./cmd/stridal`), add it to
+#     `$GITHUB_PATH`, and then, in a later step, `run: command -v stridal`, all before the first
 #     set runs (that step fails the job if the directory added is not the one built into);
 #   - it never runs a set (this repo's `.claude/checks/run.sh`, the template's), or runs one in any
 #     form but the strict one below;
@@ -77,17 +77,17 @@ problems() {
     if [ -n "$n" ] && { [ -z "$first" ] || [ "$n" -lt "$first" ]; }; then first=$n; fi
   done
   shape_problems "$1"
-  b=$(first_line "$1" 'go build .*-o [^ ]*/clauductor"? .*[.]/cmd/clauductor')
+  b=$(first_line "$1" 'go build .*-o [^ ]*/stridal"? .*[.]/cmd/stridal')
   p=$(first_line "$1" '>> *"?[$]GITHUB_PATH')
-  c=$(first_line "$1" '^[[:space:]]*(-[[:space:]]+)?run:[[:space:]]*command -v clauductor[[:space:]]*$')
-  [ -n "$b" ] || echo "does not build clauductor (go build -o …/clauductor ./cmd/clauductor)"
-  [ -n "$p" ] || echo "does not put the built clauductor on PATH (>> \$GITHUB_PATH)"
-  [ -n "$c" ] || echo "never checks that clauductor resolves (a step whose run: is command -v clauductor)"
+  c=$(first_line "$1" '^[[:space:]]*(-[[:space:]]+)?run:[[:space:]]*command -v stridal[[:space:]]*$')
+  [ -n "$b" ] || echo "does not build stridal (go build -o …/stridal ./cmd/stridal)"
+  [ -n "$p" ] || echo "does not put the built stridal on PATH (>> \$GITHUB_PATH)"
+  [ -n "$c" ] || echo "never checks that stridal resolves (a step whose run: is command -v stridal)"
   if [ -n "$first" ] && [ -n "$b" ] && [ -n "$p" ] && { [ "$b" -gt "$first" ] || [ "$p" -gt "$first" ]; }; then
-    echo "builds clauductor or puts it on PATH after the first set runs"
+    echo "builds stridal or puts it on PATH after the first set runs"
   fi
   if [ -n "$first" ] && [ -n "$p" ] && [ -n "$c" ] && { [ "$c" -gt "$first" ] || [ "$c" -lt "$p" ]; }; then
-    echo "checks command -v clauductor after the first set runs, or before PATH has it"
+    echo "checks command -v stridal after the first set runs, or before PATH has it"
   fi
 }
 
@@ -145,7 +145,7 @@ shape_problems() {
       if (bad_if($0)) print "an if: other than ${{ !cancelled() }} or always() can skip the job (line " NR ")"
       if (k == "steps") { insteps = 1; itind = -1 }
     }
-    END { endstep(); if (jobs != 1) print "has " jobs + 0 " jobs: GITHUB_PATH is per job, so every set must run in the one job that builds clauductor" }
+    END { endstep(); if (jobs != 1) print "has " jobs + 0 " jobs: GITHUB_PATH is per job, so every set must run in the one job that builds stridal" }
   ' "$1"
 }
 
@@ -153,7 +153,7 @@ shape_problems() {
 # finds, so a workflow it cannot see would have no reader.
 out=$(problems "$WF")
 if [ -z "$out" ]; then
-  ok "checks-double-pass.yml runs both sets weekly in one job, CHECKS_DOUBLE_PASS=1, each its step's entire command, after a built clauductor is on PATH and resolves"
+  ok "checks-double-pass.yml runs both sets weekly in one job, CHECKS_DOUBLE_PASS=1, each its step's entire command, after a built stridal is on PATH and resolves"
 else
   printf '%s\n' "$out" | while IFS= read -r line; do echo "FAIL checks-double-pass.yml: $line"; done
   fail "checks-double-pass.yml is not the weekly double pass"
@@ -191,9 +191,9 @@ derive no-double.yml 's/CHECKS_DOUBLE_PASS=1 //'
 fx no-double.yml "runs .claude/checks/run.sh without CHECKS_DOUBLE_PASS=1" "that runs this repo's set without CHECKS_DOUBLE_PASS=1"
 fx no-double.yml "runs template/.claude/checks/run.sh without CHECKS_DOUBLE_PASS=1" "that runs the template's set without CHECKS_DOUBLE_PASS=1"
 derive no-build.yml '/go build /d'
-fx no-build.yml "does not build clauductor" "that never builds clauductor"
+fx no-build.yml "does not build stridal" "that never builds stridal"
 derive no-path.yml '/GITHUB_PATH/d'
-fx no-path.yml "does not put the built clauductor on PATH" "that never puts it on PATH"
+fx no-path.yml "does not put the built stridal on PATH" "that never puts it on PATH"
 move_last() { # move_last NAME STEP [HEADER]: the step named STEP (its `- name:` to the next one) moved to the end, after HEADER lines
   N="- name: $2" H="${3:-}" awk 'index($0, ENVIRON["N"]) { hold = 1; moved = "" }
      hold && /- name:/ && !index($0, ENVIRON["N"]) { hold = 0 }
@@ -201,12 +201,12 @@ move_last() { # move_last NAME STEP [HEADER]: the step named STEP (its `- name:`
      END { if (ENVIRON["H"] != "") print ENVIRON["H"]; printf "%s", moved }' "$WF" > "$D/$1"
   changed "$1"
 }
-move_last late.yml "Build clauductor onto PATH"
-fx late.yml "after the first set runs" "that builds clauductor after the run"
-derive no-cmdv.yml '/run: command -v clauductor/d'
-fx no-cmdv.yml "never checks that clauductor resolves" "that never runs command -v clauductor"
-move_last cmdv-late.yml "clauductor is on PATH"
-fx cmdv-late.yml "checks command -v clauductor after the first set runs" "that checks command -v clauductor after the sets"
+move_last late.yml "Build stridal onto PATH"
+fx late.yml "after the first set runs" "that builds stridal after the run"
+derive no-cmdv.yml '/run: command -v stridal/d'
+fx no-cmdv.yml "never checks that stridal resolves" "that never runs command -v stridal"
+move_last cmdv-late.yml "stridal is on PATH"
+fx cmdv-late.yml "checks command -v stridal after the first set runs" "that checks command -v stridal after the sets"
 # The template's set moved into a second job of its own, with no build: GITHUB_PATH is per job.
 move_last two-jobs.yml "The double pass, the template's set" "  template-set:
     runs-on: ubuntu-latest

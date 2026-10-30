@@ -355,7 +355,7 @@ bypass() {
   find "$1" \( -name '*.sh' -o -name '*.js' \) -type f | sort | while read -r f; do
     case $f in
       */lib/conf.sh|*/roadmap-queue.sh|*/checks/roadmap.sh|*/checks/panel-contract.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
-      # Clauductor's roadmap tracker (OPS-83): it reads only the roadmap's `## Session plan`
+      # Stridal's roadmap tracker (OPS-83): it reads only the roadmap's `## Session plan`
       # section, which is not a queue table; its rows come from roadmap_queue.
       */local/roadmap-tracker.sh) echo "${f#"$1"/}" >> "${2:-/dev/null}"; continue ;;
       # ...and its check, which finds that section's line range and greps for a committed address.
@@ -371,8 +371,8 @@ bypass() {
     # call is allowed (OPS-126): the first such call on each line is cut before the scan, so a raw
     # queue read added to the marker, even on that same line, is still flagged.
     strip='s/^$//'
-    # The plugin's build spells the call "$CLAUDUCTOR_FW/roadmap-plan.sh"; both forms are cut.
-    case $f in */skills/session-start/marker.sh) strip='s#sh "\$(ROOT/\.claude|CLAUDUCTOR_FW)/roadmap-plan\.sh" "\$ROOT/\$ROADMAP"##' ;; esac
+    # The plugin's build spells the call "$STRIDAL_FW/roadmap-plan.sh"; both forms are cut.
+    case $f in */skills/session-start/marker.sh) strip='s#sh "\$(ROOT/\.claude|STRIDAL_FW)/roadmap-plan\.sh" "\$ROOT/\$ROADMAP"##' ;; esac
     # OPS-131: change-approval.sh copies main's roadmap to a file for roadmap_queue, and reads its
     # row from the line roadmap_queue names, as review-cap.sh does. Only that copy is cut.
     case $f in "$1"/change-approval.sh) strip='s#authority "\$ROOT/\$ROADMAP" > "\$rmf"##' ;; esac

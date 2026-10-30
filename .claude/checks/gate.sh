@@ -3,7 +3,7 @@
 # `<sha> full clean all`; a dirty tree's pass writes `dirty`; a --quick run neither writes nor
 # deletes; a failed full run deletes. It holds the lease while the steps run and releases it after.
 # gate.sh keeps its exit code and prints the markers and the log path. Runs in a throwaway repo,
-# through lease.sh: clauductor is removed from PATH, so the check never starts the real binary.
+# through lease.sh: stridal is removed from PATH, so the check never starts the real binary.
 # The operating model's own steps run in every gate: the scenario trace fails the gate on an uncited
 # scenario, and the secret scan fails it on a finding, SKIPS (saying so) without gitleaks, and fails
 # without gitleaks under CI. gitleaks here is a stub, so the check never depends on the real one.
@@ -33,9 +33,9 @@ for a in "$@"; do last=$a; done
 exit 0
 EOF
 chmod +x "$d/bin/gitleaks"
-# PATH without any directory holding a clauductor or a gitleaks binary; the stub goes first.
+# PATH without any directory holding a stridal or a gitleaks binary; the stub goes first.
 np=""; IFS_OLD=$IFS; IFS=:
-for p in $PATH; do [ -x "$p/clauductor" ] || [ -x "$p/gitleaks" ] && continue; np="$np${np:+:}$p"; done
+for p in $PATH; do [ -x "$p/stridal" ] || [ -x "$p/gitleaks" ] && continue; np="$np${np:+:}$p"; done
 IFS=$IFS_OLD
 uncited() {  # uncited REPO: commit a living spec whose one scenario no test cites
   mkdir -p "$1/specs/cap"
@@ -76,7 +76,7 @@ EOF
   expect_rc 1 "$rc" "...and a secret fails it at the secrets step"
 fi
 
-# ── The lease conformance kit (P1.12): shipped as clauductor tests it ────────────────────
+# ── The lease conformance kit (P1.12): shipped as stridal tests it ────────────────────
 KIT="$ROOT/$RUN_DIR/lease-conformance"; [ -f "$KIT/run.sh" ] || KIT="$ROOT/scripts/ci/lease-conformance"
 if [ ! -f "$KIT/run.sh" ]; then
   fail "the lease conformance kit is missing ($RUN_DIR/lease-conformance or scripts/ci/lease-conformance)"
@@ -114,9 +114,9 @@ cat > "$R/$STEPS_REL" <<'EOF'
 gate_steps() {
   # A full or docs run holds the lease; a --quick run takes none (OPS-103).
   if [ "$1" = quick ]; then
-    step "no lease" sh -c '[ -z "${CLAUDUCTOR_LOCK_HELD:-}" ]' || return 1
+    step "no lease" sh -c '[ -z "${STRIDAL_LOCK_HELD:-}" ]' || return 1
   else
-    step "lease held" sh -c '[ -n "$CLAUDUCTOR_LOCK_HELD" ] && [ -d "$CLAUDUCTOR_LOCK_HELD" ]' || return 1
+    step "lease held" sh -c '[ -n "$STRIDAL_LOCK_HELD" ] && [ -d "$STRIDAL_LOCK_HELD" ]' || return 1
   fi
   # Holds the run while local/HOLD (ignored, so the tree under test does not change) exists.
   step "hold" sh -c 'while [ -f local/HOLD ]; do sleep 1; done' || return 1
@@ -126,8 +126,8 @@ gate_steps() {
   if [ -f LOCK_CLEANUP ]; then mkdir -p locked/x && touch locked/x/f && chmod 555 locked/x; fi
   # Takes the lease away mid-run (another holder's nonce), as a reclaim by mistake would.
   if [ -f STEAL_LEASE ]; then
-    sed 's/"nonce":"[0-9a-f]*"/"nonce":"0123456789abcdef"/' "$CLAUDUCTOR_LOCK_HELD/owner.json" > "$CLAUDUCTOR_LOCK_HELD/x"
-    mv "$CLAUDUCTOR_LOCK_HELD/x" "$CLAUDUCTOR_LOCK_HELD/owner.json"
+    sed 's/"nonce":"[0-9a-f]*"/"nonce":"0123456789abcdef"/' "$STRIDAL_LOCK_HELD/owner.json" > "$STRIDAL_LOCK_HELD/x"
+    mv "$STRIDAL_LOCK_HELD/x" "$STRIDAL_LOCK_HELD/owner.json"
   fi
   [ "$1" = full ] || return 0
   step "slow" sh -c '[ ! -f FAIL_SLOW ]' || return 1
@@ -137,14 +137,14 @@ printf 'FAIL_UNIT\nFAIL_SLOW\nSTEAL_LEASE\nlocal/\n' > "$R/.gitignore"
 git -C "$R" add -A && git -C "$R" commit -qm init
 SHA=$(git -C "$R" rev-parse HEAD)
 REC="$R/.git/ci-receipt"
-LOCK="$R/.git/clauductor/gate.lock"
-run() { (cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check bash "$RUN_REL" "$@") >"$d/out" 2>&1; }
+LOCK="$R/.git/stridal/gate.lock"
+run() { (cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check bash "$RUN_REL" "$@") >"$d/out" 2>&1; }
 
 run; rc=$?
 expect_rc 0 "$rc" "a full clean run passes (steps saw the lease held)"
 [ "$(cat "$REC" 2>/dev/null)" = "$(printf '%s\tfull\tclean\tall' "$SHA")" ] && ok "it wrote '<sha> full clean all'" || fail "receipt after a clean run: $(cat "$REC" 2>/dev/null || echo none)"
 [ ! -e "$LOCK" ] && ok "the lease is released after the run" || fail "the lease directory is left behind: $LOCK"
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CHECKS_SKIP="gate hooks" bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check CHECKS_SKIP="gate hooks" bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
 expect_rc 0 "$rc" "a CHECKS_SKIP in the caller's environment never reaches the gate's steps (no check is left out)"
 
 touch "$R/FAIL_SLOW"; run --quick; rc=$?
@@ -176,7 +176,7 @@ mkdir -p "$R/local"; printf 'secret\n' > "$R/local/FAIL_SECRET"
 run; rc=$?
 expect_rc 0 "$rc" "a secret in an IGNORED file (a local .env) does not fail the gate: only tracked files are scanned"
 rm -rf "$R/local"
-nogl() { (cd "$R" && PATH="$np" CI="$1" CLAUDUCTOR_LANE=check bash "$RUN_REL") >"$d/out" 2>&1; }
+nogl() { (cd "$R" && PATH="$np" CI="$1" STRIDAL_LANE=check bash "$RUN_REL") >"$d/out" 2>&1; }
 nogl ""; rc=$?
 expect_rc 0 "$rc" "without gitleaks, locally, the gate passes"
 grep -q 'secrets: SKIPPED — gitleaks is not installed' "$d/out" && ok "...and says the secret scan was SKIPPED, and why" || fail "no SKIPPED line: $(grep secrets "$d/out")"
@@ -193,7 +193,7 @@ git -C "$R" rm -rq specs && git -C "$R" commit -qm "no spec"
 run; SHA=$(git -C "$R" rev-parse HEAD)
 
 if [ -n "$WRAP" ]; then
-  out=$(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check bash "$WRAP_REL" --quick 2>&1); rc=$?
+  out=$(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check bash "$WRAP_REL" --quick 2>&1); rc=$?
   expect_rc 0 "$rc" "gate.sh keeps run-local's exit code"
   case "$out" in *"==> unit"*"full log"*) ok "gate.sh prints the step markers and the log path" ;; *) fail "gate.sh output: $out" ;; esac
   touch "$R/FAIL_UNIT"
@@ -264,7 +264,7 @@ if [ -n "$WRAP" ] && [ -f "$R/$RUN_DIR/gate-wait.sh" ]; then
   { head -n 1 "$R/$WRAP_REL"; echo "echo 'wrapper: the lane copy'"; tail -n +2 "$R/$WRAP_REL"; } > "$W/$WRAP_REL"
   run --quick; rc=$?
   expect_rc 0 "$rc" "fixture: the main checkout's own quick gate passes"
-  out=$(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check bash "$WRAP_REL" -C "$W" --quick 2>&1); rc=$?
+  out=$(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check bash "$WRAP_REL" -C "$W" --quick 2>&1); rc=$?
   expect_rc 1 "$rc" "gate.sh -C <worktree>, run from the main checkout, gives the worktree's verdict (its unit step fails), not the caller's"
   case "$out" in *"wrapper: the lane copy"*"full log ("*"): $wgd/ci-gate.log"*) ok "...through the worktree's own gate.sh, its log in the worktree's git dir" ;;
     *) fail "gate.sh -C output: $(printf '%s' "$out" | tr '\n' '|' | head -c 600)" ;; esac
@@ -289,7 +289,7 @@ if [ -n "$WRAP" ] && [ -f "$R/$RUN_DIR/gate-wait.sh" ]; then
   for f in "$WRAP_REL" "$RUN_REL" "$RUN_DIR/lease.sh" "$RUN_DIR/lib/steps.sh" "$RUN_DIR/lib/gate-state.sh" "$RUN_DIR/gate-wait.sh" \
     "$STEPS_REL" .claude/project.conf .claude/lib/conf.sh .claude/lib/change.sh .claude/scenario-trace.sh .gitignore; do cp "$R/$f" "$O/$f"; done
   git -C "$O" add -A && git -C "$O" commit -qm init
-  (cd "$O" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check bash "$WRAP_REL" --quick) >/dev/null 2>&1; rc=$?
+  (cd "$O" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check bash "$WRAP_REL" --quick) >/dev/null 2>&1; rc=$?
   expect_rc 0 "$rc" "fixture: the other repository's own quick gate passes when run there"
   for s in "bash $WRAP_REL" "sh $RUN_DIR/gate-wait.sh"; do
     # shellcheck disable=SC2086  # interpreter and path, split on purpose
@@ -309,7 +309,7 @@ if [ -n "$WRAP" ] && [ -f "$R/$RUN_DIR/gate-wait.sh" ]; then
   rm -rf "$W"; git -C "$R" worktree prune
 fi
 
-# The vendored lease.sh must be the block clauductor documents (the framework's Go tests compare it
+# The vendored lease.sh must be the block stridal documents (the framework's Go tests compare it
 # with docs/panel.md; here: it still defines what run-local.sh calls).
 grep -q '^lease_run() {' "$ROOT/$RUN_DIR/lease.sh" && ok "lease.sh defines lease_run" || fail "lease.sh has no lease_run"
 grep -q '^lease_verify() {' "$ROOT/$RUN_DIR/lease.sh" && ok "lease.sh defines lease_verify" || fail "lease.sh has no lease_verify"
@@ -317,36 +317,36 @@ grep -q '^lease_verify() {' "$ROOT/$RUN_DIR/lease.sh" && ok "lease.sh defines le
 # ── The lease is renewed and verified (B15) ─────────────────────────────────────────────
 LS="$R/$RUN_DIR/lease.sh"; K="$d/lk"; mkdir -p "$K"; KL="$K/gate.lock"
 # lease CMD...: lease_run on $KL with a 3 s ttl (renewed each second), from bash as run-local does.
-lease() { CLAUDUCTOR_LEASE_TTL=3 bash -c '. "$0"; lease_run "$1" check "${@:2}"' "$LS" "$KL" "$@"; }
+lease() { STRIDAL_LEASE_TTL=3 bash -c '. "$0"; lease_run "$1" check "${@:2}"' "$LS" "$KL" "$@"; }
 # The command copies owner.json, then copies it again once its "renewed" has moved, or at a 30 s
-# deadline (times CLAUDUCTOR_TEST_SLOW): a guessed `sleep 3` was a bound load could outrun (OPS-168).
+# deadline (times STRIDAL_TEST_SLOW): a guessed `sleep 3` was a bound load could outrun (OPS-168).
 cat > "$d/renew-wait.sh" <<'EOF'
 rn() { sed -n 's/.*"renewed":\([0-9]*\).*/\1/p' "$1"; }
-cp "$CLAUDUCTOR_LOCK_HELD/owner.json" "$1/o1"; r1=$(rn "$1/o1"); i=0
-while [ "$i" -lt "$2" ]; do r=$(rn "$CLAUDUCTOR_LOCK_HELD/owner.json"); [ -n "$r" ] && [ "$r" != "$r1" ] && break; sleep 0.1; i=$((i + 1)); done
-cp "$CLAUDUCTOR_LOCK_HELD/owner.json" "$1/o2"
+cp "$STRIDAL_LOCK_HELD/owner.json" "$1/o1"; r1=$(rn "$1/o1"); i=0
+while [ "$i" -lt "$2" ]; do r=$(rn "$STRIDAL_LOCK_HELD/owner.json"); [ -n "$r" ] && [ "$r" != "$r1" ] && break; sleep 0.1; i=$((i + 1)); done
+cp "$STRIDAL_LOCK_HELD/owner.json" "$1/o2"
 EOF
 lease sh "$d/renew-wait.sh" "$d" "$(( $(slow 30) * 10 ))" 2>/dev/null
-grep -q '"ttl":3[,}]' "$d/o1" 2>/dev/null && ok "the holder writes a real ttl (CLAUDUCTOR_LEASE_TTL), not ttl 0" || fail "owner.json ttl: $(cat "$d/o1" 2>/dev/null)"
+grep -q '"ttl":3[,}]' "$d/o1" 2>/dev/null && ok "the holder writes a real ttl (STRIDAL_LEASE_TTL), not ttl 0" || fail "owner.json ttl: $(cat "$d/o1" 2>/dev/null)"
 r1=$(sed -n 's/.*"renewed":\([0-9]*\).*/\1/p' "$d/o1" 2>/dev/null); r2=$(sed -n 's/.*"renewed":\([0-9]*\).*/\1/p' "$d/o2" 2>/dev/null)
 [ -n "$r1" ] && [ -n "$r2" ] && [ "$r2" -gt "$r1" ] && ok "the holder renews 'renewed' while the command runs ($r1 -> $r2)" || fail "renewed did not move: '$r1' -> '$r2'"
 [ ! -e "$KL" ] && ok "the lease is released after the command" || fail "the lease is left behind: $(cat "$KL/owner.json" 2>/dev/null)"
-out=$(lease bash -c '. "$0"; lease_verify "$CLAUDUCTOR_LOCK_HELD" "$PPID" && echo VERIFIED || echo LOST' "$LS" 2>&1)
+out=$(lease bash -c '. "$0"; lease_verify "$STRIDAL_LOCK_HELD" "$PPID" && echo VERIFIED || echo LOST' "$LS" 2>&1)
 [ "$out" = VERIFIED ] && ok "lease_verify: the command holding the lease is told it holds it" || fail "lease_verify while held: $out"
-out=$(lease bash -c 'sed "s/\"nonce\":\"[0-9a-f]*\"/\"nonce\":\"0123456789abcdef\"/" "$CLAUDUCTOR_LOCK_HELD/owner.json" > "$CLAUDUCTOR_LOCK_HELD/x"; mv "$CLAUDUCTOR_LOCK_HELD/x" "$CLAUDUCTOR_LOCK_HELD/owner.json"; . "$0"; lease_verify "$CLAUDUCTOR_LOCK_HELD" "$PPID" && echo VERIFIED || echo LOST' "$LS" 2>/dev/null); rc=$?
+out=$(lease bash -c 'sed "s/\"nonce\":\"[0-9a-f]*\"/\"nonce\":\"0123456789abcdef\"/" "$STRIDAL_LOCK_HELD/owner.json" > "$STRIDAL_LOCK_HELD/x"; mv "$STRIDAL_LOCK_HELD/x" "$STRIDAL_LOCK_HELD/owner.json"; . "$0"; lease_verify "$STRIDAL_LOCK_HELD" "$PPID" && echo VERIFIED || echo LOST' "$LS" 2>/dev/null); rc=$?
 [ "$out" = LOST ] && ok "lease_verify: a command whose lease was taken away is told it lost it" || fail "lease_verify after the lease was taken: $out"
 expect_rc 70 "$rc" "lease_run exits 70 when the lease was taken away while the command ran"
 [ -e "$KL" ] && ok "...and leaves the new holder's lease alone" || fail "lease_run removed a lease that was no longer its own"
 rm -rf "$KL" "$KL.waiters"
 # Under lock-run no nonce is exported: verified by the holder's pid among the asker's ancestors.
-# An outer gate's CLAUDUCTOR_LEASE_NONCE (lease_run exports it when there is no clauductor) must
+# An outer gate's STRIDAL_LEASE_NONCE (lease_run exports it when there is no stridal) must
 # not leak in: lease_verify would compare nonces and answer LOST (OPS-146). The two lease_verify
 # cases above run inside lease_run, which exports the holder's own nonce; only this case needs a
 # clean environment. Shown failing first: a leaked nonce answers LOST, then unset answers VERIFIED.
-out=$(CLAUDUCTOR_LEASE_NONCE=deadbeefdeadbeef bash -c '. "$0"; mkdir -p "$1"; printf "{\"v\":1,\"nonce\":\"00112233aabbccdd\",\"pid\":%s,\"pstart\":\"\",\"host\":\"h\",\"lane\":\"l\",\"cmd\":\"c\",\"started\":1,\"renewed\":1,\"ttl\":600}\n" "$$" > "$1/owner.json"; sh -c ". \"\$0\"; lease_verify \"\$1\" \$PPID && echo VERIFIED || echo LOST" "$0" "$1"; :' "$LS" "$KL" 2>&1)
-[ "$out" = LOST ] && ok "lease_verify by pid: a leaked CLAUDUCTOR_LEASE_NONCE answers LOST" || fail "lease_verify by pid with leaked nonce: $out (want LOST)"
+out=$(STRIDAL_LEASE_NONCE=deadbeefdeadbeef bash -c '. "$0"; mkdir -p "$1"; printf "{\"v\":1,\"nonce\":\"00112233aabbccdd\",\"pid\":%s,\"pstart\":\"\",\"host\":\"h\",\"lane\":\"l\",\"cmd\":\"c\",\"started\":1,\"renewed\":1,\"ttl\":600}\n" "$$" > "$1/owner.json"; sh -c ". \"\$0\"; lease_verify \"\$1\" \$PPID && echo VERIFIED || echo LOST" "$0" "$1"; :' "$LS" "$KL" 2>&1)
+[ "$out" = LOST ] && ok "lease_verify by pid: a leaked STRIDAL_LEASE_NONCE answers LOST" || fail "lease_verify by pid with leaked nonce: $out (want LOST)"
 rm -rf "$KL"
-out=$(bash -c 'unset CLAUDUCTOR_LEASE_NONCE; . "$0"; mkdir -p "$1"; printf "{\"v\":1,\"nonce\":\"00112233aabbccdd\",\"pid\":%s,\"pstart\":\"\",\"host\":\"h\",\"lane\":\"l\",\"cmd\":\"c\",\"started\":1,\"renewed\":1,\"ttl\":600}\n" "$$" > "$1/owner.json"; sh -c ". \"\$0\"; lease_verify \"\$1\" \$PPID && echo VERIFIED || echo LOST" "$0" "$1"; :' "$LS" "$KL" 2>&1)
+out=$(bash -c 'unset STRIDAL_LEASE_NONCE; . "$0"; mkdir -p "$1"; printf "{\"v\":1,\"nonce\":\"00112233aabbccdd\",\"pid\":%s,\"pstart\":\"\",\"host\":\"h\",\"lane\":\"l\",\"cmd\":\"c\",\"started\":1,\"renewed\":1,\"ttl\":600}\n" "$$" > "$1/owner.json"; sh -c ". \"\$0\"; lease_verify \"\$1\" \$PPID && echo VERIFIED || echo LOST" "$0" "$1"; :' "$LS" "$KL" 2>&1)
 # (the trailing `:` keeps bash from exec-ing its last command, which would make the holder the asker itself)
 [ "$out" = VERIFIED ] && ok "lease_verify: with no nonce (lock-run), the holder's pid as an ancestor verifies" || fail "lease_verify by pid: $out"
 rm -rf "$KL"
@@ -361,8 +361,8 @@ holder() {  # holder RENEWED TTL: a holder record on this host, for a pid that c
   printf '{"v":1,"nonce":"0123456789abcdef","pid":999999,"pstart":"","host":"%s","lane":"ghost","cmd":"gate","started":%s,"renewed":%s,"ttl":%s}\n' "$(hostname)" "$1" "$1" "$2" > "$UL/owner.json"
 }
 bp_done() { ! kill -0 "$bp" 2>/dev/null; }
-blind() {  # blind MAXWAIT: lease_run with ps erroring and kill -0 denied; killed after 25 s (times CLAUDUCTOR_TEST_SLOW)
-  ( PATH="$U/bin:$PATH" CLAUDUCTOR_LEASE_MAX_WAIT=$1 bash -c 'kill() { case "$1" in -0) echo "kill: Operation not permitted" >&2; return 1 ;; esac; builtin kill "$@"; }
+blind() {  # blind MAXWAIT: lease_run with ps erroring and kill -0 denied; killed after 25 s (times STRIDAL_TEST_SLOW)
+  ( PATH="$U/bin:$PATH" STRIDAL_LEASE_MAX_WAIT=$1 bash -c 'kill() { case "$1" in -0) echo "kill: Operation not permitted" >&2; return 1 ;; esac; builtin kill "$@"; }
     . "$0"; lease_run "$1" blind sh -c "echo RAN"' "$LS" "$UL" > "$U/out" 2>&1; echo "$?" > "$U/rc" ) &
   bp=$!
   wait_for 25 bp_done
@@ -372,11 +372,11 @@ blind() {  # blind MAXWAIT: lease_run with ps erroring and kill -0 denied; kille
 holder $(( $(date +%s) - 3600 )) 60; blind 0  # wall-clock: a heartbeat an hour old, a fixture, not a bound
 [ "$(cat "$U/rc")" = 0 ] && grep -q '^RAN$' "$U/out" && ok "uninspectable: a holder whose heartbeat expired is reclaimed, and the waiter (never judging itself) runs" || fail "uninspectable, expired heartbeat: rc $(cat "$U/rc"): $(tr '\n' ' ' < "$U/out")"
 holder "$(date +%s)" 0; blind 3  # wall-clock: a heartbeat of now, a fixture, not a bound
-[ "$(cat "$U/rc")" = 124 ] && ok "uninspectable: a holder it cannot judge is waited for at most CLAUDUCTOR_LEASE_MAX_WAIT, exit 124" || fail "uninspectable, live-looking holder: rc $(cat "$U/rc") (want 124, not a hang): $(tr '\n' ' ' < "$U/out")"
+[ "$(cat "$U/rc")" = 124 ] && ok "uninspectable: a holder it cannot judge is waited for at most STRIDAL_LEASE_MAX_WAIT, exit 124" || fail "uninspectable, live-looking holder: rc $(cat "$U/rc") (want 124, not a hang): $(tr '\n' ' ' < "$U/out")"
 grep -q 'gave up after .*held by pid 999999' "$U/out" && grep -q "rm -rf '$UL'" "$U/out" && ok "...and names the holder and how to remove the lock" || fail "give-up message: $(tr '\n' ' ' < "$U/out")"
 rm -rf "$UL" "$UL.waiters"
 
-# The kit runs against this lease.sh (two quick cases; clauductor's own tests run all of them).
+# The kit runs against this lease.sh (two quick cases; stridal's own tests run all of them).
 if [ -f "$KIT/run.sh" ]; then
   out=$(CASES="dead-pid owner-record" CONFORMANCE_WAIT=1 sh "$KIT/run.sh" 2>&1)
   [ "$(printf '%s\n' "$out" | grep -c '^ok ')" = 2 ] && ok "the conformance kit passes lease.sh (dead-pid, owner-record)" || fail "conformance kit on lease.sh: $(printf '%s' "$out" | grep -v '^ok' | head -5)"
@@ -391,23 +391,23 @@ rm -rf "$LOCK" "$LOCK.waiters"
 
 # --quick takes no lease (OPS-103): nothing it runs binds a fixed port, socket or database, or
 # writes the receipt, so it never queues behind a full gate. A full run still queues. The other
-# holder is a live process on this host; each run is bounded by CLAUDUCTOR_LEASE_MAX_WAIT, so a
+# holder is a live process on this host; each run is bounded by STRIDAL_LEASE_MAX_WAIT, so a
 # quick run that queued shows as 124, not a hang.
 sleep 60 & other=$!
 mkdir -p "$LOCK"
 printf '{"v":1,"nonce":"0123456789abcdef","pid":%s,"pstart":"","host":"%s","lane":"other","cmd":"gate","started":%s,"renewed":%s,"ttl":600}\n' \
   "$other" "$(hostname)" "$(date +%s)" "$(date +%s)" > "$LOCK/owner.json"  # wall-clock: when the record started, a fixture
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LEASE_MAX_WAIT=3 bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check STRIDAL_LEASE_MAX_WAIT=3 bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
 expect_rc 0 "$rc" "a --quick run passes while another gate holds the lease (it takes none)"
 grep -q '"lane":"other"' "$LOCK/owner.json" 2>/dev/null && ok "...and leaves the holder's lease alone" || fail "the quick run changed the holder's lease: $(cat "$LOCK/owner.json" 2>/dev/null || echo gone)"
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LEASE_MAX_WAIT=3 bash "$RUN_REL") >"$d/out" 2>&1; rc=$?
-expect_rc 124 "$rc" "a full run still queues behind the holder (gave up after CLAUDUCTOR_LEASE_MAX_WAIT)"
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check STRIDAL_LEASE_MAX_WAIT=3 bash "$RUN_REL") >"$d/out" 2>&1; rc=$?
+expect_rc 124 "$rc" "a full run still queues behind the holder (gave up after STRIDAL_LEASE_MAX_WAIT)"
 grep -q '^==> ' "$d/out" && fail "...but a full run ran steps without the lease: $(grep '^==>' "$d/out" | tr '\n' ' ')" || ok "...and ran no step without it"
 kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
 # A quick run started inside another gate's lease (a fixture's gate, run by a step) neither takes
 # that lease as its own nor verifies it at the end: it holds none.
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LOCK_HELD="$d/someone-elses.lock" bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
-expect_rc 0 "$rc" "a --quick run under a caller's CLAUDUCTOR_LOCK_HELD runs unleased and is not failed by that lease"
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check STRIDAL_LOCK_HELD="$d/someone-elses.lock" bash "$RUN_REL" --quick) >"$d/out" 2>&1; rc=$?
+expect_rc 0 "$rc" "a --quick run under a caller's STRIDAL_LOCK_HELD runs unleased and is not failed by that lease"
 rm -rf "$LOCK" "$LOCK.waiters"
 
 # ── The docs gate (OPS-89) ──────────────────────────────────────────────────────────────
@@ -499,7 +499,7 @@ git -C "$R" checkout -q main; git -C "$R" reset -q --hard HEAD~2; git -C "$R" br
 # ── The run state, the run log and gate-wait (OPS-41) ───────────────────────────────────
 # Every run writes the worktree's state file and one run-log line; gate-wait reads the state and says
 # PASS, FAIL, STILL RUNNING or NO RESULT for the tree in front of it, and never waits past its bound.
-WAIT_REL="$RUN_DIR/gate-wait.sh"; STATE="$R/.git/ci-gate.state"; RUNS="$R/.git/clauductor/gate-runs.log"
+WAIT_REL="$RUN_DIR/gate-wait.sh"; STATE="$R/.git/ci-gate.state"; RUNS="$R/.git/stridal/gate-runs.log"
 if [ ! -f "$R/$WAIT_REL" ] || [ ! -f "$R/$RUN_DIR/lib/gate-state.sh" ]; then
   fail "gate-wait.sh or lib/gate-state.sh is missing beside GATE_RUN ($RUN_DIR): no gate can be waited for, and no run is recorded"
   finish
@@ -553,7 +553,7 @@ rm -f "$R/new-file"
 
 # Running: a gate held in its hold step. gate-wait returns within its bound (3), then follows it to PASS.
 mkdir -p "$R/local"; touch "$R/local/HOLD"
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
 bg=$!
 holding() { grep -q '^==> hold' "$d/bg" 2>/dev/null; }; wait_for 30 holding
 # The bound is what a gate-wait that ignored its own costs: its 540 s default, or the hold, which
@@ -587,9 +587,9 @@ if ps -p $$ -o command= >/dev/null 2>&1; then
 else fail "cannot check that a reused pid is not read as a running gate: ps does not run here (a sandbox?); run the checks outside it"; fi
 
 # Interrupted: a signal mid-run is recorded as `signal` (a fail), never as the pass bash's $? = 0 implies.
-# The gate runs alone here (CLAUDUCTOR_LOCK_HELD names a lease made by hand), so its pid is the run's.
+# The gate runs alone here (STRIDAL_LOCK_HELD names a lease made by hand), so its pid is the run's.
 mkdir -p "$LOCK" "$R/local"; touch "$R/local/HOLD"
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check CLAUDUCTOR_LOCK_HELD="$LOCK" exec bash "$RUN_REL") > "$d/bg" 2>&1 &
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check STRIDAL_LOCK_HELD="$LOCK" exec bash "$RUN_REL") > "$d/bg" 2>&1 &
 bg=$!
 holding() { grep -q '^==> hold' "$d/bg" 2>/dev/null; }; wait_for 30 holding
 kill -TERM "$bg" 2>/dev/null; wait "$bg" 2>/dev/null
@@ -607,11 +607,11 @@ tail -n 1 "$RUNS" | awk -F'\t' 'NF == 10 && $6 == "fail" && $10 == "-" { ok = 1 
 # Bounded: past GATE_RUNS_MAX_BYTES the log becomes gate-runs.log.1 and a new one starts.
 # Only a full run rotates, under the lease; a --quick run, unleased (OPS-103), only appends.
 rm -f "$RUNS.1"; before=$(lines "$RUNS")
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --quick) >/dev/null 2>&1
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --quick) >/dev/null 2>&1
 [ ! -e "$RUNS.1" ] && [ "$(lines "$RUNS")" = $((before + 1)) ] && ok "a --quick run past GATE_RUNS_MAX_BYTES appends and never rotates (it holds no lease)" || fail "quick rotation: log $(lines "$RUNS") lines (was $before), .1 $(lines "$RUNS.1") lines"
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --bogus --quick) >/dev/null 2>&1
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL" --bogus --quick) >/dev/null 2>&1
 [ ! -e "$RUNS.1" ] && tail -n 1 "$RUNS" | cut -f5 | grep -qx quick && ok "...nor does one that ends before its flags are read (logged as quick)" || fail "early-exit quick run: .1 $(lines "$RUNS.1") lines, logged as '$(tail -n 1 "$RUNS" | cut -f5)'"
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL") >/dev/null 2>&1
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check GATE_RUNS_MAX_BYTES=1 bash "$RUN_REL") >/dev/null 2>&1
 [ -s "$RUNS.1" ] && [ "$(lines "$RUNS")" = 1 ] && ok "past GATE_RUNS_MAX_BYTES a full run rotates the log to gate-runs.log.1 and starts again" || fail "rotation: log $(lines "$RUNS") lines, .1 $(lines "$RUNS.1") lines"
 
 # A project.conf that names a variable the run state does not set ($ROOT, read before conf.sh runs)
@@ -636,7 +636,7 @@ printf '#!/bin/sh\necho "$PPID" > local/gate.pid\nwhile [ -f local/PUBHOLD ]; do
 printf 'MODULES="ci-status"\n' >> "$R/.claude/project.conf"
 git -C "$R" add -A && git -C "$R" commit -qm "a ci-status stub"
 rm -f "$R/local/gate.pid"; touch "$R/local/PUBHOLD"
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check exec bash "$RUN_REL") > "$d/bg" 2>&1 &
 bg=$!
 publishing() { [ -s "$R/local/gate.pid" ]; }; wait_for 60 publishing
 [ -s "$R/local/gate.pid" ] && kill -TERM "$(cat "$R/local/gate.pid")" 2>/dev/null
@@ -648,14 +648,14 @@ grep -q '^exit pid=[0-9]* code=0 ' "$STATE" && tail -n 1 "$RUNS" | awk -F'\t' '$
 printf 'GATE_CLEAN_ROOM="archive"\nMODULES=""\n' >> "$R/.claude/project.conf"
 touch "$R/LOCK_CLEANUP"; git -C "$R" add -A && git -C "$R" commit -qm "a step that locks its output"
 mkdir -p "$d/tmp"; rm -f "$STATE"
-(cd "$R" && PATH="$d/bin:$np" CI= CLAUDUCTOR_LANE=check TMPDIR="$d/tmp" bash "$RUN_REL") > "$d/out" 2>&1
+(cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check TMPDIR="$d/tmp" bash "$RUN_REL") > "$d/out" 2>&1
 chmod -R u+w "$d/tmp" 2>/dev/null; rm -rf "$d/tmp"
 grep -q '^exit pid=[0-9]* code=0 ' "$STATE" && ok "a cleanup that fails still leaves the run's exit line" || fail "failing cleanup: state $(tr '\n' '|' < "$STATE" 2>/dev/null); $(grep '^==>' "$d/out" | tr '\n' ' ')"
 
 # Every place that tells an agent to run the gate says how to follow one the tool backgrounds. Read
-# from the model's own copy: the project's, or the plugin's (CLAUDUCTOR_FW).
+# from the model's own copy: the project's, or the plugin's (STRIDAL_FW).
 for f in workflows/build-change.js skills/apply-change/SKILL.md; do
-  p="${CLAUDUCTOR_FW:-$ROOT/.claude}/$f"
+  p="${STRIDAL_FW:-$ROOT/.claude}/$f"
   if [ ! -f "$p" ]; then fail "$p is missing: nothing tells its agents how to run the gate"
   elif grep -q 'gate-wait.sh' "$p" && grep -q 'exit 3 means call it again' "$p"; then ok "$f tells its agent to follow a backgrounded gate with gate-wait.sh, and to stop on any exit but 3"
   else fail "$f does not name gate-wait.sh with 'exit 3 means call it again': an agent whose gate the tool backgrounds is told nothing, or waits forever on a 4"; fi

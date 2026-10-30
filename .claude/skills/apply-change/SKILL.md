@@ -36,7 +36,7 @@ do one group alone. The loop is the same, and so are its stops.
   a clean tree.
 - **The models follow the proposal's `**Risk:**` tier**: a role with a variant for that tier in
   `.claude/model-roles.json` (`roles.<role>.tiers`) runs on it; pass its `model` and `effort` when
-  you spawn the agent. In economy mode (`~/.clauductor/panel/economy.json` says `"economy": true`)
+  you spawn the agent. In economy mode (`~/.stridal/panel/economy.json` says `"economy": true`)
   the roles in `.economy.roles` drop a tier; the reviewer never does.
 - **The budget**: if `proposal.md` has `**Budget:** $N`, check `sh .claude/change-cost.sh <id>`
   before each group; OVER BUDGET is a stop for the owner (raise it, on the

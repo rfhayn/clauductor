@@ -44,7 +44,7 @@ C="$R/changes/add-greeting-name"
 A() { (cd "$R" && GITHUB_HEAD_REF= APPROVAL_DATE=2026-01-02 sh .claude/change-approval.sh add-greeting-name "$@") > "$d/out" 2>&1; }
 # The clone's approval log (#272): startlog begins it afresh, as the owner does once per clone, so a
 # --delegate expected to pass is not refused by an approval an earlier case logged.
-L="$R/.git/clauductor/approvals.log"
+L="$R/.git/stridal/approvals.log"
 startlog() { rm -f "$L"; (cd "$R" && sh .claude/change-approval.sh --start-log Ana) > "$d/out" 2>&1 || fail "change-tools: --start-log: $(cat "$d/out")"; }
 A; expect_rc 1 $? "change-approval: an unapproved change is not approved"
 A --record Ana; expect_rc 0 $? "change-approval --record writes the Approved line"
