@@ -25,6 +25,10 @@
   Left: the full gate and review. Limit: the sandbox cannot bind ports, so the port-binding tests
   in `panel/install` (e.g. `TestStatusLineSnippetPostsOnlyToALivePanel`) did not run here.
 - 2026-10-24 group 3 (The panel, and where a user meets doctor) built and reviewed: converged in 2 round(s), peak low; grades R1 fail, R2 pass
+- 2026-10-29 the Slice ticked at S16's close: a `clauductor doctor` built from `main` (ddf72d7a)
+  printed its Machine and Project lines, each finding with its fix, in a directory outside git and
+  in this repository.
+- 2026-10-29 archived: actual cost $50.25 (no budget)
 
 ## Decision log
 - 2026-10-24 approved as recommended (D1–D8, Risk low). The proposal review's two open lows
@@ -289,4 +293,4 @@
   `README.md`'s command table; `docs/QUICKSTART.md` *Prerequisites* and *Troubleshooting*; and
   `docs/panel.md` *Troubleshooting*.
 
-- [ ] Slice: a user can run clauductor doctor in any directory and see what on their machine and in their project is missing or broken, each with what to do about it
+- [x] Slice: a user can run clauductor doctor in any directory and see what on their machine and in their project is missing or broken, each with what to do about it

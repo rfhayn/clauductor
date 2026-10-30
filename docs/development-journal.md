@@ -14,6 +14,618 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 16 — 2026-10-29 — Rich — S16: flakes fixed, ADR-0012, public repo, two batches, 17 rows
+
+**Totals.** Gate 102 min (a row's gate was CANNOT CHECK, so this is a floor); cost $270.87 (a row's cost was CANNOT CHECK, so this is a floor).
+
+**Rows folded.** OPS-129 (#326); OPS-154 (#325); OPS-155 (#323); OPS-156 (#328); OPS-158 (#317); OPS-159 (#332); OPS-160 (#330); OPS-161 (#327); OPS-166 (#336); OPS-167 (#333); OPS-168 (#337); OPS-169 (#341); OPS-170 (#334); OPS-86 (#324); OPS-91 (#338); OPS-99 (#316); PANEL-47 (#321).
+
+**The close.**
+
+**The PR numbers above are the lane PRs.** Twelve rows merged in two batch PRs, and each lane PR was closed with a pointer: OPS-154, PANEL-47, OPS-129 and OPS-161 in #331; OPS-156, OPS-160, OPS-159, OPS-167, OPS-170, OPS-166, OPS-168 and OPS-91 in #339. The fold reads each row's PR from its fragment, so it wrote the closed lane PR; the close set those twelve Status cells to the batch PR by hand. OPS-176 writes the batch PR into each fragment from now on.
+
+**The cost line above is a floor that means little.** Every lane was a subagent of one terminal session, so no fragment could read its own cost (CANNOT CHECK). The session's total is **~$464.45** (`usage-report.sh`, list price, this machine, read at the close):
+
+| role | model | ~$ |
+|---|---|---|
+| ops (the lanes) | Opus 5.5 | 321.75 |
+| session | Opus 5.5 | 77.83 |
+| ops (reviewers from round 4) | Fable 5.1 | 38.90 |
+| batch | Opus 5.5 | 14.58 |
+| panel | Opus 5.5 | 9.83 |
+| ops | Sonnet 5.5 | 1.38 |
+| close | Opus 5.5 | 0.18 |
+
+Flow, 30 days to 2026-10-30: cycle 1.7h median, lead 3h, 45 merges/wk, change-fail 4.8%, approval wait 3.2h, review rounds 2, spend $1221.53/wk, 14 in flight (excludes unpriced models: Haiku 5.5).
+
+**What happened.** S16 ran from the terminal like S15, with every lane a named subagent in `.claude/worktrees/`. It landed all of its planned rows but OPS-98, plus the eight found on the way, seventeen in all:
+
+- **Flakes fixed at their cause.** The untrusted-config flake (OPS-99, #316) and the SIGTERM flake (OPS-158, #317) first, then what their reviews found: a stopped claude's orphaned child (OPS-159), leakcheck's pattern kill (OPS-160), and the checks' wall-clock bounds (OPS-168, #322).
+- **ADR-0012 accepted** (OPS-86, #324). The owner made five decisions on it: the merge guard becomes one allowlisted merge path, `.claude/merge.sh`, with a `gh` wrapper refusing every other merge. Its build is queued as OPS-162 to OPS-165. The close cancelled OPS-58 and released OPS-32 and OPS-68 as the ADR says.
+- **The repository is public.** OPS-155 (#323) prepared it and reported what it would publish. The owner flipped it on 2026-10-29, set fork-PR approval to all external contributors, and turned `test.yml` and `release-build.yml` back on. OPS-98 sets `GATE_PR_CHECKS` and merges right after this close (S17).
+- **No Co-authored-by on main.** Rule 15 refuses a squash without a clean body file (OPS-156), and a health line reports one that arrives some other way (OPS-169, #341).
+
+**Batched gates, from now on (the owner, 2026-10-29; PRAC-0013).** A full gate takes 33–55 minutes, and with a dozen reviewed lanes ready, a gate per PR would have taken most of a day. Review stays per row. Each batch is planned with the owner at session start and adjusted as rows come up, frozen once its gate starts, merged in order (a rule-changing row first), with `plugin/` regenerated and `origin/main` merged right before the gate, and lands as one squash. Batch 1 took two gate runs, batch 2 four. Every failure was a real catch the lanes' scoped tests had missed: batch 1's race scope (PANEL-47's test), batch 2's `approval-guarded` (`quota-gate.sh`), the panel clock rule (OPS-159's drain), and the integration review's medium on OPS-167's asserts. Each was fixed in the batch. Nothing executes the practice yet: OPS-176 owns the script and the pre-PR pass that would have caught those failures in the lanes.
+
+**The caps.** The owner lifted the review caps for OPS-91, OPS-168 and OPS-169, with Fable 5.1 reviewers from round 4. OPS-169 was then capped at round 12. Its residue, the shell reader's mutant coverage, is #340 / OPS-174.
+
+**Failures that were not the code.** One OPS-99 gate ran sandboxed because the orchestrator's command prefix broke the exclusion's text match, the class OPS-161 closed for lanes. GitHub also refused one OPS-155 merge for a conflict after #316 and #324 landed, though the guard had allowed it. The fix is to merge `origin/main` right before gating (PRAC-0013, step 6).
+
+**Lessons** (insights log, 2026-10-29), each decided:
+
+- Reviewer reports go to the orchestrator, not the lane (#308).
+- The sandbox exclusion matches text (fixed, OPS-161).
+- The sandbox's `.claude` denials leave a main-checkout pull half-applied (an instance of OPS-151's table).
+- Batch gates catch repo-wide checks, and GitHub refused a merge the guard allowed. Both promoted to PRAC-0013, and owned by OPS-176.
+- Tests that pass without the code they guard: six or more in today's reviews (rule 2; OPS-174's mutant tooling).
+- Shell-text guards grow a form per round (PRAC-0010; OPS-171).
+- The fold sets only `✅ merged`.
+- A row's cost under a subagent lane can't be read.
+- A load test's burner pushed the load to 125 and slowed a gate beside it.
+
+The attribution lines reached PR bodies again. They are the harness's, not the repo's, and were stripped by hand on #323 and #324. The six older Raw rows and the fold's nine are decided too: seven fixed (five by today's rows), the rest techniques, instances or not promoted, each with its reason.
+
+**Records.** OPS-109 is archived: its one open task, the Slice, was checked by running a `clauductor doctor` built from `main`. Its `doctor` spec is now living, and its outcome check is o.11 (due 2026-11-08). New rows: OPS-173 (#335, the artifacts TERM race), OPS-175 (independent checks in parallel: today's two check phases run about 107 checks one at a time, 9–13 minutes each), and OPS-176 (the batch script). OPS-113's M2 now reads moot. The owner queue's OPS-98 item is ticked; the lite decision stays open.
+
+**Next.** OPS-98 merges after this close. S17 is the rename (OPS-104), as its own session.
+
+### OPS-129 — close OPS-126's four known limits: the proposal-only close, the ops-row proposal, the lane's orientation claim, the marker before a stop
+
+- **PR**: #326
+- **Session**: S16, started 2026-10-29 13:12 ET
+- **Review**: 3 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — the main session runs the gate
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id
+- **Session start**: 275073895 tokens, 266 min; session-wide: a lane shares the orchestrator's session id
+
+#### What happened
+
+All four limits #239 left still held on `origin/main` (76b0c61b), each found by its content. (1) `panel-suggest.sh close` now computes the landed proposals before its "nothing waits" exit, and a landed `ID (proposal)` keeps its plain-labelled session open until the journal holds that session's entry, so a session that only proposes is offered its close with no fragment waiting ("Close S5: its proposals landed, no fragment to fold"), and not again once its close has written `## Session 5`. (2) `roadmap-plan.sh` refuses `ID (proposal)` on an ops or fix row as a plan error, reading each row's kind through `roadmap_queue`; the marker check's own fixture planned exactly that shape (an ops row with a proposal under `changes/ops/a-one/`), and now plans a change row. (3) build-change's description no longer says a row's session runs session-start before the run: a build lane's first prompt is the workflow, so no orientation runs, and the description names the one step the run executes, the marker. (4) The marker moved out of the preflight agent into its own pinned agent after every preflight stop, so a run that stops at preflight has pushed nothing and opened no draft PR.
+
+Round 1 (peak medium) found that a no-fragment close writes its heading through dev-journal, which counted one past the journal's top, so a plan label ahead of that count (S6 after Session 4) would write Session 5, leave S6 unheld and be offered again. The close's number is now computed once, by `panel-suggest.sh close`: `close_session_number` (`lib/conf.sh`) reads it, and the dev-journal and session-close contexts print it as the N to write and to fold. The round also asked for a case reaching the every-session-done guard, a `marker: WARNING` when the plan does not parse (it had fallen back to the journal's count in silence), and the preflight wording in `checks/panel-contract.sh` and `docs/panel.md`.
+
+Each fix has check cases shown red first: `checks/panel-suggest.sh` (one red: the proposal-only close; the waits around it passed before and after), its plan-error cases (two red: an ops row and a fix row), and `checks/build-change.sh` (six red: four preflight stops that ran the marker, the marker's own agent, the description's claim). Round 1's: the every-session-done case (red with the guard removed), dev-journal's number for S5 after Session 3 (red; session-close's was then only a grep for the call), and the marker's plan-error WARNING (red: it stamped S10). Round 2 (peak medium): both contexts now run against a fixture with an origin/main and must print Session 5 (session-close's red with its call removed); a suggestion that fails prints CANNOT CHECK in both, never "none offered" (two red); an open spanning session with no fragment is offered nothing (red with the plain-label test replaced by an empty-session test); and the marker quotes a plan error whole, cutting only the file's path (red: `"ops/x"` printed as `x"`).
+
+#### Decisions
+
+- Limit 1: offer the close once every planned proposal is on main, not a fragment from the proposal. A proposal fragment would be folded like a build's, so the fold would mark the row `✅ merged` while its build is still queued, and the build's own fragment shares its file name. What ends the offer is the journal's `## Session N` for a plain label, the close's own output; a spanning entry (`S15–S18`) is not held by its proposals, as before, because its days close while fragments wait.
+- Limit 2 lives in the plan's one parser, not in panel-suggest, so every reader (the marker, the tracker, Up next) sees the same error. It asks `roadmap_queue` for kinds rather than reading the queue table itself; an id the queue does not hold is not judged.
+- Limit 3 by deletion, not execution: session-start's orientation chooses a session's next work, and a lane runs only its own task (session-start's own rule), so the only part a build lane needs, the marker, is what the run executes. A check holds the description to that.
+- Limit 4: a separate marker agent past the last preflight stop rather than reordering the preflight's steps, because the stops are decided by the workflow from the preflight's report, after the agent returns; only a later call can follow them.
+
+#### Surprises
+
+- `awk -v` in macOS's awk refuses a value with a newline ("newline in string"), so the kinds reach the parser's awk through `ENVIRON`.
+- `clauductor update` read the main checkout's template, since `CLAUDUCTOR_FRAMEWORK` was set in the shell; it said so (`Template: … (CLAUDUCTOR_FRAMEWORK …)`) and changed nothing. Pointed at this worktree's template, it synced the seven files.
+
+#### Insights
+
+None.
+
+### OPS-154 — a cancelled change leaves no directory, and OPS-42's routines no live reference
+
+- **PR**: #325
+- **Session**: S16, started 2026-10-29 12:50 ET
+- **Review**: 2 rounds, peak medium, cap 2
+- **Gate**: CANNOT CHECK — no full gate ran before this fragment's commit (a worktree gate is broken in this sandbox, #320)
+- **Cost**: CANNOT CHECK — a subagent lane shares the orchestrator's session id, so no reading is the row's own
+- **Session start**: 230597144 tokens, 244 min
+
+#### What happened
+
+Session start listed every `changes/` directory with unchecked tasks as proposed and not yet built, so the cancelled OPS-42, PANEL-30, PANEL-31, PANEL-46 and PANEL-58 still showed. Their directories are removed: the roadmap row and git history are the record, and `changes/README.md` (template and this repo) now says so. `checks/changes.sh` fails a `changes/<id>/` whose roadmap row is cancelled, with a self-test case seen failing before the control existed; it reads the queue through `roadmap_queue`, which never reads `docs/roadmap-history.md`, where four of the five rows live since the reset, so a local check, `local:cancelled-changes`, does the same over the history's queue tables. The references that still treated OPS-42's routines as live are reworded: `lib/quota.sh`, `statusline.sh`, the template playbook, PRD-maps (a status line: nothing of it remains to build), PRD-attach (its registry line, and PANEL-30 and PANEL-31 as cancelled) and OPS-113's M2 in its Change cell. The steps that cancel a row (session-close, the roadmap grammar) now say to remove its directory.
+
+#### Decisions
+
+- Removed, not a `cancelled/` home (the orchestrator's default, which the owner can override): a home the listing skips is one more place to read and one more rule to keep, and the row already says why it was cancelled.
+- PRD-maps stays in `docs/prds/active/` with a status line rather than moving to `archive/`: `docs/roadmap-history.md` names its path word for word.
+- OPS-113's Status cell still says "M2 holds by order alone, since OPS-42 comes after launch": a row's PR never edits a Status, so the S16 close (session 16's close PR) rewords OPS-113's Status: M2 is moot, since OPS-42 is cancelled.
+- A change revived under a new row with the same change id is live, so neither control fails it (review round 1, M1).
+- The quota reading has no production reader since OPS-42 went: the comments now say so, and OPS-167 wires one or removes it (review round 1, L8).
+
+#### Surprises
+
+`changes/ops-109-doctor/` is still open though OPS-109 merged (#240): a merged change never archived. Not this row's; the orchestrator was told.
+
+#### Insights
+
+None.
+
+### OPS-155 — the report for going public, and OPS-98 after the flip
+
+- **PR**: #323
+- **Session**: S16, started 2026-10-29 12:26 ET
+- **Review**: 1 round, peak low, cap 2
+- **Gate**: CANNOT CHECK — no full gate had passed on this branch before this commit (the first, on e1a16ab8, was still queued); the orchestrator runs it on this head
+- **Cost**: CANNOT CHECK — a subagent lane shares the orchestrator's session id, so no row-only reading exists
+- **Session start**: 176947277 tokens, 220 min
+
+#### What happened
+
+The report for the owner, `docs/plans/ops-155-public-report.md`: gitleaks over every ref of a
+mirror of GitHub (1220 commits, the 233 PR refs included) finds only the two known non-secrets;
+the records' items to decide, with path:line and a recommendation each; `LICENSE` was already
+there (MIT, Rich Hayn, `86db6441`); what publishing under the old name means; and the workflows,
+none of which uses `pull_request_target`. Also, by the owner's request of 2026-10-29, OPS-98 now
+follows the flip or the minutes' reset, whichever comes first: its row, the S16 plan entry
+(right after OPS-155) and a new owner-queue item.
+
+The owner's rulings on the report (2026-10-29) are applied in the same PR: a Standing Tee
+collaborator's name is redacted to a role in every tracked file (the records and two check
+fixtures, template and copies); the artifacts module's real-looking sample id is a placeholder,
+with `local:roadmap-tracker`'s exemption following it; the `team-queue` issue templates apply no
+label; the plugin is rebuilt and this repo's copy synced. The author filter for the listing is
+queued as OPS-166.
+
+#### Decisions
+
+- The scan ran on a `git clone --mirror`, not this clone: GitHub's `refs/pull/*` hold every
+  pre-squash commit (1249 non-merge, against 371 here), and those go public too.
+- No history rewrite (the owner, 2026-10-29): the email in commit metadata is accepted, and
+  history keeps the redacted name and the old sample id.
+- The author filter is a row of its own, OPS-166, not a change here: the query, its completeness
+  checks and the check's fixtures all change, and the label already needs triage rights.
+
+#### Surprises
+
+- A real-looking claude.ai artifact id in the artifacts module's README ships with the template.
+- The first hook fixture (`8e7fee2f`, on `main`) was a raw capture with the Mac's home paths; it
+  was scrubbed later, so only history holds it.
+- The `team-queue` issue templates label any filer's issue, so a stranger's title would reach
+  session-start's context once the repository is public.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-156 — no Co-authored-by trailer in a merge while attribution is off
+
+- **PR**: #328
+- **Session**: S16, started 2026-10-29 14:09 ET
+- **Review**: 3 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — no full gate yet: a worktree gate is broken in this sandbox (#320)
+- **Cost**: CANNOT CHECK — a subagent lane shares the orchestrator's session id, so no row-only reading exists
+- **Session start**: 321309276 tokens, 323 min
+
+#### What happened
+
+`pr-merge-guard.sh` gains rule 15. While `.claude/model-roles.json` does not set `attribution.enabled` to true, only a squash merges. The squash must name its body, and no line of that body may be a `Co-authored-by:` trailer (any case, indented or not). A squash with no body gets GitHub's default, the branch commits' messages with their trailers, which is how #289, #290 and #291 came to carry one. `merge_argv` now also reports the merge method (`W squash|merge|rebase`) from the same parse. A `gh api` merge's method is read from `merge_method`. The rule is one function, `coauthor_why`, so it moves whole to `.claude/merge.sh` (ADR-0012, OPS-162). merge-pr step 4 already merged with `--body-file`; it now states the rule. AGENTS.md and the template's gain a What-executes row.
+
+Round 1 found that the body the guard read need not be the body gh sends. `--body-file /dev/stdin` read the hook's own drained stdin. A command before the merge (`cp other.md body.md && gh pr merge …`), or the merge's own `> body.md`, could write the file after the guard read it. So `cg_field` (`lib/change-guard.sh`) now reads a body file only when it is a regular file outside `/dev` and `/proc`, with nothing but `cd <path>` before the merge and no redirect of its own except to `/dev/null` or a descriptor. This applies to rules 12 and 15 and to premise-check. Round 1's rows failed against the hook without rule 15 (10 red). Round 2's 11 new refusal rows failed against round 1's hook. All of them then passed.
+
+#### Decisions
+
+- **Only a squash merges while attribution is off** (the orchestrator's call in round 1). A merge commit or a rebase lands every branch commit as it is, trailers and all, and one squash commit per PR is already the model's convention. A `gh api` merge with no `merge_method` is a merge commit (GitHub's default there), so it is refused too.
+- **A literal `--body` is accepted beside `--body-file`.** The row says "without `--body-file`", but what it guards against is GitHub's default body, which any named body replaces. `cg_body` reads both forms and applies the same trailer test, so requiring a file would add nothing.
+- **A trailer is a line that starts with the key.** `Co-authored-by` in prose or a code span is a mention, not a trailer, and git does not read it as one. This rule's own squash body names the key. Leading blanks and a blank before the colon still count, failing closed on how loosely GitHub parses.
+- **The switch is `attribution.enabled`, the one build-change reads.** The rule is on unless the file sets it to true. A file that does not parse keeps the rule on. No file at all (a project without the model) leaves it off, as rule 12 does.
+- **What runs before a body file is an allowlist: nothing, or `cd <path>`.** A `cd` changes the directory but writes no file. A substitution in the path, or any other command, may write it. So a rule-12 row that allowed `cd "$(git rev-parse …)" && gh pr merge … --body-file /abs` now blocks.
+
+#### Surprises
+
+This repo's `.claude/` copy of the check failed where the template's passed. The rule 13 fixture copies the project's `model-roles.json`, and this repo turns attribution off, so rule 15 refused those squashes first. The fixture now sets attribution on, as it already set provenance off for rule 12.
+
+Round 2 found five things. The first was a known limit that no queued change owned, so this PR now queues OPS-169. A path like `//dev/stdin` slipped past the `/dev` match. Redirects of the merge's own to or from `/dev/null` (`&>/dev/null`, `</dev/null`) were refused although the comment allowed them. `cd '/a b'`, a WSL2 path with a blank, was refused by a character list. And premise-check gave a file a command before the merge may write the wrong reason. The `/dev` and `/proc` match now runs on the resolved path, the redirects pass, and a `cd` path only has to be one word with no expansion or redirect. pr-merge-guard's older `-R OWNER/NAME` prefix rule keeps its own character list: that predates this row. premise-check now gives a reader-written file its own reason.
+
+KNOWN LIMITS:
+- GitHub's docs do not say whether a squash given its own body (`gh --body-file`, the API's `commit_message`) still gets co-author lines appended. "About pull request merges", "Configuring commit squashing" and the REST merge endpoint were read on 2026-10-29, and all three are silent. The REST docs call `commit_message` "extra detail to append to automatic commit message". OPS-169, queued by this PR, owns it: a health line that fails when a commit on `origin/main` carries a `Co-authored-by` line while attribution is off.
+- #289–#291 merged from Cursor, where no hook runs. Rule 15 guards Claude Code's merges only. OPS-165 (a ruleset requiring the remote `test` check, in OPS-86's lane) stops a merge whose check is not green, but it does not read trailers. OPS-169's health line also sees a merge made from Cursor or the website.
+- A command that runs at the same time as the merge (`gh pr merge … | tee body.md`, `… & cp …`) can still race the file. That is a deliberate act rather than drift, which, as with rule 13's receipts, is review's to catch.
+- The `/proc` rows run only where `/proc` exists (CI's Ubuntu), and there they fail without the resolved `/dev`, `/proc` match. On a Mac, a link to `/dev/stdin` and `//dev/stdin` are refused by both that match and the regular-file test (`-f`). `-f` alone refuses a directory (the row's reason line fails without it) and a FIFO.
+
+#### Insights
+
+None.
+
+### OPS-158 — fix the SIGTERM flake at its cause: the fakes waited for the signal in `wait`
+
+- **PR**: #317
+- **Session**: S16, started 2026-10-29 09:07 ET
+- **Review**: 3 rounds, peak medium, cap 3
+- **Gate**: 50 min
+- **Cost**: $20.60; session-wide: a lane shares the orchestrator's session id, so this is not the row's own cost
+- **Session start**: 10862563 tokens, 21 min
+
+#### What happened
+
+`TestGateStopsATimedOutClaudeWithSIGTERM` (#314) and two sibling tests used one fake shape: a TERM trap, `sleep 60 &`, "ready", then `wait $P`. Under macOS's sh (bash 3.2) it loses the signal in two ways. If the SIGTERM lands after "ready" but before `wait` blocks, the trap stays pending until the child exits: no TERM mark, which is #314's failure. And the trap's `kill $P` can miss the child: it was still alive 0.3 s after the kill. The likeliest reason, not proven, is that the kill lands before the forked child execs `sleep`, while it still has the trap it inherited. The child then holds the call's output open, and the call ends at the 15 s grace. A probe that sends TERM the instant the fake writes "ready" found the first race in 5/200, 9/200, 11/300 and 6/300 runs, and the second in 48/300. The loop shape had 0/200. Under load (24–32 concurrent `-race` copies beside 12 busy loops, load average 28–52 at the runs' ends), the three tests failed 5 times in 1200 runs before the fix and 0 in 1008 after. `trapsTERM` replaces the shape with a trap, "ready", then a loop of `sleep 0.1`.
+
+#### Decisions
+
+- Fix the fakes, not the gate: the gate's SIGTERM path (its signal delivery) was not at fault. The probe reproduced both races with a direct SIGTERM and no gate at all.
+- Round 1 found a medium in older code: a stopped claude's child that holds the output is orphaned, and its call ends only at the grace. The lead deferred it to #318 and row OPS-159 rather than widen this fix.
+
+#### Surprises
+
+- The first reproduction under load failed at a different assertion than #314's (killed at 15 s, though the TERM mark was there). That pointed to the second race.
+- `ps` is blocked in the lane's sandbox, so `TestWatchLogsALockHeldByAnotherProcess` fails there before and after the change. It is not a flake.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-159 — a stopped claude's group dies with it, and its call ends when it exits
+
+- **PR**: #332
+- **Session**: S16, started 2026-10-29 15:46 ET
+- **Review**: 2 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — the lead runs the gate after this commit
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id
+- **Session start**: 486225165 tokens, 420 min
+
+#### What happened
+
+A `claude` call ran on exec's own output pipes, so `cmd.Wait` returned only once every holder of the output had closed it. A stopped claude that exited on SIGTERM left a child holding stdout: the call ended at the 15 s grace, when `WaitDelay` closed the pipes, with the child orphaned, the slot held and CLAUDECALLS-4-S9's window stretched to the grace (#318). `ExecRunner` now runs a claude on pipes of its own (`runClaude`): `Wait` returns at the reap, and what is left of the claude's group is SIGKILLed then through #143's `KillCall`, again every 50 ms until the group is gone. A holder that left the group is not signalled (ADR-0005); its output is closed after the grace with `exec.ErrWaitDelay`, as before. Red first: the stopped-call and exit tests failed at 15 s (slot held to the grace; `WaitDelay expired before I/O complete`), the grace test's child outlived the call, and removing the bound made the holder test hang.
+
+#### Decisions
+
+- Kill the group on every exit of the claude, not only a stopped one: a claude that exits by itself with a child holding the output had the same gap (the call failed with `ErrWaitDelay` at 15 s, the child orphaned). Closing the class covered it, the grace's SIGKILL (which reached the claude alone) and the shutdown, which already killed the group (#143).
+- Keep SIGTERM to the claude alone: it gets its chance to stop its children, and to release a refresh lock (PANEL-28), before anything of its group is killed.
+- The stop line still names only the signals the claude itself got; the group's kill after its exit adds none.
+- The kill goes on until the group is gone, not only until the output ends: review round 1 found a child forked as the one kill landed surviving 5 runs in 30 when nothing held the output. Close's own loop needs no change: a call now ends only once its group is gone.
+- Commands other than `claude` share the panel's group, so they get no group kill (ADR-0005); they get exec's `WaitDelay` (1 s, as `push.go` has), so a `git fetch` whose remote helper holds stderr returns at its timeout instead of without bound. Filed as #329, then fixed here on review round 1's call that it is the same class.
+- `TestGateLogsNoSignalItDidNotSend` held its call open with a child that held the output, which now dies at the reap; it holds the call in the runner below the gate instead.
+
+#### Surprises
+
+- The `ps` the old version of that test polled is blocked in the lane's sandbox, so it read every pid as gone.
+- macOS answers `kill(-pgid, 0)` with EPERM, not ESRCH, for a group whose members are all zombies: the first group-gone assertion failed on it once in about forty shutdowns although nothing was alive.
+- A command other than `claude` that exits 0 while a child holds its output gets `exec.ErrWaitDelay` from `Wait`; round 2 had it count as the success it is.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-160 — leakcheck kills only the helpers its own run started
+
+- **PR**: #330
+- **Session**: S16, started 2026-10-29 09:07 ET
+- **Review**: 1 round, peak low, cap 3
+- **Gate**: CANNOT CHECK — the lead runs the gate after this commit
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id, so no reading is the row's own
+- **Session start**: 10862563 tokens, 21 min
+
+#### What happened
+
+`leakcheck.Main` treated any process whose argv0 was the test binary's path as a leftover helper and sent it SIGKILL, whoever had started it. Two runs of one prebuilt binary therefore killed each other, which is how OPS-99's measured runs died (#319). A process running the binary now counts only when it descends from the run: a ppid walk from the run's pid, with an etime guard against a reused parent pid. Children, and command lines that name the run's temp directory, count as before. A new test is red on the old code with #319's exact symptom (the other copy was reported, then `signal: killed`) and green after. Another test keeps the real detection: a helper the run leaves is reported and killed, and that test fails where `ps` cannot list processes.
+
+#### Decisions
+
+- Proof is ancestry, not the environment. A per-run marker read from another process's environment (`ps -E`, `/proc/<pid>/environ`) works differently on each OS. The cost is a known limit, written in `processes`: a helper whose parent exited first, and whose command line names nothing in the mark, is no longer found. Every test-binary helper in the repository today is a direct child.
+- Review round 1 peaked at low, so it converged. The lead had the six lows fixed without a further round. The fixes were: a digit-bounded mark match, the orphan fixture row, a cheap filter before the walk, a `ps` probe, a zombie that counts as gone, and `helperMain` used by the claude test.
+
+#### Surprises
+
+- `ps` is blocked in the lane's sandbox. There `processes` returns nil, and leakcheck silently finds nothing. Before this change no test caught that; now the process tests fail there.
+- None of the other test-support packages (testbin, treesnap, testwait, testgit) signals a process (PRAC-0010).
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-161 — a lane gates its worktree with `gate.sh -C`, so the sandbox exclusion matches
+
+- **PR**: #327
+- **Session**: S16, started 2026-10-29 09:07 ET
+- **Review**: 4 rounds, peak medium, cap 4 (the owner raised it from 3 at round 3's two mediums)
+- **Gate**: CANNOT CHECK — the orchestrating session runs the gate after this commit
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id
+- **Session start**: 10862563 tokens, 21 min
+
+#### What happened
+
+`settings.json` lifts the sandbox for the gate only when the command is the script alone (`scripts/ci/gate.sh *`), and a subagent lane's every Bash call starts in the main checkout, so its `cd <worktree> && scripts/ci/gate.sh` ran sandboxed (#320). `gate.sh` and `gate-wait.sh` now take `-C <dir>` first: each runs the named checkout's own copy from its top level, and gate-wait's hints carry the same `-C`. merge-pr step 2 and the playbook give the lane form. `checks/gate.sh` runs both with `-C` from a main checkout against a linked worktree whose verdict differs, and `checks/settings.sh` matches every gate command the agents' instructions give against settings.json's own `excludedCommands`, and fails when none gives the `-C` form.
+
+#### Decisions
+
+- Run the named checkout's own `gate.sh`, not the caller's with a `cd`: the tree under test runs its own wrapper, so a change to `gate.sh` is gated by itself. `-C` is stripped before the hand-off, so a worktree whose copy predates `-C` still runs.
+- `-C` only as the first argument, as `git -C`: anywhere else it reaches `run-local.sh`, which refuses it as an unknown flag. gate-wait refuses any other argument, and every verdict names its checkout.
+- `-C` takes only a checkout of this repository (one git common dir), so the exclusion cannot carry an unsandboxed run to another project or a repository made in `$TMPDIR` (review round 1).
+- The instructions check reads a code span across the paragraph's line breaks, as Markdown renders it: this repo hard-wraps, and a wrapped `cd` before the gate is the failure itself.
+- The lead's call after round 2: close the class coarsely, not with a finer shell parser (the treadmill ADR-0012 rejected). A unit (a paragraph's or table row's spans, or a code block read as commands: unlabelled or sh, bash, shell, console, zsh) fails when it changes directory and names the gate or gate-wait without `-C`. It over-reads on purpose. A real counter-example is marked `<!-- gate-check: example -->` on the line before it. The over-read caught this repo's CLAUDE.md, whose build block had `cd framework && go build` next to the gate, so those lines now use `go -C framework`.
+- Not yet seen in a real lane: no subagent has run `gate.sh -C`. Once this is on main, the orchestrating session has a subagent run `scripts/ci/gate.sh -C <worktree> --quick` alone and records whether the `ps` checks pass, at S16's close.
+- build-change's LONE rule (a lone `cd`, then the bare gate) is left as is: its agents start in the run's worktree, and it stops rather than gate from anywhere else (`pwd` checked first).
+
+#### Surprises
+
+- `clauductor update` read the main checkout's template while `CLAUDUCTOR_FRAMEWORK` was set in the lane's environment; `env -u CLAUDUCTOR_FRAMEWORK` was needed for the binary built here to read this checkout's.
+
+#### Insights
+
+None.
+
+### OPS-166 — the team-queue listing skips an issue whose author cannot write
+
+- **PR**: #336
+- **Session**: S16, started 2026-10-29 17:02 ET
+- **Review**: 2 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — the lead runs the full gate after this commit
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id, so no reading is the row's own
+- **Session start**: 602465497 tokens, 496 min
+
+#### What happened
+
+The team-queue listing (`.claude/local/context.d/session-start/team-queue.sh`) now asks GitHub for each issue's `authorAssociation`. It skips an issue whose author is not `OWNER`, `MEMBER` or `COLLABORATOR`, and an issue with no association at all is skipped too. A skipped issue's title and body are never read. The listing counts them in one line, `N team-queue issue(s) from authors without write access skipped`, so the skip is visible. `--row` refuses such an item (`#N's author has no write access`). `--next-id` reads no `Row:` line from one, so a stranger cannot push an id up. The "more not shown" count leaves the skipped out. The skipped line has its own room in the size budget.
+
+`local:team-queue` gained cases from 103 to 111. Fixtures from `NONE` and `CONTRIBUTOR` authors and one with no association are skipped and counted. `COLLABORATOR` and `MEMBER` items still list. `--row` refuses a stranger's approved proposal. `--next-id` ignores a stranger's `Row: X-50` but counts a collaborator's. With the filter defined as `(true)`, the new cases failed 6 times (the listing, the title, the count line, the line count, `--row`, `--next-id`). The old "more not shown" arithmetic failed 2. Review round 1 (M2) found that `--next-id` took its status from the PR-title `sed` alone: a jq error on the issues was ignored, and a wrong id printed with exit 0. Each id source now has its own `|| cannot`, and every issue node must be an object. A null node is now refused in the listing too, where round 1's code had counted it as a stranger's (L1). Both fixtures failed before their fixes. A 45-writer, 5-stranger fixture checks the skipped line's room: 11 shown, "34 more not shown", at most 1,800 characters. It failed with the room removed (`used=200`) and with the skips counted inside the loop.
+
+#### Decisions
+
+- Skip before reading anything but the number, rather than reading facts and hiding the line. A stranger's content then cannot make the listing fail (a CANNOT CHECK would deny the whole queue), nor reach the context.
+- `MEMBER` and `COLLABORATOR` stay as the row names them, though they are GitHub's associations, not permissions. On an organization's repository either may hold read access only. On this personal repository there are no members, and a collaborator can write. The script's header says so.
+- The issue templates' `labels: team-queue` (round 1's M1) was left to OPS-155 (#323), which removed them. After the rebase, neither template carries `labels:`.
+
+#### Known limits
+
+- A triager who labels many strangers' issues `team-queue` fills the 50 issues the listing fetches (100 for `--next-id`). Writers' items past that window go unread: the listing says how many are not shown, `--row` finds no such item, and `--next-id` refuses. Only someone with triage rights can do this, so it is left open. The script's header records it.
+
+#### Surprises
+
+- Both reviewers ended without handing back their reports; the reports reached the lead, who relayed them.
+
+#### Insights
+
+None.
+
+### OPS-167 — wire the quota reading to a health line and a build-change quota guard
+
+- **PR**: #333
+- **Session**: S16, started 2026-10-29 15:49 ET
+- **Review**: 2 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — no full gate ran before this commit; the session's lead runs it
+- **Cost**: $250.27; session-wide: a lane shares the orchestrator's session id, so this is not the row's own cost
+- **Session start**: 494785561 tokens, 423 min
+
+#### What happened
+
+The status line's quota reading (`~/.clauductor/quota-reading.json`, OPS-67) had no production reader once OPS-42 was cancelled. It now has two, both over `lib/quota.sh`. `.claude/health/quota.sh` is a session-start health line. It shows each window's use, its reset on the owner's clock (`TIME_ZONE`) and when the reading was saved. A window past its reset shows no number, and no reading is CANNOT CHECK. It says HIGH when a seven-day window is at `QUOTA_LANE_STOP_PCT` and FAILED when that threshold is not a number. `.claude/quota-gate.sh` exits 1 when any `seven_day*` window with a current reading is at or above the threshold (project.conf, default 90, `0` off). It exits 2 on a bad threshold and 0 below it, or with no reading, which it says. build-change's preflight runs it: a STOP, an ERROR or any non-zero exit stops a new run with notify. The script decides from the gate's words and exit line, not from an agent's verdict. `overrideQuota: true` passes the gate, and a resume only warns. `checks/quota-reading.sh` and the build-change driver hold both readers, and each new case was seen failing first.
+
+#### Decisions
+
+- Wire, not remove: the owner, 2026-10-29.
+- Only the seven-day windows are judged. The five-hour window resets within hours, and the panel's Go `quota_guard` already holds it on **New lane**. The panel has no shell hook at lane start, so it does not run the gate; extending it was out of scope.
+- No reading fails open and says so, since a missing file is not a spent quota. A bad threshold fails closed (exit 2), so a typo never passes as "off".
+- The AGENTS.md row claims only build-change's preflight. session-start's orchestrator rule asks the session to run the gate, and nothing checks that, so other lanes are **Nothing. You.** (review round 1).
+- A resume finishes a run already started, so it is not a new lane: the gate only warns there (review round 1).
+
+#### Surprises
+
+- `clauductor update` read the main checkout's template, not this worktree's, because `CLAUDUCTOR_FRAMEWORK` was set in the lane's environment. It needed `env -u CLAUDUCTOR_FRAMEWORK`.
+- Adding a preflight step moved the marker from step 10 to step 11, and the prompt's "changing nothing but what step 10 says it may" then pointed at the wrong step. A driver test now reads the number from the prompt and checks that the step it names runs marker.sh.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-168 — hold the checks' time bounds to what the broken behaviour costs, not to a machine's pace
+
+- **PR**: #337
+- **Session**: S16, started 2026-10-29 09:07 ET
+- **Review**: 4 rounds, peak medium, cap 3; the owner lifted the cap and asked for Fable reviewers from round 4
+- **Gate**: CANNOT CHECK — the lead runs the full gate on the head this commit makes
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id, so no reading is this row's own
+- **Session start**: 10862563 tokens, 21 min
+
+#### What happened
+
+`living-visuals.sh` failed OPS-99's gate with "the stopped command took 5s" while nine lanes ran: it asserted that a stopped `sleep 5` took at most 4 s, and that a page's commands took at most 3 s. A sweep of the checks found the class in nine places: six asserted bounds that were guesses at a machine's pace (living-visuals twice, gate-wait's 10 s, quota-reading's 2 s, team-queue's 7 s, and statusline's release at 6 s), and three guessed `sleep`s before an assertion (people.sh twice, machine-quiet.sh). Each asserted bound now sits at the least the broken behaviour must cost: a stopped `exec sleep 30` must take under 30 s; 34 commands under 34 s (a waited-for watcher costs each one a second); gate-wait under 60 s (its default is 540 s); the status line's reader under its 20 s release; a line under its 6 s save; the team-queue listing under its fake gh's 30 s. The guessed sleeps became `wait_for` on the condition. `lib.sh` gains `slow` (a deadline times CLAUDUCTOR_TEST_SLOW, as `internal/testwait` scales Go deadlines) and `wait_for`, and statusline's two copies of the factor's awk now go through `slow`. A new check, `wall-clock.sh`, holds every `date +%s` line in a check run.sh runs to a trailing `# wall-clock: <why>`; it has its row in both AGENTS.md files.
+
+Under load (three copies of the old check beside 20 fork loops and 10 CPU burners, load average up to 125), the old bound failed 3 of 3 (5 s, 6 s, 5 s). The new checks passed 3 of 3 beside three more old copies under the same burners: the stopped case took 4 to 5 s, which fails the old bound, and the speed case 5 to 6 s of its 34. Each changed assertion was shown red on a mutant first: the stop removed (30 s of 30), each command waiting a second (36 s of 34), gate-wait past its bound (65 s), the case's errors left on the check's stderr (22 s of a 20 s release), the save in the foreground (7 s of 6), a deadline that does not stop gh (32 s of 30), a leaked watchdog and 11 orphans injected in people.sh, a hidden pid file in machine-quiet.sh, and wall-clock.sh scanning only its own directory.
+
+Review ran four rounds. Round 1 (two mediums) converted the remaining fixed-count polls and the guessed renewal sleep to `wait_for`, and narrowed the AGENTS.md row to what the guard executes; its lows added tests for `slow` (a factor of `2x` is 1, as testwait refuses it; 1.1 times 50 is 55) and `wait_for`'s last look, and ended the status line's releaser and the fake gh's sleep with their cases. Rounds 2 and 3 each found a marker inside a string or substitution passing the guard, which the allowlist closed. Round 4, on Fable, found two lows: a reason may now start with any allowed character, and this fragment's decision is current.
+
+#### Decisions
+
+- The gate does not set CLAUDUCTOR_TEST_SLOW from the machine's load. A load reading taken when the gate starts does not see the lanes that start during its 25 minutes, and no asserted bound needs it now: each sits under what the broken behaviour costs, which load does not change. The factor stays for deadlines, where a passing case never waits, and CI already sets it to 2 for `go test`, which runs the template's checks.
+- A `# wall-clock:` reason is an allowlist: letters, digits, spaces and `, . ; : ( ) -`, from the marker to the end of the line. Round 2 found that allowing an apostrophe let a marker inside a closed single-quoted string count; round 3 found the same through a closed backtick substitution, with the quote rule back. Listing what may appear closes every string and substitution form at once (PRAC-0010), at the cost of "the sleep of the fake" for "the fake's sleep". The owner chose it at the cap.
+- The guard executes only the clock reads. A fixed-count poll or a guessed `sleep` before an assertion is the same class, and nothing finds one: the AGENTS.md row says **Nothing. You.** for them, and every one in the checks today is converted (round 1 found five polls in gate.sh and no-clauductor.sh, and the guessed `sleep 3` before gate.sh's renewal assertion).
+- `artifacts.sh`'s fake `jq` must end inside `with_timeout`'s TERM-to-KILL window, a race load can lose; the fake cannot see when the TERM reached its parent, so the fix is not small. #335 (OPS-173) owns it, cited in the check.
+
+#### Surprises
+
+- On an idle machine the stopped case already took 3 s of the old 4 s bound: one second of margin.
+- A plain CPU burner (30 `yes`) did not break the old bound; fork pressure did. The first load run leaked its burners for a minute and a half (zsh does not split `$pids`), and they were killed by pid.
+- `go test -run TestPluginChecksPassInScaffoldedProject` hits go test's 10-minute default on this machine; the changed checks were run from the plugin in a scaffolded project instead, and passed.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-169 — a health line reports a Co-authored-by trailer on main while attribution is off
+
+- **PR**: #341
+- **Session**: S16, started 2026-10-29 16:07 ET
+- **Review**: 12 rounds, peak high, cap 3; the owner lifted the cap at round 4 (Fable reviewers) and capped it at round 12 (2026-10-29); round 12's verified fixes applied without a further round
+- **Gate**: CANNOT CHECK — the row joins batch 2, gated after this commit
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id, so no row-only reading exists
+- **Session start**: CANNOT CHECK — the PR was opened by hand (the row is not on main, so marker.sh refuses), with no cost reading
+
+#### What happened
+
+`.claude/health/coauthor-trailers.sh` is a thin caller over `health_coauthor` in `.claude/lib/health.sh`. While `model-roles.json` does not set `attribution.enabled` to true, the line reads every commit on `origin/<main>` after a baseline, second parents included. It prints FAILED for each commit whose message has a `Co-authored-by` trailer, judged as rule 15 judges one: a line whose first word, past blanks, is the key, in any case, then its colon. Each FAILED line names the commit's short sha and title, never the trailer, so no co-author's address reaches the session context. It offers the two fixes that clear it: rewrite the branch (the owner's call), or keep the commits as history by setting `COAUTHOR_HEALTH_SINCE` to main's tip. With attribution on it prints OK, not checked. It prints CANNOT CHECK when the config or `origin/<main>` cannot be read, and in a shallow clone whose depth hides the baseline. Run over this repo's whole history, it finds #289–#291 alone, which are before its baseline. `checks/health-lines.sh` tests it in fixture repositories through a thin caller of its own, and runs the project's copy of the line only when the project keeps one.
+
+Round 4 found that the plugin builder rewrote that fixture caller to the plugin's model, so 34 cases read the real project. The caller is now spelled so the builder leaves it alone. A new Go test, `TestCheckHeredocsKeepTheirProject`, fails when the plugin's copy of a check points a script the check writes at `CLAUDUCTOR_FW` while the template's does not. Its reader grew over rounds 5–12 into a small quote-aware shell lexer, `writtenScripts` (`framework/internal/plugin/shscan_test.go`). It reads quoted heredocs and printf/echo writers whose output reaches a file. The table `TestWrittenScripts` holds it to about 130 rows: what it reads, what it skips on purpose, and what it refuses.
+
+#### Decisions
+
+- **The baseline is the commit that added the line, read exclusively; `COAUTHOR_HEALTH_SINCE` (a commit, `.claude/project.conf`) moves it.** Because of the default, the trailers the owner kept on #289–#291 (2026-10-28) are not a finding here, and no date needs choosing. A project that adopts the line later starts from its own adoption. The key names a commit rather than a date, so "keep it as history" is one value: main's tip, which every listed commit precedes.
+- **The logic lives in `lib/health.sh`, and the health line is a thin caller**, as with the two GitHub lines. `.claude/health/` belongs to the project, and `clauductor update` never rewrites it, so a fix to logic kept there would never reach a project.
+- **The tests are in `checks/health-lines.sh`, not `checks/health.sh`.** `health.sh` is in `steps.sh`'s `CHECKS_ONCE`, which may read only framework files, and a health line is the project's file.
+- **Attribution is read as rule 15 reads it**: on only when `attribution.enabled` is true. A `model-roles.json` that does not parse, or whose attribution is not an object, is CANNOT CHECK, because the line cannot tell whether attribution is off. With no `model-roles.json`, the line is OK and checks nothing, which matches rule 15, also off there.
+- **A revert is not offered as a fix.** It adds a commit, and the trailer's commit stays in the range.
+- **The owner chose to keep and harden the plugin guard (round 8, option a), lifted the review cap at round 4 with Fable reviewers, and capped it at round 12** (2026-10-29). Round 11 asked for the coverage class to be closed with a systematic mutant sweep. A go/ast generator made one mutant per branch term of the reader (a `&&`/`||` term dropped, an `if` negated, a case set to false, a `!` dropped). The final sweep counted 202 terms: 200 killed (12 after a `_ = var` patch for a deletion that left a variable unused) and 2 equivalent on valid shell, each commented in the code. Round 12 then showed that one of those equivalence comments was false. Its fix replaced the comment with a row, so that term is now killed too.
+
+#### Surprises
+
+The rewrite that broke the fixture caller was the plugin builder doing its job: `shRoot` and `shVarFW` rewrite every `ROOT=$(cd "$(dirname "$0")/../.." …)` and `"$ROOT/.claude/<framework dir>"` line, including the lines a check writes into a heredoc for a scratch project. Each attempt to name the scripts a check writes by one spelling missed another (a redirect after the opener, a comment, `printf --`, double quotes, a brace group, `$(…)`, echo), until the reader parsed the shell rather than matching its lines.
+
+The pre-PR pass found one more thing. In the no-clauductor wrap, git prints an xcrun warning to stderr, and three of the line's git calls did not silence stderr. Session-start merges a health line's stderr, so the warning would have reached it as a line with no verdict. Those calls now send stderr to /dev/null, and the check compares the project's copy of the line by stdout alone.
+
+KNOWN LIMITS:
+- OPS-172 (queued here) owns the same gap for `push-main.sh` and `scheduled-workflows.sh`: `health-lines.sh` copies them from the project's own `.claude/health/`, so a project that deletes them, as the README allows, gets 47 FAILs.
+- OPS-174 (queued here, #340) owns the shell reader's remaining mutant coverage. The sweep has no forced-true operator (an else-less `if`, or a case that fires when it should not), it predates round 12's fixes, and its tool is not yet in the repo.
+- The reader does not see text held in a variable (`printf '%s' "$x" > f` compares `"$x"`), a writer inside a function whose callers redirect it, a backtick body, or an unquoted heredoc. The header of `shscan_test.go` names each as out of scope.
+- The non-short `TestPluginChecksPassInScaffoldedProject`, which runs every plugin check in a scaffolded project, timed out at 600 s in this sandbox. The batch gate runs it.
+
+#### Insights
+
+None.
+
+### OPS-170 — the gate runs CHECKS_ONCE once again
+
+- **PR**: #334
+- **Session**: S16, started 2026-10-29 09:07 ET
+- **Review**: 3 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — the lead runs the gate after this commit
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id, so no cost is the row's own
+- **Session start**: CANNOT CHECK — a lane of the S16 session, which started before this row
+
+#### What happened
+
+Every full gate printed "this repo's framework differs from the template (project.conf differs in APPROVAL_DELEGATED GATE_DOCS); both sets run every check". `framework_matches_template` compares every project.conf key but CONF_NOT_READ, and this repo sets both keys to "1" on purpose (OPS-89, OPS-127), so the 15 CHECKS_ONCE checks ran in both sets on every gate. Both keys now join CONF_NOT_READ. Before: this repo's set ran the 15 in 317 s, about 5 minutes (one at a time, `sh .claude/checks/run.sh <name>`, load average 6 at the start and 97 at the end, other gates running; inside the lane's sandbox, where gate, machine-quiet and people fail on `ps`, so their 50, 61 and 37 s are of a partial run). After: `check_sets` on main's `steps.sh` says "differs ... APPROVAL_DELEGATED GATE_DOCS"; on this branch's it says "matches; this repo's set leaves to the template's:" all 15, so this repo's set spends 0 s on them, and the template's set still runs each once.
+
+#### Decisions
+
+- Add the keys to CONF_NOT_READ rather than move a check out of CHECKS_ONCE: no CHECKS_ONCE check reads either key. Their only readers are `change-approval.sh` (APPROVAL_DELEGATED) and `run-local.sh` (GATE_DOCS). No CHECKS_ONCE check runs `change-approval.sh`; `gate` and `ci-status` run `run-local.sh` only in fixtures whose project.conf they write; and conf.sh sets both keys' defaults before it reads a project.conf, so not even an inherited variable reaches them.
+- `check-sets.sh` now fails when this repo's project.conf differs from the template's in a key CONF_NOT_READ does not name, so a new difference fails the gate instead of silently running the 15 twice. A key may differ on purpose, accepting the double run (this repo turning on a module a CHECKS_ONCE check reads), so `steps.sh` gains `CONF_DOUBLE_RUN_OK`: a key it names passes, printed as "both sets run every check". The failure names the key and the three remedies.
+- Round 1 asked the key scan, which reads only the check file, to follow every file a check runs from ROOT in place and fail closed on what it cannot follow. The resolver built for it still missed run forms in round 2, so the lead scoped it out: the scan is as on main, and its blind spots, which predate this row, go to OPS-171 (a runtime guard, or none).
+- The brief's scope named `template/scripts/ci/steps.sh`, `template/.claude/checks/check-sets.sh` and `plugin/`. CONF_NOT_READ and check-sets are this repo's own (the template ships one check set and no CHECKS_ONCE), so the template and the plugin do not change.
+
+#### Surprises
+
+- The run-once mode came in with OPS-89's #198 (ee2963f4, 2026-10-22) and ran until #225 (db8dbfe6, 2026-10-24) set this repo's GATE_DOCS="1"; OPS-127 (#246) then set APPROVAL_DELEGATED="1". Since #225 it has been off on every gate. The gate's own line said so on every run; nothing failed, so nobody read it.
+- Known limit: check-sets' key scan reads the check's own source by pattern, so a key read by a file a check runs from ROOT in place goes unseen (OPS-171).
+
+#### Insights
+
+None.
+
+### OPS-86 — ADR-0012, accepted: one merge path in place of a parser of shell text
+
+- **PR**: #324
+- **Session**: S16, started 2026-10-29 10:32 ET
+- **Review**: 3 rounds, peak medium, cap 3 (round 1 medium, round 2 low, round 3 on the acceptance delta low; all lows fixed)
+- **Gate**: CANNOT CHECK — the lane stopped before the gate on the lead's instruction (a worktree gate is broken in this sandbox)
+- **Cost**: CANNOT CHECK — a subagent lane shares the orchestrator's session id, so no row-only cost can be read
+- **Session start**: CANNOT CHECK — no marker ran: the lane was told not to push, and the marker opens a draft PR
+
+#### What happened
+
+ADR-0012 was drafted Proposed, reviewed to convergence, and accepted by the owner on 2026-10-29: `docs/adr/0012-one-merge-path-refused-everywhere-else.md`, with its index row. It weighs five options: keep the parser; one named merge command read as text; Standing Tee's `gh` wrapper (its PRAC-0041); one merge path with the refusal at the argv; and a server-side required check as a complement. It recommended the fourth, D, which the owner accepted. `.claude/merge.sh` holds the rules and is the only thing that merges, pinned to the judged head. A deny-only `.claude/bin/gh` refuses every other merge route, on the PATH route `pattern-kill-path.sh` already writes. The hook stops looking for merges and keeps only a route check and coarse refusals of the ways past the wrapper. No hook or code changed. The roadmap gained the build rows OPS-162 (`merge.sh`), OPS-163 (the wrapper), OPS-164 (the reader deleted) and OPS-165 (a server-side required check), and the Session plan moved every session after S21 two places.
+
+#### Decisions
+
+- **The owner, 2026-10-29:** option D accepted. A merge in another repository is refused (`merge.sh` has no `-R`). A gh location holding a `$` is refused outright, and the refusal says to write `gh` directly; `merge.sh`'s own lookup is exempt by path. Yes to the server-side check as a complement (OPS-165, after OPS-98; the ruleset is the owner's step, queued when the row starts). OPS-162 goes before OPS-77 and OPS-78 in S21, and OPS-163 and OPS-164 follow in S22–S23, so packaging, the terminal UI, the views, the launch and after-launch each move two sessions later.
+- OPS-58 cancelled (its forms close at the argv; its cases become OPS-164's acceptance rows). OPS-32 kept, rescoped to the guards that stay `PreToolUse`-only, no longer waiting on OPS-86. OPS-68 kept, its dependency on OPS-86 dropped (it changes which files the rewrite hook protects, not a reader). OPS-77, OPS-78 and OPS-92c now write into `merge.sh`. This PR changes only those rows' Change and Deps cells; a row's PR sets no Status (this README), and `fold.sh` sets only `✅ merged`, so **the close sets these three Status cells by hand** (session-close, *The roadmap*):
+  - OPS-58: `❌ cancelled — ADR-0012 (the owner, 2026-10-29): its forms close by construction at the argv the gh wrapper receives, the reader it extends is deleted (OPS-164), and its cases become OPS-164's acceptance rows`
+  - OPS-32: `⬜ queued — rescoped by ADR-0012 (accepted 2026-10-29), which no longer holds it`
+  - OPS-68: `⬜ queued — ADR-0012 (accepted 2026-10-29) drops its wait on OPS-86: it changes which files the rewrite hook protects, not how any reader reads shell`
+- The ADR states requirements, not mechanisms, as Standing Tee's PRAC-0041 learned to (mechanism in a design record gets reviewed as if it were the parser).
+- Insights-log retags (*shell parser never converges* → ADR-0012) wait for the close, since a row's PR writes only its fragment (new-adr step 5).
+
+#### Surprises
+
+- Standing Tee's own move to the wrapper is half done: PR 1 (#681) merged, but PR 2 (#698), which deletes the reader, is parked after 8 rounds peaking high, on a grammar of the ways past the wrapper. So Standing Tee runs both the reader and the wrapper, and the wrapper has a false refusal of its own (`--json mergeCommit` after `-R`).
+- The live guard refused three commands that merge nothing while this record was drafted, each re-runnable in a session with the hook registered:
+  - `gh pr merge --help 2>&1 | grep -n -- '--auto'`, refused with "'--auto' merges before checks settle …" (`template/.claude/hooks/pr-merge-guard.sh:355`), twice;
+  - `gh help pr merge 2>&1 | head -3`, refused with "the merge reads as [help pr merge], and what comes before pr is not a plain gh" (`template/.claude/hooks/lib/merge-reader.awk:616`), twice;
+  - a `python3` heredoc of the ADR's edits whose text quoted the first command, refused with the `--auto` message (`pr-merge-guard.sh:355`).
+- Round 1 (reviewer-docs, peak medium) found two mediums: OPS-92c's `--explain` is tied to option B in its row, not to D, and `worktree-hook-drift.sh` cannot hold D5, since it compares only `.claude/hooks/` and `settings.json` at agent spawn. Both were fixed in the ADR, along with six lows.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-91 — the roadmap row is the authority for a budget's kind, as for its figure
+
+- **PR**: #338
+- **Session**: S16, started 2026-10-29 09:07 ET
+- **Review**: 4 rounds, peak medium, cap 3 (the owner lifted the cap at round 3's medium and asked for Fable reviewers from round 4)
+- **Gate**: CANNOT CHECK — the main session runs the gate
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id
+- **Session start**: CANNOT CHECK — a lane shares the orchestrator's session id
+
+#### What happened
+
+Since OPS-85 a `, soft` on a proposal's `**Budget:**` line turned build-change's hard stop into a warning, and nothing held the mark to the owner: the design hash covers design.md and the Risk line, and `checks/changes.sh` compared only the figure with the roadmap row. The owner chose (2026-10-27) to make the row the authority for the kind too, so no design is re-approved. The parser reads `Budget: $N, soft` on a row as a soft budget and prints the kind as `--tsv` column 16 (`soft`, `hard`, or empty with no budget); `roadmap_tsv_errors` holds a plugged parser's column 16 to the same values. `checks/changes.sh` compares the proposal's figure and kind with the row's, and a parser that emits no column 16 has only hard budgets. The rows that were already soft (OPS-92a, OPS-104, OPS-107, PANEL-48, OPS-95, OPS-100, OPS-101, OPS-105) carry the mark on the row already. The only open soft proposal, PANEL-46's, had no row in `docs/roadmap.md` (it moved to `roadmap-history.md` when cancelled), so under round 3's fix it failed this check; OPS-154 (#331) removed its directory, and this branch was rebased after it.
+
+#### Decisions
+
+- The row is read as `origin/<main>` has it (review round 1, medium), as `change-approval.sh` reads a row's Risk: read from disk, a branch that marked both its proposal and its row soft passed, which is the gap this row closes. The disk is read only in a repository with no remote or when main lacks the row (one added in the same PR), and the result names which. Where main cannot be read (round 2, medium: an archive clean room, a remote with no `origin/<main>`, main's roadmap not parsing) a soft proposal fails, as a delegated approval does there; a hard one is held to the disk. The figure gains the same protection, so raising a budget means landing the row's new figure on main first: the stop messages, playbook and apply-change say so, and the refusal points there.
+- A soft proposal with no row to hold it to fails (round 3, medium): one that names no row, one whose row no roadmap holds, one whose row has no Budget, or one whose disk roadmap does not parse (round 4, low). The `**Roadmap row:**` line is outside the design hash, so dropping or renaming it had turned the check off. A hard one with no row still passes: it is the kind that stops.
+- A row soft and a proposal hard FAILS, as the figure fails either way. The proposal is a copy of the row; a hard copy of a soft row stops a build the owner said should go on, which is a stalled lane nobody asked for.
+- A row's mark reads soft only as `, soft` straight after the figure; anything else (`, hard`, prose, a misspelling such as `, softly`) is hard. A misread therefore errs toward the kind that stops a build, and a soft proposal against it fails loudly.
+- build-change still reads the proposal's line (through `change-cost.sh`), not the row: the gate holds the line equal to the row, as it holds the figure. An edit to the proposal alone on a change branch would carry the build past its budget until the gate refuses it at merge; that window was there for the figure before this row and is the same for the kind.
+- The kind is a new optional column, not a change to column 11: a plugged parser that emits 15 columns still meets the contract, and every reader of column 11 still reads dollars.
+
+#### Surprises
+
+- The awk program in `roadmap-queue.sh` sits in single quotes, so an apostrophe in a comment inside it ended the program; the first run failed with a shell syntax error.
+- The people check fails in the lane's sandbox, before and after the change, because `ps` is blocked there.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-99 — wait for the sources the untrusted-config test reads
+
+- **PR**: #316
+- **Session**: S16, started 2026-10-29 08:50 ET
+- **Review**: 1 round, peak low, cap 3
+- **Gate**: 52 min
+- **Cost**: CANNOT CHECK — usage-report.sh sums the whole S16 session (~$3.21 so far), this lane with the main session and OPS-158's lane
+- **Session start**: 3758466 tokens, 4 min
+
+#### What happened
+
+`TestUntrustedConfigRunsNoCommandsOrTemplates` (#288) read the panel's state once in two places, each before another source goroutine's write could land. It waited for the card's "not run" error, then read the template's suggestions once, but suggest is a source of its own (`suggestSource`). After trust it waited for the card's output, then read `Trust.Trusted` once, but `markTrusted` kicks the cards before the trust source applies its own `ApplyTrust` update. That is the read-before-write shape OPS-133 fixed. The test now waits on each condition it asserts. No sibling test reads state this way: the others trust before the panel starts, or wait on the condition they then check.
+
+The natural failure was NOT reproduced. Beside one copy of the package's short suite, run from a binary path of its own, the old test passed 50 of 50 and the fixed test passed 50 of 50. That run shows the fix causes no regression; it does not show the flake is gone. Two earlier runs of the fixed binary were killed partway, so they are not counts. The load suite's own leakcheck killed them because they ran the same binary path, and the fix is not implicated (see Surprises). What the evidence shows is that the fix closes both windows once each is forced open. A 1 s delay injected into the suggest source's untrusted branch failed the old test 3 of 3 times ("untrusted suggestions: {Source:{OK:false Pending:true ...}}") and the new test 0 of 3. The same delay in `markTrusted`, after the kicks, failed the old test 3 of 3 times ("still untrusted") and the new test 0 of 3. The probes were never committed.
+
+#### Decisions
+
+The test waits, and `markTrusted` keeps its order. A card's output can show for a moment before the trust banner lifts, and nothing reads the two together but this test. Reordering production code for it would add review surface without a reader who needs it.
+
+#### Surprises
+
+The lane's sandbox refused a loopback bind, and once that was allowed it still could not resolve `clauductor.localhost`, so neither the panel tests nor the gate could run from the lane. The owner ran the evidence scripts by hand. Under that load the natural flake did not show in 50 runs.
+
+The measured runs of the fixed binary were SIGKILLed, and the cause was not the fix. Both evidence scripts ran the load suite and the measured run from one prebuilt binary. After its tests, leakcheck lists every process on the machine and SIGKILLs any running its own binary's path, whoever started it (`internal/leakcheck/leakcheck.go:172-177`). That killed each fixed run, and the earlier load copies killed one another. A run from a different path survived its load suite. `go test` gives each run a binary path of its own, so a gate does not hit this. But leakcheck kills, by pattern, processes it never started, the class ADR-0005 forbids. Issue #319 (row OPS-160) owns it.
+
+#### Insights
+
+None.
+
+### PANEL-47 — close PANEL-42's group 5 lows, and refuse fish's -C in a sidecar
+
+- **PR**: #321
+- **Session**: S16, started 2026-10-29 12:12 ET
+- **Review**: 2 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — the lane stops before the gate; the main session runs it
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id, so no reading is the row's own
+- **Session start**: 141778173 tokens, 207 min
+
+#### What happened
+
+Every low from PANEL-42's group 5 review (#128) was still on main, at moved lines. The command lines attach's refusals and the `panel trust` hints of attach and `panel add` print are shell-quoted with `install.ShellWord`. A card of exactly 200 lines no longer says "… (truncated)": the marker is added only when a line is cut, from stdout or stderr (`appendCardLines`). `servingGit`'s comment names its two exceptions: `signals.ReadWorktrees`' bare `git worktree list`, and catch-up, which is not serving. `unquoteC` has a `\n`/`\r` row. The misplaced comment in `projects_test.go` moved to `TestListProjectsNamesEachConfig`. `docs/panel.md`'s "What it does not do" sub-list has a heading that fits its items. D5 also refuses fish's `-C`, a cluster holding `C`, `--init-command` and `--init-command=…`.
+
+Closing the class (PRAC-0010): three more printed command lines had the same gap and are quoted too: `clauductor init`'s `cd <dir>`, the self-update rollback's `mv` (`install.Tilde` now returns one shell word, with `~/` left outside the quotes) and a hand-started panel's `go build -o <exe>`. Not changed, because every value is fixed or validated: `launchctl` lines (the GUI domain and the constant label), `clauductor panel remove <id>` (an id matching `ProjectIDRe`, quoted anyway) and leakcheck's `tmux -L <name>` (test support, a name it made).
+
+#### Decisions
+
+- fish's `-C` is refused as the owner decided on 2026-10-17: it runs code before any script, so a script file does not make it safe.
+- Round 1 (medium): fish's getopt takes any unambiguous prefix of a long flag, so `--comm=…` and `--init=…` ran code past D5. Every `--<prefix>` of `--command` and `--init-command` is now refused, an ambiguous one too, since fish would refuse it anyway. Closing the class: bash, zsh, python3, perl and ruby reject a `--vers`-style prefix, node says "bad option", and bun reads `--eva <code>` as an unknown flag and the code as a file, so none of them needs it. deno was not probed (it is not installed here).
+- The `\n`/`\r` rows test code that was already right. They were shown red by removing each case from `unquoteC` in turn, then put back.
+
+#### Surprises
+
+- Before the fix, `caffeinate -i fish -C x` passed D5 with no refusal at all. Directly at `argv[0]`, the script-file rule caught `x` instead, so the gap showed only behind a launcher.
+- The lane's sandbox blocks loopback names, unix sockets and `ps`, so about 80 short tests in `internal/panel`, `install`, `lease`, `claudecall`, `web` and `cmd` fail there, each on a lookup, a bind or a process read. None of them is in a file this row touches. The full gate covers them.
+
+#### Insights
+
+None.
+
 ## Session 15 — 2026-10-28 — Rich — S15: the owner's rulings, the sandbox map and the lows
 
 **Totals.** Gate 107 min (a row's gate was CANNOT CHECK, so this is a floor); cost $1008.23.
