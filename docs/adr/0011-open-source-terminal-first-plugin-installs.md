@@ -31,7 +31,7 @@ keep them apart.
    site keeps only its docs (OPS-117).
 2. **The terminal is the local face.** The panel's Go engine stays. Its face becomes a full-screen terminal UI in the
    same binary, built with compiled-in Go libraries (Bubble Tea and Lip Gloss), so users install nothing extra
-   (Phase 6, PRD-tui). The browser page is frozen (fixes only, no new features) until the terminal UI covers what
+   (Phase 4, PRD-tui). The browser page is frozen (fixes only, no new features) until the terminal UI covers what
    the owner uses, and is then removed (PANEL-64). A desktop app may follow after v0.1.0 (PANEL-65).
 3. **The plugin is the one way to install the operating model.** `/stridal:init` writes the lite profile by
    default, with the product module on, and `--full` writes the full profile. The binary stops installing the model
