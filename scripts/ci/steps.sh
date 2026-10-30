@@ -129,9 +129,10 @@ CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals
 
 # The project.conf keys that may differ between the two ROOTs: no CHECKS_ONCE check reads them.
 # Nothing local proves it (a key read through a file a check runs is not in its source): CI's
-# process checks (test.yml) run this repo's whole set over its own project.conf, and check-sets.sh
-# holds that step in place (OPS-171). A merge waits for them only once GATE_PR_CHECKS names their
-# job (OPS-98); until then, Nothing. You. Every other key must be the same in both.
+# process-checks step (test.yml) is the run of this repo's whole set over its own project.conf,
+# and check-sets.sh holds it in place (OPS-171). It enforces nothing until OPS-98 makes CI green
+# (main's go test fails before the step, #343) and required (GATE_PR_CHECKS); until then,
+# Nothing. You. Every other key must be the same in both.
 # GATE_PR_CHECKS among them: this repo turns it back on when Actions minutes return (OPS-98).
 # APPROVAL_DELEGATED and GATE_DOCS: this repo's own are "1" (OPS-89, OPS-127). Only
 # change-approval.sh and run-local.sh read them; no CHECKS_ONCE check runs change-approval.sh, gate

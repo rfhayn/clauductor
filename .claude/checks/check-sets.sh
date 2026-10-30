@@ -20,13 +20,13 @@
 #     CONF_NOT_READ and CONF_DOUBLE_RUN_OK.
 #  4. run.sh's CHECKS_SKIP on a fixture: it leaves out what it names and says so, a named run
 #     ignores it, and no check inherits it.
-#  5. That no CHECKS_ONCE check reads a CONF_NOT_READ key is CI's to find, not a reading of check
-#     source (OPS-171): test.yml's process-checks step runs this repo's whole set over its own
-#     project.conf. The step is held to that form, each refused form shown failing; a fixture
-#     shows such a read passing the local gate's form and failing the step's command. A merge
-#     waits for it only where GATE_PR_CHECKS names the step's job: while GATE_PR_CHECKS is empty
-#     (until OPS-98) that is a SKIPPED line under the PASS, and Nothing. You.; naming other checks
-#     but not that job fails.
+#  5. That no CHECKS_ONCE check reads a CONF_NOT_READ key is for CI to find once OPS-98 lands, not
+#     a reading of check source (OPS-171): test.yml's process-checks step is the command that runs
+#     this repo's whole set over its own project.conf. The step is held to that form, each refused
+#     form shown failing; a fixture shows such a read passing the local gate's form and failing
+#     the step's command. Today nothing enforces it: main's go test fails (#343) before the step,
+#     and GATE_PR_CHECKS is empty, a SKIPPED line under the PASS (Nothing. You. until OPS-98, which
+#     makes CI green and required); GATE_PR_CHECKS naming other checks but not that job fails.
 . "$(dirname "$0")/lib.sh"
 need git jq
 
@@ -232,8 +232,10 @@ case $o in *"PASS beta"*) ok "a named run ignores CHECKS_SKIP" ;; *) fail "a nam
 # A check left to the template's set must not read a CONF_NOT_READ key. Reading a check's source
 # cannot tell (a key read by a file it runs, in any of a shell's forms, OPS-171), and comparing
 # runs on every gate costs the run the local gate leaves out. CI's process-checks step (test.yml)
-# runs this repo's whole set, CHECKS_ONCE included, over this repo's project.conf; it counts only
-# where the merge guard waits for its job (GATE_PR_CHECKS). Until then: Nothing. You.
+# is the command that runs this repo's whole set, CHECKS_ONCE included, over this repo's
+# project.conf; it counts only once its job passes and the merge guard waits for it
+# (GATE_PR_CHECKS). Today neither holds: main's go test fails (#343), so the job stops before the
+# step, and GATE_PR_CHECKS is empty. OPS-98 (#350) closes that; until then, Nothing. You.
 CI="$ROOT/.github/workflows/test.yml"
 # ci_read FILE: one line per way FILE's process-checks step stops being this repo's whole set with
 # its failure counted, then `@job <check name>`, the job that holds it. Forms are refused, not
@@ -408,7 +410,7 @@ merge_half() {
 }
 case $(merge_half "${GATE_PR_CHECKS:-}" "$job") in
   waits) ok "...and the merge guard waits for it (GATE_PR_CHECKS: $GATE_PR_CHECKS)" ;;
-  off) ok "SKIPPED the merge guard's half: GATE_PR_CHECKS is empty, so before a merge nothing runs CHECKS_ONCE over this repo's project.conf: Nothing. You. until OPS-98" ;;
+  off) ok "SKIPPED the merge guard's half: GATE_PR_CHECKS is empty, so no merge waits for CI's run of CHECKS_ONCE over this repo's project.conf (and that run needs its job's earlier steps green): Nothing. You. until OPS-98" ;;
   *) fail "GATE_PR_CHECKS ($GATE_PR_CHECKS) does not name test.yml's job that runs this repo's whole set ($job): no merge waits for the run of CHECKS_ONCE over this repo's project.conf" ;;
 esac
 # Driven on the copies above: OPS-98's setting with the real file waits; with the step moved to a
