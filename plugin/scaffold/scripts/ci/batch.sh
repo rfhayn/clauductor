@@ -28,6 +28,12 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "batch: not inside a
 usage() { echo "batch: usage: batch.sh merge <branch>… | sync | record <PR number> <row id>…" >&2; exit 2; }
 stop() { echo "batch: STOPPED — $*" >&2; exit 1; }
 clean() { [ -z "$(git -C "$ROOT" status --porcelain)" ] || stop "the tree is not clean: commit or stash first"; }
+# Every arm commits, and catch-up-guard reads git commands in the Bash line, not inside this script:
+# so it refuses <main> and a detached HEAD itself (a subagent's Bash starts in the main checkout).
+branch=$(git -C "$ROOT" symbolic-ref -q --short HEAD) || branch=""
+case $branch in
+  ""|"$MAIN_BRANCH") [ $# -eq 0 ] || stop "run it on the batch's integration branch, not ${branch:-a detached HEAD}" ;;
+esac
 merge_one() {  # merge_one REF: --no-ff; a conflict is aborted and stops the run, naming REF
   git -C "$ROOT" merge --no-ff --no-edit -q "$1" >/dev/null 2>&1 && return 0
   conflicts=$(git -C "$ROOT" diff --name-only --diff-filter=U | paste -sd ' ' -)
@@ -67,14 +73,25 @@ case $cmd in
     [ $# -ge 2 ] || usage
     pr=$1; shift
     printf '%s' "$pr" | grep -qE '^[0-9]+$' || usage
+    for id in "$@"; do printf '%s' "$id" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*$' || usage; done
     clean
-    d="$ROOT/$JOURNAL_FRAGMENTS"; first="" missing=""
+    d="$ROOT/$JOURNAL_FRAGMENTS"; first="" closed=""
+    # A row a listed fragment already closes (its own, or under Also closes) is not added again,
+    # so a rerun changes nothing and the fold never sees one row closed twice.
     for id in "$@"; do
-      if [ -f "$d/$id.md" ]; then [ -n "$first" ] || first=$id; else missing="$missing${missing:+, }$id"; fi
+      [ -f "$d/$id.md" ] || continue
+      [ -n "$first" ] || first=$id
+      closed="$closed $(fragment_rows "$d/$id.md" | tr '\n' ' ')"
     done
     [ -n "$first" ] || stop "no fragment for any of $* in $JOURNAL_FRAGMENTS: a batch needs one to record its PR"
+    missing=""
+    for id in "$@"; do
+      case " $closed " in *" $id "*) ;; *) missing="$missing${missing:+, }$id"; closed="$closed $id" ;; esac
+    done
     tmp=$(mktemp "${TMPDIR:-/tmp}/batch.XXXXXX") || stop "no temp file"
     trap 'rm -f "$tmp"' EXIT
+    # A stop part way restores the fragments, so it leaves the tree as it found it.
+    undo() { git -C "$ROOT" checkout -q -- "$d"; stop "$@"; }
     for id in "$@"; do
       f="$d/$id.md"; [ -f "$f" ] || continue
       add=""; [ "$id" = "$first" ] && add=$missing
@@ -86,9 +103,10 @@ case $cmd in
         !fence && !done && /^- \*\*Also closes\*\*:/ { had = 1; if (add != "") $0 = $0 ", " add }
         !fence && !done && add != "" && !had && /^$/ && seen { print "- **Also closes**: " add; had = 1 }
         /^- \*\*/ { seen = 1 }
-        { print }' "$f" > "$tmp" && cat "$tmp" > "$f" || stop "could not write $f"
-      p=$(fragment_problems "$f") || stop "$f lost its shape: $p"
+        { print }' "$f" > "$tmp" && cat "$tmp" > "$f" || undo "could not write $f"
+      p=$(fragment_problems "$f") || undo "$f lost its shape: $p"
     done
+    [ -n "$(git -C "$ROOT" status --porcelain -- "$d")" ] || { echo "batch: #$pr already recorded for $*; nothing changed"; exit 0; }
     git -C "$ROOT" add -- "$d" && git -C "$ROOT" commit -qm "$first: Record batch PR #$pr in the rows' fragments" \
       || stop "could not commit the fragments"
     note=""; [ -z "$missing" ] || note=" ($missing under the Also closes of $first)"

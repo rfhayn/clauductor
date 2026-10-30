@@ -10,7 +10,8 @@ STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (
 . "$(dirname "$0")/lib.sh"
 
 S=$(scratch)
-B="$ROOT/scripts/ci/batch.sh"
+# Beside GATE_RUN, where install puts it (B10: never a typed scripts/ci path).
+B="$ROOT/$(dirname "$GATE_RUN")/batch.sh"
 g() { git -C "$F" "$@"; }
 setup() {  # an origin, a clone on a batch branch, two lane branches, one that conflicts, one fragment
   rm -rf "$S/o" "$S/w"; F="$S/w"
@@ -20,7 +21,7 @@ setup() {  # an origin, a clone on a batch branch, two lane branches, one that c
   mkdir -p "$F/.claude/lib" "$F/docs/journal.d"
   cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/fragments.sh" "$F/.claude/lib/"
   printf 'BATCH_REGENERATE="sh gen.sh"\n' > "$F/.claude/project.conf"
-  printf 'cat a b 2>/dev/null > gen.out\n' > "$F/gen.sh"
+  printf 'cat a b 2>/dev/null > gen.out; exit 0\n' > "$F/gen.sh"
   printf 'base\n' > "$F/shared"
   g add -A; g commit -qm init; g push -q origin main 2>/dev/null
   for x in a b; do g checkout -qb "ops/$x" main; printf '%s\n' "$x" > "$F/$x"; [ "$x" = b ] || printf 'a\n' > "$F/shared"; g add -A; g commit -qm "$x"; done
@@ -56,35 +57,55 @@ setup; printf 'dirty\n' >> "$F/shared"
 out=$(run merge ops/a); [ $? -ne 0 ] && printf '%s' "$out" | grep -q 'clean' && [ -z "$(g log --merges --format=%s main..HEAD)" ] \
   && ok "batch merge: a dirty tree is refused, nothing merged" || fail "batch merge: dirty tree: $out"
 
-# sync: origin/main moved with a commit that conflicts with the batch: caught here, before the gate.
-setup; run merge ops/a >/dev/null
-g checkout -q main; printf 'm\n' > "$F/a"; g add -A; g commit -qm m; g push -q origin main 2>/dev/null; g checkout -q ops/batch
+setup; out=$(cd "$F" && git checkout -q main && sh "$B" merge ops/a 2>&1); rc=$?
+[ $rc -ne 0 ] && printf '%s' "$out" | grep -q 'integration branch' && [ -z "$(g log --merges --format=%s)" ] \
+  && ok "batch: on <main> it refuses, nothing merged" || fail "batch: on main: exit $rc: $out"
+
+# sync: main moves from ANOTHER clone, so only the script's own fetch can see it.
+moved() {  # moved FILE: a commit on origin/main this clone has not fetched
+  rm -rf "$S/o2"; git clone -q "$S/o" "$S/o2" 2>/dev/null
+  printf 'm\n' > "$S/o2/$1"; git -C "$S/o2" add -A
+  git -C "$S/o2" -c user.name=M -c user.email=m@example.com commit -qm m; git -C "$S/o2" push -q origin main 2>/dev/null
+}
+setup; run merge ops/a >/dev/null; moved a
 out=$(run sync); rc=$?
 [ $rc -ne 0 ] && printf '%s' "$out" | grep -q "origin/main" && [ ! -f "$F/.git/MERGE_HEAD" ] && [ -z "$(g status --porcelain)" ] \
   && ok "batch sync: a conflict with origin/main is caught before the gate, the merge aborted" || fail "batch sync: conflict: exit $rc: $out"
-setup; run merge ops/a >/dev/null
-g checkout -q main; printf 'm\n' > "$F/m"; g add -A; g commit -qm m; g push -q origin main 2>/dev/null; g reset -q --hard HEAD~1; g checkout -q ops/batch
+setup; run merge ops/a >/dev/null; moved m
 out=$(run sync); rc=$?
-[ $rc -eq 0 ] && g merge-base --is-ancestor origin/main HEAD \
-  && ok "batch sync: fetches and merges origin/main" || fail "batch sync: exit $rc: $out"
+[ $rc -eq 0 ] && [ -f "$F/m" ] && g merge-base --is-ancestor origin/main HEAD \
+  && ok "batch sync: fetches origin/main and merges it" || fail "batch sync: exit $rc: $out"
 
-# record: the batch PR into every fragment; a row with none goes under the first one's Also closes.
-setup; frag A-1 11; frag A-3 13 'X-9'; g add -A; g commit -qm frags
+# record: the batch PR into every fragment; a row with none joins the first one's Also closes.
+setup; frag A-1 11 'X-8'; frag A-3 13 'X-9'; g add -A; g commit -qm frags
 out=$(run record 40 A-1 A-2 A-3); rc=$?
 [ $rc -eq 0 ] && grep -qx -- '- \*\*PR\*\*: #40' "$F/docs/journal.d/A-1.md" && grep -qx -- '- \*\*PR\*\*: #40' "$F/docs/journal.d/A-3.md" \
-  && grep -qx -- '- \*\*Also closes\*\*: A-2' "$F/docs/journal.d/A-1.md" && grep -qx -- '- \*\*Also closes\*\*: X-9' "$F/docs/journal.d/A-3.md" \
+  && grep -qx -- '- \*\*Also closes\*\*: X-8, A-2' "$F/docs/journal.d/A-1.md" && grep -qx -- '- \*\*Also closes\*\*: X-9' "$F/docs/journal.d/A-3.md" \
   && [ -z "$(g status --porcelain)" ] && g log -1 --format=%s | grep -q '^A-1: Record batch PR #40' \
-  && ok "batch record: each fragment names the batch PR, a row with none is under Also closes, committed" \
-  || fail "batch record: exit $rc: $out; $(cat "$F/docs/journal.d/A-1.md" | head -9 | tr '\n' '~')"
-(ROOT=$F; . "$F/.claude/lib/conf.sh"; . "$F/.claude/lib/fragments.sh"
+  && ok "batch record: each fragment names the batch PR, a row with none joins the first's Also closes, committed" \
+  || fail "batch record: exit $rc: $out; $(head -9 "$F/docs/journal.d/A-1.md" | tr '\n' '~')"
+[ $rc -eq 0 ] && (ROOT=$F; . "$F/.claude/lib/conf.sh"; . "$F/.claude/lib/fragments.sh"
  for f in "$F"/docs/journal.d/*.md; do fragment_problems "$f" >/dev/null || exit 1; done) \
-  && ok "batch record: the fragments keep the shape the fold reads" || fail "batch record: a fragment lost its shape"
+  && ok "batch record: the rewritten fragments keep the shape the fold reads" || fail "batch record: a fragment lost its shape"
+head=$(g rev-parse HEAD); out=$(run record 40 A-1 A-2 A-3 X-9); rc=$?
+[ $rc -eq 0 ] && [ "$(g rev-parse HEAD)" = "$head" ] && grep -qx -- '- \*\*Also closes\*\*: X-8, A-2' "$F/docs/journal.d/A-1.md" \
+  && ok "batch record: a rerun (a row another fragment closes included) changes nothing" \
+  || fail "batch record: rerun: exit $rc: $out; $(grep Also "$F"/docs/journal.d/*.md)"
+# A row that leaves the batch after record: revert the record commit, run record with the rest.
+g revert --no-edit HEAD >/dev/null 2>&1; out=$(run record 40 A-1 A-3); rc=$?
+[ $rc -eq 0 ] && grep -qx -- '- \*\*Also closes\*\*: X-8' "$F/docs/journal.d/A-1.md" \
+  && ok "batch record: after a revert, a row that left the batch is not recorded" || fail "batch record: after a revert: exit $rc: $out"
+
 out=$(run record 41 A-2); [ $? -ne 0 ] && printf '%s' "$out" | grep -q 'no fragment' \
   && ok "batch record: no row with a fragment is refused" || fail "batch record: no fragment: $out"
 out=$(run record x A-1); [ $? -ne 0 ] && printf '%s' "$out" | grep -q 'usage' \
   && ok "batch record: a PR that is not a number is refused" || fail "batch record: bad PR: $out"
+out=$(run record 42 A-1 'OPS 9'); rc=$?
+[ $rc -eq 2 ] && [ -z "$(g status --porcelain)" ] \
+  && ok "batch record: a row id that is not one is refused before any write" || fail "batch record: bad id: exit $rc: $out; $(g status --porcelain)"
 
-# The caller: a script no step runs is not shipped (rule 3).
-grep -q 'scripts/ci/batch\.sh' "$ROOT/docs/playbook.md" 2>/dev/null \
-  && ok "the playbook's batch steps run scripts/ci/batch.sh" || fail "docs/playbook.md does not name scripts/ci/batch.sh"
+# The caller: a script no step runs is not shipped (rule 3). The playbook names it at scripts/ci,
+# as it names gate.sh, even where install moved both beside GATE_RUN.
+grep -q 'batch\.sh merge' "$ROOT/docs/playbook.md" 2>/dev/null \
+  && ok "the playbook's batch steps run batch.sh" || fail "docs/playbook.md does not run batch.sh merge"
 finish

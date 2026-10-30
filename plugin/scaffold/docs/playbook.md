@@ -159,7 +159,9 @@ Then, on an integration branch in its own worktree, cut from `origin/<main>`:
 3. `scripts/ci/batch.sh sync` merges `origin/<main>`: run it right before **every** gate, so the
    receipt covers a head GitHub will merge (a conflict stops here, not at GitHub's merge).
 4. The gate; a failure is fixed in the batch, one commit per row, its id in the subject, and steps
-   3–4 run again. Then merge, and close each lane PR with a comment naming the batch PR.
+   3–4 run again. A row that leaves the batch instead: `git revert` the record commit, then its lane
+   merge (`-m 1`), and run `record` again with the rows that remain; otherwise the fold marks it
+   merged by the batch PR. Then merge, and close each lane PR with a comment naming the batch PR.
 
 `checks/batch.sh` holds the script; the order, the pre-PR pass and which rows join: **Nothing. You.**
 
