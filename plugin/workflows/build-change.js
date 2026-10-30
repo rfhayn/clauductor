@@ -261,6 +261,11 @@ const GATE = {
   },
   required: ['passed', 'evidence'],
 }
+// What a review fix may be (ST-12, PRAC-0014). A fix that needs state or logic no task named is a
+// design change wearing a fix's clothes; and a finding that is the last fix's regression in the
+// same small mechanism says the mechanism is the finding. The fixer's notes carry a deletion's cost
+// to the report (entry.fixNotes), where the PR body is written from.
+const DELETE_FIRST = 'If a fix needs state or logic that no task in this group names, do not add it: return design-issue naming what it needs. If a finding sits in the same small mechanism as one the previous round found and is a regression of its fix, first ask whether the mechanism can be deleted: when what it buys is an optimization or a nicety, delete it and state in `notes` what the deletion costs; harden it only when deleting it would lose a requirement.'
 // THE REVIEW, as the reviewer receives it: its prompt, its findings schema, the agent type and the
 // spawn itself. With the reviewer agent's file and its model, this is what the reviewer IS.
 // pr-merge-guard rule 13 hashes the lines between these markers, and between the review-call
@@ -497,7 +502,7 @@ async function gateUntilGreen(g, entry) {
 
 let lastCost = pre.costUsd // the last change-cost.sh reading, for each group's own spend
 for (const g of todo) {
-  const entry = { n: g.n, title: g.title, build: null, gates: [], rounds: [], disputed: [], residual: [], commit: null, changeCostUsd: null, groupUsd: null }
+  const entry = { n: g.n, title: g.title, build: null, gates: [], rounds: [], disputed: [], fixNotes: [], residual: [], commit: null, changeCostUsd: null, groupUsd: null }
   report.groups.push(entry)
   log(`Group ${g.n}: ${g.title} (${g.openTasks} open tasks)`)
 
@@ -522,6 +527,10 @@ for (const g of todo) {
 
   // ── Review until peak severity converges ─────────────────────────────────────────────────────
   let prevPeak = null
+  // The last round's findings, whose fixes this round's review judged: a fresh fixer sees nothing
+  // else, so without them it cannot tell that a finding is the last fix's regression in the same
+  // small mechanism, which is when deleting the mechanism converges (ST-12, PRAC-0014).
+  let prevList = ''
   for (let round = 1; ; round++) {
     // The one place a round's review is taken (rule 13 hashes it with the review-prompt section).
     // <review-call>
@@ -571,16 +580,18 @@ for (const g of todo) {
       ? `Findings marked with a source live in code group ${g.n} did not write: fix those at that source anyway, in this uncommitted diff, where this group's review will check the fix; the group boundary does not apply to them. For everything else, stay inside group ${g.n}.`
       : `Stay inside group ${g.n}.`
     const fix = await spawn(
-      `Change "${change}", task group ${g.n} ("${g.title}"). An independent review of your uncommitted work found:\n\n${list}\n\nFix each at its source, or return it in \`disputed\` with the reason and its number in \`disputedItems\`. A finding whose class is "one more" of one already found is a second instance: close the class (allow only what is listed) instead of refusing one more form, and add a line naming the class and the fix to the Decision log in ${CHANGES}/${change}/tasks.md, where the next review reads it; a class you cannot close inside this change is the owner's call, so return design-issue naming it (PRAC-0010). ${scope} Leave the work uncommitted.`,
+      `Change "${change}", task group ${g.n} ("${g.title}"). An independent review of your uncommitted work found:\n\n${list}\n\nFix each at its source, or return it in \`disputed\` with the reason and its number in \`disputedItems\`. A finding whose class is "one more" of one already found is a second instance: close the class (allow only what is listed) instead of refusing one more form, and add a line naming the class and the fix to the Decision log in ${CHANGES}/${change}/tasks.md, where the next review reads it; a class you cannot close inside this change is the owner's call, so return design-issue naming it (PRAC-0010). ${scope}${prevList ? `\n\nThe previous round found these, and this review judged their fixes:\n\n${prevList}\n\n` : ' '}${DELETE_FIRST} Leave the work uncommitted.`,
       { label: `review-fix:${g.n}#${round}`, phase: 'Review', schema: BUILD, ...BUILDER },
     )
     if (!fix) return stop(`group ${g.n} review`, 'builder returned nothing while fixing findings')
+    if (fix.notes) entry.fixNotes.push(`round ${round}: ${fix.notes}`)
     entry.disputed.push(...(fix.disputed || []))
     entry.rounds[entry.rounds.length - 1].disputedKeys = (fix.disputedItems || []).map((i) => actionable[i - 1]).filter(Boolean).map(findingKey)
     if (fix.status !== 'done') return stop(`group ${g.n} review`, `${fix.status}: ${fix.designIssue || fix.summary}`)
     why = await gateUntilGreen(g, entry)
     if (why) return stop(`group ${g.n} gate after review fixes`, why)
     prevPeak = peak
+    prevList = list
   }
 
   // ── Commit (local only, never push) ──────────────────────────────────────────────────────────

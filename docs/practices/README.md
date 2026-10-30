@@ -47,3 +47,4 @@ older records as written). Never renumber a record on `main`; supersede it.
 |------|-------|--------|
 | [0010](0010-close-the-class-not-the-instance.md) | Close the class, not the instance, when review keeps finding the next one | Accepted |
 | [0013](0013-batch-reviewed-lanes-one-gate-per-batch.md) | Batch reviewed lanes into one integration branch, one gate per batch | Accepted |
+| [0014](0014-converge-review-by-deleting-mechanism.md) | Converge review by deleting mechanism, not adding it | Proposed |

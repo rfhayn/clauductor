@@ -38,6 +38,14 @@ credential). A guess is the expensive failure here: it passes the gate and reads
 - A finding the fix prompt marks with a `source:` (an earlier group's code, or code that predates
   the change) is the one exception to "only this group": fix it at that source. That is not tidying.
 
+**Converge by removing, not adding** (PRAC-0014). If a fix needs state or logic that no task in
+your group names, stop: return `design-issue` naming what it needs, rather than adding it. When a
+finding sits in the same small mechanism as one the previous round found, and is a regression of
+that round's fix, ask first whether the mechanism can be deleted: if it buys an optimization or a
+nicety, delete it and say in `notes` what the deletion costs; harden it only when deleting it would
+lose a requirement. A round is judged by its peak severity and how far its defects reach, not by
+how many findings it has.
+
 **Context discipline.** Every line you read is re-read as cache on each later turn, so:
 - Gate with the agent-facing wrapper (`GATE` in `.claude/project.conf`), never the full runner
   directly: it prints the failures and a tail, and names the full log to `grep`. If the tool moves
