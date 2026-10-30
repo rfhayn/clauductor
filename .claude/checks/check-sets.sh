@@ -22,7 +22,7 @@
 #     ignores it, and no check inherits it.
 #  5. That no CHECKS_ONCE check reads a CONF_NOT_READ key is CI's to find, not a reading of check
 #     source (OPS-171): test.yml's process-checks step runs this repo's whole set over its own
-#     project.conf. The step is held to that form, each way out of it shown failing; a fixture
+#     project.conf. The step is held to that form, each refused form shown failing; a fixture
 #     shows such a read passing the local gate's form and failing the step's command. A merge
 #     waits for it only where GATE_PR_CHECKS names the step's job: while GATE_PR_CHECKS is empty
 #     (until OPS-98) that is a SKIPPED line under the PASS, and Nothing. You.; naming other checks
@@ -238,12 +238,14 @@ CI="$ROOT/.github/workflows/test.yml"
 # ci_read FILE: one line per way FILE's process-checks step stops being this repo's whole set with
 # its failure counted, then `@job <check name>`, the job that holds it. Forms are refused, not
 # parsed: one step's run: is exactly `sh .claude/checks/run.sh`, and it holds only id, name,
-# timeout-minutes, working-directory: ., run and env (no if:, continue-on-error:, shell:: a key
+# timeout-minutes, working-directory: ., run and env (not if, continue-on-error or shell: a key
 # not listed is refused until someone reads what it does and lists it); CHECKS_SKIP appears
 # neither outside the jobs, nor in that job outside its steps, nor in the step; and the job has no
-# continue-on-error; neither the workflow nor the job sets a shell: (defaults.run.shell reaches the
-# step); no earlier step of the job names GITHUB_ENV or GITHUB_PATH (or github.env, github.path).
-# Other jobs and the job's later steps are not read. Nor is what an earlier step EXECUTES: a
+# continue-on-error; no `shell:` appears in the workflow or the job outside its steps (where
+# defaults.run.shell, block or flow, would reach the step; a matrix key named shell is refused
+# too); no earlier step of the job names GITHUB_ENV or GITHUB_PATH (or github.env, github.path).
+# Other jobs and the job's later steps are read only for a second run of the set. Nor is what an
+# earlier step EXECUTES read: a
 # script, `go test` or a `uses:` action (setup-go sets GOROOT) can write either file without naming
 # it, which no reading of test.yml can see; its actions are pinned to a commit.
 ci_read() {
@@ -267,7 +269,8 @@ ci_read() {
       if (c == "\"" || c == Q) { s = substr(s, 2); i = index(s, c); return i ? substr(s, 1, i - 1) : c s }
       sub(/[[:space:]]+#.*$/, "", s); sub(/[[:space:]]+$/, "", s); return s
     }
-    BEGIN { Q = sprintf("%c", 39); RUN = "^[[:space:]]*(-[[:space:]]+)?run:[[:space:]]*sh [.]claude/checks/run[.]sh([[:space:]]+#.*)?[[:space:]]*$" }
+    BEGIN { Q = sprintf("%c", 39); RUN = "^[[:space:]]*(-[[:space:]]+)?run:[[:space:]]*sh [.]claude/checks/run[.]sh([[:space:]]+#.*)?[[:space:]]*$"
+      SH = "(^|[^A-Za-z0-9_-])shell[\"" Q "]?[[:space:]]*:" }
     /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
     { n++; L[n] = $0; N[n] = NR; I[n] = ind($0); k = key($0); J[n] = ""; ST[n] = 0 }
     I[n] == 0 { injobs = (k == "jobs"); jind = -1; job = ""; next }
@@ -300,7 +303,7 @@ ci_read() {
       # An earlier step of the job reaches this one through the files GitHub reads between steps.
       for (i = 1; i < t; i++) if (J[i] == tj && L[i] ~ /GITHUB_ENV|GITHUB_PATH|github[.](env|path)/) print "writes GITHUB_ENV or GITHUB_PATH in job " tj " before the step (line " N[i] "), which can set its CHECKS_SKIP or the sh it runs"
       # defaults.run.shell, of the workflow or the job, is the shell of every step without its own.
-      for (i = 1; i <= n; i++) if ((J[i] == "" || (J[i] == tj && !ST[i])) && key(L[i]) == "shell") print "sets a shell: for job " tj "'"'"'s steps (line " N[i] "), which decides what the step runs and what its status is"
+      for (i = 1; i <= n; i++) if ((J[i] == "" || (J[i] == tj && !ST[i])) && L[i] ~ SH) print "names a shell: key in the workflow or job " tj " outside its steps (line " N[i] "), refused wherever defaults.run.shell could reach the step and decide what it runs and what its status is"
       if (tj in jcoe) print "tolerates a failure: continue-on-error on job " tj " (line " jcoe[tj] ")"
       print "@job " ((tj in jname) ? jname[tj] : tj)
     }
@@ -358,6 +361,8 @@ passes "a timeout on the step" after "$RUNL" '        timeout-minutes: 30'
 passes "a trailing comment on the step's run:" sed 's|^\(        run: sh \.claude/checks/run\.sh\)$|\1  # whole set|'
 passes "a trailing comment on the step's working-directory:" sed 's|^\(        working-directory: \.\)$|\1  # the root|'
 passes "GITHUB_ENV written by a later step" append '      - run: echo "X=1" >> "$GITHUB_ENV"'
+passes "GITHUB_ENV written by a job before test" after 'jobs:' "$(printf '  pre:\\n    runs-on: ubuntu-latest\\n    steps:\\n      - run: echo "X=1" >> "$GITHUB_ENV"')"
+doctor "the job's default shell as a flow mapping" sed 's|^    defaults:$|    defaults: { run: { shell: "true {0}", working-directory: framework } }|'
 passes "a default shell and GITHUB_ENV in another job" append "$(printf '  other:\n    runs-on: ubuntu-latest\n    defaults:\n      run:\n        shell: bash\n    steps:\n      - run: echo "X=1" >> "$GITHUB_ENV"')"
 variant after "$JOBL" '    name: test # the suite' && [ "$(ci_job "$S/ci.yml")" = test ] \
   && ok "...and a trailing comment on the job's name: is no part of it" || fail "name: test # the suite read as '$(ci_job "$S/ci.yml")'"
