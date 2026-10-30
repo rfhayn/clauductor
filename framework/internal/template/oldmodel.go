@@ -39,7 +39,7 @@ var oldModelDistinctive = []string{
 	"spawn", "start-work", "supervisor",
 }
 
-// oldModelHooks are the old model's hook scripts (each called the stridal binary).
+// oldModelHooks are the old model's hook scripts.
 var oldModelHooks = []string{
 	"auto-lock.sh", "doc-freshness.sh", "heartbeat.sh", "lock-guard.sh", "session-register.sh",
 	"status-sync.sh",
@@ -254,16 +254,6 @@ func OldModelSigns(dir string) []string {
 	}
 	if len(named) >= 3 {
 		signs = append(signs, fmt.Sprintf("%d of the old model's skills (%s)", len(named), strings.Join(named, ", ")))
-	}
-	var hooks []string
-	for _, h := range oldModelHooks {
-		b, err := os.ReadFile(filepath.Join(dir, ".claude", "hooks", h))
-		if err == nil && strings.Contains(string(b), "stridal ") {
-			hooks = append(hooks, h)
-		}
-	}
-	if len(hooks) > 0 {
-		signs = append(signs, "the old model's hooks, calling the stridal binary ("+strings.Join(hooks, ", ")+")")
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(SettingsPath))); err == nil {
 		var reg []string
