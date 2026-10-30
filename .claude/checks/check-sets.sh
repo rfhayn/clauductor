@@ -236,9 +236,11 @@ case $o in *"PASS beta"*) ok "a named run ignores CHECKS_SKIP" ;; *) fail "a nam
 CI="$ROOT/.github/workflows/test.yml"
 # ci_read FILE: one line per way FILE's process-checks step stops being this repo's whole set with
 # its failure counted, then `@job <check name>`, the job that holds it. Forms are refused, not
-# parsed: the step's run: is exactly `sh .claude/checks/run.sh`, and it holds only name,
-# working-directory: ., run and env (no if:, continue-on-error:, shell:); neither the workflow nor
-# that job names CHECKS_SKIP, and the job has no continue-on-error. Other jobs are not read.
+# parsed: one step's run: is exactly `sh .claude/checks/run.sh`, and it holds only id, name,
+# timeout-minutes, working-directory: ., run and env (no if:, continue-on-error:, shell:: a key
+# not listed is refused until someone reads what it does and lists it); CHECKS_SKIP appears
+# neither outside the jobs, nor in that job outside its steps, nor in the step; and the job has no
+# continue-on-error. Other jobs, and the job's other steps, are not read.
 ci_read() {
   [ -f "$1" ] || { echo "is missing"; return; }
   awk '
@@ -253,32 +255,42 @@ ci_read() {
       if (!match(s, /^[A-Za-z0-9_-]+[[:space:]]*:/)) return ""
       s = substr(s, 1, RLENGTH); sub(/[[:space:]]*:$/, "", s); return s
     }
-    function val(s) { sub(/^[^:]*:[[:space:]]*/, "", s); sub(/[[:space:]]+$/, "", s); gsub(/["]/, "", s); gsub(Q, "", s); return s }
+    # val(s): the value of a key, without one pair of surrounding quotes.
+    function val(s,   c) {
+      sub(/^[^:]*:[[:space:]]*/, "", s); sub(/[[:space:]]+$/, "", s); c = substr(s, 1, 1)
+      if ((c == "\"" || c == Q) && length(s) > 1 && substr(s, length(s)) == c) s = substr(s, 2, length(s) - 2)
+      return s
+    }
     BEGIN { Q = sprintf("%c", 39); RUN = "^[[:space:]]*(-[[:space:]]+)?run:[[:space:]]*sh [.]claude/checks/run[.]sh[[:space:]]*$" }
     /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
-    { n++; L[n] = $0; N[n] = NR; I[n] = ind($0); k = key($0); J[n] = "" }
+    { n++; L[n] = $0; N[n] = NR; I[n] = ind($0); k = key($0); J[n] = ""; ST[n] = 0 }
     I[n] == 0 { injobs = (k == "jobs"); jind = -1; job = ""; next }
     injobs && jind < 0 { jind = I[n] }
-    injobs && I[n] == jind { job = k; kind = -1; J[n] = job; next }
+    injobs && I[n] == jind { job = k; kind = -1; insteps = 0; J[n] = job; next }
     injobs && kind < 0 { kind = I[n] }
-    injobs && I[n] == kind && k == "name" { jname[job] = val($0) }
-    injobs && I[n] == kind && k == "continue-on-error" { jcoe[job] = N[n] }
+    # The steps of a job: under its steps: key, items at the indent of that key included.
+    injobs && insteps && (I[n] > kind || $0 ~ /^[[:space:]]*-/) { ST[n] = 1 }
+    injobs && !ST[n] { insteps = (I[n] == kind && k == "steps") }
+    injobs && !ST[n] && I[n] == kind && k == "name" { jname[job] = val($0) }
+    injobs && !ST[n] && I[n] == kind && k == "continue-on-error" { jcoe[job] = N[n] }
     injobs { J[n] = job }
     END {
       for (t = 1; t <= n && L[t] !~ RUN; t++) ;
       if (t > n) { print "has no step whose run: is exactly sh .claude/checks/run.sh (this repo'"'"'s whole set)"; exit }
+      for (i = t + 1; i <= n; i++) if (L[i] ~ RUN) print "runs the set again (line " N[i] "), so which run counts is not read"
       tj = J[t]
       if (tj == "") { print "runs the set outside any job (line " N[t] ")"; exit }
       for (s = t; s > 1 && L[s] !~ /^[[:space:]]*-[[:space:]]/; s--) ;
       si = I[s]; match(L[s], /^[[:space:]]*-[[:space:]]+/); sk = RLENGTH; wd = 0
       for (i = s; i <= n && (i == s || I[i] > si); i++) {
+        IN[i] = 1
         if (i != s && I[i] != sk) continue
         k = key(L[i])
         if (k == "working-directory") { if (val(L[i]) == ".") wd = 1; else print "runs the step in working-directory " val(L[i]) ", not this repo'"'"'s root (line " N[i] ")" }
-        else if (k != "name" && k != "run" && k != "env") print "carries " k ": on the step (line " N[i] "), which can skip it, swallow its failure or change what it runs"
+        else if (k != "id" && k != "name" && k != "timeout-minutes" && k != "run" && k != "env") print "carries " k ": on the step (line " N[i] "), which can skip it, swallow its failure or change what it runs"
       }
       if (!wd) print "has no working-directory: . on the step, so a default decides which set it runs"
-      for (i = 1; i <= n; i++) if ((J[i] == "" || J[i] == tj) && L[i] ~ /CHECKS_SKIP/) print "names CHECKS_SKIP in the workflow or job " tj " (line " N[i] "): CI could leave checks out of this repo'"'"'s set too"
+      for (i = 1; i <= n; i++) if ((J[i] == "" || (J[i] == tj && !ST[i]) || (i in IN)) && L[i] ~ /CHECKS_SKIP/) print "names CHECKS_SKIP where the step inherits it, in the workflow, job " tj " or the step (line " N[i] "): CI could leave checks out of this repo'"'"'s set too"
       if (tj in jcoe) print "tolerates a failure: continue-on-error on job " tj " (line " jcoe[tj] ")"
       print "@job " ((tj in jname) ? jname[tj] : tj)
     }
@@ -327,13 +339,21 @@ doctor "continue-on-error on the job" after "$JOBL" '    continue-on-error: true
 passes "a comment naming CHECKS_SKIP" append '        # CHECKS_SKIP: a comment'
 passes "a job-level if: (OPS-98's draft filter)" after "$JOBL" "    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false"
 passes "continue-on-error and CHECKS_SKIP in another job" append "$(printf '  other:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n    env:\n      CHECKS_SKIP: gate\n    steps:\n      - run: echo other')"
+passes "another step's own CHECKS_SKIP" after '    steps:' '      - run: CHECKS_SKIP=x sh template/.claude/checks/run.sh'
+passes "a timeout on the step" after "$RUNL" '        timeout-minutes: 30'
 # The check the merge guard would wait for is the job's name, else its id: moved or renamed, the
-# step's job is read as such, so GATE_PR_CHECKS naming `test` no longer counts it.
-variant after "$JOBL" '    name: suite' && [ "$(ci_job "$S/ci.yml")" = suite ] \
-  && ok "falsified: a job renamed (name: suite) is read as suite" || fail "a job renamed suite read as '$(ci_job "$S/ci.yml")'"
-{ sed "\\|^$RUNL\$|d" "$CI"; printf '  process-checks:\n    runs-on: ubuntu-latest\n    steps:\n      - name: process checks\n        working-directory: .\n%s\n' "$RUNL"; } > "$S/ci.yml" \
-  && [ "$(ci_job "$S/ci.yml")" = process-checks ] \
-  && ok "falsified: the step moved to a job of its own is read as that job" || fail "the step moved to job process-checks read as '$(ci_job "$S/ci.yml")'"
+# step's job is read as such, so GATE_PR_CHECKS naming `test` no longer counts it (merge_half).
+variant after "$JOBL" "    name: 'suite'" && cp "$S/ci.yml" "$S/ci-renamed.yml" && [ "$(ci_job "$S/ci.yml")" = suite ] \
+  && ok "falsified: a job renamed (name: 'suite') is read as suite" || fail "a job renamed suite read as '$(ci_job "$S/ci.yml")'"
+{ sed "\\|^$RUNL\$|d" "$CI"; printf '  process-checks:\n    runs-on: ubuntu-latest\n    steps:\n      - name: process checks\n        working-directory: .\n%s\n' "$RUNL"; } > "$S/ci-moved.yml" \
+  && ! cmp -s "$CI" "$S/ci-moved.yml" && [ "$(ci_job "$S/ci-moved.yml")" = process-checks ] && [ -z "$(ci_problems "$S/ci-moved.yml")" ] \
+  && ok "falsified: the step moved to a job of its own is read as that job" || fail "the step moved to job process-checks read as '$(ci_job "$S/ci-moved.yml")'"
+{ cat "$CI"; printf '  early:\n    runs-on: ubuntu-latest\n    steps:\n      - working-directory: .\n%s\n' "$RUNL"; } > "$S/ci.yml" && [ -n "$(ci_problems "$S/ci.yml")" ] \
+  && ok "falsified: the set run by a second step fails" || fail "a second step running the set passes"
+# Steps written at their key's own indent (`steps:` then `- name:` under it): the job is still test.
+awk 'd && /^      / { sub(/^  /, "") } { print } $0 == "    steps:" { d = 1 }' "$CI" > "$S/ci.yml" \
+  && ! cmp -s "$CI" "$S/ci.yml" && [ "$(ci_job "$S/ci.yml")" = test ] && [ -z "$(ci_problems "$S/ci.yml")" ] \
+  && ok "...and steps at their key's own indent read as job test" || fail "indentless steps read as job '$(ci_job "$S/ci.yml")': $(ci_problems "$S/ci.yml" | tr '\n' ';')"
 
 # A check that reads PROJECT_NAME through a file it runs (`cd "$ROOT" && sh <relative path>`)
 # passes the local gate's form (part 1: CHECKS_SKIP naming it) and fails test.yml's run: command.
@@ -351,10 +371,23 @@ o2=$(cd "$G" && env CHECKS_BARE= CHECKS_SET= CHECKS_DOUBLE_PASS= CHECKS_SKIP= sh
   && ok "a check reading a key through a file it runs passes the local gate's form and fails test.yml's command ($cmd)" \
   || fail "the run-form fixture: the local form exited $rc ($o), test.yml's command '$cmd' $rc2 ($o2)"
 
-# The merge guard waits for that job only while GATE_PR_CHECKS names it (pr-merge-guard.sh (a2)).
-req=""
-for w in ${GATE_PR_CHECKS:-}; do [ "$w" != "$job" ] || req=1; done
-if [ -n "$req" ]; then ok "...and the merge guard waits for it (GATE_PR_CHECKS: $GATE_PR_CHECKS)"
-else ok "SKIPPED the merge guard's half: GATE_PR_CHECKS ('${GATE_PR_CHECKS:-}') does not name test.yml's job ($job), so before a merge nothing runs CHECKS_ONCE over this repo's project.conf: Nothing. You. until OPS-98"
-fi
+# merge_half CHECKS JOB: whether a merge waits for JOB (pr-merge-guard.sh (a2) waits for each check
+# GATE_PR_CHECKS names): `waits`; `off` while CHECKS is empty (no CI check is merge evidence:
+# OPS-98); `fail` when CHECKS names others but not JOB, so the run that counts is not one a merge
+# waits for.
+merge_half() {
+  [ -n "$1" ] || { echo off; return; }
+  for _w in $1; do [ "$_w" != "$2" ] || { echo waits; return; }; done
+  echo fail
+}
+case $(merge_half "${GATE_PR_CHECKS:-}" "$job") in
+  waits) ok "...and the merge guard waits for it (GATE_PR_CHECKS: $GATE_PR_CHECKS)" ;;
+  off) ok "SKIPPED the merge guard's half: GATE_PR_CHECKS is empty, so before a merge nothing runs CHECKS_ONCE over this repo's project.conf: Nothing. You. until OPS-98" ;;
+  *) fail "GATE_PR_CHECKS ($GATE_PR_CHECKS) does not name test.yml's job that runs this repo's whole set ($job): no merge waits for the run of CHECKS_ONCE over this repo's project.conf" ;;
+esac
+# Driven on the copies above: OPS-98's setting with the real file waits; with the step moved to a
+# job of its own, or the job renamed, it fails.
+[ "$(merge_half test "$(ci_job "$CI")")" = waits ] && ok "falsified: GATE_PR_CHECKS=test waits for the real test.yml's run" || fail "GATE_PR_CHECKS=test with the real test.yml: $(merge_half test "$(ci_job "$CI")")"
+[ "$(merge_half test "$(ci_job "$S/ci-moved.yml")")" = fail ] && [ "$(merge_half test "$(ci_job "$S/ci-renamed.yml")")" = fail ] \
+  && ok "...and fails it once the step moves to a job of its own or the job is renamed" || fail "GATE_PR_CHECKS=test with the step moved or the job renamed does not fail"
 finish
