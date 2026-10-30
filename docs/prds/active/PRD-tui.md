@@ -17,11 +17,32 @@ What the engine already has, and the terminal UI only needs to draw (`framework/
 - each session's estimated cost and context, from the status line's stdin or, in an attached project, its
   transcript (`docs/panel.md`, *The status line*, *Transcripts: an attached project's lanes*);
 - the "needs you" items (`NeedView`), alerts, stalled lanes, the gate lease and merge readiness;
-- running and finished subagents per session (`state/nesting.go`, at most 20 finished per session).
+- running and finished subagents per session, each with its type, start, end, parent and description
+  (`SubagentView`, `state/model.go`; at most 20 finished per session, `maxFinished`, `state/model.go:99-100`);
+- cost per hour over the last hour (`docs/panel.md`, *The page*, est. $) and a burn rate over 30 minutes
+  (`state/trends.go`).
 
-The four states the screens show are derived, not stored: needs you from a `NeedView` or a blocking ask, running
-from `busy`, idle from `idle` or `waiting` with nothing asked. **Finished unread** has no engine state today: it needs
-a read marker (a session that stopped since the owner last selected it), which PANEL-61's design settles.
+What the engine does **not** have yet, and which row builds it:
+
+| Missing | Built by |
+|---|---|
+| a subagent's model, tokens, cost and last words (`SubagentView` carries none of them) | PANEL-61, from the transcript; its proposal may split it into its own row |
+| context by part (messages, tool results, tools, memory files) against the compaction point | PANEL-50 (it reads the same transcript for contributors), else PANEL-61 |
+| $/hr over the last ten minutes (the engine's is over the last hour) and "× your average" session | PANEL-61's design defines both windows |
+| finished unread: a session that stopped since the owner last selected it | PANEL-61's design defines the read marker |
+
+**The states.** The screens and ADR-0009 each name states; this table is the one mapping, from the engine up:
+
+| Engine (hook state and needs) | Screen state (the Dock's word) | ADR-0009's mark |
+|---|---|---|
+| a `NeedView`, or a `waiting` ask that blocks | needs you | red, filled |
+| `busy` | running | green, filled ("working") |
+| `waiting` with nothing asked | waiting, filtered and sorted with idle | amber, filled |
+| `idle` or `ended`, stopped since last selected | finished unread | grey ring, in bold until read |
+| `idle` or `ended`, read | idle | grey ring |
+| a lane whose tmux session is gone | lost | dashed ring |
+
+The filter and sort use the screen states; the marks are ADR-0009's.
 
 ## What it takes from the Ghostty Dock article
 
@@ -37,13 +58,15 @@ takes these, and only these:
 4. **Spending now:** dollars per hour over the last ten minutes, and "× your average" session.
 5. **Context by part:** messages, tool results, tools and memory files, against the point where compaction starts.
 6. **Subagents made visible:** what each was asked, its model, tokens, cost and last words.
+7. **A session's colour follows it into its terminal:** attached, the lane's tmux status line carries its state mark
+   and colour.
 
 It does not take the forked terminal, Burst's billing routing, gateway-level compaction or first-editor file
 ownership (the direction shift lists why).
 
 ## Screens and keys
 
-Three screens, one at a time, full-screen. Keys are single letters or arrows, shown in a footer line; no key needs a
+Four screens, one at a time, full-screen. Keys are single letters or arrows, shown in a footer line; no key needs a
 modifier, so the UI works the same over SSH and in any terminal.
 
 **Sessions** (the home screen, PANEL-61). One row per session across every project the panel serves: the project,
@@ -57,7 +80,7 @@ gate lease's holder. Needs-you rows sort first, then running, finished unread, i
 | `↵` | open the selected session's detail |
 | `n` | jump to the next session that needs the owner |
 | `f` | cycle the state filter (all, needs you, running, finished unread, idle) |
-| `a` | attach to the selected lane's terminal (tmux), returning here on detach |
+| `a` | provisional, on open question 3: attach to the selected lane's terminal (tmux), returning here on detach |
 | `?` | the key list, and the docs link (the README's until the site exists) |
 | `q` | quit; the engine keeps running |
 
@@ -74,21 +97,24 @@ proper are claude.ai artifacts (ADR-0011, decision 4).
 
 The raise: when a session enters needs you, the UI waits until the owner has pressed no key for 10 seconds and, by
 default, until no other session is running; it then moves the selection to that session and marks its row. It
-never opens the session or attaches to its terminal by itself, as ADR-0009 already holds for the browser ("it is not
-opened for you").
+never opens the session or attaches to its terminal by itself. The 10-second wait and the nothing-else-running
+default are the Dock's; ADR-0009 has neither. What ADR-0009 does hold for the browser carries over: a lane that
+needs you "is not opened for you".
 
 ## Colour: ADR-0009's rules, carried over
 
 ADR-0009 holds the browser's look; its rules carry over where a character grid can draw them (ADR-0011, *Negative*):
 - **State is shown at rest, never by colour alone:** working green (filled dot), waiting amber (filled), needs you
   red (filled), idle a hollow grey ring, lost a dashed ring, each with its state in words.
-- **Needs you adds red** to its row's mark, its age and the needs-you count; nowhere else.
+- **Needs you adds red** to its row's mark, its age, the row's tint and the needs-you count; nowhere else.
 - **Otherwise green, amber and red are verdicts only:** amber from context 85%, a budget 80% and quota 75%; red past
   a budget's 100% and from quota 90%; a check's pass, pending or fail.
 - **One accent, indigo,** marks selection and focus and data series that are not states (context by part); it never
   marks a state.
 - **The tokens are ADR-0009's values,** in one Go table the UI reads, never literals in a view. A terminal limited to
   256 colours takes the nearest; one with no colour (`NO_COLOR`) still reads, because every state has its word.
+  What executes "never literals in a view": PANEL-61 adds a test that fails a colour literal outside the token table,
+  as `TestPanelAvoidsTheTells` holds the browser's CSS; until it merges, **Nothing. You.**
 
 What does not carry: shadows, elevation, motion and the type system. A terminal has none of them to choose.
 
