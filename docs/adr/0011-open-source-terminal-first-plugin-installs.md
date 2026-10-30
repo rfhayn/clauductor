@@ -42,7 +42,7 @@ keep them apart.
 5. **One version number** covers the plugin, the template and the binary.
 6. **v0.1.0 ships only under the new name.** The fallback of shipping under the old name and renaming at v0.2 is dropped:
    after a public release, a rename breaks the Go module path, the plugin id, links and people's scripts.
-7. **What Standing Tee's operating model does that the template does not is ported into the template** (Phase 4),
+7. **What Standing Tee's operating model does that the template does not is ported into the template** (Phase 2),
    reversing OPS-71's cancellation of the Standing Tee ports. Practices still flow one way.
 
 ## Consequences
