@@ -49,8 +49,8 @@ export ROOT CHECKS_LIB
 # so INT and TERM reach run.sh itself (a background run.sh would ignore INT, and a foreground child
 # would hold a TERM until the whole set ended), which passes them on to its checks. The `exec`
 # drops lib.sh's traps, so the inner run is told the directory (CHECKS_BARE_RM) and removes it on
-# EXIT, INT and TERM. CHECKS_BARE is the stop condition, and no-stridal.sh checks the real state behind it. CHECKS_SET=whole tells
-# no-stridal.sh it runs under a whole-set run.
+# EXIT, INT and TERM. CHECKS_BARE is the stop condition, and no-stridal.sh checks the real state
+# behind it. CHECKS_SET=whole tells no-stridal.sh it runs under a whole-set run.
 # run.sh sources lib.sh for its helpers only: lib.sh's CONTEXT_OFFLINE=1 is for the checks that
 # source it, so the caller's value (or its absence) is put back, and a check run by its own #! line
 # sees what it would see unwrapped.
@@ -165,26 +165,27 @@ RES="$_scratch/results"; mkdir -p "$RES"
 jobs=${CHECKS_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null)}
 case $jobs in '' | *[!0-9]* | 0) jobs=4 ;; esac
 [ -n "${CHECKS_JOBS:-}" ] || [ "$jobs" -le 8 ] || jobs=8
-# kill_tree PID: TERM PID's descendants, then PID. A background check starts with INT ignored and
-# holds a TERM until its foreground child ends, so the children are told first. By pid, never by
-# pattern; where ps cannot run (a sandbox) only PID is told.
-children() { ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$1" '$2 == p { print $1 }'; }
-kill_tree() {
-  for _c in $(children "$1"); do
-    kill_tree "$_c"
-  done
-  kill -TERM "$1" 2>/dev/null
-}
-# stop_jobs: for a run stopped by INT or TERM. The launches are this shell's own job table (jobs -p,
-# into a file: dash prints nothing for it inside $(...)), whatever they have recorded so far; each
-# one's check is told, with its children, and the launch itself is left to finish, so `wait` waits
-# for the checks and none writes into the scratch the trap removes. Where ps cannot run, the checks'
-# recorded pids are told instead. Waiting launches never start: the scheduler is this shell.
+# stop_jobs: for a run stopped by INT or TERM. A background check starts with INT ignored and holds
+# a TERM until its foreground child ends, so its whole tree is told: by pid, never by pattern. The
+# launches are this shell's own job table (jobs -p, into a file: dash prints nothing for it inside
+# $(...)), whatever they have recorded so far. One ps snapshot gives every launch's descendants,
+# told from the top down, so a check's trap is pending before its child dies and it starts nothing
+# after; the launch itself is left to finish, so `wait` waits for its check and none writes into
+# the scratch the trap removes. The stop file keeps a launch that has not yet started its check
+# from starting it. Where ps cannot run, the checks' recorded pids are told instead. Waiting
+# launches never start: the scheduler is this shell.
 stop_jobs() {
+  : > "$RES/stop"
   jobs -p > "$RES/jobs" 2>/dev/null
-  if ps -A -o pid= >/dev/null 2>&1; then
-    for _w in $(cat "$RES/jobs"); do
-      for _c in $(children "$_w"); do kill_tree "$_c"; done
+  if ps -A -o pid= -o ppid= > "$RES/ps" 2>/dev/null; then
+    # Breadth first from the launches, so each pid is printed before its children; the launches
+    # themselves are not printed. No launch, nothing to read (an empty first file would make awk
+    # take the snapshot for it).
+    [ -s "$RES/jobs" ] || : > "$RES/jobs.none"
+    [ -e "$RES/jobs.none" ] || for _p in $(awk 'NR == FNR { q[++n] = $1; next } { kids[$2] = kids[$2] " " $1 }
+        END { for (h = 1; h <= n; h++) { c = split(kids[q[h]], k, " ")
+          for (j = 1; j <= c; j++) { q[++n] = k[j]; print k[j] } } }' "$RES/jobs" "$RES/ps"); do
+      kill -TERM "$_p" 2>/dev/null
     done
   else
     for _p in "$RES"/*.pid; do
@@ -218,6 +219,7 @@ total=$i
 launch() {
   eval "_n=\$cn_$1 _f=\$cf_$1"
   (
+    [ -e "$RES/stop" ] && exit 143
     case $_n in
       *:*)
         _ri=$(shebang_interp "$_f")
