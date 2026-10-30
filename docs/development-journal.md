@@ -14,6 +14,51 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 17 — 2026-10-30 — Rich — S17: the rename to stridal, everywhere, and the machine migrated
+
+**Totals.** Gate 191 min over seven full runs on OPS-104 (one pass: fe84066a, 38 min); cost ~$46.34, list price, this machine.
+
+**Rows.** OPS-104 (#344, squash 1f4c0fcc). No fragment: the row's records are this entry, and its close was deferred to after the owner's machine migration.
+
+**What happened.** The rename sweep ran as its own session, one PR, and grew past its row twice by the owner's override mid-run: first "change everything", then "Nothing should be kept as clauductor". So there is no class C, no `Legacy*` constant, no fallback reader and no shim. The plugin id, the skill namespace, env vars, `.stridal/` directories, the journal, the archive and ADR text were all renamed, and the new `.claude/checks/name-residue.sh` allows zero matches. Only git history and past PR titles keep the old name. The Go module is `github.com/rfhayn/stridal`, because the `stridal` GitHub name belongs to an unrelated account. Right after the merge, `gh api -X PATCH` renamed the repository to rfhayn/stridal, with the owner's approval of 2026-10-29, and the old URL redirects.
+
+**The machine migration.** It was a one-off script outside the repo, run by the owner after the session. It moved the folder to `~/Development/stridal`, installed `stridal` into `~/.local/bin`, and moved `~/.clauductor` to `~/.stridal`. It also replaced the 13 old panel hooks with `src=stridal-panel` ones, set `STRIDAL_FRAMEWORK`, renamed `.git/clauductor` to `.git/stridal`, and repointed origin. The close verified each of these by existence, and name-residue is clean.
+
+The script copied the Claude Code project folder's `memory/` but not its 33 transcripts. The close moved them, then, with the owner's OK, removed:
+- the duplicate `.zshrc` lines;
+- the orphaned `.claude/worktrees/session-16-close`, whose 707 files matched aa48814d;
+- the old binaries, the old status files and the clauductor-era `settings.json` backups.
+
+The panel was not running at verification and was not checked before the cleanup: the owner's choice. Starting it is an owner-queue item. Standing Tee's `.git/clauductor` stays until Standing Tee updates.
+
+**Review.** Five rounds against a cap of 3; the owner allowed round 4 and on. The peak was medium, all in the new `name-residue.sh`: the split-form class, a 45 s fork loop, the colour silent-pass and the longest-path credit. Round 5 converged with no medium. Its four lows are #346, now **OPS-178**.
+
+**Failures that were not the code.**
+- The first gates failed in process checks.
+- Two ended on a signal.
+- 0b3e580d hit a claudecall race flake: #345, **OPS-177**.
+- One gate ran sandboxed because the command was prefixed with `cd … &&`. That is an instance of S16's `sandbox/exclusion-matches-text`.
+- The lane's own session never picked up the owner's mid-run sandbox setting, so its gates ran from the main session (new insight).
+- A `git pull` in the main checkout half-applied over the sandbox-protected `.claude/` paths, and the owner fixed it with `reset --hard 1f4c0fcc`. That is an instance of S16's pull row.
+- The lane did the rewrite with 11 Haiku subagents using Edit's replace_all, because the codemod instruction arrived late.
+- PANEL-25's approval was voided by the name-only design edit, and the owner re-recorded it (7f7f4b39).
+
+**Cost.** The S17 session (824da267, its agents included) and the post-migration check (399a4a16):
+
+| role | model | ~$ |
+|---|---|---|
+| ops (the lane) | Opus 5.5 | 31.10 |
+| session | Opus 5.5 | 7.76 |
+| reviewer | Opus 5.5 | 5.63 |
+| close (this session) | Opus 5.5 | 1.85 |
+| ops (the rewrite's 11 subagents) | Haiku 5.5 | unpriced |
+
+That is under the row's $50 soft budget, Haiku aside. Flow, 30 days to 2026-10-30: cycle 1.7h median, lead 3h, 45.5 merges/wk, change-fail 4.8%, approval wait 3.2h, review rounds 2, spend $1022.21/wk, 2 in flight (excludes unpriced models: Haiku 5.5). The spend drop since S16 is partly an artefact: the 36 lane-worktree transcript folders are still keyed by the old path, so the cost reader no longer sees them (insight `rename/transcripts-keyed-by-path`).
+
+**Lessons** (insights log, 2026-10-30), each decided: transcripts are keyed by path (not promoted, one rename); a sandbox setting reaches only new sessions (not promoted, the harness's behaviour). Two more are instances of S16 rows, as above.
+
+**Next.** S18: OPS-98 restores CI (#343) and re-enables `test.yml`; `ops/ops-98-restore-ci` is its branch, with no PR yet. The check of ops-118's outcome (o.9) is due today. OPS-177 and OPS-178 are queued in Fixes and lows.
+
 ## Session 16 — 2026-10-29 — Rich — S16: flakes fixed, ADR-0012, public repo, two batches, 17 rows
 
 **Totals.** Gate 102 min (a row's gate was CANNOT CHECK, so this is a floor); cost $270.87 (a row's cost was CANNOT CHECK, so this is a floor).
