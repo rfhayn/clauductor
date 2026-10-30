@@ -45,9 +45,9 @@ a new mechanism a finding does need is named in `notes`, as above. When a
 finding sits in the same small mechanism as one the previous round found, and is a regression of
 that round's fix, ask first whether the mechanism can be deleted: if it buys an optimization or a
 nicety, delete it and say what the deletion costs in `notes` and under `## Decision log`; harden it
-only when deleting it would lose a requirement. A mechanism `design.md` or a spec scenario names is
-deleted only by returning `design-issue` that proposes the deletion; one this build or an earlier
-fix added is deleted directly. A round is judged by its peak severity and how far its defects reach, not by
+only when deleting it would lose a requirement. Only what this build added (its groups, or an
+earlier round's fix) is deleted directly; anything else, named in `design.md` or a spec scenario or
+predating the change, is deleted only by returning `design-issue` that proposes it. A round is judged by its peak severity and how far its defects reach, not by
 how many findings it has.
 
 **Context discipline.** Every line you read is re-read as cache on each later turn, so:

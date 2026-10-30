@@ -41,9 +41,10 @@ the report the PR is written from.
 3. **When a finding sits in the same small mechanism as the previous round's and is a regression
    of its fix, the next fix asks first whether the mechanism can be deleted.** If what it buys is
    an optimization or a nicety, delete it and state the cost in the PR body. Harden it only when
-   deleting it would lose a requirement. A mechanism that `design.md` or a spec scenario names is
-   the owner's: the builder proposes its deletion by returning `design-issue`, and deletes directly
-   only what the build or an earlier fix added. This governs what a fix is, not how many rounds there are:
+   deleting it would lose a requirement. The builder deletes directly only what this build
+   added (its groups, or an earlier round's fix); anything else, named in `design.md` or a spec
+   scenario or predating the change, is the owner's, and the builder proposes its deletion by
+   returning `design-issue`. This governs what a fix is, not how many rounds there are:
    the cap (`.claude/review-cap.sh`) is unchanged.
 
 ## Consequences
@@ -73,7 +74,8 @@ the report the PR is written from.
   sees both rounds. So the stuck stop's notify, which reaches the owner, opens with the delete
   option, and its full reason lists both rounds' findings; the playbook's *stuck* row says the
   same. The deletion is then the owner's decision, not the builder's.
-- Every review-fix loop is reached: build-change (above); **`builder.md`**, *Converge by removing,
+- Every loop that fixes code under review is reached (`/propose` step 2b reviews a design, not
+  code, and is out of scope): build-change (above); **`builder.md`**, *Converge by removing,
   not adding*; **`/apply-change`** step 4, which hands the builder the previous round's findings;
   and **`merge-pr`** step 3's hand-run loop, the one #601 ran. The last three are instructions:
   nothing checks them.

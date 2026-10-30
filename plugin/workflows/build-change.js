@@ -265,7 +265,7 @@ const GATE = {
 // needs is a design change wearing a fix's clothes; and a finding that is the last fix's regression
 // in the same small mechanism says the mechanism is the finding. The fixer's notes carry a deletion's
 // cost to the report (entry.fixNotes), and the meta's success steps put them in the PR body.
-const DELETE_FIRST = 'If fixing a finding would add state or logic beyond what that finding needs, a design no task in this group names, do not add it: return design-issue naming what it needs (a finding marked with a source is still fixed at that source, and a new mechanism a finding does need goes in `notes`). If a finding sits in the same small mechanism as one the previous round found and is a regression of its fix, first ask whether the mechanism can be deleted: when what it buys is an optimization or a nicety, delete it, and state what the deletion costs in `notes` and in a line under "## Decision log" in the change\'s tasks.md, where a resumed run and the PR body read it; harden it only when deleting it would lose a requirement. A mechanism that design.md or a spec scenario names is deleted only by returning design-issue that proposes the deletion and its cost; one this build or an earlier fix added is deleted directly.'
+const DELETE_FIRST = 'If fixing a finding would add state or logic beyond what that finding needs, a design no task in this group names, do not add it: return design-issue naming what it needs (a finding marked with a source is still fixed at that source, and a new mechanism a finding does need goes in `notes`). If a finding sits in the same small mechanism as one the previous round found and is a regression of its fix, first ask whether the mechanism can be deleted: when what it buys is an optimization or a nicety, delete it, and state what the deletion costs in `notes` and in a line under "## Decision log" in the change\'s tasks.md, where a resumed run and the PR body read it; harden it only when deleting it would lose a requirement. Only what this build added (its groups, or an earlier round\'s fix) is deleted directly; anything else, named in design.md or a spec scenario or predating the change, is deleted only by returning design-issue that proposes the deletion and its cost.'
 // THE REVIEW, as the reviewer receives it: its prompt, its findings schema, the agent type and the
 // spawn itself. With the reviewer agent's file and its model, this is what the reviewer IS.
 // pr-merge-guard rule 13 hashes the lines between these markers, and between the review-call
@@ -566,9 +566,9 @@ for (const g of todo) {
       // no fixer runs after this stop, so the owner gets the delete option first, inside notify's
       // 160 characters, and both rounds' findings after it in the full reason.
       const now = actionable.map((f) => `${f.file}${f.line ? `:${f.line}` : ''}: ${f.summary}`).join(' | ')
-      const hint = prevList ? '; one mechanism regressing per fix? ask whether to delete it (PRAC-0014)' : ''
+      const hint = prevList ? 'one mechanism regressing per fix? ask whether to delete it (PRAC-0014); ' : ''
       const both = prevList ? `; previous round: ${prevList.replace(/\n\s*/g, ' ')}; this round: ${now}` : ''
-      return stop(`group ${g.n} review`, `${stuck}${hint}; grades ${grades(entry)}${disputes}${both}`, 'stuck')
+      return stop(`group ${g.n} review`, `${hint}${stuck}; grades ${grades(entry)}${disputes}${both}`, 'stuck')
     }
     if (round >= MAX_ROUNDS) {
       entry.residual = rev.findings
