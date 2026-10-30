@@ -10,8 +10,10 @@
 # (--cached), what a commit ships whatever the working tree holds (a sparse checkout's file, a
 # deleted one, one changed in type or shut, one behind a link or folded into another name's case),
 # and from the working tree, for an edit not yet staged. git grep skips a tracked symlink, so each
-# link's target, the blob `git ls-files -s` names with mode 120000, is read on its own. A
-# submodule is another repository's files, not this one's: only its path is read.
+# link's target, the blob `git ls-files -s` names with mode 120000, is read on its own: from the
+# index only, so a link added with -N or retargeted and not staged is read once it is staged, as
+# the gate's clean tree has it. A submodule is another repository's files, not this one's: only
+# its path is read.
 #
 # The name split into pieces on one line counts as the name: each line, and each tracked path, is
 # compared with every character but a letter deleted, so any joiner goes (quotes, +, ., /, a Join's
@@ -369,7 +371,8 @@ h=$(printf 'n = "%s" + "%s"\n' "$p" "$q" | git -C "$fc" hash-object -w --stdin)
 git -C "$fc" update-index --add --cacheinfo "100644,$h,Lower.go"
 unread "a tracked file whose name another file's stands for (case folded or not)" "$fc" Lower.go
 # The working tree is read for what the index does not hold yet: an edit not staged, and a new
-# file added with -N (build-change's register step leaves every new file so).
+# regular file added with -N (build-change's register step leaves every new file so; a link's
+# target is read from the index only, as the header says).
 wt="$t/unstaged"
 git init -q "$wt"
 printf 'clean\n' > "$wt/a.go"
