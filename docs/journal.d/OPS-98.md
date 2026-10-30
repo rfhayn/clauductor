@@ -26,7 +26,11 @@ Billing standing: pending this PR's first run.
 
 ## Surprises
 
-None yet.
+Review round 1 (peak high, cap 3) stopped the row; it moves to S18, since S17's rename needs a clean tree and the fixes reach `template/`. S18 starts from commit 0c4f62e2 and fixes:
+- **High**: a draft's skipped run reports a bare `test`=skipping on the head, and rule 2(a2) (`pr-merge-guard.sh`, the `bad=` filter) blocks on it forever, even once `test (ubuntu-latest)` passes on the same head after `gh pr ready`; only a new push (and a new receipt) gets out. Fix in the template's guard: a skipping entry blocks only when no entry of that name passed. Fixtures in `checks/merge-guard.sh`: {skipping + pass} exits 0, {skipping + pending} exits 2, {skipping} alone still exits 2. The draft condition stays on the job.
+- **Medium**: merge-pr waits for `GATE_PR_CHECKS` at step 2 but marks the PR ready only at step 4, so the wait never ends on a draft: `gh pr ready` moves into step 2, before the wait.
+- **Low**: `docs/panel.md`'s CI paragraph has a 147-character line; rewrap it.
+- Then confirm the real check names on S18's first draft-then-ready run (`gh pr checks <n> --json name,state,bucket` on the head before and after marking ready).
 
 ## Insights
 
