@@ -105,10 +105,15 @@ FAIL fast
 # for that child), and b waits for the slot. The sender waits for the child's marker, then TERMs
 # the run alone; run.sh must pass it on to a and its child.
 T="$d/term"; fx_project "$T"
+# The child sleeps 60 s where run.sh can find it (ps runs), so a child that is never told finishes
+# and says so; where ps cannot run, run.sh cannot find it, the child part is SKIPPED, and a short
+# sleep keeps the check quick.
+ps_ok=""; ps -A -o pid= >/dev/null 2>&1 && ps_ok=1
+if [ -n "$ps_ok" ]; then echo 60 > "$T/patience"; else echo 1 > "$T/patience"; fi
 cat > "$T/.claude/checks/a.sh" <<'EOF'
 trap 'touch "$ROOT/a.stopped"; exit 1' TERM
 echo $$ > "$ROOT/a.started"
-sh -c 'echo $$ > "$1/child.pid"; exec sleep 60' child "$ROOT"
+sh -c 'echo $$ > "$1/child.pid"; sleep "$(cat "$1/patience")"; touch "$1/child.finished"' child "$ROOT"
 touch "$ROOT/a.done"
 EOF
 printf 'touch "$ROOT/b.started"\n' > "$T/.claude/checks/b.sh"
@@ -118,10 +123,12 @@ _sp=$!
 kill "$_sp" 2>/dev/null; wait "$_sp" 2>/dev/null
 # No wait here: the run waits for its checks to stop before it dies, so all is settled when it returns.
 _cp=$(cat "$T/child.pid" 2>/dev/null)
-if [ -n "$_cp" ] && kill -0 "$_cp" 2>/dev/null; then
-  fail "the check's foreground child (pid $_cp) outlived the run: run.sh told only the check, whose trap waits for it"
+if [ -z "$ps_ok" ]; then
+  ok "SKIPPED the check's foreground child: ps cannot run here, so run.sh can tell only the check"
+elif [ -f "$T/child.finished" ] || { [ -n "$_cp" ] && kill -0 "$_cp" 2>/dev/null; }; then
+  fail "the check's foreground child (pid $_cp) was never told: it finished, or outlived the run"
   kill "$_cp" 2>/dev/null
-else ok "...the check's foreground child is stopped with it"; fi
+else ok "the check's foreground child is stopped with it, never finishing"; fi
 [ "$_rc" -eq 143 ] && [ -f "$T/a.stopped" ] && [ ! -f "$T/a.done" ] \
   && ok "a TERM to the run reaches its background check, which stops, and the run dies of TERM (exit $_rc)" \
   || fail "TERM did not stop the background check and the run (exit $_rc, want 143; stopped: $([ -f "$T/a.stopped" ] && echo yes || echo no), finished: $([ -f "$T/a.done" ] && echo yes || echo no))"

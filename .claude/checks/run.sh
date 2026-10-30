@@ -46,9 +46,9 @@ export ROOT CHECKS_LIB
 # The single pass (ADR-0006's 2026-10-18 amendment): a whole-set run builds the no-stridal
 # environment once (lib.sh's bare_env) in its scratch, and `exec`s itself inside it: one process,
 # so INT and TERM reach run.sh itself (a background run.sh would ignore INT, and a foreground child
-# would hold a TERM until the whole set ended), which passes them on to its checks. The `exec` drops lib.sh's traps, so the inner
-# run is told the directory (CHECKS_BARE_RM) and removes it on EXIT, INT and TERM. CHECKS_BARE is
-# the stop condition, and no-stridal.sh checks the real state behind it. CHECKS_SET=whole tells
+# would hold a TERM until the whole set ended), which passes them on to its checks. The `exec`
+# drops lib.sh's traps, so the inner run is told the directory (CHECKS_BARE_RM) and removes it on
+# EXIT, INT and TERM. CHECKS_BARE is the stop condition, and no-stridal.sh checks the real state behind it. CHECKS_SET=whole tells
 # no-stridal.sh it runs under a whole-set run.
 # run.sh sources lib.sh for its helpers only: lib.sh's CONTEXT_OFFLINE=1 is for the checks that
 # source it, so the caller's value (or its absence) is put back, and a check run by its own #! line
@@ -167,23 +167,29 @@ case $jobs in '' | *[!0-9]* | 0) jobs=4 ;; esac
 # kill_tree PID: TERM PID's descendants, then PID. A background check starts with INT ignored and
 # holds a TERM until its foreground child ends, so the children are told first. By pid, never by
 # pattern; where ps cannot run (a sandbox) only PID is told.
+children() { ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$1" '$2 == p { print $1 }'; }
 kill_tree() {
-  for _c in $(ps -A -o pid= -o ppid= 2>/dev/null | awk -v p="$1" '$2 == p { print $1 }'); do
+  for _c in $(children "$1"); do
     kill_tree "$_c"
   done
   kill -TERM "$1" 2>/dev/null
 }
-# stop_jobs: for a run stopped by INT or TERM. Every check still running in the background is told
-# (and its children); a launch that has not yet recorded its check's pid is TERMed itself, before
-# it starts one. Then every launch is waited for, so none writes into the scratch the trap removes.
-# Waiting launches never start: the scheduler is this shell.
+# stop_jobs: for a run stopped by INT or TERM. The launches are this shell's own job table (jobs -p,
+# into a file: dash prints nothing for it inside $(...)), whatever they have recorded so far; each
+# one's check is told, with its children, and the launch itself is left to finish, so `wait` waits
+# for the checks and none writes into the scratch the trap removes. Where ps cannot run, the checks'
+# recorded pids are told instead. Waiting launches never start: the scheduler is this shell.
 stop_jobs() {
-  for _w in "$RES"/*.wpid; do
-    [ -f "$_w" ] || continue
-    _i=${_w%.wpid}
-    [ -f "$_i.done" ] && continue
-    if [ -s "$_i.pid" ]; then kill_tree "$(cat "$_i.pid")"; else kill -TERM "$(cat "$_w")" 2>/dev/null; fi
-  done
+  jobs -p > "$RES/jobs" 2>/dev/null
+  if ps -A -o pid= >/dev/null 2>&1; then
+    for _w in $(cat "$RES/jobs"); do
+      for _c in $(children "$_w"); do kill_tree "$_c"; done
+    done
+  else
+    for _p in "$RES"/*.pid; do
+      [ -f "$_p" ] && [ ! -f "${_p%.pid}.done" ] && kill -TERM "$(cat "$_p")" 2>/dev/null
+    done
+  fi
   wait
 }
 trap 'stop_jobs; rm -rf "$_scratch"; trap - INT; kill -INT $$' INT
@@ -229,7 +235,6 @@ launch() {
     : > "$RES/$1.done.w" && mv "$RES/$1.done.w" "$RES/$1.done"
     echo "$1" >&4
   ) &
-  echo $! > "$RES/$1.wpid"
 }
 
 # report I [RC]: print check I's result, once it has one.
