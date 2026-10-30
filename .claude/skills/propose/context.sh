@@ -55,8 +55,8 @@ echo "- Change queue:"
 roadmap_queue --text "$road" 2>&1 | if [ "$road" = "$ROADMAP" ]; then cat; else sed "s|$road|$main:$ROADMAP|g"; fi | ind
 echo "- Living specs ($SPECS_DIR/):"
 ls "$base/$SPECS_DIR" 2>/dev/null | grep -v README.md | ind
-echo "- Budgets on queued rows (repeat the row's in proposal.md):"
-roadmap_queue --tsv "$road" 2>/dev/null | awk -F'\t' '$7 == "queued" && $11 != "" { printf "    %s %s: $%s\n", $4, $5, $11 }' | grep . || echo "    none"
+echo "- Budgets on queued rows (repeat the row's in proposal.md, its kind included):"
+roadmap_queue --tsv "$road" 2>/dev/null | awk -F'\t' '$7 == "queued" && $11 != "" { printf "    %s %s: $%s%s\n", $4, $5, $11, ($16 == "soft" ? ", soft" : "") }' | grep . || echo "    none"
 echo "- Scenario IDs already taken (living specs and archived changes; never reuse one):"
 for s in "$base/$SPECS_DIR"/*/spec.md "$base/$CHANGES_DIR"/archive/*/specs/*/spec.md; do
   [ -f "$s" ] && spec_scenarios "$s" | awk -F'\t' '$3 != "-" { print $3 }'

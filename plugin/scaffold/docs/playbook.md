@@ -127,8 +127,18 @@ started from the panel's **New lane** (or by hand), on one branch:
   with `${CLAUDE_PLUGIN_ROOT}/lib/quota.sh`: `quota_read` lists each window, `quota_pct five_hour` prints one,
   `quota_at` says when it was saved. A window whose reset has passed, or that has no reset time,
   has no reading (`-`, exit 1), never its old number. It stands in for the panel's `quota.json`,
-  which is written only while the panel runs. Nothing reads it yet but `checks/quota-reading.sh`,
-  which holds it: its reader went with OPS-42, and OPS-167 wires one or removes it.
+  which is written only while the panel runs. Two readers use it: the `quota` health line at session
+  start (`.claude/health/quota.sh`: each window, its reset on your clock, `TIME_ZONE`, and when the
+  reading was saved; `HIGH` at the threshold below, `CANNOT CHECK` with no reading), and
+  **`${CLAUDE_PLUGIN_ROOT}/quota-gate.sh`**: exit 1 when a seven-day window (`seven_day`, `seven_day_opus`, any
+  `seven_day_*`) is at or above `QUOTA_LANE_STOP_PCT` (`project.conf`, default 90; `0` turns it
+  off), exit 2 when that is not a number, exit 0 below it, and exit 0 with "no reading" said when
+  there is none. build-change's preflight is the one caller that enforces it: it stops a new run and
+  notifies (`overrideQuota: true` is the owner's way past; a resume only warns). session-start's
+  orchestrator rule asks the session to run it before other lanes, which nothing checks; a panel
+  lane and `/clauductor:apply-change` do not run it. The panel's own `quota_guard` holds the five-hour window on
+  its **New lane**.
+  `checks/quota-reading.sh` holds the file and both readers.
 
 ## Several people
 
@@ -303,7 +313,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 | stuck (notify says STUCK) | the stuck-loop breaker: a fixed finding came back unchanged, the peak and the count both stopped falling, or a round reviewed a diff already reviewed | read the finding it names; usually a design question or a group too big: decide, or split |
 | agent returned nothing | new agent types register at session start | restart Claude Code, re-run with `resume` |
 | receipt | the full gate failed on HEAD | fix, re-run the full gate |
-| budget | the change's spend passed its budget | raise the budget (row and proposal) or cut scope, then re-run |
+| budget | the change's spend passed its budget | raise the budget (the roadmap row on main first, then the proposal) or cut scope, then re-run |
 | verify | a task open, a scenario uncited, the approval void, or a task's paths untouched | fix what it names; `/clauductor:verify-change <id>` |
 
 ## Three layers of agents

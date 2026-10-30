@@ -10,9 +10,10 @@
 #   sh .claude/roadmap-queue.sh [--text]      the current phase's open rows, next first (default)
 #   sh .claude/roadmap-queue.sh --check       validate the whole file; exit 1 naming each bad line
 #   sh .claude/roadmap-queue.sh --tsv         every row: line phase section id change kind state pr owner summary
-#                                             budget due started status deps  (budget: dollars or
-#                                             empty; due and started: YYYY-MM-DD or empty; status:
-#                                             empty here; deps: ids and #N, comma-separated, or empty)
+#                                             budget due started status deps budgetkind  (budget:
+#                                             dollars or empty; due and started: YYYY-MM-DD or empty;
+#                                             status: empty here; deps: ids and #N, comma-separated,
+#                                             or empty; budgetkind: soft, hard, or empty with no budget)
 #   sh .claude/roadmap-queue.sh --queued [kind]   change ids of queued rows (kind: change|fix|ops)
 #   ... [file]                                any mode takes an explicit roadmap path last
 #
@@ -34,7 +35,8 @@
 #   it keeps its phase current and shows in --text under its word, but is never NEXT or --queued.
 #   The Change cell's first `backticked` token is the change id; `fix/…` and `ops/…` ids are those
 #   lanes, anything else is a capability change (branch <BRANCH_CHANGE><id>).
-#   `Budget: $N` anywhere in a row is the change's cost budget (item 12 of the change process);
+#   `Budget: $N` anywhere in a row is the change's cost budget (item 12 of the change process),
+#   `Budget: $N, soft` a soft one (its overrun is reported, and the build goes on);
 #   `(due YYYY-MM-DD)` in the Change cell dates a row, as archive-change dates the "check the
 #   outcome of <id>" row it queues. --text lists every queued dated row that is due, whatever its
 #   phase: an outcome check sits in `## Outcome checks`, outside every phase.
@@ -170,10 +172,14 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
     state = "open"
   }
   owner = sowner != "" ? sowner : powner
-  budget = ""
+  budget = ""; bkind = ""
   if (index(line, "Budget:")) {
     if (match(line, /Budget: \$[0-9]+(\.[0-9][0-9]?)?([^0-9.]|$)/)) { budget = substr(line, RSTART + 9, RLENGTH - 9); sub(/[^0-9.]$/, "", budget) }
     else { err("row " id ": a budget must read \"Budget: $<dollars>\""); next }
+    # Its kind (OPS-91): the row is the authority for it, as for the figure. `, soft` right after
+    # the figure makes it soft; anything else (`, hard`, prose, nothing) is hard, the kind that
+    # stops a build, so a misspelt mark reads as the safe one and a soft proposal fails against it.
+    bkind = substr(line, RSTART + 9 + length(budget)) ~ /^,[ \t]*soft([^A-Za-z0-9_-]|$)/ ? "soft" : "hard"
   }
   due = ""
   if (index(chg, "(due")) {
@@ -187,7 +193,7 @@ BEGIN { phase = "-"; ptitle = ""; section = ""; powner = ""; sowner = ""; insec 
   # hold (a row id or #N each), spaces around a comma dropped.
   dp = trim(c[5]); if (dp == "—" || dp == "–" || dp == "-") dp = ""
   gsub(/[ \t]*,[ \t]*/, ",", dp); R_deps[n] = dp
-  R_sum[n] = sm; R_budget[n] = budget; R_due[n] = due; R_seckey[n] = seckey; R_word[n] = word
+  R_sum[n] = sm; R_budget[n] = budget; R_bkind[n] = bkind; R_due[n] = due; R_seckey[n] = seckey; R_word[n] = word
   if ((state == "queued" || state == "inflight" || state == "open") && phase != "-" && !(phase in openphase)) openphase[phase] = 1
   next
 }
@@ -201,8 +207,9 @@ END {
     exit 0
   }
   if (mode == "--tsv") {
-    # Column 14 (a raw status) is for a plugged parser: empty here, so column 15 is the deps.
-    for (i = 1; i <= n; i++) printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\n", R_line[i], R_phase[i], R_sec[i], R_id[i], R_cid[i], R_kind[i], R_state[i], R_pr[i], R_owner[i], R_sum[i], R_budget[i], R_due[i], (R_seckey[i] in started ? started[R_seckey[i]] : ""), R_deps[i]
+    # Column 14 (a raw status) is for a plugged parser: empty here, so column 15 is the deps and 16
+    # the kind of the budget.
+    for (i = 1; i <= n; i++) printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\t%s\n", R_line[i], R_phase[i], R_sec[i], R_id[i], R_cid[i], R_kind[i], R_state[i], R_pr[i], R_owner[i], R_sum[i], R_budget[i], R_due[i], (R_seckey[i] in started ? started[R_seckey[i]] : ""), R_deps[i], R_bkind[i]
     exit 0
   }
   if (mode == "--queued") {

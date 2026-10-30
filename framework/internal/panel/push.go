@@ -237,7 +237,7 @@ func runPush(ctx context.Context, timeout time.Duration, argv []string, title, b
 	cmd := exec.CommandContext(cctx, argv[0], args...)
 	// A program killed at the timeout may leave a child holding its output open; past
 	// this the pipes are closed and the wait returns.
-	cmd.WaitDelay = time.Second
+	cmd.WaitDelay = signals.HeldOutputWait
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil

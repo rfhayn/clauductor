@@ -40,6 +40,7 @@ REVIEW_CAPS="low:2 normal:3 high:3"
 REVIEW_AT_CAP="stop"
 TIME_ZONE="America/New_York"
 TIME_ZONE_LABEL="ET"
+QUOTA_LANE_STOP_PCT="90"
 PROPOSALS="markdown"
 CHANGES_DIR="changes"
 SPECS_DIR="specs"
@@ -180,7 +181,8 @@ EOF
 # roadmap_tsv_errors: stdin is --tsv output; prints one line per row that breaks the contract and
 # exits 1 if any did. 12 tab-separated columns: line phase section id change kind state pr owner
 # summary budget due; an optional 13th, started (the row's section's start date); an optional 14th,
-# the row's raw status, read by the people module; an optional 15th, deps (roadmap_deps_errors)
+# the row's raw status, read by the people module; an optional 15th, deps (roadmap_deps_errors);
+# an optional 16th, the budget's kind (soft or hard; none, or empty, reads as hard: OPS-91)
 # (docs/roadmap.md); more are ignored. Blank input is an empty queue, not an error.
 roadmap_tsv_errors() {
   _rt_in=$(cat)
@@ -249,6 +251,8 @@ roadmap_tsv_shape_errors() {
     $11 != "" && $11 !~ /^[0-9]+(\.[0-9][0-9]?)?$/ { bad("column 11 (budget) \"" $11 "\" is not dollars") }
     $12 != "" && $12 !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { bad("column 12 (due) \"" $12 "\" is not YYYY-MM-DD") }
     NF >= 13 && $13 != "" && $13 !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ { bad("column 13 (started) \"" $13 "\" is not YYYY-MM-DD") }
+    NF >= 16 && $16 != "" && $16 != "soft" && $16 != "hard" { bad("column 16 (budget kind) \"" $16 "\" is not soft, hard or empty") }
+    NF >= 16 && $16 != "" && $11 == "" { bad("column 16 (budget kind) is \"" $16 "\" for a row with no budget (column 11)") }
     END { exit nb > 0 }'
 }
 

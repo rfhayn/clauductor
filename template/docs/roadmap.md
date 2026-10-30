@@ -53,8 +53,11 @@ A phase is several changes. Decompose as you go, phase by phase.
   since. One per section; a misspelled, misplaced, doubled or impossible one is an error.
 - The current phase is derived: the first phase with a queued, in-flight or open row.
 - **A budget**: `Budget: $N` anywhere in a row (the Scope cell, say) is the change's cost
-  appetite. Its `proposal.md` repeats it, `build-change` stops past it (or, for `**Budget:** $N,
-  soft` in the proposal, reports it and goes on), archive records the actual.
+  appetite, and `Budget: $N, soft` a soft one. The row is the authority for both the figure and
+  the kind: its `proposal.md` repeats them (`**Budget:** $N` or `**Budget:** $N, soft`), and
+  `checks/changes.sh` fails a proposal that differs either way from the row as `origin/<main>` has
+  it, so the owner's `, soft` lands on main before a proposal may carry it. `build-change` stops past a hard
+  budget and reports a soft one's overrun and goes on; archive records the actual.
 - **A date**: `(due YYYY-MM-DD)` in the Change cell. `archive-change` queues each change's outcome
   check that way in `## Outcome checks` below, and the queue lists it as DUE from that date.
 - **A session plan (optional)**: a `## Session plan` section holding one table,
@@ -84,7 +87,7 @@ The contract a parser meets:
 |---|---|---|
 | `--text` | the current phase's open rows, for people (any layout) | 0 read; non-zero: the queue is UNKNOWN |
 | `--check` | one summary line, or one `ERROR` line per line it cannot parse | 0 valid; 1 not |
-| `--tsv` | one row per line, tab-separated, the 12 columns below, optionally the 13th to the 15th; more are ignored | 0 read; non-zero: UNKNOWN |
+| `--tsv` | one row per line, tab-separated, the 12 columns below, optionally the 13th to the 16th; more are ignored | 0 read; non-zero: UNKNOWN |
 
 `--queued [change\|fix\|ops]` is derived from `--tsv` by the helper: a parser need not implement it.
 
@@ -105,6 +108,7 @@ The contract a parser meets:
 | 13 | started | optional: the row's section's start date, `YYYY-MM-DD`, or empty |
 | 14 | status (optional) | the row's raw status text (`⬜ deferred — trigger: …`), for a parser whose statuses say more than column 7; the `people` module skips a `⬜ deferred` row for **Next**. A parser that emits column 14 puts a date or nothing in column 13. |
 | 15 | deps (optional) | what the row waits on: row ids and `#N`, comma-separated with no spaces, or empty. An id that names no row, a cycle, or a queued, in-flight or open row waiting on a cancelled one breaks the contract. A parser that emits column 15 emits 13 and 14 too, empty if it has nothing for them. |
+| 16 | budget kind (optional) | `soft` or `hard`, empty for a row with no budget. A parser that does not emit it has only hard budgets: `checks/changes.sh` then fails a proposal whose `**Budget:**` is soft. A parser that emits column 16 emits 13 to 15 too. |
 
 Every `--tsv` row is held to this table before any reader sees it: a row that breaks it makes the
 queue UNKNOWN, never a shorter queue. A parser whose own words differ (a status such as

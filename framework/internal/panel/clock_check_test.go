@@ -33,6 +33,9 @@ var systemClockSites = map[string]map[string]int{
 	"lease/lease.go": {"ProcCache.Check": 1, "CancelWait": 1},
 	// The pause between retries of a settings.json write that met a concurrent writer.
 	"install/hooks.go": {"rewriteSettings": 1},
+	// A claude call's group is killed until it is gone, within a bound of real time
+	// (OPS-159); ExecRunner is a plain Runner, with no Options to inject a clock through.
+	"signals/run.go": {"callOutput.drain": 1},
 }
 
 // clockReads returns every call of the time package's clock and every dot-import

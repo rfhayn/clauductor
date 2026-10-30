@@ -351,6 +351,8 @@ grep -q 'did not finish within 0 s' "$d/err" && ok "guard rule: ...and says it w
 # block then reads "could not run", not "did not finish".
 # Slow ONCE: a parent shell holds a trapped TERM until its foreground child ends, so a jq slow on
 # every call would let the KILL win (137) and never reach the trap this case is about.
+# Known limit: the 2 s must land between the TERM (1 s) and the KILL (2 s later), a window load can
+# miss; OPS-173 (#335) owns it.
 mkdir -p "$d/slow"; printf '#!/bin/sh\n[ -e "$0.once" ] || { : > "$0.once"; sleep 2; }\nexec %s "$@"\n' "$(command -v jq)" > "$d/slow/jq"; chmod +x "$d/slow/jq"
 o=$(cd "$R" && env PATH="$d/slow:$PATH" ARTIFACT_RULE_SECONDS=1 GUARD_BRANCH=ops/session-9-close GUARD_HEAD="$HD" GUARD_PR=999 sh "$R/.claude/modules/artifacts/guard.d/currency.sh" 2>&1); rc=$?
 expect_rc 2 "$rc" "guard rule: a check that overruns its budget mid-run blocks"

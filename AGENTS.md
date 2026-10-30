@@ -62,8 +62,10 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | An archive loses no living scenario, keeps superseded wording out, and skips a `NOT-SYNCED.md` capability | **`.claude/archive-change.sh`** (`archive-change` step 1); **`checks/archive-change.sh`** |
 | Every registered hook launches from any directory; the panel's cards run what session-start runs | **`checks/hooks.sh`** (the registration table); **`checks/panel-contract.sh`** (and no panel hook checked in) |
 | A squash commit names its change, role, model and session | **`pr-merge-guard.sh`** rule 12 (blocking while `provenance.enabled`) |
+| With attribution off, only a squash merges, and it carries no Co-authored-by trailer | **`pr-merge-guard.sh`** rule 15 (blocking); **`checks/merge-guard.sh`** |
 | A role's model or a trigger it declares (`evals.triggers`: its agent, the marked review prompt) changes only with a passing eval receipt | **`pr-merge-guard.sh`** rule 13 (blocking); **`checks/model-roles.sh`** (the `eval` evidence); **`checks/evals.sh`** |
 | A change stays within its budget; a soft one (`**Budget:** $N, soft`) reports its overrun and goes on | **`build-change.js`** stops or warns (`.claude/change-cost.sh`); **`checks/build-change.sh`**; by hand, **Nothing. You.** |
+| A build-change run starts only below the 7-day quota threshold | **`.claude/quota-gate.sh`** via build-change's preflight; **`checks/quota-reading.sh`**; other lanes (panel, by hand): **Nothing. You.** |
 | No secret is committed, and agents cannot read the project's | **`run-local.sh`** secrets step (gitleaks; fails under CI without it); **`settings.json`** deny list and sandbox; **`checks/settings.sh`**, **`checks/gate.sh`** |
 | A dependency release ages before it is proposed; an advisory reaches a reader | **`.github/dependabot.yml`** cooldown; **`dependency-audit.yml`** and its health line; **`checks/supply-chain.sh`** |
 | Review a change PER TASK GROUP, not per PR | **`.claude/workflows/build-change.js`** when built through it; **Nothing. You.** by hand (`/apply-change`) |
@@ -94,6 +96,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | A branch is named by its `BRANCH_*` key, never a literal prefix | **`checks/branch-prefixes.sh`**: the model's files and `panel.json` |
 | Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | A script's temporary file lands in `$TMPDIR`: every `mktemp` line holds a `${TMPDIR:-` template or says why not | **`checks/mktemp-in-tmpdir.sh`** over every tracked shell script |
+| No unmarked `date +%s` clock read in a check: each says why (`# wall-clock:`); a check waits with `wait_for` (`checks/lib.sh`), never a fixed-count poll or a guessed sleep | **`checks/wall-clock.sh`** over every check `run.sh` runs; the polls and sleeps: **Nothing. You.** |
 | The owner's roadmap tracker matches `docs/roadmap.md` | **`.claude/local/roadmap-tracker.sh`** via the session-start and session-close steps; the STALE line in session-start's context; **`local:roadmap-tracker`** |
 | A team-queue issue is listed as facts, approved only by an `approved` label after its last edit, bound to its content, worked only through its row; `new-row` proposes one | **`.claude/local/context.d/session-start/team-queue.sh`** (the states); **`local:team-queue`**; the handling steps: **Nothing. You.** |
 | The gate runs every check of both sets, and a shared one once only while the framework matches the template | **`scripts/ci/steps.sh`** (`CHECKS_ONCE`, `CHECKS_SKIP`); **`checks/check-sets.sh`** |

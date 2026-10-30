@@ -290,6 +290,7 @@ const SCRIPT = fs.readFileSync(process.argv[2], 'utf8')
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const WORKTREE = { gitDir: '/repo/.git/worktrees/build-demo', commonDir: '/repo/.git', toplevel: '/repo/.claude/worktrees/build-demo' }
 const OPENED = 'marker: opened https://github.com/o/r/pull/1 as a draft (session-start: S1 2026-10-01 09:00 ET row DEMO-1)'
+const BELOW = 'quota-gate: below — 7d 40% (resets Mon 2026-10-05 12:00 ET) under 90% (QUOTA_LANE_STOP_PCT)\nexit 0'
 async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {}, commitCost = null, groups = null } = {}) {
   const calls = []
   // commitCost: change-cost.sh's reading after each commit, one for every commit or a list in commit order.
@@ -300,7 +301,7 @@ async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {},
     calls.push({ prompt, opts })
     const { label } = opts
     if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', gateWait: 'scripts/ci/gate-wait.sh', attribution: '', provenance: false, ...cfg }) }
-    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', reviewCap: '3 — risk normal, from the test; REVIEW_AT_CAP stop', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', marker: OPENED, ...budget,
+    if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', reviewCap: '3 — risk normal, from the test; REVIEW_AT_CAP stop', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', marker: OPENED, quotaGate: BELOW, ...budget,
       groups: groups || [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
     if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [] }
     if (label.startsWith('gate:') || label === 'receipt') return { passed: true, evidence: 'ok', diffHash: `h${++h}` }
@@ -468,6 +469,40 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   for (const good of ['marker: PR #7 already carries it (session-start: S1 2026-10-01 09:00 ET row DEMO-1)', "marker: put first in PR #7's body (session-start: S1 2026-10-01 09:00 ET row DEMO-1)", "marker: no roadmap row is built on 'change/demo', so this lane is no row's session; no marker"]) {
     r = await run([], { budget: { marker: good } })
     t(`a success form adds no warning: ${good.slice(0, 40)}`, !markerWarned(r), r.report.warnings)
+  }
+  // The quota gate (OPS-167): the preflight runs quota-gate.sh, and the SCRIPT decides from
+  // its words and exit line: a STOP, an ERROR or a non-zero exit stops before any group is built.
+  t('the preflight agent runs quota-gate.sh and reports its output with its exit code', /quota-gate\.sh 2>&1; echo "exit \$\?"`/.test(pf) && /quotaGate/.test(pf), pf)
+  // The marker runs in its own agent past every preflight stop (OPS-129), so the preflight changes
+  // nothing and runs no marker, and a quota stop leaves no draft PR behind.
+  const quotaWarned = (r) => r.report.warnings.some((w) => /quota/.test(w))
+  r = await run([])
+  const npf = (r.calls.find((c) => c.opts.label === 'preflight') || {}).prompt || ''
+  t('the preflight changes nothing and runs no marker.sh', /changing nothing, and running every step/.test(npf) && !/marker\.sh/.test(npf), npf)
+  t('a quota gate that says below adds no warning, and the build runs', r.report.stoppedAt === null && built(r) && !quotaWarned(r), [r.report.stoppedAt, r.report.warnings])
+  const STOP = 'quota-gate: STOP — 7d 92% (resets Mon 2026-10-05 12:00 ET) at or above 90% (QUOTA_LANE_STOP_PCT); start no new lane until it resets'
+  r = await run([], { budget: { quotaGate: `${STOP}\nexit 1` } })
+  t('a quota gate STOP stops at preflight with its line in the notify, before any group is built', r.report.stoppedAt === 'quota' && r.report.reason.includes(STOP) && /^build-change demo STOPPED at quota: quota-gate: STOP/.test(r.report.notify || '') && !built(r), [r.report.stoppedAt, r.report.notify])
+  t('...and runs no marker, so it leaves no draft PR behind', r.report.stoppedAt === 'quota' && !ranMarker(r), r.calls.map((c) => c.opts.label))
+  r = await run([], { budget: { quotaGate: `${STOP}\nexit 0` } })
+  t('...a STOP line stops even when the exit line says 0 (the words win, never an agent\'s exit)', r.report.stoppedAt === 'quota' && !built(r), [r.report.stoppedAt, r.report.reason])
+  r = await run([], { budget: { quotaGate: "quota-gate: ERROR — QUOTA_LANE_STOP_PCT is 'x', not a whole number from 0 (off) to 100\nexit 2" } })
+  t('a quota gate ERROR (a bad threshold) stops too', r.report.stoppedAt === 'quota' && /ERROR/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])
+  r = await run([], { budget: { quotaGate: 'sh: quota-gate.sh: No such file or directory\nexit 127' } })
+  t('a non-zero exit with no verdict line stops, naming the exit', r.report.stoppedAt === 'quota' && /exited 127/.test(r.report.reason) && !built(r), [r.report.stoppedAt, r.report.reason])
+  r = await run([], { args: { overrideQuota: true }, budget: { quotaGate: `${STOP}\nexit 1` } })
+  t('overrideQuota builds past a STOP and warns, quoting it', r.report.stoppedAt === null && built(r) && warned(r, 'overrideQuota', STOP), [r.report.stoppedAt, r.report.warnings])
+  t('...and then the marker runs', ranMarker(r), r.calls.map((c) => c.opts.label))
+  // A resume finishes work a run already started: no new lane, so a STOP warns and the group runs.
+  r = await run([], { args: { resume: 3 }, budget: { quotaGate: `${STOP}\nexit 1` } })
+  t('a resumed run is not stopped by the quota gate: it warns, quoting the STOP, and finishes', r.report.stoppedAt === null && built(r) && warned(r, 'resume', STOP), [r.report.stoppedAt, r.report.warnings])
+  t('...and its marker runs', ranMarker(r), r.calls.map((c) => c.opts.label))
+  const NONE = 'quota-gate: no reading — no readable ~/.clauductor/quota-reading.json; the quota is NOT checked, so the lane may start'
+  r = await run([], { budget: { quotaGate: `${NONE}\nexit 0` } })
+  t('no reading fails open and says so in report.warnings', r.report.stoppedAt === null && built(r) && r.report.warnings.includes(NONE), [r.report.stoppedAt, r.report.warnings])
+  for (const odd of ['', 'quota-gate: below — 7d 40% under 90% (QUOTA_LANE_STOP_PCT)', 'something else\nexit 0']) {
+    r = await run([], { budget: { quotaGate: odd } })
+    t(`a gate output in no known form (or with no exit line) warns that the quota was NOT checked: ${JSON.stringify(odd).slice(0, 40)}`, r.report.stoppedAt === null && warned(r, 'NOT checked'), [r.report.stoppedAt, r.report.warnings])
   }
   for (const bad of [0, 1.5, 'three']) {
     r = await run([], { args: { maxRounds: bad } })

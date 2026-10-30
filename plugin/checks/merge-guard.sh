@@ -668,7 +668,8 @@ if [ -f "$ROOT/.claude/clauductor-template" ] || [ -f "$ROOT/.claude/clauductor-
 else
   jq -e '.provenance.enabled == true' "$ROOT/.claude/model-roles.json" >/dev/null && ok "the template turns provenance on by default" || fail "model-roles.json provenance.enabled is not true in the template"
 fi
-jq '.provenance.enabled = true' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
+# Attribution on, so rule 15 (no Co-authored-by while it is off) stays out of rule 12's rows.
+jq '.provenance.enabled = true | .attribution.enabled = true' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
 sguard() {  # sguard WANT LABEL COMMAND — with a session id in the payload, as Claude Code sends
   rc=0
   jq -cn --arg c "$3" --arg d "$R" '{tool_name:"Bash", cwd:$d, session_id:"sess-1", tool_input:{command:$c}}' \
@@ -708,13 +709,93 @@ sguard 2 "rule 12: a --body-file in a command after the merge" "gh pr merge 5 --
 sguard 2 "rule 12: a --body-file in a gh pr view after the merge" "gh pr merge 5 --squash --delete-branch --body-file sub/body.txt && gh pr view 5 --body-file $R/body.txt"
 sguard 2 "rule 12: a commit_message field in a gh api before the merge" "gh api user -F commit_message=@$R/body.txt >/dev/null; gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/sub/body.txt"
 sguard 0 "rule 12: the merge's own --body-file, its output piped on" "gh pr merge 5 --squash --delete-branch --body-file body.txt 2>&1 | tail -1"
-sguard 0 "rule 12: a substitution before the merge, the body written out in full" "cd \"\$(git -C $R rev-parse --show-toplevel)\" && gh pr merge 5 -R github.com/acme/app --squash --body-file $R/body.txt"
+# What runs before the merge may write the body file after the guard reads it (OPS-156): only
+# nothing, or `cd <path>` alone, may come before a --body-file. A substitution can run anything.
+sguard 2 "rule 12: a substitution before the merge, the body written out in full" "cd \"\$(git -C $R rev-parse --show-toplevel)\" && gh pr merge 5 -R github.com/acme/app --squash --body-file $R/body.txt"
+printf 'Adds x.\n' > "$R/bare.txt"
+sguard 2 "rule 12: a cp over the body file before the merge (the guard would read the old one)" "cp $R/bare.txt $R/body.txt && gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/body.txt"
+grep -q 'other than cd' "$d/err" && ok "rule 12: ...and the block says only cd may come before" || fail "rule 12: the write-before block does not say why: $(head -3 "$d/err")"
+rm -f "$R/bare.txt"
 rm -rf "$R/sub"
 trail > "$R/-"   # a file named "-" with good trailers: stdin must not be read as that file
 sguard 2 "rule 12: a --body-file read from stdin (unreadable)" "gh pr merge 5 --squash --body-file -"
 rm -f "$R/-"
 jq '.provenance.enabled = false' "$R/.claude/model-roles.json" > "$d/mr" && cp "$d/mr" "$R/.claude/model-roles.json"
 sguard 0 "rule 12 is off when provenance.enabled is false" "gh pr merge 5 --squash --delete-branch"
+# Rule 15 (OPS-156): while attribution is off, a squash merge carries no Co-authored-by trailer.
+# GitHub's default squash body is the branch's commit messages, trailers and all: that is how #289,
+# #290 and #291 got one. Provenance stays off here, so rule 15 is the only body rule in play.
+jq '.attribution.enabled = false' "$R/.claude/model-roles.json" > "$d/mr" && cp "$d/mr" "$R/.claude/model-roles.json"
+printf 'Adds x.\n\nReview: converged in 1 round(s).\n' > "$R/body.txt"
+sguard 0 "rule 15: a --body-file with no Co-authored-by trailer" "gh pr merge 5 --squash --delete-branch --body-file body.txt"
+sguard 0 "rule 15: a literal --body with no trailer (read and judged as a file is)" "gh pr merge 5 --squash --body \"Adds x.\""
+sguard 2 "rule 15: a squash that sets no body, so GitHub writes the default" "gh pr merge 5 --squash --delete-branch"
+grep -q 'rule 15' "$d/err" && ok "rule 15: ...and the block names rule 15" || fail "rule 15: the no-body block does not name rule 15: $(head -3 "$d/err")"
+sguard 2 "rule 15: a squash spelled in a cluster of shorthands (-sd), no body" "gh pr merge 5 -sd"
+sguard 2 "rule 15: a squash whose body is read from stdin (unreadable)" "gh pr merge 5 --squash --body-file -"
+printf 'Adds x.\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\n' > "$R/co.txt"
+sguard 2 "rule 15: a --body-file holding a Co-authored-by trailer" "gh pr merge 5 --squash --delete-branch --body-file co.txt"
+printf 'Adds x.\n\nCO-AUTHORED-BY: Cursor Agent <cursoragent@cursor.com>\n' > "$R/co.txt"
+sguard 2 "rule 15: the trailer in another case" "gh pr merge 5 --squash --body-file $R/co.txt"
+printf 'Adds x.\n\n  co-authored-by : Cursor Agent <cursoragent@cursor.com>\n' > "$R/co.txt"
+sguard 2 "rule 15: the trailer indented, a blank before its colon" "gh pr merge 5 --squash -Fco.txt"
+sguard 2 "rule 15: a literal --body holding the trailer" "gh pr merge 5 --squash --body \"Adds x.
+
+Co-authored-by: A <a@b.c>\""
+# A trailer is a line that starts with its key. A mention in prose, in a code span, is not one: the
+# squash body of the PR that adds this rule says `Co-authored-by` itself, and git never reads it.
+printf 'Refuses a squash body whose `Co-authored-by:` line would credit a co-author.\n' > "$R/co.txt"
+sguard 0 "rule 15: Co-authored-by in a code span in prose (a mention, not a trailer)" "gh pr merge 5 --squash --body-file co.txt"
+# A merge commit or a rebase lands every branch commit as it is, trailers and all: while attribution
+# is off, only a squash merges.
+sguard 2 "rule 15: a merge commit (--merge)" "gh pr merge 5 --merge --delete-branch --body-file body.txt"
+grep -q 'only a squash merges' "$d/err" && ok "rule 15: ...and the block says only a squash merges" || fail "rule 15: the --merge block does not say why: $(head -3 "$d/err")"
+sguard 2 "rule 15: a rebase (-rd)" "gh pr merge 5 -rd"
+sguard 2 "rule 15: --squash=false beside --merge is a merge commit" "gh pr merge 5 --squash=false --merge --body-file body.txt"
+# A method turned off with =false enables nothing, and -bm is a body reading "m", not --merge.
+sguard 0 "rule 15: --merge=false beside --squash is a squash" "gh pr merge 5 --merge=false --squash --body-file body.txt"
+sguard 0 "rule 15: -bm is the body 'm', not --merge" "gh pr merge 5 --squash -bm"
+sguard 2 "rule 15: -tm is the subject 'm': no method (held as a squash) and no body" "gh pr merge 5 -tm"
+# A gh api merge names its method in merge_method, and GitHub's default there is a merge commit.
+sguard 2 "rule 15: a gh api merge with no merge_method (a merge commit)" "gh api -X PUT repos/acme/app/pulls/5/merge -F commit_message=@$R/body.txt"
+sguard 2 "rule 15: a gh api merge with merge_method=rebase" "gh api -X PUT repos/acme/app/pulls/5/merge -f merge_method=rebase -F commit_message=@$R/body.txt"
+sguard 2 "rule 15: a gh api squash with no commit_message" "gh api -X PUT repos/acme/app/pulls/5/merge -f merge_method=squash"
+sguard 0 "rule 15: a gh api squash whose commit_message is a clean file" "gh api -X PUT repos/acme/app/pulls/5/merge -f merge_method=squash -F commit_message=@$R/body.txt"
+printf 'Adds x.\n\nCo-authored-by: Cursor Agent <cursoragent@cursor.com>\n' > "$R/co.txt"
+# The body the guard reads must be the body gh sends. /dev/stdin is the hook's own stdin, drained by
+# its payload read, while gh's is the file the merge redirects in; a command before the merge, or a
+# redirect of its own, can write the file after the guard reads it.
+sguard 2 "rule 15: --body-file /dev/stdin (the hook's stdin is not gh's)" "gh pr merge 5 --squash --body-file /dev/stdin"
+sguard 2 "rule 15: --body-file /dev/stdin, a trailer redirected in" "gh pr merge 5 --squash --body-file /dev/stdin < $R/co.txt"
+sguard 2 "rule 15: a cp of a trailer over the body file before the merge" "cp $R/co.txt $R/body.txt && gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/body.txt"
+sguard 2 "rule 15: the merge's own redirect empties its body file" "gh pr merge 5 --squash --body-file $R/body.txt >$R/body.txt"
+sguard 0 "rule 15: only cd <path> before the merge, the body written out in full" "cd $R && gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/body.txt"
+sguard 0 "rule 15: only cd to a quoted path with a blank (a WSL2 path) before the merge" "cd '$R/a b' && gh pr merge https://github.com/acme/app/pull/5 --squash --body-file $R/body.txt"
+sguard 0 "rule 15: the merge's output to /dev/null" "gh pr merge 5 --squash --body-file body.txt >/dev/null 2>&1"
+sguard 0 "rule 15: the merge's output to /dev/null with &>" "gh pr merge 5 --squash --body-file body.txt &>/dev/null"
+sguard 0 "rule 15: the merge's output appended to /dev/null with &>>, split" "gh pr merge 5 --squash --body-file body.txt &>> /dev/null"
+sguard 0 "rule 15: the merge's stdin from /dev/null" "gh pr merge 5 --squash --body-file body.txt </dev/null"
+# Only a regular file reads here as it reads for gh. A directory reads as nothing, and a link to
+# /dev/stdin reads the hook's own stdin, not the merge's.
+sguard 2 "rule 15: a --body-file that is a directory" "gh pr merge 5 --squash --body-file $R"
+grep -q 'not a readable regular file' "$d/err" && ok "rule 15: ...and says the file is not a regular file" || fail "rule 15: the directory block does not say it is not a regular file: $(head -3 "$d/err")"
+ln -s /dev/stdin "$R/in.md"
+sguard 2 "rule 15: a --body-file that links to /dev/stdin" "gh pr merge 5 --squash --body-file $R/in.md"
+rm -f "$R/in.md"
+# On Linux a /proc file passes -f but is the reader's own: the path is matched resolved.
+if [ -f /proc/self/cmdline ]; then
+  sguard 2 "rule 15: a --body-file under //proc (slashes doubled)" "gh pr merge 5 --squash --body-file //proc/self/cmdline"
+  ln -s /proc/self/cmdline "$R/p.md"
+  sguard 2 "rule 15: a --body-file that links into /proc" "gh pr merge 5 --squash --body-file $R/p.md"
+  rm -f "$R/p.md"
+else
+  ok "rule 15: no /proc here, so its two rows run on Linux (CI) only"
+fi
+jq '.attribution.enabled = true' "$R/.claude/model-roles.json" > "$d/mr" && cp "$d/mr" "$R/.claude/model-roles.json"
+sguard 0 "rule 15 is off while attribution.enabled is true" "gh pr merge 5 --squash --body-file co.txt"
+printf '{"attribution": ' > "$R/.claude/model-roles.json"
+sguard 2 "rule 15: a model-roles.json that does not parse holds the rule on (fails closed)" "gh pr merge 5 --squash --body-file co.txt"
+rm -f "$R/co.txt"
 rm -f "$R/.claude/model-roles.json" "$R/body.txt"
 cp "$R/.claude/hooks/lib/change-guard.sh" "$d/cg.bak"; printf 'broken() { "\n' >> "$R/.claude/hooks/lib/change-guard.sh"
 guard 2 "a change-guard library that does not parse (fails closed, not open)" "gh pr merge 5 --squash"
@@ -1014,12 +1095,12 @@ b=$(sed -n '/^raw_command() {/,/^}/p' "$CLAUDUCTOR_FW/hooks/no-blind-source-rewr
 [ -n "$a" ] && [ "$a" = "$b" ] && ok "raw_command is identical in pr-merge-guard.sh and no-blind-source-rewrite.sh" || fail "raw_command differs between the two hooks"
 
 # Rule 13: a model choice rests on an eval receipt (OPS-10). main gets model-roles.json (provenance
-# off, so rule 12 stays out of it), two agents, a workflow and a two-case reviewer suite with the
+# off and attribution on, so rules 12 and 15 stay out of it), two agents, a workflow and a two-case reviewer suite with the
 # real runner. Receipts are written by that runner over fake-claude.sh, so these cases also prove
 # the runner's working-tree hashes equal the guard's, read from the commit.
 git -C "$R" checkout -q main
 mkdir -p "$R/.claude/agents" "$R/.claude/workflows" "$R/.claude/evals/reviewer/cases"
-jq '.provenance.enabled = false' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
+jq '.provenance.enabled = false | .attribution.enabled = true' "$ROOT/.claude/model-roles.json" > "$R/.claude/model-roles.json"
 cp "$CLAUDUCTOR_FW/agents/reviewer.md" "$CLAUDUCTOR_FW/agents/builder.md" "$R/.claude/agents/"
 wf() {  # wf [PROMPT] [OUTSIDE] [CALL] [AGENT_TYPE]: a build-change.js with both marked sections
   printf '// the workflow %s\nconst a = 1\n// <review-prompt>\nconst REVIEW_PROMPT = "%s"\nconst REVIEW = {"type":"object","properties":{"findings":{"type":"array"}},"required":["findings"]}\nconst reviewSpawn = () => agent(REVIEW_PROMPT, { schema: REVIEW, agentType: %s })\n// </review-prompt>\nconst b = 2\n// <review-call>\nconst rev = await %s\n// </review-call>\nconst pick = (role) => {\n  return ROLES[role]\n}\n' \

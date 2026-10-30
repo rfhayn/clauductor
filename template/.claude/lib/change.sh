@@ -404,7 +404,9 @@ proposal_field() {
 # own words, never the design's prose: `$N` and `$N, hard` print "N hard" (an overrun stops the
 # build), `$N, soft` prints "N soft" (an overrun is reported and the build goes on), no line prints
 # nothing, and any other line prints "unreadable": a budget nobody can read is said, never taken
-# as hard or soft (OPS-85).
+# as hard or soft (OPS-85). The line is a copy: the roadmap row is the authority for its figure and
+# its kind (`Budget: $N, soft`, --tsv column 16), and checks/changes.sh fails a line that differs
+# from the row as origin/<main> has it, so a `, soft` a branch adds is refused (OPS-91).
 proposal_budget() {
   _pb=$(proposal_field "$1" Budget)
   [ -n "$_pb" ] || return 0
