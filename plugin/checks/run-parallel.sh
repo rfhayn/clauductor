@@ -114,11 +114,11 @@ if [ -n "$ps_ok" ]; then echo 60 > "$T/patience"; else echo 1 > "$T/patience"; f
 cat > "$T/.claude/checks/a.sh" <<'EOF'
 trap 'touch "$ROOT/a.stopped"; exit 1' TERM
 echo $$ > "$ROOT/a.started"
-sh -c 'echo $$ > "$1/child.pid"; sleep "$(cat "$1/patience")"; touch "$1/child.finished"' child "$ROOT"
+sh -c 'echo $$ > "$1/child.pid"; sh -c '\''echo $$ > "$1/gc.pid"; exec sleep "$(cat "$1/patience")"'\'' gc "$1"; touch "$1/child.finished"' child "$ROOT"
 touch "$ROOT/a.done"
 EOF
 printf 'touch "$ROOT/b.started"\n' > "$T/.claude/checks/b.sh"
-(started() { [ -s "$T/child.pid" ]; }; wait_for 30 started && kill -TERM "$(cat "$T/run.pid")") 2>/dev/null &
+(started() { [ -s "$T/gc.pid" ]; }; wait_for 30 started && kill -TERM "$(cat "$T/run.pid")") 2>/dev/null &
 _sp=$!
 (cd "$T" && unmarked TMPDIR="$T/tmp" CHECKS_JOBS=1 sh -c 'echo $$ > "$1"; exec sh .claude/checks/run.sh a b' term "$T/run.pid") > "$T/out" 2>&1; _rc=$?
 kill "$_sp" 2>/dev/null; wait "$_sp" 2>/dev/null
@@ -130,6 +130,13 @@ elif [ -f "$T/child.finished" ] || { [ -n "$_cp" ] && kill -0 "$_cp" 2>/dev/null
   fail "the check's foreground child (pid $_cp) was never told: it finished, or outlived the run"
   kill "$_cp" 2>/dev/null
 else ok "the check's foreground child is stopped with it, never finishing"; fi
+# ...and the whole tree: the child's own child (a sleep) too, not only the depths below the launch.
+_gp=$(cat "$T/gc.pid" 2>/dev/null)
+if [ -z "$ps_ok" ]; then :
+elif [ -n "$_gp" ] && kill -0 "$_gp" 2>/dev/null; then
+  fail "the check's grandchild (pid $_gp) outlived the run: run.sh told only the top of the tree"
+  kill "$_gp" 2>/dev/null
+else ok "...and the child's own child, the bottom of the tree"; fi
 [ "$_rc" -eq 143 ] && [ -f "$T/a.stopped" ] && [ ! -f "$T/a.done" ] \
   && ok "a TERM to the run reaches its background check, which stops, and the run dies of TERM (exit $_rc)" \
   || fail "TERM did not stop the background check and the run (exit $_rc, want 143; stopped: $([ -f "$T/a.stopped" ] && echo yes || echo no), finished: $([ -f "$T/a.done" ] && echo yes || echo no))"

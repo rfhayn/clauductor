@@ -167,24 +167,25 @@ case $jobs in '' | *[!0-9]* | 0) jobs=4 ;; esac
 [ -n "${CHECKS_JOBS:-}" ] || [ "$jobs" -le 8 ] || jobs=8
 # stop_jobs: for a run stopped by INT or TERM. A background check starts with INT ignored and holds
 # a TERM until its foreground child ends, so its whole tree is told: by pid, never by pattern. The
-# launches are this shell's own job table (jobs -p, into a file: dash prints nothing for it inside
-# $(...)), whatever they have recorded so far. One ps snapshot gives every launch's descendants,
-# told from the top down, so a check's trap is pending before its child dies and it starts nothing
-# after; the launch itself is left to finish, so `wait` waits for its check and none writes into
-# the scratch the trap removes. The stop file keeps a launch that has not yet started its check
-# from starting it. Where ps cannot run, the checks' recorded pids are told instead. Waiting
-# launches never start: the scheduler is this shell.
+# launches are this shell's children in one ps snapshot (not dash's job table, which keeps pids it
+# has reaped and could name a reused one); every launch's descendants are told from the top down,
+# so a check's trap is pending before its child dies and it starts nothing after; the launch itself
+# is left to finish, so `wait` waits for its check and none writes into the scratch the trap
+# removes. The stop file keeps a launch from starting its check, or tells the check it just started
+# (launch tests it after its fork; neither test is exercised by run-parallel.sh: the window is too
+# narrow to hit on purpose). Where ps cannot run, the checks' recorded pids are told instead.
+# Waiting launches never start: the scheduler is this shell. Known limits: a process a told check
+# forks after the snapshot is not told (its trap then waits for it); a nested run.sh's launches are
+# told with its checks, so it stops without waiting for them.
 stop_jobs() {
   : > "$RES/stop"
-  jobs -p > "$RES/jobs" 2>/dev/null
   if ps -A -o pid= -o ppid= > "$RES/ps" 2>/dev/null; then
-    # Breadth first from the launches, so each pid is printed before its children; the launches
-    # themselves are not printed. No launch, nothing to read (an empty first file would make awk
-    # take the snapshot for it).
-    [ -s "$RES/jobs" ] || : > "$RES/jobs.none"
-    [ -e "$RES/jobs.none" ] || for _p in $(awk 'NR == FNR { q[++n] = $1; next } { kids[$2] = kids[$2] " " $1 }
-        END { for (h = 1; h <= n; h++) { c = split(kids[q[h]], k, " ")
-          for (j = 1; j <= c; j++) { q[++n] = k[j]; print k[j] } } }' "$RES/jobs" "$RES/ps"); do
+    # Breadth first from this shell's children, so each pid is printed before its own; those
+    # children (the launches) are not printed.
+    for _p in $(awk -v me=$$ '{ kids[$2] = kids[$2] " " $1 }
+        END { n = split(kids[me], q, " ")
+          for (h = 1; h <= n; h++) { c = split(kids[q[h]], k, " ")
+            for (j = 1; j <= c; j++) { q[++n] = k[j]; print k[j] } } }' "$RES/ps"); do
       kill -TERM "$_p" 2>/dev/null
     done
   else
@@ -232,6 +233,9 @@ launch() {
         fi ;;
       *) sh "$_f" > "$RES/$1.out" 2>&1 4>&- & ;;
     esac
+    # A stop that came after the test above and before this fork took its snapshot without this
+    # check: the stop file is there by now, so the check is told here.
+    [ -e "$RES/stop" ] && kill -TERM $! 2>/dev/null
     echo $! > "$RES/$1.pid.w" && mv "$RES/$1.pid.w" "$RES/$1.pid"
     wait $!
     echo $? > "$RES/$1.rc"
