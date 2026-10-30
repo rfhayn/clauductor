@@ -299,6 +299,80 @@ func TestNoProjectPathsLeft(t *testing.T) {
 	})
 }
 
+// A script a check writes into its scratch project runs there: its project is the directory above
+// it and its model is the copy the check put there, so the builder must not point it at the
+// plugin's model (CLAUDUCTOR_FW) when the template did not. OPS-169: the builder rewrote a fixture
+// caller's ROOT and sources to CLAUDUCTOR_FW, and 34 cases read the real project. A check writes a
+// script as a quoted heredoc's body or a printf format whose output reaches a file; writtenScripts
+// (shscan_test.go) reads both as the shell does, and reports what it cannot read rather than skip
+// it. Unquoted heredocs are not read, by design. Other rewrites stay allowed: a contract script expects the plugin's agent
+// names, as the plugin's workflow spells them, and roadmap.sh's plant3 gains CLAUDUCTOR_FW
+// harmlessly, since the bypass reader it feeds (roadmap.sh's strip) cuts both spellings.
+func TestCheckHeredocsKeepTheirProject(t *testing.T) {
+	out, _ := build(t)
+	files, err := filepath.Glob(filepath.Join(repoRoot(t), "template", ".claude", "checks", "*.sh"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no template checks found (%v)", err)
+	}
+	var docs, prints int
+	// Named writers the reader must find, so a reader that loses a form fails here, not silently.
+	// The two floor writers (health-lines.sh's workflows, line-endings.sh's .gitattributes) write
+	// "$2": they are named for their form, which the reader must still find; what $2 holds is out of
+	// its reach (shscan_test.go, text held in a variable).
+	caller, fixture, own, workflows, attrs := false, false, false, false, false
+	for _, f := range files {
+		name := filepath.Base(f)
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gen, err := os.ReadFile(filepath.Join(out, "checks", name))
+		if err != nil {
+			t.Errorf("%s: no plugin copy: %v", name, err)
+			continue
+		}
+		want, werrs := writtenScripts(string(src))
+		got, gerrs := writtenScripts(string(gen))
+		for _, e := range werrs {
+			t.Errorf("checks/%s: %s", name, e)
+		}
+		for _, e := range gerrs {
+			t.Errorf("plugin checks/%s: %s", name, e)
+		}
+		if len(want) != len(got) {
+			t.Errorf("checks/%s: %d written script(s) in the template, %d in the plugin's copy", name, len(want), len(got))
+			continue
+		}
+		for i, w := range want {
+			if w.heredoc != got[i].heredoc {
+				t.Errorf("checks/%s: script %d is a heredoc in one copy and a printf in the other: the pairing is off", name, i+1)
+				break
+			}
+			if w.heredoc {
+				docs++
+				caller = caller || strings.Contains(w.text, "health_coauthor")
+				fixture = fixture || (name == "mktemp-in-tmpdir.sh" && strings.HasPrefix(strings.TrimSpace(w.open), "fixture "))
+			} else {
+				prints++
+				own = own || (name == "artifacts.sh" && strings.Contains(w.open, `> "$K/own.sh"`))
+				workflows = workflows || (name == "health-lines.sh" && strings.Contains(w.open, `> "$F/.github/workflows/$1"`))
+				attrs = attrs || (name == "line-endings.sh" && strings.Contains(w.open, `> "$r/.gitattributes"`))
+				if name == "roadmap.sh" && strings.Contains(w.open, "plant3") {
+					continue
+				}
+			}
+			if !strings.Contains(w.text, FWVar) && strings.Contains(got[i].text, FWVar) {
+				t.Errorf("checks/%s: the plugin's copy points a script the check writes into its scratch project at %s:\n%s\n%s", name, FWVar, got[i].open, got[i].text)
+			}
+		}
+	}
+	if docs == 0 || prints == 0 || !caller || !fixture || !own || !workflows || !attrs {
+		t.Fatalf("read %d heredoc(s) and %d printf/echo(s); among them the coauthor caller: %v, mktemp-in-tmpdir's fixture: %v, artifacts.sh's own.sh: %v, health-lines.sh's workflow writer: %v, line-endings.sh's .gitattributes writer: %v. The reader no longer finds what it guards", docs, prints, caller, fixture, own, workflows, attrs)
+	}
+}
+
+// writtenScripts, the reader the test above uses, is in shscan_test.go.
+
 // Every script path a plugin skill or agent names exists in the plugin, and a skill's context
 // line runs from the plugin root.
 func TestComponentPathsExist(t *testing.T) {

@@ -83,6 +83,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | An agent that must not edit cannot | Each agent's **`tools:`** line; **`model-roles.sh`** bars write tools from read-only roles. Bash can still write: check `git status` |
 | Every insight gets a decision (promote, an instance, or why not) within a few sessions | **`${CLAUDE_PLUGIN_ROOT}/compound.sh`** via `session-close` step 3b; **`checks/compound.sh`** |
 | A scheduled or post-merge failure reaches a reader, naming its run's commit and age | **`.claude/health/*.sh`** via `session-start` (the directory is the list; `lib/health.sh`); **`checks/health.sh`**, **`health-lines.sh`** |
+| A Co-authored-by trailer that reaches `origin/<main>` by any road while attribution is off is seen | **`.claude/health/coauthor-trailers.sh`** via `session-start` (since its own commit, or `COAUTHOR_HEALTH_SINCE`); **`checks/health-lines.sh`** |
 | Work under way is seen on GitHub: branches with no PR, rows queued while their PR is open | **`lib/context.sh`** via the session-start and session-close context; **`checks/session-context.sh`** |
 | A module adds only while `MODULES` names it; a broken extension guard rule blocks, never allows | **`lib/modules.sh`** for every host; **`pr-merge-guard.sh`** extension rules; **`checks/modules.sh`** |
 | Orphans and clean lane worktrees do not outlive a session; tmux lanes are never killed | **`${CLAUDE_PLUGIN_ROOT}/machine-quiet.sh`** via `session-close`; **`checks/machine-quiet.sh`** |

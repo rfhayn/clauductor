@@ -67,6 +67,7 @@ PLAYBOOK="docs/playbook.md"
 AGENTS_MD_MAX_BYTES="16000"
 AGENTS_MD_MAX_ROW="320"
 MKTEMP_CHECK_PATHS=""
+COAUTHOR_HEALTH_SINCE=""
 CHANGE_RECORD_EXTRA=""
 GATE_QUICK_FLAGS="--quick"
 # Derived from BRANCH_OPS after project.conf is read, unless the project names its own (or "").
