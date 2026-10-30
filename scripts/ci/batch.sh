@@ -88,7 +88,7 @@ case $cmd in
     # A fragment outside the batch that closes a listed row would be a second close the fold
     # refuses: stop here, naming it, and never touch that fragment.
     for f in "$d"/*.md; do
-      [ -f "$f" ] || continue
+      [ -f "$f" ] && [ "$(basename "$f")" != README.md ] || continue   # fragment_files' set
       case " $* " in *" $(basename "$f" .md) "*) continue ;; esac
       for id in $(fragment_rows "$f"); do
         case " $* " in *" $id "*) stop "$id is already closed by $(basename "$f") outside this batch: leave it out, or fix that fragment" ;; esac
