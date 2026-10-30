@@ -94,6 +94,6 @@ requirement.
 - **Before the clock starts:** an existing sidecar gets none of this, because attach never
   overwrites one. The owner adds the `launch` object and `"version": 6` to Standing Tee's sidecar by hand
   (a version-5 config that sets `launch` does not load: LANECTX-3-S2) and trusts
-  it again with `clauductor panel trust --project <repo>`, since the edit changes the sidecar's
+  it again with `stridal panel trust --project <repo>`, since the edit changes the sidecar's
   trust hash. The archive puts that step on the owner queue, and the 21 days count from it.
 - **Check after:** 21 days

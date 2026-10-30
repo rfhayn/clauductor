@@ -66,7 +66,7 @@ carries the stalled state into the new look (design D11).
   (D11).
 - **It interrupts once.** One `stalled` alert per stretch, through the existing notifier: a
   macOS notification and, when the owner sets one up, a push through a command of their own
-  (`~/.clauductor/panel/push.json`, for example ntfy or Pushover) that reaches a phone (D6, D7).
+  (`~/.stridal/panel/push.json`, for example ntfy or Pushover) that reaches a phone (D6, D7).
 - **The same rule for a session the panel did not launch,** in its own repository or an
   attached one: the panel's hooks and `claude agents` are the machine's, so they cover it (D2).
 
@@ -75,7 +75,7 @@ carries the stalled state into the new look (design D11).
   - ATTACH-2 (attaching and serving write nothing under the repository) holds. The new reads
     (the receipt, a merged-PR read: D10) are reads, and the push writes nothing there.
   - ATTACH-3 (a sidecar runs only the repository's argv commands) is untouched. The push command
-    is the machine's, in `~/.clauductor/panel/`, never a project's config (D7).
+    is the machine's, in `~/.stridal/panel/`, never a project's config (D7).
   - The stall rule applies to an attached project's lanes and sessions with that project's own
     `alerts.stall_minutes`, read from its sidecar like every other alert threshold.
 - **`specs/panel-claude-calls`:** it covers the panel's own `claude` calls. This change makes

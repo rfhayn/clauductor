@@ -4,7 +4,7 @@
 drives them with Playwright. It takes screenshots over a matrix of viewports, appearances and
 views, checks each shot against layout rules, and runs scripted end-to-end flows. Several runs
 can go at once, because each one has its own run id, port, temp `HOME` and tmux sockets
-(`ux-<runid>-<n>`). It never touches `~/.claude`, `~/.clauductor`, launchd or any other tmux
+(`ux-<runid>-<n>`). It never touches `~/.claude`, `~/.stridal`, launchd or any other tmux
 socket. It uses synthetic data only.
 
 It is not part of `go test`: it needs node, Playwright with Chromium, tmux, git, curl and perl.
@@ -18,7 +18,7 @@ cd framework/internal/panel/testdata/ux
 ./run-parallel.sh --shards flows-lanes --run me1 --ports 4750-4759 --out /tmp/ux-me
 ```
 
-`run-parallel.sh` builds the checkout once (or uses `$CLAUDUCTOR_BIN`). It then runs each shard
+`run-parallel.sh` builds the checkout once (or uses `$STRIDAL_BIN`). It then runs each shard
 on a panel of its own, and writes `<out>/report.md`, `<out>/findings.json`, and each shard's
 `shots/`. Two people or agents running it at the same time need different `--run` ids and
 `--ports` ranges. The default range is 4700–4799.
@@ -207,9 +207,9 @@ None is fixed here. Two rules are new: `unclickable` (a flow could not click a c
 would need; it then presses it as the keyboard would, so the flow goes on) and
 `feature-missing` (a signal the views wait for never showed).
 
-1. **Teardown runs without `CLAUDUCTOR_PORT`** (flows `worktreeinclude-setup-teardown` and
-   `auto-close-on-merge`). docs/panel.md says setup and teardown run with `CLAUDUCTOR_LANE` and
-   `CLAUDUCTOR_PORT` set, but `teardown.log` reads `ux-incl ` with no port. `Close`
+1. **Teardown runs without `STRIDAL_PORT`** (flows `worktreeinclude-setup-teardown` and
+   `auto-close-on-merge`). docs/panel.md says setup and teardown run with `STRIDAL_LANE` and
+   `STRIDAL_PORT` set, but `teardown.log` reads `ux-incl ` with no port. `Close`
    (`lanes/close.go`) stops and forgets the lane (its registry record, which holds the port)
    before `runHook` asks `LanePort(id)`, so the port is 0 and `hookArgv` leaves it out. Setup
    gets it (`.ux-setup` reads `<lane> <port>`).

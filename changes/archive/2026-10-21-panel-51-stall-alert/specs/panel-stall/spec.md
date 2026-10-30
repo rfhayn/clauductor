@@ -174,7 +174,7 @@ THE SYSTEM SHALL mark a lane stalled WHEN a session of it waits on the owner and
 - **AND** the other two load with a stall time of 10 minutes
 
 #### Scenario: [STALL-1-S29] The template's panel config declares the latest config version
-- **GIVEN** the template's `.clauductor/panel.json`, and the plugin scaffold's built from it
+- **GIVEN** the template's `.stridal/panel.json`, and the plugin scaffold's built from it
 - **WHEN** each is loaded
 - **THEN** each is a valid config that declares the latest config version
 
@@ -345,7 +345,7 @@ WHEN a session's own `Stop` hook arrives (one that carries no `agent_id`) THE SY
 - **AND** at 05:00 the lane of #154 is still not stalled
 
 ### Requirement: A stall interrupts once per stretch, on the Mac and through the owner's push command
-WHEN a lane's `stalled` alert first becomes active and is not approximate THE SYSTEM SHALL send it through the notifier's rules (once per stretch, grouped per lane, at most once per lane per `min_interval_seconds`, never while the lane's terminal has focus in a visible page, and not again after a restart while it is still active, and nothing at all while `alerts.notify` is false) as a macOS notification and, WHERE `~/.clauductor/panel/push.json` holds a valid push command, by running that command's argv with the title and body as two more arguments, with no shell, under a 10 s timeout past which it is stopped and counted as failed; THE SYSTEM SHALL read `push.json` at the start and again within 10 s of a change to it or to its folder, a change of mode or owner included; THE SYSTEM SHALL NOT run a push command whose file is not the user's, is writable by group or others or sits in a folder that is, or names a program by a relative path, SHALL NOT push any alert but `stalled`, and SHALL build the push's title and body from the `stalled` alert's own fields alone, the title naming the project by its config's `name` only while that config is trusted, and as "clauductor panel" otherwise.
+WHEN a lane's `stalled` alert first becomes active and is not approximate THE SYSTEM SHALL send it through the notifier's rules (once per stretch, grouped per lane, at most once per lane per `min_interval_seconds`, never while the lane's terminal has focus in a visible page, and not again after a restart while it is still active, and nothing at all while `alerts.notify` is false) as a macOS notification and, WHERE `~/.stridal/panel/push.json` holds a valid push command, by running that command's argv with the title and body as two more arguments, with no shell, under a 10 s timeout past which it is stopped and counted as failed; THE SYSTEM SHALL read `push.json` at the start and again within 10 s of a change to it or to its folder, a change of mode or owner included; THE SYSTEM SHALL NOT run a push command whose file is not the user's, is writable by group or others or sits in a folder that is, or names a program by a relative path, SHALL NOT push any alert but `stalled`, and SHALL build the push's title and body from the `stalled` alert's own fields alone, the title naming the project by its config's `name` only while that config is trusted, and as "stridal panel" otherwise.
 
 #### Scenario: [STALL-3-S1] A new stall sends one notification and one push
 - **GIVEN** a valid `push.json` whose `argv` is a stand-in program that records its arguments, and a lane that stalls at 00:30
@@ -406,7 +406,7 @@ WHEN a lane's `stalled` alert first becomes active and is not approximate THE SY
 #### Scenario: [STALL-3-S11] An untrusted config's name never titles a push
 - **GIVEN** a project whose `panel.json` names it "Stalls" and is not trusted, a valid `push.json` whose `argv` is a stand-in program that records its arguments, and a lane with pull request #152 open that stalls
 - **WHEN** the notifier runs
-- **THEN** one macOS notification and one push go out, each titled with "clauductor panel" and the lane, and neither title names "Stalls"
+- **THEN** one macOS notification and one push go out, each titled with "stridal panel" and the lane, and neither title names "Stalls"
 
 ### Requirement: Today's page shows a stalled lane, and `/api/state` carries it
 THE SYSTEM SHALL show a stalled lane as "stalled", in words and a red-tinted row, in its lane table row, its terminal tab and its worktree tree node, and as one Needs-you row per lane naming the lane, its quiet time, its open work and what it last waited on, with Open terminal where the lane has a terminal, a waiting lane's own row being labelled stalled rather than joined by a second; `/api/state` SHALL carry the lane's `stall` (`since`, `waitedOn`, `openWork`, `approx`), a Needs-you item of kind `stalled`, and the `stalled` alert.

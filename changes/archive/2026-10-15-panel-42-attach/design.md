@@ -3,7 +3,7 @@
 ## Where the behaviour lives today
 
 - **The registry** (`framework/internal/panel/config/projects.go`): `ProjectEntry.Config` is the
-  panel.json path, absolute, or `""` for `<root>/.clauductor/panel.json` (`ConfigPath()`).
+  panel.json path, absolute, or `""` for `<root>/.stridal/panel.json` (`ConfigPath()`).
   `install.AddProject` (`install/projects.go`) takes `AddOptions.Config` and records it. For a root
   already registered, it switches the entry's `config` to the one passed. It loads the config
   before it registers anything, so a project with no config that loads cannot be added.
@@ -15,16 +15,16 @@
   a note per choice. It reads the root, the default branch, branch prefixes, where the worktrees
   live, a gate script, and the operating model's scripts if they exist. It runs git's read-only
   plumbing and reads files, nothing the repository names. It fixes the target at
-  `<root>/.clauductor/panel.json` and refuses when that exists. `WriteInit` creates the file with
+  `<root>/.stridal/panel.json` and refuses when that exists. `WriteInit` creates the file with
   `O_EXCL`.
 - **Trust** (`install/trust.go`): `CheckTrust` records and checks a config's SHA-256 in
-  `~/.clauductor/panel/<hash of the root>/trusted-config.json`, keyed by the config's resolved
+  `~/.stridal/panel/<hash of the root>/trusted-config.json`, keyed by the config's resolved
   path. Every trust path goes through it: `panel trust` (`TrustConfigReport`), `--trust-config`,
   `panel install`, and the page (`TrustExact`). `TrustedNow` re-reads the file. The report is
   `Config.RunList()`: one line per card, queue, template, suggest command, metrics command,
   worktree hook and resume line.
 - **Readers that skip the registry**: `configPathOf` (`cmd/panel.go`, for `panel trust`) and
-  `panel.Run`'s up-front check of `--project` (`run.go`) both use `<root>/.clauductor/panel.json`
+  `panel.Run`'s up-front check of `--project` (`run.go`) both use `<root>/.stridal/panel.json`
   when `--config` is not given. `panel list` prints no config path.
 - **`panel remove`** (`install.RemoveProject`, and the page's **Remove from panel…**) deletes
   nothing on disk. It keeps the repository, its config, its worktrees and its lane registry.
@@ -33,8 +33,8 @@
   visible. Without `--no-optional-locks`, git may take `index.lock` and write a refreshed
   `.git/index`.
 - **The plugin** (`plugin/hooks/if-project.sh`): its guard hooks already stand aside, exiting 0
-  without reading the payload, in a repository without `.claude/clauductor-plugin`. Its
-  `/clauductor:*` skills and its SessionStart hook (`plugin-session.sh`) load in every repository
+  without reading the payload, in a repository without `.claude/stridal-plugin`. Its
+  `/stridal:*` skills and its SessionStart hook (`plugin-session.sh`) load in every repository
   in the plugin's scope.
 
 ## The shape of the change
@@ -43,21 +43,21 @@
    (D5). It gets a target path, plus whether a config already in
    the repository should refuse the plan (for `panel init`) or add a note (for attach). The reading
    of the repository is unchanged, byte for byte. `panel init` and the page's **Create this config**
-   pass `<root>/.clauductor/panel.json` as today.
+   pass `<root>/.stridal/panel.json` as today.
 2. **`install.Attach`** resolves the repository the way `panel add` does: its main worktree, a
    linked one refused, the same common-dir check, the same socket check. It picks the id (the
    config name's slug, or `--id`). It plans the config with the target
-   `~/.clauductor/projects/<id>/panel.json` and writes it with `O_EXCL` (folder 0700, file 0600).
+   `~/.stridal/projects/<id>/panel.json` and writes it with `O_EXCL` (folder 0700, file 0600).
    Then it registers the repository through `AddProject` with that config. A failed registration
    removes the file it just wrote, so a refused attach leaves nothing behind. A registered project
    in D4's state is attached in place.
-3. **`clauductor panel attach [<repo>]`** (`cmd/panel.go`): the repository defaults to the current
+3. **`stridal panel attach [<repo>]`** (`cmd/panel.go`): the repository defaults to the current
    directory's git toplevel. `--id` and `--default` work as in `panel add`. It prints what it
-   wrote, init's notes, and the line to trust it: `clauductor panel trust --project <repo>`.
+   wrote, init's notes, and the line to trust it: `stridal panel trust --project <repo>`.
 4. **The registry's config, everywhere.** For a project the registry holds, `configPathOf` and
    `panel.Run` use the entry's `ConfigPath()` when `--config` is not given. `panel list` prints
    each project's config path. A config outside the repository is marked so, plus a line when the
-   repository also has its own `.clauductor/panel.json`. The page's project menu row shows the
+   repository also has its own `.stridal/panel.json`. The page's project menu row shows the
    same line (a field on `ProjectSummary`).
 5. **A sidecar's commands are argv only, and stay in the repository** (D5). A pure function in the
    config package lists every command word a sidecar may not hold: shell or interpreter code,
@@ -71,20 +71,20 @@
 | Situation | What happens instead |
 |---|---|
 | `panel attach` on a path that is not a git work tree, a linked worktree, or a repository registered under another path (the same common dir) | Refused with `panel add`'s message. Nothing is written. |
-| `~/.clauductor/projects/<id>/panel.json` exists already | Refused, never overwritten (D3). The message names the file, how to serve it as it is (`clauductor panel add --project <repo> --config <file>`), and `--id` for a new one. |
+| `~/.stridal/projects/<id>/panel.json` exists already | Refused, never overwritten (D3). The message names the file, how to serve it as it is (`stridal panel add --project <repo> --config <file>`), and `--id` for a new one. |
 | The repository is registered, and its config loads | Refused: "registered already as <id>, reading <path>". `panel remove` first, or `panel add --config` to switch on purpose (D4). |
-| The repository is registered with `config: ""` and no `.clauductor/panel.json` (Standing Tee today) | Attached in place: the entry's `config` is set, and its id, socket and lane registry are kept (D4). |
-| The repository has its own `.clauductor/panel.json` | Attached anyway. The output says the panel will read the sidecar and not the repository's file (D7). |
+| The repository is registered with `config: ""` and no `.stridal/panel.json` (Standing Tee today) | Attached in place: the entry's `config` is set, and its id, socket and lane registry are kept (D4). |
+| The repository has its own `.stridal/panel.json` | Attached anyway. The output says the panel will read the sidecar and not the repository's file (D7). |
 | The tmux socket the project would get is another project's | Refused, as `panel add` refuses it. The sidecar just written is removed. |
 | Registering fails after the sidecar is written | The sidecar is removed. A refused attach leaves no file and no entry. |
 | `panel trust` (or the page's **Trust config…**, `--trust-config` or `panel install`) on a sidecar with a command D5 does not allow (shell or interpreter code, a non-literal word, or a path outside the repository) | Refused. Each offending line is printed (on the page, shown) with the word, why, and "move it into a script in the repository". Nothing is recorded (D5). |
 | A trust entry was recorded for such a sidecar earlier (by hand, or before this change) | It does not count: the project is served with its commands off, under the **Config untrusted** banner, whose report shows the marks (D5). |
-| `panel remove` (or the page's **Remove from panel…**) of an attached project | Unregisters it. `~/.clauductor/projects/<id>/` stays. `panel remove` says where it is and how to serve it again (D6). |
+| `panel remove` (or the page's **Remove from panel…**) of an attached project | Unregisters it. `~/.stridal/projects/<id>/` stays. `panel remove` says where it is and how to serve it again (D6). |
 
 ## Decisions (open: each awaits the owner)
 
 **D1. The command, and the page.**
-- **Recommended:** this change ships `clauductor panel attach [<repo>]` with `--id` and `--default`.
+- **Recommended:** this change ships `stridal panel attach [<repo>]` with `--id` and `--default`.
   It registers the project untrusted and prints the `panel trust` line, as `panel add` does. The
   page's **+ Add a project…** → **Attach** moves to a new row, **PANEL-43**
   (`panel-43-attach-page`), queued right after PANEL-42. That row covers a preview route, an attach
@@ -106,19 +106,19 @@
     reads it before trusting it.
 
 **D2. Where the sidecar lives, and how it is made.**
-- **Recommended:** `~/.clauductor/projects/<id>/panel.json`, folder 0700, file 0600, created with
+- **Recommended:** `~/.stridal/projects/<id>/panel.json`, folder 0700, file 0600, created with
   `O_EXCL`. Its content is `panel init`'s reading of the repository, unchanged, with the target
   moved and with each command written in argv form, without `sh -c` or `2>&1` (D5). Otherwise it
   is what `panel init` would write, with init's notes printed. It is the owner's file to edit
   (ST-7 will). Trust follows its hash as for any config.
 - **Alternatives:**
-  - the panel's existing per-project folder, `~/.clauductor/panel/<hash of the root>/panel.json`;
+  - the panel's existing per-project folder, `~/.stridal/panel/<hash of the root>/panel.json`;
   - a generator of its own for attach. For example, one that skips the operating model's cards,
     since an attached repository usually runs a model of its own.
 - **Why:**
   - **A readable folder:** the owner edits this file by hand. A hash names nothing a person can
     find, and MAPS' routines registry goes beside it (PRD-attach decision 5, PRD-maps). The id is
-    already the project's name in routes, the page and its socket (`clauductor-<id>`).
+    already the project's name in routes, the page and its socket (`stridal-<id>`).
   - **One reading of a repository:** two generators drift. `panel init` already adds the operating
     model's cards only when the template's scripts are in the repository, so a repository with a
     model of its own gets none (Standing Tee would get its gate script, if any, as a queue, and
@@ -126,7 +126,7 @@
 
 **D3. A sidecar already at the path.**
 - **Recommended:** refuse, and never overwrite. The message names the file and
-  `clauductor panel add --project <repo> --config <file>`, which serves it as it is (the registry
+  `stridal panel add --project <repo> --config <file>`, which serves it as it is (the registry
   already takes a config anywhere). It also names `--id <other>`, which generates a new one.
 - **Alternative:** use the existing file as it is, show its trust report, and register it.
 - **Why:** the folder may belong to another repository. Ids come from names, two repositories can
@@ -137,7 +137,7 @@
 
 **D4. A repository that is registered already.**
 - **Recommended:** attach accepts a registered project only when its registry `config` is empty
-  and `<root>/.clauductor/panel.json` does not exist. That is Standing Tee's state today, a project
+  and `<root>/.stridal/panel.json` does not exist. That is Standing Tee's state today, a project
   that cannot load. Attach then sets the entry's `config` and keeps its id, tmux socket and lane
   registry. Any other registered project is refused with its id and the config it reads.
 - **Alternative:** refuse every registered project (`panel remove`, then attach).
@@ -340,9 +340,9 @@
     Each goes in a script file in the repository, or in an in-repository config.
 
 **D6. `panel remove` and the sidecar.**
-- **Recommended:** keep `~/.clauductor/projects/<id>/`, as remove keeps the lane registry today.
+- **Recommended:** keep `~/.stridal/projects/<id>/`, as remove keeps the lane registry today.
   `panel remove` names the folder and how to serve it again
-  (`clauductor panel add --project <repo> --config <file>`). The page's confirmation already
+  (`stridal panel add --project <repo> --config <file>`). The page's confirmation already
   lists the config's path, and its "nothing on disk is deleted" stays true.
 - **Alternatives:**
   - delete the folder on remove;
@@ -351,13 +351,13 @@
   A sidecar may hold the owner's edits (ST-7), and deleting it cannot be undone. Deleting is the
   owner's to do by hand.
 
-**D7. A repository with its own `.clauductor/panel.json` and a sidecar.**
+**D7. A repository with its own `.stridal/panel.json` and a sidecar.**
 - **Recommended:** the registry's `config` wins, as `ConfigPath()` already decides, and every
   reader goes through the registry:
   - `panel trust` and a bare `panel` / `panel --project` without `--config` use the registered
     project's config;
   - `panel list` prints `config <path>`, marked `(outside the repository)`, with a line when the
-    repository's own `.clauductor/panel.json` exists and is not read;
+    repository's own `.stridal/panel.json` exists and is not read;
   - the project menu row shows the same one line.
 - **Alternative:** the repository's own file wins once it exists (the in-repository path first).
 - **Why:** `projects.json` is the machine's file so that "nothing in a repository can add a project,
@@ -370,7 +370,7 @@
 - **Recommended:** two tests on a real git repository in a temporary directory, both using one
   snapshot function. It records every file and directory under the root, `.git` included: path,
   mode, size, modification time and SHA-256.
-  - **Attach:** run `clauductor panel attach` through the cobra command, then compare. They must
+  - **Attach:** run `stridal panel attach` through the cobra command, then compare. They must
     be identical.
   - **Serving:** load the project as the panel does, make one tracked file's stat cache stale (same
     bytes, a newer mtime), run one git poll of the cards' checkout, then compare. They must be
@@ -389,13 +389,13 @@
 
 **D9. The plugin at user scope, and its per-repository opt-out.**
 - **Recommended:** `docs/plugin.md` gets a section on installing at user scope.
-  - **What that loads in a repository that does not use the model:** the `/clauductor:*` skills
+  - **What that loads in a repository that does not use the model:** the `/stridal:*` skills
     (namespaced, so they never collide with the repository's own) and the SessionStart hook,
     which records the plugin's root and otherwise says nothing there.
   - **What it does not load:** the guard hooks, which already stand aside without
-    `.claude/clauductor-plugin` (`if-project.sh`).
+    `.claude/stridal-plugin` (`if-project.sh`).
   - **The opt-out:** a repository with a model of its own turns the plugin off with
-    `"enabledPlugins": {"clauductor@clauductor": false}` in its uncommitted
+    `"enabledPlugins": {"stridal@stridal": false}` in its uncommitted
     `.claude/settings.local.json`. The skills are then not offered there at all.
   - `docs/panel.md`'s attach section links to it. Nothing enforces it (PRD-attach decision 4).
 - **Alternative:** document it as PRD-attach decision 4 words it: "its hooks would run beside a

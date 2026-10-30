@@ -14,7 +14,7 @@ carry no `Co-Authored-By`.
 ## Decision
 - The template ships both ON (`model-roles.json`: `attribution.enabled`, `provenance.enabled`):
   a new project gets the history by default.
-- Clauductor's own repository turns both OFF and keeps its rule: no `Co-Authored-By`, no
+- Stridal's own repository turns both OFF and keeps its rule: no `Co-Authored-By`, no
   provenance trailers; commits and PR titles start with the roadmap row id (`PREFIX-N:`).
 - `model-roles.json` is the one place the choice is made; `build-change.js` restates it because a
   workflow cannot read the file.
@@ -24,7 +24,7 @@ carry no `Co-Authored-By`.
 - Each project decides once, in one file, and the merge guard follows it.
 
 ### Negative / trade-offs
-- Turning it off means editing `build-change.js`, a framework-tier file, so `clauductor update`
+- Turning it off means editing `build-change.js`, a framework-tier file, so `stridal update`
   reports it as modified on every run (OPS-8 finding; owned by OPS-14).
 - Without provenance, this repo's cost and quality metrics cannot attribute a commit to a role.
 
@@ -43,7 +43,7 @@ above no longer hold, and this amendment replaces them:
   constant. At run time it reads `attribution` and `provenance` (with the branch prefixes, the
   changes directory, the gate and its quick flags) from `.claude/project-config.sh --json`.
 - So turning attribution or provenance off edits only `model-roles.json`. No framework file differs
-  on purpose, and `clauductor update` no longer reports `build-change.js` as modified. The first
+  on purpose, and `stridal update` no longer reports `build-change.js` as modified. The first
   negative trade-off is gone; the second (no role attribution here) stands.
 - `checks/model-roles.sh` no longer compares constants in `build-change.js` with `model-roles.json`,
   because there are none to compare. The original Enforcement paragraph's second clause is void.

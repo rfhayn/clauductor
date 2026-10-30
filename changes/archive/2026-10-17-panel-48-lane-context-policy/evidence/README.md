@@ -1,8 +1,8 @@
 # Evidence: how the panel shapes the context of the sessions it drives
 
-This is the owner's context review of 2026-10-15. It covers what Clauductor, as the application
+This is the owner's context review of 2026-10-15. It covers what Stridal, as the application
 that launches and wakes sessions, decides about their context and cost in a repository it attaches
-to. It does not cover Clauductor's own development sessions.
+to. It does not cover Stridal's own development sessions.
 
 - **Data:** Standing Tee's Claude Code transcripts on the owner's machine, 2026-10-08 to 10-14.
   That is 76 sessions, 393 subagents and 18,378 calls, **$1,208.28 at list price**.
@@ -217,7 +217,7 @@ The control shows that the repository's value is read, and that `--settings` out
 - This confirms D1: the policy has to go on every launch.
 
 **P1 on Opus: the same 33k buffer.** P1 ran on Sonnet, but this repository's lanes run Opus
-(`.clauductor/panel.json`'s `lane_types`). So on 2026-10-17, after the amendment's review, the
+(`.stridal/panel.json`'s `lane_types`). So on 2026-10-17, after the amendment's review, the
 buffer was read again under `--model opus`.
 - **How:** in a fresh throwaway git repository in the session's scratchpad, with
   `env -i … claude -p --model opus --settings '<json>' "/context"`, once per window, on Claude

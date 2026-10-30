@@ -1,4 +1,4 @@
-# Using the Clauductor panel
+# Using the Stridal panel
 
 A short how-to for the panel's page. For everything else (every setting, every rule, the security
 model) see [panel.md](panel.md). On the page, **?** in the header (or the `?` key) shows the
@@ -53,7 +53,7 @@ with no Enter, so you finish the prompt around it. PNG, JPEG, GIF and WebP, up t
   happens. See [Close lane](panel.md#close-lane).
 
 To have the panel close a lane by itself once its pull request merges, set
-`"lanes_auto_close": "on_merge"` in `.clauductor/panel.json` (config version 5). It closes only
+`"lanes_auto_close": "on_merge"` in `.stridal/panel.json` (config version 5). It closes only
 what Close lane would close without asking twice (claude idle or gone, the worktree clean, the
 branch merged at its tip); otherwise **Needs you** says "PR merged: close lane?" and why. See
 [Close a lane when its PR merges](panel.md#close-a-lane-when-its-pr-merges).
@@ -86,9 +86,9 @@ A new lane's worktree is a fresh checkout. Three settings fill it in (config ver
 - `"worktree_setup": { "command": ["make", "setup"] }` runs there before claude starts, and
   `"worktree_teardown": { "command": ["make", "down"] }` before **Close lane** removes it.
 - `"ports": { "base": 4400, "per_lane": 10 }` gives each lane a port of its own, shown as
-  **Port** in its header and set as `CLAUDUCTOR_PORT` for the lane, its setup and its teardown.
+  **Port** in its header and set as `STRIDAL_PORT` for the lane, its setup and its teardown.
 
-Run `clauductor panel trust` after adding them. See
+Run `stridal panel trust` after adding them. See
 [Worktree setup, teardown and ports](panel.md#worktree-setup-teardown-and-ports).
 
 ## Clean up a worktree with no lane
@@ -114,7 +114,7 @@ runs it again when a file you name changes (`watch:<path>`), or every so many se
 (`interval:<seconds>`). With `"pin": true` it shows beside the lanes; every card also shows in
 **Activity**. A project with no card says "No cards yet" there instead.
 
-Add cards to `.clauductor/panel.json`, then run `clauductor panel trust`: the panel runs no
+Add cards to `.stridal/panel.json`, then run `stridal panel trust`: the panel runs no
 command from the file until you trust it. A minimal one:
 
 ```json
@@ -124,7 +124,7 @@ command from the file until you trust it. A minimal one:
 ]
 ```
 
-A repository with Clauductor's operating model gets its cards from `clauductor panel init`. See
+A repository with Stridal's operating model gets its cards from `stridal panel init`. See
 [Card output](panel.md#card-output) and [Pinned cards](panel.md#pinned-cards).
 
 ## Metrics
@@ -138,7 +138,7 @@ Every figure says where it came from:
 - **built in**: the panel's own, for any repository. Merge frequency and pull-request cycle time
   come from `gh` (read every 10 minutes while the page is open); spend comes from your status
   line's cost, kept a day at a time from the first day the panel ran PANEL-19.
-- **project**: the project's metrics command. Clauductor's operating model has one
+- **project**: the project's metrics command. Stridal's operating model has one
   (`.claude/metrics.sh`); for another project, add a command that prints the metrics JSON:
 
   ```json
@@ -146,7 +146,7 @@ Every figure says where it came from:
   "metrics": { "command": ["sh", ".claude/metrics.sh"], "refresh": "interval:900" }
   ```
 
-  then run `clauductor panel trust`. Until you trust it, the view says so and shows only the
+  then run `stridal panel trust`. Until you trust it, the view says so and shows only the
   built-in figures.
 
 A figure nobody has shows **—** and says why, such as "Only a project's metrics command reports
@@ -162,13 +162,13 @@ commit for three days. Change the times with `alerts.approval_wait_hours` and `a
 
 To spend less as the 5-hour quota runs low, set `"quota_economy": { "five_hour_pct": 85 }`. At
 that point an **Economy** field appears by the quota, naming the roles that move to a cheaper
-model (from `.claude/model-roles.json`), and Clauductor's `build-change` picks it up. It turns off
+model (from `.claude/model-roles.json`), and Stridal's `build-change` picks it up. It turns off
 once the quota is 3 points lower. See [Economy mode](panel.md#economy-mode).
 
 ## Queues and the gate
 
 If two lanes' gate scripts would collide (one port, one test database), a queue runs them one
-at a time: the script takes the queue with `clauductor lock-run`, and the others wait their turn.
+at a time: the script takes the queue with `stridal lock-run`, and the others wait their turn.
 The **Gate** figure in the header shows who holds it and who waits; a lane's **Gate** tab has
 **Cancel wait** and **Run in** that lane. See
 [Queue and the gate lock protocol](panel.md#queue-and-the-gate-lock-protocol).
@@ -178,8 +178,8 @@ The **Gate** figure in the header shows who holds it and who waits; a lane's **G
 Open the project menu (the project's name at the top left, in its box) and pick **+ Add a
 project…** at its foot. Type the repository's path (`~/` is your home); the panel checks it as you
 type and shows its root and git directory, or why it cannot be added (a linked worktree, a path
-already registered, not a git repository). If the repository has no `.clauductor/panel.json` yet,
-the dialog shows what `clauductor panel init` would write, with the reason for each value;
+already registered, not a git repository). If the repository has no `.stridal/panel.json` yet,
+the dialog shows what `stridal panel init` would write, with the reason for each value;
 **Create this config** writes it. Then it shows exactly what the config runs (its cards, queue
 commands and templates): **Trust and add** trusts those bytes and adds it, **Add without
 trusting** adds it with its commands off until you trust it. Either way it is served at once, no
@@ -192,22 +192,22 @@ and adding it again brings its lanes back) and is refused while it has lanes.
 The commands still work, and a running panel takes them within a second:
 
 ```sh
-clauductor panel init    # writes .clauductor/panel.json; review it
-clauductor panel trust   # allow its commands and templates
-clauductor panel add     # register it: the running panel serves it now
+stridal panel init    # writes .stridal/panel.json; review it
+stridal panel trust   # allow its commands and templates
+stridal panel add     # register it: the running panel serves it now
 ```
 
 See [Projects](panel.md#projects).
 
-If the repository runs Clauductor's operating model (it has `.claude/owner-queue.sh` or
+If the repository runs Stridal's operating model (it has `.claude/owner-queue.sh` or
 `.claude/roadmap-queue.sh`), `init` also adds its cards, lane templates and gate, and prints
-each. Otherwise it writes none, and says they come with `clauductor install` or can be added by
+each. Otherwise it writes none, and says they come with `stridal install` or can be added by
 hand. See [`panel init`](panel.md#panel-init).
 
 ## Drive a lane from your phone
 
 Claude Code's Remote Control lets you continue a session from claude.ai/code or the Claude app.
-`clauductor panel install` asks once where it should be on (only if you have not set
+`stridal panel install` asks once where it should be on (only if you have not set
 `remoteControlAtStartup` yourself):
 
 - **Every Claude session on this Mac**: it sets `remoteControlAtStartup` in
@@ -217,16 +217,16 @@ Claude Code's Remote Control lets you continue a session from claude.ai/code or 
   `/remote-control` only while claude is idle.
 - **Not now.**
 
-To choose without the question, or change your mind: `clauductor panel install
---remote-control=all`, `lanes` or `off`. `clauductor panel list` and the lane's header show which.
+To choose without the question, or change your mind: `stridal panel install
+--remote-control=all`, `lanes` or `off`. `stridal panel list` and the lane's header show which.
 Anyone signed in to your account on another device can then drive that session and approve its
 permission prompts, so keep that account's devices locked. The first time, claude asks you to
 confirm Remote Control in the terminal. See [Remote control](panel.md#remote-control).
 
 ## Where things are kept
 
-- The project's settings: `.clauductor/panel.json` in the repository.
-- The panel's own state: `~/.clauductor/panel/`. It holds the registered projects
+- The project's settings: `.stridal/panel.json` in the repository.
+- The panel's own state: `~/.stridal/panel/`. It holds the registered projects
   (`projects.json`), each project's lane list (`<project hash>/lanes.json`), dropped images
   (`<project hash>/uploads/`, removed after a day), and the logs (`logs/`).
 - The conversations stay where Claude Code keeps them; the panel never deletes one.

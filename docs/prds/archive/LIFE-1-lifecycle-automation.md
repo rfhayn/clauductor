@@ -10,7 +10,7 @@
 
 ## Problem Statement
 
-Clauductor requires 10-15 manual steps to go from "I want to work" to "ready to code." Engineers must manually register workers, claim files, load context, and track status. There are no automatic safety checks — editing a locked file, forgetting to update the journal, or losing a heartbeat all happen silently. Multi-worker team startup requires manually opening terminals and launching each session.
+Stridal requires 10-15 manual steps to go from "I want to work" to "ready to code." Engineers must manually register workers, claim files, load context, and track status. There are no automatic safety checks — editing a locked file, forgetting to update the journal, or losing a heartbeat all happen silently. Multi-worker team startup requires manually opening terminals and launching each session.
 
 This milestone adds three layers of automation: compound lifecycle skills, Claude Code hooks for real-time safety, and enhanced team startup.
 
@@ -19,8 +19,8 @@ This milestone adds three layers of automation: compound lifecycle skills, Claud
 ### In Scope
 - 3 new lifecycle skills: `/start-project`, `/start-work`, `/done`
 - 5 hook scripts in `.claude/hooks/` with settings.json configuration
-- 2 new CLI commands: `clauductor check-lock`, `clauductor context`
-- Enhanced `clauductor start`: HUD + supervisor + N worker panes
+- 2 new CLI commands: `stridal check-lock`, `stridal context`
+- Enhanced `stridal start`: HUD + supervisor + N worker panes
 - `orchestration/config.json` for team configuration
 - Enhanced `/spawn` with orchestration state in initial prompt
 - Hook design documentation (hooks/README.md)
@@ -38,7 +38,7 @@ This milestone adds three layers of automation: compound lifecycle skills, Claud
 
 ### `/start-project` — Guided first-time setup wizard
 
-**When**: First time using clauductor on a repo, or onboarding a new developer.
+**When**: First time using stridal on a repo, or onboarding a new developer.
 
 Interactive wizard that walks through each setup step, skipping items already configured:
 
@@ -107,18 +107,18 @@ All hooks gracefully no-op when `orchestration/` doesn't exist. Every hook start
 3. **Warn, don't block** (by default): Humans decide, hooks inform. Projects can override to exit 2.
 4. **No side effects in PreToolUse**: Only check state, never write to DB from blocking hooks.
 5. **JSON protocol**: Read JSON from stdin, optionally write JSON to stdout. Exit 0 = allow, exit 2 = block.
-6. **Self-contained**: Each hook is a standalone shell script. No shared libraries or dependencies beyond `jq` and `clauductor`.
+6. **Self-contained**: Each hook is a standalone shell script. No shared libraries or dependencies beyond `jq` and `stridal`.
 
 ### Hook 1: `session-register.sh`
 - **Event**: SessionStart (async)
 - **Purpose**: Auto-register worker in orchestration DB on session start/resume
-- **Behavior**: Parse branch name for milestone, run `clauductor register` (or `clauductor heartbeat` if already registered)
+- **Behavior**: Parse branch name for milestone, run `stridal register` (or `stridal heartbeat` if already registered)
 - **Why async**: Registration is not blocking. Session proceeds immediately.
 
 ### Hook 2: `heartbeat.sh`
 - **Event**: PostToolUse (async, matcher: `Bash|Edit|Write`)
 - **Purpose**: Keep worker alive in orchestration DB so supervisor can detect dead sessions
-- **Behavior**: Send heartbeat via `clauductor heartbeat --worker-id [name]`
+- **Behavior**: Send heartbeat via `stridal heartbeat --worker-id [name]`
 - **Throttle**: Only fires if last heartbeat was >60s ago. Uses timestamp file at `orchestration/.last-heartbeat` to avoid querying SQLite on every tool call.
 - **Why async**: Must never slow down tool execution.
 
@@ -127,7 +127,7 @@ All hooks gracefully no-op when `orchestration/` doesn't exist. Every hook start
 - **Purpose**: Warn before editing a file locked by another worker. Most important hook for human UX.
 - **Behavior**:
   - Extract file path from tool input JSON
-  - Run `clauductor check-lock --file <path>` (new fast CLI command)
+  - Run `stridal check-lock --file <path>` (new fast CLI command)
   - If locked by current worker: exit 0 (allow silently)
   - If locked by another worker: output warning message, exit 0 (warn but allow)
   - If not locked: exit 0 (allow silently)
@@ -142,7 +142,7 @@ All hooks gracefully no-op when `orchestration/` doesn't exist. Every hook start
 ### Hook 5: `status-sync.sh`
 - **Event**: PostToolUse (async, matcher: `Write`)
 - **Purpose**: Sync milestone status to orchestration DB when current-story.md changes
-- **Behavior**: Check if the written file is `current-story.md`. If so, parse for milestone status changes and update orchestration via `clauductor milestone update`.
+- **Behavior**: Check if the written file is `current-story.md`. If so, parse for milestone status changes and update orchestration via `stridal milestone update`.
 
 ### Hook 6: `doc-freshness.sh`
 - **Event**: PreToolUse (sync, matcher: `Bash`, if: `Bash(git commit *)`)
@@ -219,7 +219,7 @@ Added to `template/.claude/settings.json`:
 
 ## Layer 3: Team Startup & Agent Awareness
 
-### Enhanced `clauductor start [-n COUNT]`
+### Enhanced `stridal start [-n COUNT]`
 
 **Current**: Creates tmux session with one HUD pane. That's it.
 
@@ -227,12 +227,12 @@ Added to `template/.claude/settings.json`:
 
 | Pane | Content |
 |------|---------|
-| Window 0 | HUD — `clauductor watch` (real-time dashboard) |
+| Window 0 | HUD — `stridal watch` (real-time dashboard) |
 | Window 1 | Supervisor — auto-launches `claude` with `/supervisor` prompt |
 | Windows 2-N | Worker terminals — auto-launch `claude` (configurable) |
 
 **Terminal count**:
-- `-n` flag overrides (e.g., `clauductor start -n 5`)
+- `-n` flag overrides (e.g., `stridal start -n 5`)
 - Default from `orchestration/config.json` field `default_workers`
 - Fallback: 3
 
@@ -247,7 +247,7 @@ Added to `template/.claude/settings.json`:
 }
 ```
 
-Created by `clauductor init` and `clauductor install`. Projects customize as needed.
+Created by `stridal init` and `stridal install`. Projects customize as needed.
 
 ### Changes to `framework/internal/cmd/start.go`:
 - Read `orchestration/config.json` for `default_workers` and `auto_claude`
@@ -261,7 +261,7 @@ Created by `clauductor init` and `clauductor install`. Projects customize as nee
 Spawned agents get full orchestration context:
 
 ```
-You are a build worker in a Clauductor-managed project.
+You are a build worker in a Stridal-managed project.
 
 Your milestone: [PREFIX-#.#] - [description]
 Your branch: feature/[PREFIX-#.#]-[description]
@@ -270,8 +270,8 @@ Your branch: feature/[PREFIX-#.#]-[description]
 Run /start-work [PREFIX-#.#] to register, claim files, and load context.
 
 ## Orchestration State
-Current workers: [output of clauductor query workers]
-Current locks: [output of clauductor query locks]
+Current workers: [output of stridal query workers]
+Current locks: [output of stridal query locks]
 
 ## Rules
 - Focus only on files in your claimed manifest
@@ -281,15 +281,15 @@ Current locks: [output of clauductor query locks]
 - When done, run /done
 ```
 
-**Changes to `template/.claude/skills/spawn/SKILL.md`**: Step 3 (Prepare Initial Prompt) queries `clauductor context` and embeds the output.
+**Changes to `template/.claude/skills/spawn/SKILL.md`**: Step 3 (Prepare Initial Prompt) queries `stridal context` and embeds the output.
 
-### New CLI: `clauductor context [--json]`
+### New CLI: `stridal context [--json]`
 
 Returns complete orchestration snapshot: workers, locks, recent events, milestones. Used by `/spawn` to embed state in initial prompts.
 
 **File**: `framework/internal/cmd/context.go`
 
-### New CLI: `clauductor check-lock --file <path>`
+### New CLI: `stridal check-lock --file <path>`
 
 Fast JSON response for the lock-guard hook:
 ```json
@@ -315,17 +315,17 @@ or:
 4. Write `heartbeat.sh` (PostToolUse async hook with 60s throttle)
 5. Update `template/.claude/settings.json` with SessionStart and PostToolUse hooks config
 6. Update `framework/internal/cmd/install.go`: add `.claude/hooks/` to `tierFramework` classification
-7. Test: `clauductor install --dry-run` shows hooks as FRAMEWORK files
+7. Test: `stridal install --dry-run` shows hooks as FRAMEWORK files
 8. **Commit**: `LIFE-1.1: Add hook infrastructure with session-register and heartbeat`
 
 ### LIFE-1.2: Lock Guard (1.5h)
-1. Implement `clauductor check-lock --file <path>` in Go
+1. Implement `stridal check-lock --file <path>` in Go
    - New file: `framework/internal/cmd/check_lock.go`
    - Register command in `root.go`
    - Returns JSON: `{"locked": bool, "worker_id": str, "milestone": str, "locked_at": str}`
 2. Write `lock-guard.sh` (PreToolUse sync hook)
    - Extract file path from stdin JSON
-   - Call `clauductor check-lock`
+   - Call `stridal check-lock`
    - Warn if locked by another worker, allow if locked by self or unlocked
 3. Update `settings.json` with PreToolUse hook config
 4. Test: Lock a file via CLI, verify hook warns on edit attempt
@@ -349,15 +349,15 @@ or:
 6. **Commit**: `LIFE-1.4: Add start-project, start-work, done, and pane lifecycle skills`
 
 ### LIFE-1.5: Context Command & Spawn Enhancement (1.5h)
-1. Implement `clauductor context [--json]` in Go
+1. Implement `stridal context [--json]` in Go
    - New file: `framework/internal/cmd/context.go`
    - Composes data from `ListWorkers`, `ListLocks`, `ListRecentEvents`
    - Register in `root.go`
 2. Update `template/.claude/skills/spawn/SKILL.md`:
-   - Step 3 queries `clauductor context` and embeds in initial prompt
+   - Step 3 queries `stridal context` and embeds in initial prompt
    - Initial prompt references `/start-work` instead of separate commands
    - Lock state and worker state included
-3. Test: `clauductor context --json` returns valid JSON. Spawned session gets orchestration state.
+3. Test: `stridal context --json` returns valid JSON. Spawned session gets orchestration state.
 4. **Commit**: `LIFE-1.5: Add context command and enhance spawn with orchestration awareness`
 
 ### LIFE-1.6: Team Startup Enhancement (2h)
@@ -365,12 +365,12 @@ or:
 2. Update `framework/internal/cmd/start.go`:
    - Read `orchestration/config.json` for `default_workers` and `auto_claude`
    - Add `-n` flag for worker count override
-   - Create window 0: HUD (`clauductor watch`)
+   - Create window 0: HUD (`stridal watch`)
    - Create window 1: supervisor (`claude '/supervisor'`)
    - Create windows 2-N: workers (optionally auto-claude based on config)
 3. Update `framework/internal/cmd/install.go`: include `orchestration/config.json` in install
-4. Test: `clauductor start` creates HUD + supervisor + 3 workers. `clauductor start -n 5` creates 5 workers.
-5. **Commit**: `LIFE-1.6: Enhance clauductor start with team workspace (HUD + supervisor + N workers)`
+4. Test: `stridal start` creates HUD + supervisor + 3 workers. `stridal start -n 5` creates 5 workers.
+5. **Commit**: `LIFE-1.6: Enhance stridal start with team workspace (HUD + supervisor + N workers)`
 
 ### LIFE-1.7a: HUD Display Fixes (30m)
 1. **Timestamp bug**: Fix `00:00` timestamps in Recent Activity panel — events show `00:00` instead of actual time. HUD is not reading `created_at` field from SQLite correctly.
@@ -391,7 +391,7 @@ or:
 2. Update `template/.claude/skills/skills/SKILL.md`: add start-project, start-work, done
 3. Update `docs/QUICKSTART.md` with lifecycle workflow
 4. Update `docs/onboarding.md` with hooks section
-5. End-to-end test: fresh `clauductor init`, `/start-project`, `/start-work`, work, `/done`
+5. End-to-end test: fresh `stridal init`, `/start-project`, `/start-work`, work, `/done`
 6. Note: `roadmap.md` references in template docs are cleaned up in LIFE-1.8a (the roadmap merge)
 7. **Commit**: `LIFE-1.7: Documentation and end-to-end validation`
 
@@ -516,12 +516,12 @@ Hooks are self-contained scripts — removing `.claude/hooks/` and the hooks sec
 5. `/start-project` walks through setup interactively
 6. `/start-work` chains session-start + claim in one command
 7. `/done` chains review → journal → commit → PR → milestone-complete → release
-8. `clauductor check-lock` returns JSON in <50ms
-9. `clauductor context` returns complete orchestration snapshot
-10. `clauductor start` creates HUD + supervisor + N worker panes
-11. `clauductor start -n 5` respects the count flag
+8. `stridal check-lock` returns JSON in <50ms
+9. `stridal context` returns complete orchestration snapshot
+10. `stridal start` creates HUD + supervisor + N worker panes
+11. `stridal start -n 5` respects the count flag
 12. Spawned agents receive lock/worker state in initial prompt
-13. `clauductor install` and `clauductor update` handle `.claude/hooks/` correctly
+13. `stridal install` and `stridal update` handle `.claude/hooks/` correctly
 14. `doc-freshness.sh` warns about stale docs before commits (exit 0, non-blocking)
 15. `/commit` skill auto-updates stale docs before staging
 16. `roadmap.md` removed from template; Planning Accuracy table lives in `current-story.md`

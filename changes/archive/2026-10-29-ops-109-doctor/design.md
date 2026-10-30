@@ -8,16 +8,16 @@ Read on 2026-10-24, at `a864a680`.
   OS (`row`, line 52). It is plain POSIX `sh`, so it runs on a machine that lacks every tool it
   reports. Four callers run it, each printing its report as it is: `install` and `init`
   (`printPrereqs`, `framework/internal/cmd/prereqs.go`; `install.go:156`, `init.go:59`), the
-  plugin's `/clauductor:init` (`framework/internal/plugin/assets/scaffold.sh:238`) and
+  plugin's `/stridal:init` (`framework/internal/plugin/assets/scaffold.sh:238`) and
   `install.sh:134`. It prints lines for people and always exits 0, so a caller cannot tell from
   the exit code whether anything is missing. `prereqs.go`'s comment explains why it is a script:
   "one list of tools and hints, and every caller runs it". `prereqs_test.go` drives it through a
   stub `PATH` and `PREREQS_OS`.
 - **E2. The template and drift.** `template.Resolve` (`framework/internal/template/resolve.go:63`)
   finds the template and refuses one whose `.template-version` is not the binary's. Its error
-  says what to do: install the matching release, set `CLAUDUCTOR_FRAMEWORK`, or pass
+  says what to do: install the matching release, set `STRIDAL_FRAMEWORK`, or pass
   `--template-dir`. A `--template-dir` mismatch comes back as `Source.Warning`, not an error.
-  `template.Survey` (`survey.go:72`) is `clauductor diff`'s report. `Report.Converged`
+  `template.Survey` (`survey.go:72`) is `stridal diff`'s report. `Report.Converged`
   (`survey.go:61`) is true when no framework file differs or is missing and a merge would not
   change `settings.json`. A `Source.Warning` is copied into `Report.Warnings`. `diff`, `update`
   and `install` all act on the current directory (`diff.go`; `update.go:66`; `install.go:77`), not
@@ -27,8 +27,8 @@ Read on 2026-10-24, at `a864a680`.
   - the plugin marker means the plugin's (`refusePluginModel`, line 172). `install` and `update`
     check it first and refuse (`install.go:103`, `update.go:72`), so it wins over the install
     marker;
-  - the install marker `.claude/clauductor-template`, or signs of the old model, means
-    Clauductor's (`ownedByClauductor`, line 50);
+  - the install marker `.claude/stridal-template`, or signs of the old model, means
+    Stridal's (`ownedByStridal`, line 50);
   - any of `ownModelSigns` (`AGENTS.md`, `.claude/skills`, `.claude/hooks`,
     `.claude/settings.json`) without either marker means a model of the repository's own, which
     `install` and `update` refuse.
@@ -61,15 +61,15 @@ Read on 2026-10-24, at `a864a680`.
   with an empty registry refuses: "no project registered" (`install/launchd.go:340`), or when the
   default's config does not load (`:353`). `panel add` and `panel install --project` both
   register through `install.AddProject` (`install/projects.go:41`), which refuses a project with
-  no config that loads (`:100`, naming `clauductor panel init`) and one whose tmux socket another
+  no config that loads (`:100`, naming `stridal panel init`) and one whose tmux socket another
   project holds (`:114`, `socketOwner`). The template's `panel.json` names `"tmux_socket":
   "myproject"`, so a second project installed from it, unedited, is refused. `panel init` takes
   `--project`. `install.ShellWord` quotes a path "for a command line a person copies and runs".
 - **E6. The documented failures doctor turns into lines:** `docs/QUICKSTART.md` *Troubleshooting*,
   `docs/guide.md` *When something goes wrong*, and `docs/panel.md` *Troubleshooting* (*The panel
-  is down*: `launchctl kickstart -k gui/$(id -u)/com.clauductor.panel` and
-  `~/.clauductor/panel/logs/panel.err.log`; *The panel will not start*; *Cards, RUN and templates
-  do nothing*: `clauductor panel trust`).
+  is down*: `launchctl kickstart -k gui/$(id -u)/com.stridal.panel` and
+  `~/.stridal/panel/logs/panel.err.log`; *The panel will not start*; *Cards, RUN and templates
+  do nothing*: `stridal panel trust`).
 - **E7. A tool the docs name and the list lacks.** `docs/QUICKSTART.md` *Prerequisites* names
   `python3` as optional ("machine-quiet's live-session check; without it, it removes no
   worktree"). `template/.claude/machine-quiet.sh:108` runs it. `prereqs.sh` does not list it.
@@ -93,11 +93,11 @@ Read on 2026-10-24, at `a864a680`.
   **Beat (c):** a Go list of tools in doctor. That makes two lists that drift, which is what
   `prereqs.go`'s comment rules out.
   **Cost of (a):** a template edit ships to every project, so the plugin is rebuilt
-  (`scripts/build-plugin.sh`) and this repo's copy is synced (`clauductor update`).
+  (`scripts/build-plugin.sh`) and this repo's copy is synced (`stridal update`).
 
 - **D2. What fails, what warns, what is a note.** Doctor exits 1 when any line fails and 0
   otherwise. Its last line counts failures and warnings. **Recommended:**
-  - **fail** means Clauductor cannot work here until it is fixed: a required tool missing, no
+  - **fail** means Stridal cannot work here until it is fixed: a required tool missing, no
     template the binary can use, a panel registry that does not load, or a served project's
     panel config that does not load;
   - **warn** means something is degraded: a recommended tool missing, `gh` signed out, the
@@ -117,15 +117,15 @@ Read on 2026-10-24, at `a864a680`.
     panel. The config and trust lines run only for a project it serves, since the panel reads
     neither for one it does not.
   - **A panel binary of another revision is a note.** Doctor cannot tell which build is newer:
-    the panel may be behind this `clauductor`, or ahead of it (catch-up rebuilt it at main while
+    the panel may be behind this `stridal`, or ahead of it (catch-up rebuilt it at main while
     the user runs a worktree build). The note names both revisions and both paths, and says that
-    `clauductor panel install` would copy this binary over the panel's and rotate the page's
+    `stridal panel install` would copy this binary over the panel's and rotate the page's
     token, to run only when this one is the newer.
 
 - **D3. Doctor changes nothing.** It reads files and runs read-only commands (`git rev-parse`,
   `git worktree list`, `gh auth token`, `prereqs.sh`), reads build information from binaries, and
   asks a live panel's `/healthz` (as `RunningPanel` does). It writes no file in the repository or in
-  `~/.clauductor`, and starts no process that outlives it. **Recommended.**
+  `~/.stridal`, and starts no process that outlives it. **Recommended.**
   **Beat:** `--fix`, running the safe fixes. Every fix doctor prints is a command whose user
   should see what it does:
   - `panel trust` shows what a config runs before trusting it, and that review is what trust is
@@ -135,7 +135,7 @@ Read on 2026-10-24, at `a864a680`.
   Running them unseen would remove the review each one exists to give.
 
 - **D4. Doctor does not run the project's process checks.** When the repository holds
-  Clauductor's model, the last line names `sh .claude/checks/run.sh` for the model's own
+  Stridal's model, the last line names `sh .claude/checks/run.sh` for the model's own
   consistency. **Recommended.** The checks are the gate's *process checks* step
   (`scripts/ci/steps.sh`). A doctor that runs them is a second, slower gate whose output is not a
   receipt.
@@ -171,7 +171,7 @@ Read on 2026-10-24, at `a864a680`.
   **Recommended.** A fix is a command the user can paste as it stands, every path in it quoted
   with `install.ShellWord`:
   - **Repository fixes** (`update --dry-run`, `update`, `install`) act on the current directory
-    (E2), so when doctor runs below the toplevel they are printed as `cd <toplevel> && clauductor
+    (E2), so when doctor runs below the toplevel they are printed as `cd <toplevel> && stridal
     …`. When doctor was given `--template-dir`, they carry it too, so they compare against the
     template doctor judged.
   - **Panel fixes** carry `--project <main checkout>`. `panel add` refuses a linked worktree,
@@ -181,14 +181,14 @@ Read on 2026-10-24, at `a864a680`.
     read-only `CheckAdd`, the checks `AddProject` runs before it saves (the config loads, the id
     is free, no other project holds the socket), and `AddProject` calls it, so the two cannot
     drift apart. Doctor prints `panel add` or `panel install --project` only when `CheckAdd`
-    passes. Otherwise it prints what clears the refusal: `clauductor panel init --project <main
+    passes. Otherwise it prints what clears the refusal: `stridal panel init --project <main
     checkout>` when there is no config, or the refusal itself (a config that does not load, or a
     socket another project holds: "give this project its own tmux_socket in <path>"). The bare
     `panel install` is printed only when the registry's default config loads.
   - **No fix is printed that the command would refuse.** A plugin model gets no `update`, and an
     unknown direction gets no unconditional `panel install` (D2).
   - **One placeholder.** Outside a repository there is no project path to name, so the
-    not-installed note tells the user to run `clauductor panel install --project` with a
+    not-installed note tells the user to run `stridal panel install --project` with a
     repository's path.
   Each fix scenario asserts the exact command.
   **Beat:** copy `AddProject`'s refusals into doctor. Two readings of one rule drift apart, and
@@ -208,26 +208,26 @@ judges the template those commands would use. It takes no other flag.
 | Machine | template | always | dir, how found, version (`Source.String`) | `Resolve` error → **fail**, its message (which names the fix); `Source.Warning` → **warn** |
 | Machine | gh sign-in | `gh` present | signed in | `gh auth token` exits non-zero → **warn**: `gh auth login`. Its output is discarded, never printed |
 | Machine | panel registry | macOS, `projects.json` exists | loads | `LoadProjects` error → **fail**: its error (the panel cannot start), and the panel's project lines are a note that they could not run |
-| Machine | panel | macOS | — | no plist and no registered project → **note**: not installed (optional). In a repository, the fix D8 picks through `CheckAdd`: `clauductor panel install --project <main checkout>`, or `panel init --project` first, or the refusal. Outside one, run `clauductor panel install --project` with a repository's path |
-| Machine | panel running | macOS, installed | pid and port | login agent installed and not running → **warn**: `launchctl kickstart -k gui/$(id -u)/<install.LaunchdLabel>`, and `<install.LogDir>/panel.err.log`. No login agent and not running → **note**: the panel runs by hand; `clauductor panel install` adds the login agent, printed only when the registry's default config loads (D8) |
-| Machine | panel build | macOS, login agent's binary present | same module and revision | different → **note** (D2): both short revisions and both paths, `modified` named when set, and `clauductor panel install` as the way to put this binary in the panel when it is the newer (it rotates the page's token). Either stamp without a revision → **note**: cannot compare |
+| Machine | panel | macOS | — | no plist and no registered project → **note**: not installed (optional). In a repository, the fix D8 picks through `CheckAdd`: `stridal panel install --project <main checkout>`, or `panel init --project` first, or the refusal. Outside one, run `stridal panel install --project` with a repository's path |
+| Machine | panel running | macOS, installed | pid and port | login agent installed and not running → **warn**: `launchctl kickstart -k gui/$(id -u)/<install.LaunchdLabel>`, and `<install.LogDir>/panel.err.log`. No login agent and not running → **note**: the panel runs by hand; `stridal panel install` adds the login agent, printed only when the registry's default config loads (D8) |
+| Machine | panel build | macOS, login agent's binary present | same module and revision | different → **note** (D2): both short revisions and both paths, `modified` named when set, and `stridal panel install` as the way to put this binary in the panel when it is the newer (it rotates the page's token). Either stamp without a revision → **note**: cannot compare |
 | Project | repository | always | the toplevel | not in a git repository → **note**: the project checks did not run |
-| Project | model | in a repository | Clauductor's (E3) | the plugin's (its marker wins, E3) → **note** (update it with the plugin, `docs/plugin.md`); its own → **note** (`install` and `update` refuse here; `clauductor diff` compares it); none → **note**: `clauductor install` adopts one (D8: from the toplevel). Drift is checked only for Clauductor's |
-| Project | drift | Clauductor's model | matches template `<version>` | not `Converged` → **warn**: counts of framework files that differ and are missing, whether `settings.json` would change, then `clauductor update --dry-run` to see each change and `clauductor update` to apply them (D8: from the toplevel). Each `Report.Warnings` entry other than the template line's own `Source.Warning` → **warn**. Survey error → **note**: see the template line |
-| Project | panel serves it | macOS, panel installed | registered | not in the registry → **note**, with the fix D8 picks through `CheckAdd`: `clauductor panel add --project <main checkout>`, or `clauductor panel init --project <main checkout>` first, or `AddProject`'s refusal |
-| Project | panel config | macOS, served | loads | `LoadConfigRaw` error → **fail**: its error, and `docs/panel.md` *The panel will not start*. No config at `ConfigPathOf` → **note**: `clauductor panel init` writes one |
-| Project | config trusted | macOS, served, config loads | trusted as it is now | `TrustedNow` false → **warn**: cards, Run and templates do nothing until it is reviewed and trusted, `clauductor panel trust --project <main checkout>` |
+| Project | model | in a repository | Stridal's (E3) | the plugin's (its marker wins, E3) → **note** (update it with the plugin, `docs/plugin.md`); its own → **note** (`install` and `update` refuse here; `stridal diff` compares it); none → **note**: `stridal install` adopts one (D8: from the toplevel). Drift is checked only for Stridal's |
+| Project | drift | Stridal's model | matches template `<version>` | not `Converged` → **warn**: counts of framework files that differ and are missing, whether `settings.json` would change, then `stridal update --dry-run` to see each change and `stridal update` to apply them (D8: from the toplevel). Each `Report.Warnings` entry other than the template line's own `Source.Warning` → **warn**. Survey error → **note**: see the template line |
+| Project | panel serves it | macOS, panel installed | registered | not in the registry → **note**, with the fix D8 picks through `CheckAdd`: `stridal panel add --project <main checkout>`, or `stridal panel init --project <main checkout>` first, or `AddProject`'s refusal |
+| Project | panel config | macOS, served | loads | `LoadConfigRaw` error → **fail**: its error, and `docs/panel.md` *The panel will not start*. No config at `ConfigPathOf` → **note**: `stridal panel init` writes one |
+| Project | config trusted | macOS, served, config loads | trusted as it is now | `TrustedNow` false → **warn**: cards, Run and templates do nothing until it is reviewed and trusted, `stridal panel trust --project <main checkout>` |
 
 The last line is `<n> failed, <m> warning(s)`, or `Nothing missing or broken.` When the
-repository holds Clauductor's model, it adds `The model's own checks: sh .claude/checks/run.sh`
+repository holds Stridal's model, it adds `The model's own checks: sh .claude/checks/run.sh`
 (D4).
 
 ## Where a user meets doctor
 
-- **`install` and `init`:** `printPrereqs` prints one line after the report, naming `clauductor
+- **`install` and `init`:** `printPrereqs` prints one line after the report, naming `stridal
   doctor` for checking the machine and the project again. The line is printed by the Go caller,
-  not added to `prereqs.sh`, because the plugin's `/clauductor:init` and `install.sh` run the
-  same script, and a plugin user may have no `clauductor` binary.
+  not added to `prereqs.sh`, because the plugin's `/stridal:init` and `install.sh` run the
+  same script, and a plugin user may have no `stridal` binary.
 - **Docs:** the README's command table gets a row. `docs/QUICKSTART.md` names doctor under
   *Prerequisites* and at the top of *Troubleshooting*, and `docs/panel.md`'s *Troubleshooting*
   names it as the first thing to run. The troubleshooting entries stay: doctor finds a problem,

@@ -1,7 +1,7 @@
 # Design: ops-93-single-pass-checks
 
 **The owner's decision.** On 2026-10-18 the owner approved amending ADR-0006. Every check runs
-once, inside the no-clauductor environment, instead of twice. A weekly double pass on `main`
+once, inside the no-stridal environment, instead of twice. A weekly double pass on `main`
 covers the gap. Rollback is `CHECKS_DOUBLE_PASS=1`, or a revert. The release notes must tell
 adopters that a project whose checks need a gh login, ssh keys, signing or `CI=true` will fail
 after updating. It is pre-launch work, after rename step 2, paired with OPS-89's dedupe, and it
@@ -14,34 +14,34 @@ design is that record, and the archived change keeps it.
 ## The amendment
 
 The owner approved this text on 2026-10-18. The build inserts it verbatim into
-`docs/adr/0006-a-repository-works-without-clauductor.md`, between the end of `## Enforcement`
+`docs/adr/0006-a-repository-works-without-stridal.md`, between the end of `## Enforcement`
 (line 36 on `main` at d9f2a98) and `## Related` (line 38), with one blank line on each side. Only
 the owner can change a word of it (O1, O2 and O6 name the words that could change). The ADR's
 header block and its index row stay as they are. An amendment carries no status of its own, as
 ADR-0008's shows.
 
 ```markdown
-## Amendment — 2026-10-18: the checks run once, inside the no-clauductor environment
+## Amendment — 2026-10-18: the checks run once, inside the no-stridal environment
 - **Source**: OPS-93; the owner's decision R23 (2026-10-18). Measured the same day: in the template's
-  check set, `no-clauductor` took 201.9 s of 400.25 s, the other 43 checks 198.1 s together.
+  check set, `no-stridal` took 201.9 s of 400.25 s, the other 43 checks 198.1 s together.
 
 The decision stands: everything a contributor needs runs in Claude Code alone, and the binary, the
 panel and the plugin stay conveniences. How the check proves it changes. This amendment replaces the
 first negative trade-off above and the Enforcement paragraph's "every other process check":
 - The check set no longer runs twice. `checks/run.sh`, run for the whole set, builds the
-  no-clauductor environment once and runs every check inside it: this directory's checks, the enabled
+  no-stridal environment once and runs every check inside it: this directory's checks, the enabled
   modules' and `.claude/local/checks`. That environment is unchanged: every `PATH` directory that
-  holds `clauductor` replaced by a mirror of links to everything else in it, a fresh `HOME` with no
-  `~/.clauductor` and only a git identity, and `CI` and `CLAUDUCTOR_LOCK_HELD` emptied. One helper in
-  `checks/lib.sh` builds it for `run.sh` and `no-clauductor.sh` alike, so the two cannot drift.
-- `no-clauductor.sh` keeps its own parts: the output scan, the gate in a throwaway repo and its
+  holds `stridal` replaced by a mirror of links to everything else in it, a fresh `HOME` with no
+  `~/.stridal` and only a git identity, and `CI` and `STRIDAL_LOCK_HELD` emptied. One helper in
+  `checks/lib.sh` builds it for `run.sh` and `no-stridal.sh` alike, so the two cannot drift.
+- `no-stridal.sh` keeps its own parts: the output scan, the gate in a throwaway repo and its
   falsification, the `GATE_STEPS` scan, session-start's context script and the status line. Instead of
   re-running the set, it asserts that it runs inside that environment, started by a whole-set
   `run.sh`. Run on its own, it re-runs the set as before.
-- What the double pass caught and this does not: a check that passes without clauductor but fails
+- What the double pass caught and this does not: a check that passes without stridal but fails
   with it on `PATH`, with the caller's `HOME`, or with `CI` set. No check in the template reads any of
   these from its caller today; each builds its own. A weekly job on `main` runs the old double pass
-  (`CHECKS_DOUBLE_PASS=1`) with a freshly built `clauductor` on `PATH`, so such a check is still found,
+  (`CHECKS_DOUBLE_PASS=1`) with a freshly built `stridal` on `PATH`, so such a check is still found,
   days after merge instead of before it.
 - The first trade-off's "about 45 s" was measured with 26 checks. With 44 the second pass cost 201.9 s
   on an 8-core Linux machine, half the set. The single pass removes it. In its place, a module's or a
@@ -49,11 +49,11 @@ first negative trade-off above and the Enforcement paragraph's "every other proc
   A check that needs them sets them up in its own scratch, as the template's do.
 
 **Enforcement** (replacing the original's "every other process check" clause): `checks/run.sh` runs the
-whole set inside the environment `checks/lib.sh` builds. `checks/no-clauductor.sh` fails when it runs
-outside that environment under a whole-set `run.sh`, and when `clauductor` is still on the stripped
+whole set inside the environment `checks/lib.sh` builds. `checks/no-stridal.sh` fails when it runs
+outside that environment under a whole-set `run.sh`, and when `stridal` is still on the stripped
 `PATH`. Its gate, `GATE_STEPS`, context-script and status-line parts and their fixtures are unchanged.
-Falsified in fixtures: a check that calls `clauductor` fails the single pass; a `run.sh` that skips the
-environment fails `no-clauductor`. The scheduled double pass on `main` keeps the case the single pass
+Falsified in fixtures: a check that calls `stridal` fails the single pass; a `run.sh` that skips the
+environment fails `no-stridal`. The scheduled double pass on `main` keeps the case the single pass
 gives up. `CHECKS_DOUBLE_PASS=1` restores the old behaviour in any run.
 ```
 
@@ -62,13 +62,13 @@ gives up. `CHECKS_DOUBLE_PASS=1` restores the old behaviour in any run.
 Checked against `main` at d9f2a98:
 
 - **Verified in the code.**
-  - The environment it describes is today's (`no-clauductor.sh:20-39`): a mirror for each `PATH`
-    directory that holds `clauductor`, a fresh `HOME`, and `CI=` and `CLAUDUCTOR_LOCK_HELD=`.
+  - The environment it describes is today's (`no-stridal.sh:20-39`): a mirror for each `PATH`
+    directory that holds `stridal`, a fresh `HOME`, and `CI=` and `STRIDAL_LOCK_HELD=`.
   - The re-run runs only this directory's checks (`:110` passes names, so `run.sh:46-47` skips
     the modules' checks and `.claude/local/checks`). After the change those run in the stripped
     environment for the first time.
   - `649aa49`, where the check landed, had 26 checks (28 `.sh` files). The template has 44 now.
-  - This repo's `.claude/checks/no-clauductor.sh` is byte-identical to the template's.
+  - This repo's `.claude/checks/no-stridal.sh` is byte-identical to the template's.
 - **Spot-checked, not proven.** "No check in the template reads any of these from its caller":
   every `HOME=` and `CI=` in `template/.claude/checks/*.sh` is set by the check itself (`gate.sh`,
   `ci-status.sh`, `quota-reading.sh`, `statusline.sh`, `openspec.sh`, `hooks.sh`,
@@ -76,7 +76,7 @@ Checked against `main` at d9f2a98:
   run are what test the claim.
 - **Small imprecisions, left as approved.**
   - The fresh `HOME`'s `.gitconfig` holds more than "only a git identity": it also sets
-    `commit.gpgsign = false` and `init.defaultBranch = main` (`no-clauductor.sh:38`).
+    `commit.gpgsign = false` and `init.defaultBranch = main` (`no-stridal.sh:38`).
   - "Measured with 26 checks" infers when the 45 s was measured from the check count at
     `649aa49`; ADR-0006 records neither the set nor the hardware.
   - "Replaces the first negative trade-off above" reads as voiding the whole bullet at
@@ -123,19 +123,19 @@ the text, the build stops and asks the owner rather than editing the approved wo
   - Every whole-set run exports `CHECKS_SET=whole`, in the wrapped inner run and in a double pass
     alike, so D3 can tell "under a whole-set run" from "run alone".
   - **The markers are inherited.** `bare` overrides only `HOME`, `PATH`, `CI` and
-    `CLAUDUCTOR_LOCK_HELD`, and passes every other exported variable through. So `CHECKS_BARE`,
+    `STRIDAL_LOCK_HELD`, and passes every other exported variable through. So `CHECKS_BARE`,
     `CHECKS_SET` and `CHECKS_DOUBLE_PASS` reach every check and every nested run. Whatever starts
-    a whole-set `run.sh` or a `no-clauductor.sh` of its own (D3's re-run, D7's fixtures) sets or
+    a whole-set `run.sh` or a `no-stridal.sh` of its own (D3's re-run, D7's fixtures) sets or
     unsets all three explicitly, and never inherits them. Named runs ignore the markers, so the
     checks that already start a named fixture `run.sh` (`ci-status.sh`, `ideas.sh`) need no
     change.
   - **Beat:** wrapping each check on its own, which builds the mirror 44 times; and keeping
-    `no-clauductor.sh`'s re-run while the gate skips the outer pass, which works only for gates
+    `no-stridal.sh`'s re-run while the gate skips the outer pass, which works only for gates
     that know to do that. Every project's gate calls `run.sh`, so `run.sh` is where the change
     holds everywhere.
 
-- **D2 One helper in `checks/lib.sh` builds the environment, for `run.sh` and `no-clauductor.sh`.**
-  - `no-clauductor.sh:20-39` moves into it unchanged: the `PATH` mirror, the fresh `HOME` and its
+- **D2 One helper in `checks/lib.sh` builds the environment, for `run.sh` and `no-stridal.sh`.**
+  - `no-stridal.sh:20-39` moves into it unchanged: the `PATH` mirror, the fresh `HOME` and its
     `.gitconfig`, and `bare`.
   - It goes in `lib.sh` because `run.sh` treats every other `*.sh` in `checks/` as a check
     (`run.sh:49`). A new helper file there would run as a check.
@@ -144,11 +144,11 @@ the text, the build stops and asks the owner rather than editing the approved wo
   - **Beat:** a copy of the code in each script, which is how the two drift apart; and a file
     under `.claude/lib/`, which the plugin builder would then need to rewrite on one more path.
 
-- **D3 `no-clauductor.sh` part 2 asserts the environment, and re-runs the set only when it runs
+- **D3 `no-stridal.sh` part 2 asserts the environment, and re-runs the set only when it runs
   alone.**
   - **Under a wrapped whole-set run** (`CHECKS_BARE` set), it checks the real state, not just the
-    marker: `command -v clauductor` fails, `$HOME` is the environment's `HOME`, and
-    `$HOME/.clauductor` does not exist. Then it reports that the set ran there, and does not run
+    marker: `command -v stridal` fails, `$HOME` is the environment's `HOME`, and
+    `$HOME/.stridal` does not exist. Then it reports that the set ran there, and does not run
     it again.
   - **Under a whole-set run with no environment** (`CHECKS_SET=whole`, no `CHECKS_BARE`, no
     `CHECKS_DOUBLE_PASS=1`), it fails. This is the amendment's "fails when it runs outside that
@@ -157,12 +157,12 @@ the text, the build stops and asks the owner rather than editing the approved wo
     helper's environment, exactly as today. The re-run is a named run, so it does not wrap; it
     clears `CHECKS_SET` and sets `CHECKS_BARE` to its own environment, so a check inside it sees
     the same markers it would under a wrapped whole-set run.
-  - Its self-test, which fails if `clauductor` is still on the stripped `PATH`, stays.
+  - Its self-test, which fails if `stridal` is still on the stripped `PATH`, stays.
   - **Beat:** trusting the marker alone. A stale or exported `CHECKS_BARE` would then pass a run
     that never stripped anything.
 
 - **D4 `CHECKS_DOUBLE_PASS=1` is the old behaviour, exactly.**
-  - `run.sh` does not wrap, every check runs in the caller's environment, and `no-clauductor.sh`
+  - `run.sh` does not wrap, every check runs in the caller's environment, and `no-stridal.sh`
     re-runs this directory's checks under the helper's environment. That is today's double pass,
     the same names included.
   - It works from the environment, so rolling back means setting it in `steps.sh` or in the
@@ -170,15 +170,15 @@ the text, the build stops and asks the owner rather than editing the approved wo
 
 - **D5 The weekly double pass is a workflow in this repo, read by the existing health line.**
   - **The workflow:** `.github/workflows/checks-double-pass.yml`, on a weekly `schedule:` and
-    `workflow_dispatch`, on Ubuntu. It builds `clauductor` from `framework/` and puts it on
+    `workflow_dispatch`, on Ubuntu. It builds `stridal` from `framework/` and puts it on
     `PATH`, then runs `CHECKS_DOUBLE_PASS=1 sh .claude/checks/run.sh` and the same for
     `template/.claude/checks/run.sh`.
   - **What the outer pass sees:** a real binary and `CI=true`, which GitHub sets, and the
     runner's own `HOME`.
   - **What it does not reproduce:** the old outer pass on the owner's Mac. That pass had a
-    populated `~/.clauductor` and a running panel, a gh login, and `CLAUDUCTOR_LOCK_HELD` set
+    populated `~/.stridal` and a running panel, a gh login, and `STRIDAL_LOCK_HELD` set
     inside the gate. The runner's `HOME` has none of those, and the job runs outside any gate. So
-    it covers "with clauductor on `PATH`" and "with `CI` set" fully, and "with the caller's `HOME`"
+    it covers "with stridal on `PATH`" and "with `CI` set" fully, and "with the caller's `HOME`"
     only for a plain `HOME`. Production gates now always run stripped, so a check that passes
     only with the owner's own `HOME` no longer passes anywhere that counts.
   - **The same set as PR CI:** the job copies `test.yml`'s setup steps and sets the same
@@ -192,16 +192,16 @@ the text, the build stops and asks the owner rather than editing the approved wo
     session start with no new health script. It goes `STALE` only past 45 days, so the weekly
     cadence itself is held by the workflow's `cron`, not by the health line.
   - **What makes it exist:** `.claude/local/checks/double-pass.sh`, a check in this repo's local
-    layer, which `clauductor update` never touches. It fails when the workflow is missing, has no
-    `schedule:`, does not set `CHECKS_DOUBLE_PASS=1`, does not build `clauductor` onto `PATH`
+    layer, which `stridal update` never touches. It fails when the workflow is missing, has no
+    `schedule:`, does not set `CHECKS_DOUBLE_PASS=1`, does not build `stridal` onto `PATH`
     before the run, or does not run both sets. It runs in every gate, inside the single pass.
   - **Beat:** a nightly schedule (O3); and a template-shipped workflow (O5).
 
 - **D6 Part 2 runs `run.sh` from its own directory.**
   - It uses `$dir/run.sh`, not `$ROOT/.claude/checks/run.sh`.
   - The handoff worried that the plugin's part 2 runs the wrong `run.sh`. That does not hold on
-    `main`: the plugin builder already rewrites the line to `$CLAUDUCTOR_FW/checks/run.sh`
-    (`plugin/checks/no-clauductor.sh:112`), and in the plugin that is `$dir`. With `$dir`, the
+    `main`: the plugin builder already rewrites the line to `$STRIDAL_FW/checks/run.sh`
+    (`plugin/checks/no-stridal.sh:112`), and in the plugin that is `$dir`. With `$dir`, the
     template stops depending on that rewrite.
   - **The plugin layout's test:** `TestPluginChecksPassInScaffoldedProject`
     (`framework/internal/plugin/plugin_test.go`) runs the plugin's whole-set `run.sh` in a
@@ -210,19 +210,19 @@ the text, the build stops and asks the owner rather than editing the approved wo
   - **Beat:** keeping `$ROOT/.claude/checks/run.sh` and relying on the builder's rewrite. It works
     today, but nothing states why.
 
-- **D7 The fixtures show each control failing first.** They live in `no-clauductor.sh`, on a
+- **D7 The fixtures show each control failing first.** They live in `no-stridal.sh`, on a
   fixture project that holds copies of `run.sh`, `lib.sh` and `.claude/lib/conf.sh`, plus a stub
-  `clauductor` on the outer `PATH`:
-  - a fixture check that calls `clauductor` fails a whole-set run. This is the single pass doing
+  `stridal` on the outer `PATH`:
+  - a fixture check that calls `stridal` fails a whole-set run. This is the single pass doing
     the old second pass's job;
   - a fixture `run.sh` with the wrap removed fails D3's assertion. This is the amendment's second
     falsification;
-  - a fixture check that fails only when `clauductor` is on `PATH` passes the single pass and
+  - a fixture check that fails only when `stridal` is on `PATH` passes the single pass and
     fails under `CHECKS_DOUBLE_PASS=1`. This is the gap the weekly job exists for, shown both
     ways.
 
   D3's assertion is a function in `lib.sh`, so these fixtures drive it without starting
-  `no-clauductor.sh`'s gate parts again inside themselves. Each fixture run clears
+  `no-stridal.sh`'s gate parts again inside themselves. Each fixture run clears
   `CHECKS_BARE`, `CHECKS_SET` and `CHECKS_DOUBLE_PASS` first, then sets only the ones its case
   needs (D1, *The markers are inherited*). Otherwise the weekly job's exported
   `CHECKS_DOUBLE_PASS=1` would stop fixture 1 from wrapping, and an inherited `CHECKS_BARE` would
@@ -264,18 +264,18 @@ the text, the build stops and asks the owner rather than editing the approved wo
 
 - **D9 The amendment lands with the code, in group 2.** It is not inserted in the proposal PR.
   - Merged before group 1, it would describe a `run.sh` that does not build the environment and a
-    `no-clauductor.sh` that cannot fail outside it. That is a stated control with nothing executing
+    `no-stridal.sh` that cannot fail outside it. That is a stated control with nothing executing
     it (AGENTS.md rule 4).
   - Group 2 inserts it after group 1's code and fixtures have passed the gate.
   - **AGENTS.md:** its header says the file changes to add a mechanism, and the mechanism gets its
-    row. Group 2 edits the existing row "The repo works without clauductor" rather than adding
-    one, because after the change `checks/run.sh`, not `checks/no-clauductor.sh`, runs the checks
+    row. Group 2 edits the existing row "The repo works without stridal" rather than adding
+    one, because after the change `checks/run.sh`, not `checks/no-stridal.sh`, runs the checks
     off `PATH`. The first cell stays. The second cell becomes, word for word:
     - **the template's copy** (`template/AGENTS.md`): ``**`checks/run.sh`** runs the checks with
-      `clauductor` off `PATH`; **`checks/no-clauductor.sh`** asserts it, and runs the gate, a
+      `stridal` off `PATH`; **`checks/no-stridal.sh`** asserts it, and runs the gate, a
       context script and the status line there``. The whole row is 248 characters;
-    - **this repo's copy** (`AGENTS.md`): ``**`checks/run.sh`** runs the checks with `clauductor`
-      off `PATH`; **`checks/no-clauductor.sh`** asserts it and runs the gate there; weekly,
+    - **this repo's copy** (`AGENTS.md`): ``**`checks/run.sh`** runs the checks with `stridal`
+      off `PATH`; **`checks/no-stridal.sh`** asserts it and runs the gate there; weekly,
       **`checks-double-pass.yml`** (`local:double-pass`)``. The whole row is 269 characters. The
       weekly job is this repo's alone (O5), so only this copy names it.
   - Both rows are under `checks/agents-md-budget.sh`'s 320-character row ceiling, and the two
@@ -298,7 +298,7 @@ blocks group 1. O1, O2 and O6 decide the amendment's wording, and group 2 insert
   OPS-93 behind it. Deps take only row ids and issues.
   - **Recommend:** keep the owner's order, and make it executable. Queue the rename as a row when
     its scope is known, and give OPS-93 a Dep on it. If the rename is not queued by the time
-    OPS-93 is next, build OPS-93 first, and the rename renames `no-clauductor` in this amendment
+    OPS-93 is next, build OPS-93 first, and the rename renames `no-stridal` in this amendment
     with the rest. That is a mechanical edit in either order.
   - **Beat:** holding OPS-93 on an order written only in prose. It would wait on something the
     queue cannot see, and nothing would say why it is not next.
@@ -320,7 +320,7 @@ blocks group 1. O1, O2 and O6 decide the amendment's wording, and group 2 insert
 - **O5 The weekly job is this repo's alone.** **Recommend this repo's only.** Adopters get
   `CHECKS_DOUBLE_PASS=1`, named in the template's playbook (task 2.4) and in the release-notes
   item (D8).
-  - A template workflow would need a `clauductor` binary in every adopter's CI, and none exists
+  - A template workflow would need a `stridal` binary in every adopter's CI, and none exists
     before a release ships one (REL-1). ADR-0006 is this repo's record; the template ships no ADRs.
   - **Beat:** shipping the workflow in `template/.github/workflows/`.
 
@@ -338,9 +338,9 @@ blocks group 1. O1, O2 and O6 decide the amendment's wording, and group 2 insert
 | Situation | What happens instead |
 |---|---|
 | `run.sh` with names | No wrap. The named checks run in the caller's environment, as today. |
-| `CHECKS_DOUBLE_PASS=1` | No wrap. `no-clauductor.sh` re-runs the set under the environment: the old double pass. |
-| `no-clauductor.sh` run alone | It re-runs the set under the environment, as today. |
-| A whole-set run whose environment was skipped | `no-clauductor.sh` fails, and says it ran outside the environment under a whole-set run. |
-| `clauductor` still resolves under the stripped `PATH` | `no-clauductor.sh` fails: "cannot check" (unchanged). |
+| `CHECKS_DOUBLE_PASS=1` | No wrap. `no-stridal.sh` re-runs the set under the environment: the old double pass. |
+| `no-stridal.sh` run alone | It re-runs the set under the environment, as today. |
+| A whole-set run whose environment was skipped | `no-stridal.sh` fails, and says it ran outside the environment under a whole-set run. |
+| `stridal` still resolves under the stripped `PATH` | `no-stridal.sh` fails: "cannot check" (unchanged). |
 | A project check that needs the caller's `HOME` or `CI=true` | It fails under the single pass. The release notes say so (D8), and `CHECKS_DOUBLE_PASS=1` is the stopgap. |
 | The weekly job has never run, or failed | `scheduled-workflows.sh` prints `NEVER RAN` or `FAILED` at session start. |

@@ -4,7 +4,7 @@
 **Budget:** $50
 
 ## Why
-The owner judged the panel's UI to be Clauductor's weakest part, in both function and look
+The owner judged the panel's UI to be Stridal's weakest part, in both function and look
 (`docs/prds/active/PRD-ui.md`, decided 2026-10-14). The page is dense:
 - the status bar carries about ten figure groups;
 - the side panel has seven tabs;

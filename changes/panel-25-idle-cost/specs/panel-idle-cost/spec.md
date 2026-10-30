@@ -141,16 +141,16 @@ THE SYSTEM SHALL count every process it starts through its command runner or tmu
 - **AND** it rises by one when the retried poll runs
 
 ### Requirement: The login agent can start without a browser tab
-WHEN `clauductor panel install` is given `--no-open` THE SYSTEM SHALL install a login agent that never opens a browser, and without it SHALL keep opening the page once per login; either way the install SHALL say which it installed.
+WHEN `stridal panel install` is given `--no-open` THE SYSTEM SHALL install a login agent that never opens a browser, and without it SHALL keep opening the page once per login; either way the install SHALL say which it installed.
 
 #### Scenario: [IDLE-5-S1] An agent installed with --no-open opens nothing
-- **GIVEN** `clauductor panel install --no-open`
+- **GIVEN** `stridal panel install --no-open`
 - **WHEN** the agent starts at login, and again after a crash
 - **THEN** its plist runs `panel … --launchd --no-open`
 - **AND** no browser opens and no `browser-opened` file is written
 
 #### Scenario: [IDLE-5-S2] An agent installed without it opens once per login, and says so
-- **GIVEN** `clauductor panel install` with no `--no-open`
+- **GIVEN** `stridal panel install` with no `--no-open`
 - **WHEN** the install finishes
 - **THEN** its output says the agent opens the page once per login and names `--no-open`
 - **AND** the plist has no `--no-open`

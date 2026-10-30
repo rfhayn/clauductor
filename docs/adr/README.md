@@ -49,11 +49,11 @@ that merges second takes the next free number.
 | [0001](0001-openspec-compatible-change-format.md) | Changes and specs are OpenSpec-compatible Markdown, written by our own skills | Accepted |
 | [0002](0002-scenario-to-test-traceability.md) | Every scenario a change adds or modifies is cited by a test | Accepted |
 | [0003](0003-one-panel-for-many-repositories.md) | One panel serves every repository on the machine | Accepted |
-| [0004](0004-install-refuses-a-model-it-did-not-install.md) | install and update refuse a model clauductor did not install | Accepted |
-| [0005](0005-never-kill-a-tmux-server-from-a-script.md) | No script kills a tmux server, or a claude or clauductor process | Accepted |
-| [0006](0006-a-repository-works-without-clauductor.md) | A repository works without clauductor installed | Accepted |
+| [0004](0004-install-refuses-a-model-it-did-not-install.md) | install and update refuse a model stridal did not install | Accepted |
+| [0005](0005-never-kill-a-tmux-server-from-a-script.md) | No script kills a tmux server, or a claude or stridal process | Accepted |
+| [0006](0006-a-repository-works-without-stridal.md) | A repository works without stridal installed | Accepted |
 | [0007](0007-plugin-distribution.md) | The model also ships as a Claude Code plugin, generated from template/ | Accepted |
 | [0008](0008-provenance-and-attribution-policy.md) | Provenance and attribution trailers: on in the template, off here | Accepted |
 | [0009](0009-the-panel-carries-state-in-colour-at-rest.md) | The panel's look is the hybrid: state in colour at rest, one theme, one type system | Accepted |
-| [0011](0011-open-source-terminal-first-plugin-installs.md) | Clauductor is open source, terminal-first, and installed through the plugin | Accepted |
+| [0011](0011-open-source-terminal-first-plugin-installs.md) | Stridal is open source, terminal-first, and installed through the plugin | Accepted |
 | [0012](0012-one-merge-path-refused-everywhere-else.md) | One merge path: `merge.sh` merges, and `gh` refuses every other merge | Accepted |

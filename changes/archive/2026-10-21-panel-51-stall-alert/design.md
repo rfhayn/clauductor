@@ -154,7 +154,7 @@ to `<id>` and `$PROBE`.
     terminal on.
   - **The clock's origin, and a restart.** The model is not saved, so after a restart the panel
     has seen no movement yet:
-    - **`~/.clauductor/panel/<project hash>/stall.json`** (beside `notifier.json`, 0600) keeps
+    - **`~/.stridal/panel/<project hash>/stall.json`** (beside `notifier.json`, 0600) keeps
       what a stall's clock and its text rest on, and is read back at start:
       - each lane's last movement, and the time of the save. A lane stalled at the save keeps
         its `since`. A lane not stalled at the save carries over the quiet time it had then, and
@@ -221,7 +221,7 @@ to `<id>` and `$PROBE`.
         It is precise, but each reading added later reopens the class.
     - **Beat:** keying the notifier on the lane and its open work instead of `Since`. A stall
       that cleared and came back with the same pull request would never notify again.
-  - **Which lane holds a lease.** `LeaseView.Lane` is free text: `$CLAUDUCTOR_LANE` (the tmux
+  - **Which lane holds a lease.** `LeaseView.Lane` is free text: `$STRIDAL_LANE` (the tmux
     lane id the panel gives its lanes) or `basename "$PWD"` (`scripts/ci/run-local.sh`). A lease
     is the lane's when its `Lane` equals the lane's tmux id (`LaneView.Terminal`), or the
     basename of the lane's worktree path when no other worktree of the project has that
@@ -476,8 +476,8 @@ to `<id>` and `$PROBE`.
     **Beat:** keeping 6, which would leave a new project needing to raise its own version
     before it could set `stall_minutes`.
   - **The template's `panel.json` declares version 7 too.** (Decided with the owner on
-    2026-10-20, #189 option a, as PANEL-48 raised the presets for 6.) `template/.clauductor/panel.json`
-    is raised to the latest version, and `plugin/scaffold/.clauductor/panel.json` regenerated
+    2026-10-20, #189 option a, as PANEL-48 raised the presets for 6.) `template/.stridal/panel.json`
+    is raised to the latest version, and `plugin/scaffold/.stridal/panel.json` regenerated
     from it (`scripts/build-plugin.sh`). A template edit ships to every project.
   - **Why 30:**
     - it is the `idle_minutes` default, the owner's sense of "a while";
@@ -526,12 +526,12 @@ to `<id>` and `$PROBE`.
   only. (The owner decides.)**
   - **Today's channel** (`osascript`) stays for every interrupting alert. It reaches the Mac's
     screen only, and none of the three stalls had anyone at it.
-  - **A push command, the machine's:** `~/.clauductor/panel/push.json`, `{"argv": ["/abs/path",
+  - **A push command, the machine's:** `~/.stridal/panel/push.json`, `{"argv": ["/abs/path",
     "arg", …]}`. The panel runs it with two more arguments, the title and the body, with no
     shell, under a 10 s timeout, for each notice that carries a `stalled` alert. Examples in
     `docs/panel.md`: ntfy, and `curl` to Pushover.
     - **The title** is the macOS notification's: `<project> · <lane>`, the project's `name` only
-      while its config is trusted (else "clauductor panel"), as `pollNotify` titles it today.
+      while its config is trusted (else "stridal panel"), as `pollNotify` titles it today.
     - **Refused** (a warning bar says why, and it never runs): a file not owned by the user, or
       writable by group or others, or in a folder that is; an `argv[0]` that is not an absolute
       path; anything but one JSON object with a non-empty `argv` of strings.
@@ -571,7 +571,7 @@ to `<id>` and `$PROBE`.
     is what its row's probe asks for. This change records that evidence. It does not build
     OPS-90's hook.
   - **Beat:** an OPS-90 hook that posts "the turn ended, waiting on X" to the panel. It would
-    make the template call the panel (`checks/no-clauductor.sh` holds that the model works
+    make the template call the panel (`checks/no-stridal.sh` holds that the model works
     without it), it would miss an attached repository that does not run the model, and it would
     send what the panel already has.
 

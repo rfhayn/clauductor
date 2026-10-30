@@ -38,8 +38,8 @@ Read on 2026-10-22, at `62fa18f0`.
   (`baseRefName`) and from which account (`mergedBy`), and `gh api user` the login the panel runs
   as. Every lane's merge-pr merges through that same login, and so does the owner on github.com,
   so the account says *merged from this account*, not *merged by the owner in person*.
-- **E6. The installed binary.** `go version -m` on both `~/.clauductor/panel/bin/clauductor` and
-  `~/.local/bin/clauductor` shows `path github.com/clauductor/clauductor/cmd/clauductor`,
+- **E6. The installed binary.** `go version -m` on both `~/.stridal/panel/bin/stridal` and
+  `~/.local/bin/stridal` shows `path github.com/stridal/stridal/cmd/stridal`,
   `vcs.revision=f9a5f396…`, `vcs.modified=false`. That is #201, one `framework/` change behind
   `main` (#205's `install/init.go`). `install.sh` builds in `framework/` with a plain `go build`,
   so the build stamps that information, and Go stamps `vcs.modified` true when `git status
@@ -55,7 +55,7 @@ Read on 2026-10-22, at `62fa18f0`.
   `jq`, and the system directories. It does not add `go`'s. On this Mac `go` is
   `/opt/homebrew/bin/go`, so the installed agent finds it already.
 - **E8. Pushes.** STALL-3 (`specs/panel-stall/spec.md`) sends a `stalled` alert as a macOS
-  notification and through `~/.clauductor/panel/push.json`, and pushes no other alert. Today the
+  notification and through `~/.stridal/panel/push.json`, and pushes no other alert. Today the
   lifecycle notices (`notifyOnce`, `autoclose.go:199`) go as macOS notifications only, once per key
   per run, and only while `alerts.notify` is on. `notifyOnce` keeps its keys in auto-close's state,
   which only `pollAutoClose` creates, so it cannot be reused as it stands. This Mac has no
@@ -97,7 +97,7 @@ Read on 2026-10-22, at `62fa18f0`.
   revert pull request, whose config arrives trusted the same way.
 
   **When a rebuild follows,** the decision waits for it. The running binary checks (a) to (d).
-  D4's preflight then runs `clauductor.new panel config-check --config <file>`, a new command that
+  D4's preflight then runs `stridal.new panel config-check --config <file>`, a new command that
   loads the file and prints its `alerts.notify` and run list, for (e) and (f) and the notice's
   lines. When it passes, the bytes are recorded as trusted before the swap, and the new binary
   starts the runtime on them trusted. When the build or the preflight fails, nothing is trusted,
@@ -151,13 +151,13 @@ Read on 2026-10-22, at `62fa18f0`.
     assurance.
 
 - **D2. The switch: per machine, per project, off by default.**
-  **Recommended:** a file of its own, `~/.clauductor/panel/catch-up.json`, listing the
-  repository roots that have catch-up on, set by `clauductor panel catch-up --project <path>
+  **Recommended:** a file of its own, `~/.stridal/panel/catch-up.json`, listing the
+  repository roots that have catch-up on, set by `stridal panel catch-up --project <path>
   on|off`. With no argument it prints the state. A root not listed is off. A file of its own
   rather than a field in `projects.json`, because a binary that predates this change refuses a
-  registry with a field it does not know (E10): a release build, or a `clauductor` on PATH that
+  registry with a field it does not know (E10): a release build, or a `stridal` on PATH that
   D4 declines to replace. Keyed by root, not by project id, because an id is a slug of the
-  config's name and can be taken again after a removal (`install/projects.go`); `clauductor panel
+  config's name and can be taken again after a removal (`install/projects.go`); `stridal panel
   remove` also clears the root. The panel reads the file at each trigger (D3), so turning
   catch-up off or on takes effect without a restart. It is refused, and nothing is written, for a
   project whose config is outside its repository (`configOutside`, as ATTACH-2 requires). The
@@ -229,7 +229,7 @@ Read on 2026-10-22, at `62fa18f0`.
   - `git status --porcelain` in the main checkout prints nothing, so the new build is stamped
     unmodified (E6).
 
-  The panel runs `go build -o ~/.clauductor/panel/bin/clauductor.new ./cmd/clauductor` in
+  The panel runs `go build -o ~/.stridal/panel/bin/stridal.new ./cmd/stridal` in
   `<root>/framework`, with a 5-minute timeout and `go` from its PATH. The build writes nothing in
   the repository (Go's caches are outside it). The preflight requires:
   - the new binary's build information names the same module, `vcs.revision` B, and
@@ -238,27 +238,27 @@ Read on 2026-10-22, at `62fa18f0`.
   - when the merge changed the in-repository `panel.json`, its `panel config-check` on the file
     (D1 (e) and (f)).
 
-  The installed binary is renamed to `clauductor.prev` and the new one renamed into its place.
-  The `clauductor` on the panel's PATH is replaced the same way, keeping its own `.prev`, only when
+  The installed binary is renamed to `stridal.prev` and the new one renamed into its place.
+  The `stridal` on the panel's PATH is replaced the same way, keeping its own `.prev`, only when
   its build information names the same module and a commit of the repository. The token, the
   plist and the user hooks are not touched.
 
   When none of the panel's own `claude` calls is running (the call gate), or after 10 minutes,
   the panel restarts:
   - It sends the notice: the old and new commits, and "if the panel is not back in 2 minutes:
-    `mv ~/.clauductor/panel/bin/clauductor.prev ~/.clauductor/panel/bin/clauductor`, then
+    `mv ~/.stridal/panel/bin/stridal.prev ~/.stridal/panel/bin/stridal`, then
     `launchctl kickstart -k gui/$(id -u)/<label>`".
   - It records a browser open, so the restart opens no tab (E6).
   - It ends the run's context, as SIGTERM does, with exit status 75 recorded, so the run loop
-    shuts down as it always does. `clauductor panel` then exits 75 itself (`os.Exit`, as
+    shuts down as it always does. `stridal panel` then exits 75 itself (`os.Exit`, as
     `lock-run` does in `internal/cmd/lockrun.go`), since `main.go` turns every returned error into
     exit 1. launchd starts the new binary (E6). Nothing on a source or runtime goroutine waits for
     the shutdown it started.
   - The new binary's first start sends "now running <commit>".
 
   If `R..B` touches `framework/internal/panel/install/launchd.go` or `hooks.go` (what
-  `clauductor panel install` writes beyond the binary), the notice also says to run
-  `clauductor panel install` once. The range is the build's, `R..B`, not the merge's `A..B`: a
+  `stridal panel install` writes beyond the binary), the notice also says to run
+  `stridal panel install` once. The range is the build's, `R..B`, not the merge's `A..B`: a
   merge that could not rebuild (an untracked file, a failed build) leaves its change for the next
   rebuild to carry, and that rebuild's notice must still name the install.
 
@@ -269,13 +269,13 @@ Read on 2026-10-22, at `62fa18f0`.
 
   **The rebuild's notices go whatever the project's `alerts.notify` says.** They are about the
   panel, not the project: the refusals, the failed build, the restart and its rollback, and "now
-  running". They are titled "clauductor panel", and they go as a macOS notification and through
+  running". They are titled "stridal panel", and they go as a macOS notification and through
   `push.json` (D6). A repository's config must not be able to silence the one notice that says
   how to roll back a binary that replaced itself; and D5 drops the owner's step from merge-pr's
   report once catch-up is on, so nothing else would say it.
 
   **Alternatives:**
-  - **Run `clauductor panel install` from the new binary.** Rejected: it rotates the token (E6),
+  - **Run `stridal panel install` from the new binary.** Rejected: it rotates the token (E6),
     which signs every open page out after every framework merge.
   - **Roll back on its own.** Rejected: the binary that would have to judge the new one is the one
     being replaced, and a watcher process is a second thing to own. The pre-restart notice is the
@@ -288,10 +288,10 @@ Read on 2026-10-22, at `62fa18f0`.
 
 - **D5. merge-pr step 5 and its report.** **Recommended:** step 5
   (`template/.claude/skills/merge-pr/SKILL.md`) first finds the main checkout, the first
-  `worktree` entry of `git worktree list --porcelain`, and asks `clauductor panel catch-up
+  `worktree` entry of `git worktree list --porcelain`, and asks `stridal panel catch-up
   --project <that root>` for its state. A lane's own worktree is never the root it asks about.
   Catch-up counts as on only when that command exits 0 and prints `on`; anything else counts as
-  off: `clauductor` not on PATH, or an older one with no `panel catch-up` (D2).
+  off: `stridal` not on PATH, or an older one with no `panel catch-up` (D2).
   - **Catch-up on:** step 5 confirms the squash commit is on the remote's base (`git fetch` and
     `git log -1`) and leaves the main checkout to the panel. A pull here would be a pull the panel
     did not make, so a merged `panel.json` would not be trusted on arrival (D1 (b), (c)) and no
@@ -302,9 +302,9 @@ Read on 2026-10-22, at `62fa18f0`.
     from a lane today (#164).
 
   The report names the owner's step (pull, unless step 5 pulled; after a `framework/` change,
-  `./install.sh` and `clauductor panel install`; after a `panel.json` change, `clauductor panel
+  `./install.sh` and `stridal panel install`; after a `panel.json` change, `stridal panel
   trust`) unless catch-up is on, so a project without the panel works as before. This is a
-  template change, so the plugin is rebuilt and this repository updated (`clauductor update`).
+  template change, so the plugin is rebuilt and this repository updated (`stridal update`).
   **Alternatives:** drop the pull everywhere. Rejected: a project with no panel merging from its
   main session is fast-forwarded today and would stay behind. Or leave the report to OPS-108's
   item (6). Rejected: step 5 fails from a lane today, and this change is what decides when the
@@ -326,7 +326,7 @@ Read on 2026-10-22, at `62fa18f0`.
 
   **Titles.** Only D1's trust notice is titled with a name: the `name` of the config it has just
   trusted. Every other catch-up notice, the one that says a config waits included, is titled
-  "clauductor panel" and names the checkout's path, never a config's `name`. STALL-3 says the push
+  "stridal panel" and names the checkout's path, never a config's `name`. STALL-3 says the push
   carries no alert but `stalled`, so this modifies STALL-3 (the delta in `specs/panel-stall/`)
   and adds STALL-3-S12.
 
@@ -369,9 +369,9 @@ Read on 2026-10-22, at `62fa18f0`.
 | The running binary's module is not the project's `framework/go.mod` module | Not the panel's source: nothing more, and no notice (D4) |
 | The running binary has no VCS build information, local changes, or a commit that is not an ancestor of the merge | No rebuild. One notice says why (D4) |
 | The main checkout holds an untracked file at build time | No rebuild, since the build would be stamped modified. One notice names the file (D4) |
-| `go` is not on the panel's PATH | The build fails, with a notice naming `clauductor panel install` (which adds `go`'s directory) (D4) |
+| `go` is not on the panel's PATH | The build fails, with a notice naming `stridal panel install` (which adds `go`'s directory) (D4) |
 | The build or the preflight fails, or takes over 5 minutes | The running binary stays, no `.new` is left, and one notice names the error (D4) |
-| The merge changed `install/launchd.go` or `install/hooks.go` | Rebuilt as usual, and the notice says to run `clauductor panel install` once (D4) |
+| The merge changed `install/launchd.go` or `install/hooks.go` | Rebuilt as usual, and the notice says to run `stridal panel install` once (D4) |
 | A panel-spawned `claude` call is running | The restart waits for it, up to 10 minutes (D4) |
 | The new binary does not come back | launchd retries every 30 s. The pre-restart notice names the rollback (D4) |
 | Hooks sent while the panel restarts | Lost, as at any restart. Stalls are approximate for one stall time after it (STALL-1) |

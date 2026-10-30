@@ -5,8 +5,8 @@
 
 ## Why
 After every merge the owner does by hand what no lane can: pulls the main checkout, runs
-`./install.sh` and `clauductor panel install` when the merge changed `framework/`, and
-`clauductor panel trust` when it changed `.clauductor/panel.json` (the session plan's *After each
+`./install.sh` and `stridal panel install` when the merge changed `framework/`, and
+`stridal panel trust` when it changed `.stridal/panel.json` (the session plan's *After each
 merge the owner* bullet). A lane cannot do it: worktree isolation refuses `git -C` on the main
 checkout, the sandbox protects its `.claude/` files, and trust is bound to the bytes the owner read
 (`install/trust.go`). Each time the step waits, something is quietly not in force:
@@ -15,15 +15,15 @@ checkout, the sandbox protects its `.claude/` files, and trust is bound to the b
   agents meanwhile.
 - **Session 8 (2026-10-22):** #205 turned on `lanes_auto_close` and changed what Up next and the ops
   template run; none of it ran until the owner re-trusted the config the same day.
-- **Today:** the installed panel (`go version -m ~/.clauductor/panel/bin/clauductor`) was built at
+- **Today:** the installed panel (`go version -m ~/.stridal/panel/bin/stridal`) was built at
   `f9a5f396` (#201, session 6's close). #205 changed `framework/internal/panel/install/init.go`
   since, and the installed panel does not have it. Nothing says so.
 
 The owner's ruling of 2026-10-21 slots this as OPS-118, and session 9 is its proposal.
 
 ## What changes
-- **A machine turns catch-up on per project:** `clauductor panel catch-up --project <path> on`,
-  kept in a file of its own, `~/.clauductor/panel/catch-up.json`. It is off until then, it is
+- **A machine turns catch-up on per project:** `stridal panel catch-up --project <path> on`,
+  kept in a file of its own, `~/.stridal/panel/catch-up.json`. It is off until then, it is
   never read from the repository, and an attached project cannot turn it on.
 - **The panel fast-forwards the main checkout** when a pull request leaves its open list, and at
   its start, while the checkout is clean, on the base's branch and has no commit of its own, and
@@ -37,8 +37,8 @@ The owner's ruling of 2026-10-21 slots this as OPS-118, and session 9 is its pro
   its commands off, as a pull followed by a restart is today, and the notice says it waits for the
   owner. **This is what replaces the owner's review at re-trust** (design D1).
 - **When the merge changed `framework/`,** the panel builds itself from the main checkout into its
-  own folder and checks the new binary runs. It keeps the old one as `clauductor.prev`, replaces
-  the installed binary and the `clauductor` on its PATH, says so, and restarts under launchd. The
+  own folder and checks the new binary runs. It keeps the old one as `stridal.prev`, replaces
+  the installed binary and the `stridal` on its PATH, says so, and restarts under launchd. The
   token and the login agent stay as they are.
 - **`merge-pr` stops trying to pull the main checkout** from a lane, and leaves it to the panel
   while catch-up is on; from the main checkout with catch-up off it still pulls. Its report names
@@ -55,7 +55,7 @@ The owner's ruling of 2026-10-21 slots this as OPS-118, and session 9 is its pro
   be pushed (D6), under the same file, argv and timeout rules. `alerts.notify` withholds only the
   notice that a config waits for the owner (the page's untrusted banner says the same); every
   other catch-up notice goes whatever it says. Only the trust-on-arrival notice is titled with the
-  project's name; the rest are titled "clauductor panel" (D6, *Titles*). STALL-1's restart
+  project's name; the rest are titled "stridal panel" (D6, *Titles*). STALL-1's restart
   rules already cover a panel that restarts itself: a stall of a lane not stalled before is
   approximate, and not notified, for one stall time after the start.
 - **New capability `panel-catch-up`:** the switch, the fast-forward, trust on arrival, and the
@@ -77,8 +77,8 @@ The owner's ruling of 2026-10-21 slots this as OPS-118, and session 9 is its pro
 ## How we'll know
 - **Signal:** in the 7 days after it merges, no merge needs the owner's pull, trust or install.
   The panel log has a catch-up line for each merge, and `go version -m
-  ~/.clauductor/panel/bin/clauductor` names the last commit on `main` that changed `framework/`.
-  After the first such merge, `clauductor.prev` beside it is the binary it replaced, and the
+  ~/.stridal/panel/bin/stridal` names the last commit on `main` that changed `framework/`.
+  After the first such merge, `stridal.prev` beside it is the binary it replaced, and the
   page's token still opens the panel: CATCHUP-4-S1 on the owner's Mac, under the real login agent
   and launchd's restart, which no test may touch (the owner, 2026-10-23: moved here from task 3.4).
 - **Check after:** 7 days

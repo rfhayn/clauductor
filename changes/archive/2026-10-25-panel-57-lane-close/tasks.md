@@ -10,7 +10,7 @@
   Two lows left from round 7: the auto-close test's negative path fails by a timeout hang, and the
   lock-time tmux rule is in the Decision log, not the spec delta.
 - 2026-10-25 group 2 (tasks 2.1–2.4) built, uncommitted for review. The panel serves `CLIHandler`
-  on `~/.clauductor/panel/cli.sock` (`Options.CLISocket`), `owner.json` names it, and
+  on `~/.stridal/panel/cli.sock` (`Options.CLISocket`), `owner.json` names it, and
   `install.CloseLane` is the command's client. Round 7's F1 (the auto-close test's hang) is fixed
   too. Next: group 3, the command (`framework/internal/cmd/lane.go`). It owns the three
   scenarios still MISSING in `scenario-trace.sh --now`: 1-S5, 2-S2 and 3-S2.
@@ -19,7 +19,7 @@
   socket path (`install.CLISocketPath`); `CloseLane`'s cut-off words claim a begun close on a dry
   run; its doc comment omits that third kind of error; `deadSocketFile` takes its descriptor
   outside `syscall.ForkLock`. The claudecall flake seen in both groups' gates is #260.
-- 2026-10-25 group 3 (tasks 3.1–3.2) built, uncommitted for review: `clauductor lane close <id>
+- 2026-10-25 group 3 (tasks 3.1–3.2) built, uncommitted for review: `stridal lane close <id>
   [--yes]` in `framework/internal/cmd/lane.go`, tested against a stub panel in `lane_test.go`;
   `install.MainWorktree`, which `mainRoot` now calls. Group 2's four lows are fixed too (a test on
   the default socket path, `CloseLane`'s dry-run words and doc comment, `deadSocketFile` under
@@ -31,14 +31,14 @@
   hand-written loop duplicates `config.Projects.Find`.
 - 2026-10-25 group 4 (tasks 4.1, 4.3, 4.4) built, uncommitted for review; group 3's five lows are
   fixed. Task 4.2 is built but for one step, so it stays unticked: the template edits and
-  `scripts/build-plugin.sh` are done; `env -u CLAUDUCTOR_FRAMEWORK framework/clauductor update`
+  `scripts/build-plugin.sh` are done; `env -u STRIDAL_FRAMEWORK framework/stridal update`
   (its `Template:` line named this worktree's `template/`) stopped on the sandbox's denial to
   open `.claude/settings.json`, having written nothing (`git status --porcelain` unchanged, no
   file newer than the run's start), so there was nothing to undo. Left: the owner runs that one
   command from the worktree's root, keeps only `.claude/skills/session-close/SKILL.md` and
   `.claude/settings.json` from it, and ticks 4.2.
 - 2026-10-25 group 4 (Docs and the production caller) built and reviewed: converged in 3
-  round(s), peak low. The owner ran `clauductor update` (its `Template:` line named this
+  round(s), peak low. The owner ran `stridal update` (its `Template:` line named this
   worktree's `template/`). It merged `.claude/settings.json`, the one allow rule and nothing more.
   Its skill review had no stdin and cancelled, so the owner copied the template's `SKILL.md` over
   this repo's copy, which matched it byte for byte at HEAD. No other drift. Round 1's finding 4
@@ -230,7 +230,7 @@
   one function the panel's tests drive, and `panel` cannot import `cmd`. The `LaneError` lets
   group 3 print the route's words and choose its exit status.
 - 2026-10-25, group 2: the socket's failures print one line to `o.Out`, "no command socket, so
-  `clauductor lane close` cannot reach this panel: <why>". A path too long for `sun_path` adds its
+  `stridal lane close` cannot reach this panel: <why>". A path too long for `sun_path` adds its
   length and the limit (`len(syscall.RawSockaddrUnix{}.Path)`), and a file at the path that is not
   a socket is left alone and named. A socket server that stops with an error other than
   `ErrServerClosed` prints "the command socket stopped serving" and the panel serves on.
@@ -310,8 +310,8 @@
   and keeps only its linked-worktree check. Alternative: return the main worktree alone. Why not:
   `mainRoot` needs the top to refuse a linked worktree, and computing it twice would run git twice.
 - 2026-10-25, group 3: a live panel whose socket does not answer is said by `CloseLane`'s own
-  not-answering error, which now ends "nothing was asked of it (`clauductor panel` starts a
-  panel)" (the design's "a socket that does not answer … naming `clauductor panel`"). Alternative:
+  not-answering error, which now ends "nothing was asked of it (`stridal panel` starts a
+  panel)" (the design's "a socket that does not answer … naming `stridal panel`"). Alternative:
   a typed error the command wraps. Why not: `CloseLane` is the command's one client, and the
   words are true wherever it is used. A cut-off dry run now says "a dry run changes nothing, so ask
   again" instead of claiming a begun close (group 2's low).
@@ -352,7 +352,7 @@
   the retry rule of task 4.3; the socket is a *Security model* bullet and a line in *What the
   panel writes to disk*. Alternative: a `###` section beside *Close a lane when its PR merges*.
   Why not: the task names it a subsection of *Close lane*. The log line's place is given as
-  `~/.clauductor/panel/logs/` (`install.LogDir`), where the docs already name the launchd logs.
+  `~/.stridal/panel/logs/` (`install.LogDir`), where the docs already name the launchd logs.
 - 2026-10-25, group 4 (task 4.2): D5's sentence is appended to the *Close the lanes* rule as one
   sentence, and names the Bash tool's `timeout: 600000` for the 10-minute bound. The final
   message carries the plan's **Keeps** lines, as D5 words it, not the result's **Kept**. Review
@@ -453,7 +453,7 @@
   cancelled one answers with nothing changed), then `CloseIf` with a `held` that reads `CloseHeld`
   from a fresh `Hub.View()` (task 1.2), under
   the handler's `ctx` (the panel's), with no added deadline, and one line to `out` per close:
-  `lane <id> (<project>) closed by clauductor lane close: removed …; kept …`. Tested in
+  `lane <id> (<project>) closed by stridal lane close: removed …; kept …`. Tested in
   `framework/internal/panel/web/cli_test.go` (new) through `httptest`, with the project's lanes
   from `testLaneManager` and its view set on the hub: any other path or method, `/api/state` and
   `/lanes/{id}/stop` among them, is 404 or 405; a lane whose view sets `CloseHeld` is refused 409
@@ -508,7 +508,7 @@
 
 ## 2. The socket in the panel's life (D1, D4)
 - [x] 2.1 `framework/internal/panel/install/singleton.go`: `PanelOwner.Socket` (`json:"socket,
-  omitempty"`), and `CLISocketPath(home)`, `~/.clauductor/panel/cli.sock`. Tested in
+  omitempty"`), and `CLISocketPath(home)`, `~/.stridal/panel/cli.sock`. Tested in
   `framework/internal/panel/singleton_test.go`: an `owner.json` naming a socket comes back from
   `RunningPanel` with it, and one from before this change (no field) comes back with it empty.
 - [x] 2.2 `framework/internal/panel/run.go` and `live.go`: `Options.CLISocket` (default
@@ -562,16 +562,16 @@
   Citing [LANECLOSE-1-S1], [LANECLOSE-1-S2], [LANECLOSE-2-S1].
 
 ## 3. The command (D2, D3)
-- [x] 3.1 `framework/internal/cmd/lane.go` (new): `clauductor lane close <id> [--yes]`, with no
+- [x] 3.1 `framework/internal/cmd/lane.go` (new): `stridal lane close <id> [--yes]`, with no
   `--project` (D7), registered on the root command as `panel` is (`panel.go`). An id equal to
-  `$CLAUDUCTOR_LANE` refused before anything is read, in fixed words naming the page's Close lane,
+  `$STRIDAL_LANE` refused before anything is read, in fixed words naming the page's Close lane,
   and auto-close where it is on for the lane's type. The panel first, from
   `install.RunningPanel`, with its `lease.ProcCheck` through a package variable a test replaces;
   no live panel, or an empty `Socket` (the `/healthz` fallback's owner among them), refused naming
-  `clauductor panel`. Then the project from the current directory alone, resolved to its main
+  `stridal panel`. Then the project from the current directory alone, resolved to its main
   checkout with a new exported `install.MainWorktree(ctx, run, path)` (`git rev-parse
   --show-toplevel`, then the first entry `signals.ReadWorktrees` lists, the lines `mainRoot`
-  reads, which then calls it) and matched by root. Refused, naming `clauductor panel list`, when
+  reads, which then calls it) and matched by root. Refused, naming `stridal panel list`, when
   not registered or not among the running panel's `Projects`. Then the dry run: the plan's first
   line, `lane <id> on <branch>`, then its **Removes**, **Keeps** and notes printed; with `--yes`,
   the close with the plan's `worktree` and `deleteBranch` as the consent, its **Removed** and
@@ -608,15 +608,15 @@
   with the files it generates refreshed (`go generate ./internal/panel/config`: the config table
   in `docs/panel.md` and the field's `description` in `docs/panel.schema.json`, both held by
   `TestGeneratedFilesAreCurrent`); and under *Security model* the socket (mode 0600, the one route, no token).
-  `README.md`'s command table: a `clauductor lane close` row.
+  `README.md`'s command table: a `stridal lane close` row.
 - [x] 4.2 `template/.claude/skills/session-close/SKILL.md`, the *Close the lanes* rule, D5's
   sentence (run from the repository; the lane's id tried from its worktree's folder name, else,
   when that id is unknown, from the refusal's `id (branch)` list; `--yes` only when the plan's
   first line names the merged branch, and a lane on another branch left to the owner, named;
   `--yes` under a 10-minute Bash timeout; after a call that timed out, D4's retry: the dry run once
   more under the same timeout, the lane named "closed or closing" with the panel's log line
-  pointed to, else with its plan, else "outcome unknown"); `template/.claude/settings.json`'s `permissions.allow`, `Bash(clauductor lane close
-  *)` (D7). Then `scripts/build-plugin.sh`, and `env -u CLAUDUCTOR_FRAMEWORK framework/clauductor
+  pointed to, else with its plan, else "outcome unknown"); `template/.claude/settings.json`'s `permissions.allow`, `Bash(stridal lane close
+  *)` (D7). Then `scripts/build-plugin.sh`, and `env -u STRIDAL_FRAMEWORK framework/stridal
   update` from the repository root with the binary built from this checkout, its `Template:` line
   checked to name this worktree's `template/`. Commit only `.claude/skills/session-close/SKILL.md`
   and `.claude/settings.json` from it; any other drift it writes is OPS-119's: a tracked file
@@ -641,4 +641,4 @@
   edited: the rule is group 1's Decision log entry, and it narrows D2, never widens it. Held by
   `.claude/scenario-trace.sh` and `checks/changes.sh`.
 
-- [ ] Slice: an agent can close a finished panel lane with clauductor lane close, through Close lane's plan and guards, and cannot close a working one
+- [ ] Slice: an agent can close a finished panel lane with stridal lane close, through Close lane's plan and guards, and cannot close a working one

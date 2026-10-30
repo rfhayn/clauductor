@@ -1,4 +1,4 @@
-# Clauductor runtime state (local only, not committed)
+# Stridal runtime state (local only, not committed)
 orchestration/
 
 # OS files
@@ -11,8 +11,8 @@ Thumbs.db
 *~
 .idea/
 .vscode/
-framework/clauductor
+framework/stridal
 
-# Clauductor runtime state
+# Stridal runtime state
 .claude/worktrees/
 .claude/settings.local.json

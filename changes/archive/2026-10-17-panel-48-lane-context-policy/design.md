@@ -27,7 +27,7 @@ window a session is measured against.
     300000. P5 saw a `--resume` keep the window only when `--settings` was passed again.
   - **Beat:**
     - an exported env var, which the repository's settings override;
-    - a settings file written per lane under `~/.clauductor`, which means a file to write, name and
+    - a settings file written per lane under `~/.stridal`, which means a file to write, name and
       clean up for what one argv element carries.
 
 - **D2 The config keys: `launch.context_window`, `launch.claudeai_connectors`, and per lane type
@@ -47,8 +47,8 @@ window a session is measured against.
   `--settings`.
   - **Who writes the default:** `panel init` and `panel attach` write
     `"launch": {"context_window": 200000, "claudeai_connectors": false}` and declare version 6.
-  - **Existing configs:** this repository's `.clauductor/panel.json` and the template's preset
-    (`template/.clauductor/panel.json`) get the same keys, so the operating model's own lanes run
+  - **Existing configs:** this repository's `.stridal/panel.json` and the template's preset
+    (`template/.stridal/panel.json`) get the same keys, so the operating model's own lanes run
     the policy and show the calibrated bar (D7).
   - **Beat:** a built-in default for every lane once the panel is upgraded. That would change how
     each registered project's lanes run the moment the binary changes, with nothing in its config
@@ -195,7 +195,7 @@ window a session is measured against.
   all.**
   - **Who runs them, and where:** the orchestrator, outside the sandbox.
     - It uses a throwaway git repository in the session's scratchpad, on its own tmux socket
-      `p48-probe`, never `clauductor` or `standingtee`.
+      `p48-probe`, never `stridal` or `standingtee`.
     - It runs with the owner's own login (a probe needs a real session), on Sonnet, at the
       smallest window (100000).
     - It spends at most $5 of the budget.

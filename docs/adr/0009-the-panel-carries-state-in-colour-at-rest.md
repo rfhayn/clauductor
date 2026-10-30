@@ -8,7 +8,7 @@
   `tellsRules` and the variant's `rules`); `docs/prds/active/PRD-ui.md` decision 1
 
 ## Context
-The owner judged the panel's UI the weakest part of Clauductor (PRD-ui, *Why*). One cause was a
+The owner judged the panel's UI the weakest part of Stridal (PRD-ui, *Why*). One cause was a
 rule, not a bug: `docs/panel.md` drew the page "the way control rooms and trading desks are: grey
 at rest, and colour only when something is abnormal", and `TestPanelAvoidsTheTells` failed any
 rounding, shadow, motion, gradient or badge. Six themes and six type systems, each in light and
