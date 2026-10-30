@@ -17,8 +17,10 @@ findings could not tell this apart from a chain of test gaps: both read 1, 1, 1.
 apart was where the findings sat (the same few lines) and what produced them (the last fix).
 
 Earlier, on Standing Tee's #70, rounds 2 to 4 each found defects introduced by the previous
-round's fixes. The fix rate matched the defect rate, so the loop did not end; it was stopped. The
-lesson Standing Tee drew was that a finding count says nothing on its own: a round is read by its
+round's fixes. The fix rate matched the defect rate, so the loop did not end; it was stopped.
+PRAC-0017 first read that as "watch the regression column"; its 2026-08-30 amendment replaced
+that with what this record keeps, measured on a later PR whose findings fell 15 → 7 → 4 while the
+share of regressions rose: a finding count says nothing on its own, and a round is read by its
 peak severity and how far its defects reach.
 
 Here, `build-change.js` already scores a round by peak severity (it stops when severity rises or
@@ -32,8 +34,10 @@ the report the PR is written from.
 1. **A round is judged by its peak severity and how far its defects reach, not by its finding
    count.** A falling count at a flat peak is not convergence; six findings in round 1 of a
    well-sized change is a healthy review.
-2. **A fix that needs state or logic its task did not name is a stop, not a fix.** The builder
-   returns `design-issue` naming what it needs; the design is the owner's.
+2. **A fix that adds state or logic beyond what its finding needs is a stop, not a fix.** The
+   builder returns `design-issue` naming what it needs; the design is the owner's. A finding marked
+   with a `source:` is still fixed at that source, and a new mechanism a finding does need is named
+   in the builder's `notes`.
 3. **When a finding sits in the same small mechanism as the previous round's and is a regression
    of its fix, the next fix asks first whether the mechanism can be deleted.** If what it buys is
    an optimization or a nicety, delete it and state the cost in the PR body. Harden it only when
@@ -56,11 +60,16 @@ the report the PR is written from.
 ## Enforcement
 - **`template/.claude/workflows/build-change.js`**: every review-fix prompt carries the stop and
   delete-first instruction (`DELETE_FIRST`), from round 2 the previous round's findings, and each
-  fix's `notes` are kept in the group's report (`fixNotes`). **`checks/build-change.sh`** asserts
-  all three in its driver. The review prompt and call (rule 13's triggers) are unchanged, so no
-  eval receipt is needed.
-- **`template/.claude/agents/builder.md`**, *Converge by removing, not adding*: the same rules for
-  a builder run by hand (`/apply-change`). An instruction: nothing checks it.
+  fix's `notes` are kept in the group's report (`fixNotes`), which the workflow's success steps put
+  in the PR body. **`checks/build-change.sh`** asserts these in its driver. The review prompt and
+  call (rule 13's triggers) are unchanged, so no eval receipt is needed.
+- **A limit, and how it is covered.** #601's own shape (one medium, then one medium that regresses
+  its fix) stops build-change's stuck-loop breaker at round 2 (*not falling*), before any fixer
+  sees both rounds. So the stuck stop names both rounds' findings and the delete option to whoever
+  reads it; the deletion is then that reader's decision, not the builder's.
+- **`template/.claude/agents/builder.md`**, *Converge by removing, not adding*, and
+  **`/apply-change`** step 4, which hands the builder the previous round's findings: the same rules
+  for a loop run by hand. Instructions: nothing checks them.
 - Peak-severity scoring is `build-change.js`'s `gradeRound` and its stuck-loop stops, as before.
 - The builder's judgment that a finding is a regression in the same mechanism, and the PR body
   stating the cost: **Nothing. You.**

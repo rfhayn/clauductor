@@ -59,7 +59,9 @@ do one group alone. The loop is the same, and so are its stops.
    gate again).
 4. **Review.** Spawn the `stridal:reviewer` agent with only the change id and the group number, never the
    builder's summary (its blind spots must differ). Findings medium or worse go back to the builder
-   to fix at their source, or to dispute with a reason; then gate again and review again. **Stop**
+   to fix at their source, or to dispute with a reason, with the previous round's findings too, so
+   it can see a fix's regression in one small mechanism and ask first whether to delete it
+   (PRAC-0014; a deletion's cost goes in the PR body); then gate again and review again. **Stop**
    if peak severity RISES between rounds, or at the cap without converging (`stridal-model review-cap.sh
    <id> --why`: its rounds, and `REVIEW_AT_CAP`). When the cap's round still finds something medium
    or worse, `stop` (the default) stops the run and names the disputes for the owner: raise the cap,
