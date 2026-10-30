@@ -298,7 +298,7 @@ blocks group 1. O1, O2 and O6 decide the amendment's wording, and group 2 insert
   OPS-93 behind it. Deps take only row ids and issues.
   - **Recommend:** keep the owner's order, and make it executable. Queue the rename as a row when
     its scope is known, and give OPS-93 a Dep on it. If the rename is not queued by the time
-    OPS-93 is next, build OPS-93 first, and the rename renames `no-stridal` in this amendment
+    OPS-93 is next, build OPS-93 first, and the rename renames the old name's `no-` check (now `no-stridal`) in this amendment
     with the rest. That is a mechanical edit in either order.
   - **Beat:** holding OPS-93 on an order written only in prose. It would wait on something the
     queue cannot see, and nothing would say why it is not next.

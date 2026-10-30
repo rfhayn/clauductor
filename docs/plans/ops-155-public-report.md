@@ -115,21 +115,21 @@ change the workflow file in its own PR and run what it likes on GitHub's runner,
 
 ## 5. The name
 
-Publishing now publishes **stridal**, the old name. The new name has cleared (the owner,
+Publishing now publishes the old name. The new name has cleared (the owner,
 2026-10-28) but the sweep, OPS-104 (R2, rename step 5, session S17), has not run, and nothing in
 the repository writes the new name, so the flip does not reveal it early. What publishing first
 means:
 
 - **The old name becomes public and permanent.** It is in every file, the plugin id, the
-  marketplace (`/plugin marketplace add rfhayn/stridal`, `README.md:39`), 23 other files that
-  name `rfhayn/stridal` (13 of them as a `github.com` link), the history and every PR. OPS-104 keeps class-C names and does
+  marketplace (`/plugin marketplace add` with the old repository slug, `README.md:39`), 23 other
+  files that name that slug (13 of them as a `github.com` link), the history and every PR. OPS-104 keeps class-C names and does
   not rename the plugin id, and its `name-residue.sh` allow-list keeps the journal and
   `changes/archive/` as they are, so the old name stays visible after the sweep too.
 - **The repository's own rename** comes with or after OPS-104. GitHub redirects the old URL for
   clones, links and the raw schema URL (`template/.stridal/panel.json:2`) until someone
   creates a new repository under the old name. Anyone who forks or stars in the gap sees the
   rename happen.
-- **The Go module path** is already `github.com/stridal/stridal` (not `rfhayn/`), and OPS-104
+- **The Go module path** is already under the old name's own owner (not `rfhayn/`), and OPS-104
   changes it with `go mod edit -module`; nothing imports it from outside yet.
 - **No release.** v0.1.0 (REL-1) ships only under the new name, with no fallback (ADR-0011,
   the owner, 2026-10-27), so going public now is a source-visible preview, not a launch.

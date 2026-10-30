@@ -40,7 +40,7 @@ keep them apart.
 4. **The product module is on by default, in lite and in full.** Its screens are claude.ai artifacts, shareable and
    usable from a phone, as Standing Tee runs them, plus a read-only summary in the terminal UI (Phase 5, PRD-product).
 5. **One version number** covers the plugin, the template and the binary.
-6. **v0.1.0 ships only under the new name.** The fallback of shipping as `stridal` and renaming at v0.2 is dropped:
+6. **v0.1.0 ships only under the new name.** The fallback of shipping under the old name and renaming at v0.2 is dropped:
    after a public release, a rename breaks the Go module path, the plugin id, links and people's scripts.
 7. **What Standing Tee's operating model does that the template does not is ported into the template** (Phase 4),
    reversing OPS-71's cancellation of the Standing Tee ports. Practices still flow one way.
@@ -58,7 +58,7 @@ keep them apart.
   cancelled. ADR-0009's colour rules carry over to the terminal UI.
 - A terminal UI draws a character grid: no real charts, nothing shared with a teammate. That is why the product
   module's screens stay in claude.ai artifacts.
-- Plugin skill names carry a prefix (`/stridal:session-start`, and the new name's after the rename).
+- Plugin skill names carry a prefix (the old name's `:session-start`, and `/stridal:session-start` after the rename).
 - The launch depends on the new name clearing, with no fallback.
 - The project that adopts it is no longer paying for it: support and contributions become the owner's cost.
 

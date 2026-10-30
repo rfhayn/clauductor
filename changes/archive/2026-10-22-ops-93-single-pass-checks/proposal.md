@@ -79,7 +79,7 @@ executable. Launch is REL-1 (Phase 4), so any Phase 2 row comes before it.
 
 - **Running the checks the template and this repo share only once**: OPS-89, the pairing above.
 - **Per-step timings in the gate log**: OPS-89.
-- **Renaming `no-stridal`**: the rename, which has no row yet (O2).
+- **Renaming the old name's `no-` check** (now `no-stridal`): the rename, which has no row yet (O2).
 - **A double pass for adopters' own CI.** The weekly job is this repo's alone. An adopter can set
   `CHECKS_DOUBLE_PASS=1` (O5).
 
