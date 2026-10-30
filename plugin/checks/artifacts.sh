@@ -351,17 +351,19 @@ grep -q 'did not finish within 0 s' "$d/err" && ok "guard rule: ...and says it w
 # foreground, as the budget's does on a slow check. The rule is run on its own (the hook's own jq
 # calls would be stopped too). Falsified by a TERM trap that exits 2: the block then reads "could
 # not run", not "did not finish".
-# The TERM is the case's, not the budget's (the 0 s case above proves the budget sends one): the
-# first jq sends it to currency.sh's shell, whose pid a pass-through sh records, and the budget is
+# The TERM is the case's, not the budget's (the 0 s case above proves the budget stops the check;
+# with_timeout sends that stop as a TERM, lib/modules.sh): the first jq once currency.sh has
+# started sends it to currency.sh's shell, whose pid a pass-through sh records, and the budget is
 # one the run never reaches. A jq that slept past the budget instead had to end after the TERM and
 # before the KILL 2 s later, a window load can miss (OPS-173, #335): here nothing waits on the
 # clock and no KILL comes. The shell holds the trapped TERM until that jq ends, then exits 143.
 mkdir -p "$d/stop"
 printf '#!/bin/sh\ncase "$1" in */bin/currency.sh) echo "$$" > "%s/cur.pid" ;; esac\nexec "%s" "$@"\n' "$d" "$(command -v sh)" > "$d/stop/sh"
-printf '#!/bin/sh\n[ -e "$0.once" ] || { : > "$0.once"; kill -TERM "$(cat "%s/cur.pid")"; }\nexec "%s" "$@"\n' "$d" "$(command -v jq)" > "$d/stop/jq"
+printf '#!/bin/sh\n[ -e "$0.once" ] || [ ! -s "%s/cur.pid" ] || { : > "$0.once"; kill -TERM "$(cat "%s/cur.pid")" && : > "%s/termed"; }\nexec "%s" "$@"\n' "$d" "$d" "$d" "$(command -v jq)" > "$d/stop/jq"
 chmod +x "$d/stop/sh" "$d/stop/jq"
 secs=$(slow 60)
 o=$(cd "$R" && env PATH="$d/stop:$PATH" ARTIFACT_RULE_SECONDS="$secs" GUARD_BRANCH=ops/session-9-close GUARD_HEAD="$HD" GUARD_PR=999 sh "$R/.claude/modules/artifacts/guard.d/currency.sh" 2>&1); rc=$?
+[ -e "$d/termed" ] && ok "guard rule: the case's TERM reached currency.sh mid-run" || fail "guard rule: the case's TERM never reached currency.sh (no sh wrapper call, or no jq after it), so the case below proves nothing"
 expect_rc 2 "$rc" "guard rule: a check stopped mid-run blocks"
 has yes "did not finish within $secs s" "$o" "guard rule: ...and says it was stopped, not that it could not run"
 # The verdict is the HEAD commit's, never the local tree's. Falsified by reading the working tree: red.
