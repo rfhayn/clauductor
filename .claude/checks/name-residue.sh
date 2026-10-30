@@ -5,43 +5,82 @@
 # script outside the repository, so nothing here reads what it left. Git history and past PR
 # titles are not files and keep the earlier name.
 #
-# The allow-list is empty. The earlier name is spelled in two pieces below, so this file does not
-# match itself. Repo-only: the template does not ship it.
+# Every tracked file is read, binary-attributed ones too (git grep -a): a binary attribute is a
+# diff setting, and a name inside such a file still ships.
+#
+# The name split into quoted pieces ("ab""cd", 'ab' + 'cd') counts as the name, everywhere but
+# the two files that must build it, and nothing else:
+#   - this file, which needs the name to look for it;
+#   - framework/internal/template/oldmodel_test.go, whose fixture gives back the bytes the old
+#     model shipped, which oldmodel.go's hashes are of.
+# The plain name is allowed nowhere, those two included.
+#
+# Repo-only: the template does not ship it.
 . "$(dirname "$0")/lib.sh"
 
 old="clau""ductor"
+split_ok=".claude/checks/name-residue.sh framework/internal/template/oldmodel_test.go"
 
-# residue DIR: the tracked files of DIR's repository that name the earlier name, in their text
-# (git grep, case-insensitive) or in their path.
+# residue DIR: the tracked files of DIR's repository that name the earlier name in their text or
+# their path, and those outside split_ok that build it from quoted pieces. Fails (status 2) when
+# DIR is not a repository or git cannot read it, so an unread tree is never a clean one.
 residue() {
-  {
-    git -C "$1" grep -I -i -l -e "$old" 2>/dev/null
-    git -C "$1" ls-files | grep -i -e "$old"
-  } | sort -u
+  git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 2
+  _r=$(mktemp "${TMPDIR:-/tmp}/name-residue.XXXXXX")
+  git -C "$1" grep -a -i -l -e "$old" >"$_r"; rc=$?
+  [ "$rc" -le 1 ] || { rm -f "$_r"; return 2; }
+  git -C "$1" ls-files | grep -i -e "$old" >>"$_r"
+  # A split always leaves one piece of at least half the name: its first five letters or its
+  # last five. Lines holding either are read with quotes, plus signs and spaces taken out.
+  head5=$(printf '%s' "$old" | cut -c1-5); tail5=$(printf '%s' "$old" | cut -c6-)
+  git -C "$1" grep -a -i -n -E -e "$head5" -e "$tail5" >"$_r.c"; rc=$?
+  [ "$rc" -le 1 ] || { rm -f "$_r" "$_r.c"; return 2; }
+  while IFS= read -r line; do
+    f=${line%%:*}
+    case " $split_ok " in *" $f "*) continue ;; esac
+    printf '%s' "${line#*:*:}" | tr -d "\"'+ " | grep -q -i -e "$old" && printf '%s\n' "$f" >>"$_r"
+  done <"$_r.c"
+  sort -u "$_r"
+  rm -f "$_r" "$_r.c"
 }
 
-# The negative case first: a repository holding the name in a file's text, in another's path and
-# in another case is caught on each, so a pass below means the scan looked.
 t=$(mktemp -d "${TMPDIR:-/tmp}/name-residue.XXXXXX")
 trap 'rm -rf "$t"' EXIT
+
+# The negative cases first, so a pass below means the scan looked: the name in a file's text, in
+# a path, in upper case, in a binary-attributed file, split into quoted pieces; and a directory
+# that is not a repository fails rather than passing as clean.
 git -C "$t" init -q
 printf 'run %s now\n' "$old" > "$t/text.md"
 printf 'x\n' > "$t/$old-path.txt"
 printf 'X_%s=1\n' "$(printf '%s' "$old" | tr '[:lower:]' '[:upper:]')" > "$t/upper.sh"
-printf 'clean\n' > "$t/clean.md"
+printf '%s\n' "$old" > "$t/blob.bin"
+printf '*.bin binary\n' > "$t/.gitattributes"
+printf 'n = "%s" + "%s"\n' "$(printf '%s' "$old" | cut -c1-4)" "$(printf '%s' "$old" | cut -c5-)" > "$t/split.go"
+printf 'clean, and Claude is not the name\n' > "$t/clean.md"
 git -C "$t" add -A
 got=$(residue "$t" | tr '\n' ' ')
-if [ "$got" = "$old-path.txt text.md upper.sh " ]; then
-  ok "the scan finds the earlier name in a file's text, its path and in upper case"
+want=$(printf '%s\n' "$old-path.txt" blob.bin split.go text.md upper.sh | sort | tr '\n' ' ')
+if [ "$got" = "$want" ]; then
+  ok "the scan finds the earlier name in text, a path, upper case, a binary file and quoted pieces"
 else
-  fail "the scan's own negative case found: '$got' (want the three planted files)"
+  fail "the scan's own negative case found: '$got' (want the five planted files)"
+fi
+mkdir "$t/not-a-repo"
+if GIT_CEILING_DIRECTORIES="$t" residue "$t/not-a-repo" >/dev/null; then
+  fail "a directory that is not a repository passed as clean"
+else
+  ok "a directory that is not a repository fails the scan"
 fi
 
-found=$(residue "$ROOT")
-if [ -z "$found" ]; then
-  ok "no tracked file in $ROOT names the earlier name"
+if found=$(residue "$ROOT"); then
+  if [ -z "$found" ]; then
+    ok "no tracked file in $ROOT names the earlier name (split forms only in: $split_ok)"
+  else
+    fail "tracked files name the earlier name (rename it; only the two files above may build it from pieces):"
+    printf '%s\n' "$found" | sed 's/^/     /'
+  fi
 else
-  fail "tracked files name the earlier name (rename it; there is no allow-list):"
-  printf '%s\n' "$found" | sed 's/^/     /'
+  fail "could not read $ROOT's tracked files (not a repository, or git failed)"
 fi
 finish

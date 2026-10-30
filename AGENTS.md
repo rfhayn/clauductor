@@ -101,7 +101,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | The owner's roadmap tracker matches `docs/roadmap.md` | **`.claude/local/roadmap-tracker.sh`** via the session-start and session-close steps; the STALE line in session-start's context; **`local:roadmap-tracker`** |
 | A team-queue issue is listed as facts, approved only by an `approved` label after its last edit, bound to its content, worked only through its row; `new-row` proposes one | **`.claude/local/context.d/session-start/team-queue.sh`** (the states); **`local:team-queue`**; the handling steps: **Nothing. You.** |
 | The gate runs every check of both sets, and a shared one once only while the framework matches the template | **`scripts/ci/steps.sh`** (`CHECKS_ONCE`, `CHECKS_SKIP`); **`checks/check-sets.sh`** |
-| No tracked file names the product's earlier name, in text or path; no allow-list | **`checks/name-residue.sh`** (repo-only) |
+| No tracked file holds the earlier name; split only in its two named files | **`checks/name-residue.sh`** |
 | **This file stays a budget, not an archive** | **`.claude/checks/agents-md-budget.sh`** |
 | **Everything else in this file and `docs/conventions.md`** | **Nothing. You.** Including all four rules above. |
 
