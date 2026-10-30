@@ -134,7 +134,14 @@ else ok "the check's foreground child is stopped with it, never finishing"; fi
 # The grandchild is orphaned when its parent dies first, so nothing in the run reaps it: wait for
 # it to go, a zombie counting as gone (kill -0 reaches a zombie on Linux).
 _gp=$(cat "$T/gc.pid" 2>/dev/null)
-gc_gone() { case $(ps -o stat= -p "$_gp" 2>/dev/null) in '' | Z*) return 0 ;; esac; return 1; }
+# kill -0 decides; ps and /proc only recognise a zombie, so a ps that cannot run reads as "still
+# there" (a FAIL), never as gone.
+gc_gone() {
+  kill -0 "$_gp" 2>/dev/null || return 0
+  case $(cat "/proc/$_gp/stat" 2>/dev/null) in *") Z "*) return 0 ;; esac
+  case $(ps -o stat= -p "$_gp" 2>/dev/null) in Z*) return 0 ;; esac
+  return 1
+}
 if [ -z "$ps_ok" ]; then :
 elif [ -n "$_gp" ] && ! wait_for 5 gc_gone; then
   fail "the check's grandchild (pid $_gp) outlived the run: run.sh told only the top of the tree"
