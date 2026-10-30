@@ -28,8 +28,8 @@ do one group alone. The loop is the same, and so are its stops.
   If SendMessage is not in your tool list, put the outcome in your final hand-back if you are a
   subagent, else send it with `PushNotification`.
   With no reportTo, notify the owner yourself at each stop.
-  If a safety or permission classifier refuses a step, park it and send what was refused (to
-  reportTo, else the owner); never retry that step another way (PRAC-0015).
+  If a safety or permission classifier refuses a step, park it and send what was refused and why
+  it was being done (to reportTo, else the owner); never retry that step another way.
 
 ## Preconditions
 - Branch prefixes (`.claude/project.conf`; a branch is named by its key, never a literal): !`sh ${CLAUDE_PLUGIN_ROOT}/project-config.sh prefixes`

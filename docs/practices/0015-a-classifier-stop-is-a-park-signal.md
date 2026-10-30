@@ -4,7 +4,9 @@
 - **Date**: 2026-10-30
 - **Tags**: process, lanes, safety, classifiers
 - **Source**: Standing Tee's PRAC-0044 (Accepted there 2026-10-17), ported as roadmap row ST-13
-  (S18)
+  (S18); `docs/insights-log.md` rows *classifier blocks the orchestrator* (2026-10-19), *no
+  laundered workaround* (2026-10-18) and *classifier inconsistency* (2026-10-17); the owner queue's
+  OPS-127 item (2026-10-24)
 
 ## Context
 Sessions here run in auto mode. Two kinds of classifier can refuse a step: the safety classifier
@@ -12,10 +14,27 @@ on what a session writes or does, and the auto-mode permission classifier on a t
 refusal is not a fault in the session's code, and it does not always mean the step is wrong.
 
 Standing Tee met it three times before writing its PRAC-0044: two worktree sessions stopped in a
-row while designing one refusal, where a rule agreed before the second try (a second stop parks)
-meant the second stop needed no decision; a deliberate break of a security control, refused as
+row while designing a change that refused `$` in a location (its #698), where a rule agreed before
+the second try (a second stop parks) meant the second stop needed no decision; a deliberate break of a security control, refused as
 "Security Test Removal", which the founder then ran outside auto mode; and an `rm` and a secrets
 scan on a server, left for the founder and written down as not done.
+
+This repo has met them too, and each time the session parked rather than routed around:
+- **2026-10-17.** The classifier refused the merge of #142 while two PRs merged by the same command
+  that day; the owner added a `/permissions` rule and #142 merged.
+- **2026-10-18.** A lane's workaround of a sandbox limit was refused, and the main session did not
+  run the step for it: relaying it would have laundered the refusal. The step went to the owner.
+- **2026-10-19, session 6.** Deletions (worktrees, `git rm`) and anything read as a CI bypass were
+  refused to the orchestrating session. The owner ran those steps.
+- **2026-10-24, OPS-127.** Claude's own edit turning delegated approval on was refused; it was done
+  in #246 on the owner's direct instruction.
+
+The log declined to promote those rows: the classifier is the owner's control doing its job, and
+the harness already forbids running a step an agent was denied. Both hold, and neither is what
+this record adds. They say what to do once a refusal is recognised as one. This record says what
+a session does next in its own work (no rewording, no other path, no pieces that pass), who
+decides a retry, and that the retry's stop rule is agreed before it runs. None of that was written
+down here, and every one of those sessions did it by judgment.
 
 The failure this prevents is the one none of those sessions committed. A session meets a refusal
 mid-task, rewords the step or reaches the same result by another path, and reports success. From
@@ -34,7 +53,7 @@ under the pressure of the task it was given.
    observable unpark trigger on a named change or issue (AGENTS.md rule 1). Then a second stop
    needs no decision.
 3. **The owner may run the step instead**, outside auto mode. That is an owner action, and the
-   record says so.
+   session's report (its PR body, its journal fragment) says the owner ran it.
 
 ## Consequences
 ### Positive
@@ -50,9 +69,13 @@ under the pressure of the task it was given.
 - **`template/.claude/agents/builder.md`** carries the rule in the builder's brief: a classifier
   refusal is returned as `blocked`, never retried another way.
 - **`template/.claude/skills/apply-change/SKILL.md`**, its *Report to the session that asked*
-  clause, carries the same sentence for a lane reporting to the session that opened it.
-- **Known limits.** Both are instructions to a model: nothing checks that a session obeys them,
-  or detects a retry it made anyway. A session started without either brief gets nothing.
+  clause, carries the same rule for a lane reporting to the session that opened it.
+- **`.claude/checks/change-process.sh`** fails if either line is removed.
+- **The harness's notice** on every agent message forbids running a step another session was
+  denied (permission laundering), which holds rule 1 across sessions.
+- **Known limits.** `merge-pr`, `session-close` and a main session get no line of their own: only
+  the harness notice and this record reach them. Both lines are instructions to a model: nothing
+  checks that a session obeys them, or detects a retry it made anyway. A session started without either brief gets nothing.
   Decision 2 has no executor beyond the session that opened the lane and the owner.
 
 ## Related
