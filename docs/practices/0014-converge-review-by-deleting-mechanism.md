@@ -41,10 +41,10 @@ the report the PR is written from.
 3. **When a finding sits in the same small mechanism as the previous round's and is a regression
    of its fix, the next fix asks first whether the mechanism can be deleted.** If what it buys is
    an optimization or a nicety, delete it and state the cost in the PR body. Harden it only when
-   deleting it would lose a requirement. The builder deletes directly only what this build
-   added (its groups, or an earlier round's fix); anything else, named in `design.md` or a spec
-   scenario or predating the change, is the owner's, and the builder proposes its deletion by
-   returning `design-issue`. This governs what a fix is, not how many rounds there are:
+   deleting it would lose a requirement. The builder deletes directly only a mechanism this
+   build added that neither `design.md` nor a spec scenario names; any other (one they name, even
+   if this build built it, or code predating the change) is the owner's, and the builder proposes
+   its deletion by returning `design-issue`. This governs what a fix is, not how many rounds there are:
    the cap (`.claude/review-cap.sh`) is unchanged.
 
 ## Consequences
