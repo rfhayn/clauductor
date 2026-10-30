@@ -35,7 +35,8 @@ What the engine does **not** have yet, and which row builds it:
 
 PANEL-61's roadmap row names only part of this (state, time, context, cost, the filter, $/hr, the raise, the docs
 link). The jump key and the read marker are added to it when the owner approves this PRD, or at its proposal; subagent
-detail and context by part wait on open question 6.
+detail and context by part wait on open question 6. PANEL-62's row is widened likewise with a session's colour in its
+terminal, once the owner answers open question 3.
 
 **The states.** The screens and ADR-0009 each name states; this table is the one mapping, from the engine up:
 
@@ -48,7 +49,8 @@ detail and context by part wait on open question 6.
 | `idle` or `ended`, read | idle | grey ring |
 | a lane whose tmux session is gone | lost | dashed ring |
 
-The filter and sort use the screen states; the marks are ADR-0009's.
+The filter and sort use the screen states; the marks are ADR-0009's, except finished unread's bold, which ADR-0009 has
+no state for and this PRD adds.
 
 ## What it takes from the Ghostty Dock article
 
