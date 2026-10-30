@@ -650,8 +650,14 @@ printf 'GATE_CLEAN_ROOM="archive"\nMODULES=""\n' >> "$R/.claude/project.conf"
 touch "$R/LOCK_CLEANUP"; git -C "$R" add -A && git -C "$R" commit -qm "a step that locks its output"
 mkdir -p "$d/tmp"; rm -f "$STATE"
 (cd "$R" && PATH="$d/bin:$np" CI= STRIDAL_LANE=check TMPDIR="$d/tmp" bash "$RUN_REL") > "$d/out" 2>&1
-# The step locks its output wherever it runs, the checkout included: unlock both, or the caller's
-# cleanup (Go's t.TempDir as a non-root user on Linux) cannot remove them (#343).
+# The locked directory is left where the step ran: the clean room (its cleanup failed) or, in #343's
+# Ubuntu run, the checkout. Either way it must exist here, or the case never exercised a failing
+# cleanup; and both are unlocked, or the caller's cleanup (Go's t.TempDir as a non-root user on
+# Linux) cannot remove it.
+where=""
+for l in "$d"/tmp/gate.*/locked; do [ -d "$l" ] && where="the clean room"; done
+[ -d "$R/locked" ] && where="${where:+$where and }the checkout"
+[ -n "$where" ] && ok "the locking step left its directory in $where" || fail "the locking step left no locked directory: the case did not exercise a failing cleanup; $(grep '^==>' "$d/out" | tr '\n' ' ')"
 chmod -R u+w "$d/tmp" "$R/locked" 2>/dev/null; rm -rf "$d/tmp" "$R/locked"
 grep -q '^exit pid=[0-9]* code=0 ' "$STATE" && ok "a cleanup that fails still leaves the run's exit line" || fail "failing cleanup: state $(tr '\n' '|' < "$STATE" 2>/dev/null); $(grep '^==>' "$d/out" | tr '\n' ' ')"
 

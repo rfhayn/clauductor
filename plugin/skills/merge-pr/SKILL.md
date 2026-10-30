@@ -91,8 +91,10 @@ too. `gh pr checks` cannot see a dispatched run; poll `gh run list --workflow <f
 - **A required check has not reported or is not green**: the project names the PR checks a merge
   waits for in `GATE_PR_CHECKS` (`.claude/project.conf`; empty = none). The guard blocks until each
   has reported and passed on the head. A draft's CI is skipped, so when the Context block's PR line
-  says `draft`, run `gh pr ready <n>` first, then wait with `gh pr checks <n> --watch`. If it says gh itself
-  failed, fix gh (`gh auth status`): that is not CI.
+  says `draft`, run `gh pr ready <n>` first. Right after it nothing is pending yet and `--watch`
+  returns at once: wait until a required check shows as pending (`gh pr checks <n>`), then wait
+  with `gh pr checks <n> --watch`. If it says gh itself failed, fix gh (`gh auth status`): that is
+  not CI.
 
 ### 2b. The slice line (change PRs only)
 Find the change from the PR's own diff (`git diff --name-only origin/main...HEAD` under

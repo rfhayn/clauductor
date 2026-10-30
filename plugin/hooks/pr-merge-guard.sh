@@ -854,9 +854,10 @@ fi
 # (triggers in comments and `if:` expressions, `types:`, `branches:`, pull_request_target), so it
 # is an explicit opt-in: empty, nothing changes. Each name must have reported AND passed on the
 # head; a name matches a check of exactly that name, or that name followed by " (" (a matrix job:
-# `test` matches `test (ubuntu-latest)`). A skipped required check is not a pass, but it does not block beside
-# a pass of the same name: a draft's skipped run leaves a bare `test`=skipping on the head, and the
-# run `gh pr ready` starts reports `test (ubuntu-latest)` on that same head.
+# `test` matches `test (ubuntu-latest)`). A skipped required check is not a pass. The one excused:
+# the bare name skipped beside a pass of a matrix job, since a draft's skipped run leaves a bare
+# `test`=skipping on the head and the run `gh pr ready` starts reports `test (ubuntu-latest)` on
+# the same head. A skipped matrix job (`test (e2e)`) still blocks.
 if [ -n "${GATE_PR_CHECKS:-}" ]; then
   [ -z "$checks_err" ] || block "cannot read PR #$pr's checks (gh: $checks_err), and GATE_PR_CHECKS requires $GATE_PR_CHECKS to have passed. That is a gh problem (auth or network), not CI: fix it (gh auth status), then retry."
   missing="" notgreen=""
@@ -867,7 +868,7 @@ if [ -n "${GATE_PR_CHECKS:-}" ]; then
     bad=$(printf '%s' "$checks" | jq -r --arg w "$want" \
       '[ .[] | select(.name == $w or (.name | startswith($w + " ("))) ] as $m
        | ($m | any(.bucket == "pass")) as $passed
-       | [ $m[] | select(.bucket != "pass") | select(.bucket != "skipping" or ($passed | not))
+       | [ $m[] | select(.bucket != "pass") | select(.bucket != "skipping" or .name != $w or ($passed | not))
            | "\(.name)=\(.bucket)" ] | join(", ")')
     [ -z "$bad" ] || notgreen="${notgreen:+$notgreen, }$bad"
   done
