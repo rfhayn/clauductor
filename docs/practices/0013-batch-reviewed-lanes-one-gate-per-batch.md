@@ -75,8 +75,8 @@ merges in the order given, then `BATCH_REGENERATE`, which rebuilds `plugin/` her
 under **Also closes**, so the fold records the PR that merged); **`checks/batch.sh`** holds it,
 and `docs/playbook.md` (*Batching reviewed lanes*) names the order. Step 9's pre-PR pass is
 `scripts/ci/gate.sh -C <worktree> --quick`. Planning, the order, the freeze, step 7 and the
-pre-PR pass being run: **Nothing. You.** The mechanism's Rule 4 row is the template's AGENTS.md
-only: this repo's is at its byte ceiling, so this section is where its row would point. The guard rules that hold any PR (`pr-merge-guard.sh`: gate evidence for the exact
+pre-PR pass being run: **Nothing. You.** The mechanism's Rule 4 row is in the template's AGENTS.md
+and, since OPS-180 (#372), in this repo's as well, byte for byte. The guard rules that hold any PR (`pr-merge-guard.sh`: gate evidence for the exact
 head, rule 8 for the records) hold a batch PR too, but none of them knows it is a batch.
 
 ## Related
