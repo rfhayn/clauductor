@@ -1,6 +1,6 @@
 # PRAC 0014: Converge review by deleting mechanism, not adding it
 
-- **Status**: Proposed
+- **Status**: Accepted (by the owner, 2026-10-30)
 - **Date**: 2026-10-30
 - **Tags**: review, build-change, builder
 - **Source**: Standing Tee's PRAC-0017 (*Size a change so that one review round converges*), its
