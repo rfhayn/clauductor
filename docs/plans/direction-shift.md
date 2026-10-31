@@ -4,6 +4,9 @@
 `docs/roadmap.md` carries the rows and the session plan from S13. This file records why, and
 which old rows became which new ones. Nothing was built to write it.
 
+> **Phase numbers.** The phases below are numbered as of 2026-10-27. `docs/roadmap.md` has since renumbered them
+> (Learn from Standing Tee is Phase 2, the terminal UI Phase 4); the roadmap's numbers are current.
+
 ## What prompted it
 
 The owner considered making Stridal an open-source project rather than a paid product. Two

@@ -29,7 +29,7 @@ wf="$STRIDAL_FW/workflows/build-change.js"
 d=$(scratch)
 
 grep -q 'const stuck = stuckReason(entry.rounds)' "$wf" && ok "the review loop consults the stuck-loop breaker every round" || fail "build-change.js no longer calls stuckReason(entry.rounds) in the review loop"
-grep -q "return stop(\`group \${g.n} review\`, \`\${stuck}; grades \${grades(entry)}\${disputes}\`, 'stuck')" "$wf" && ok "a stuck loop stops with the distinct kind 'stuck'" || fail "build-change.js does not stop a stuck loop with kind 'stuck'"
+grep -q "return stop(\`group \${g.n} review\`, \`\${hint}\${stuck}; grades \${grades(entry)}\${disputes}\${both}\`, 'stuck')" "$wf" && ok "a stuck loop stops with the distinct kind 'stuck'" || fail "build-change.js does not stop a stuck loop with kind 'stuck'"
 grep -q "\${kind === 'stuck' ? 'STUCK' : 'STOPPED'}" "$wf" && ok "the notify line says STUCK for a stuck loop" || fail "the notify line does not distinguish a stuck loop"
 grep -q 'grades ${grades(entry)}"' "$wf" && ok "the Progress line records each round's grade" || fail "the commit step's Progress line does not record the grades"
 
@@ -292,11 +292,11 @@ const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
 const WORKTREE = { gitDir: '/repo/.git/worktrees/build-demo', commonDir: '/repo/.git', toplevel: '/repo/.claude/worktrees/build-demo' }
 const OPENED = 'marker: opened https://github.com/o/r/pull/1 as a draft (session-start: S1 2026-10-01 09:00 ET row DEMO-1)'
 const BELOW = 'quota-gate: below — 7d 40% (resets Mon 2026-10-05 12:00 ET) under 90% (QUOTA_LANE_STOP_PCT)\nexit 0'
-async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {}, commitCost = null, groups = null } = {}) {
+async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {}, commitCost = null, groups = null, round2 = null, fixNotes = '' } = {}) {
   const calls = []
   // commitCost: change-cost.sh's reading after each commit, one for every commit or a list in commit order.
   const costs = [].concat(commitCost)
-  const reviews = [{ findings: round1 }, { findings: [] }]
+  const reviews = [{ findings: round1 }, ...(round2 ? [{ findings: round2 }] : []), { findings: [] }]
   let h = 0
   const agent = async (prompt, opts) => {
     calls.push({ prompt, opts })
@@ -304,7 +304,7 @@ async function run(round1, { where = WORKTREE, args = {}, cfg = {}, budget = {},
     if (label === 'settings') return { output: JSON.stringify({ branch: { change: 'change/' }, changesDir: 'changes', gate: 'scripts/ci/gate.sh', gateWait: 'scripts/ci/gate-wait.sh', attribution: '', provenance: false, ...cfg }) }
     if (label === 'preflight') return { branch: 'change/demo', clean: true, ...where, risk: 'normal', reviewCap: '3 — risk normal, from the test; REVIEW_AT_CAP stop', budgetUsd: null, budgetKind: 'none', costUsd: null, economy: false, today: '2026-10-01', gate: '', quickFlags: '', marker: OPENED, quotaGate: BELOW, ...budget,
       groups: groups || [{ n: 1, title: 'Substrate', openTasks: 0 }, { n: 2, title: 'Service and API', openTasks: 0 }, { n: 3, title: 'Screens', openTasks: 2 }, { n: 4, title: 'Close-out', openTasks: 0 }] }
-    if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [] }
+    if (label.startsWith('build:') || label.startsWith('review-fix:') || label.startsWith('gate-fix:')) return { status: 'done', summary: 'ok', disputed: [], notes: fixNotes }
     if (label.startsWith('gate:') || label === 'receipt') return { passed: true, evidence: 'ok', diffHash: `h${++h}` }
     if (label.startsWith('review:')) return reviews.shift()
     if (label.startsWith('commit:')) return { committed: true, sha: 'abc1234', costUsd: costs.length > 1 ? costs.shift() : costs[0] }
@@ -338,6 +338,14 @@ const t = (label, cond, got) => out.push(`${cond ? 'ok  ' : 'FAIL'} driver: ${la
   t('a finding whose source predates the change (group 0) lifts it too', r.fix.includes('source: predates this change') && r.fix.includes(LIFTED), r.fix)
   r = await run([finding(4)])
   t('a finding a LATER group owns keeps the boundary', r.fix.includes('Stay inside group 3.') && !r.fix.includes(LIFTED), r.fix)
+  // ST-12 (PRAC-0014): every fix may be a deletion, and round 2's fixer sees what round 1 found.
+  const regress = { ...finding(3), summary: 'the skip misses a path through a done milestone' }
+  r = await run([finding(3), { ...finding(3), line: 60, summary: 'the skip misses file order' }], { round2: [regress], fixNotes: 'deleted the edge skip; costs a few grey edges' })
+  const fix2 = (r.calls.find((c) => c.opts.label === 'review-fix:3#2') || {}).prompt || ''
+  t('a fix that needs unnamed state returns design-issue, a designed mechanism is deleted only through design-issue, and a regression in one mechanism asks first to delete it', r.fix.includes('no task in this group names') && r.fix.includes('Delete directly only a mechanism this build added that neither design.md nor a spec scenario names') && r.fix.includes('one they name, even if this build built it, or code predating the change) is deleted only by returning design-issue') && r.fix.includes('whether the mechanism can be deleted') && r.fix.includes('Decision log') && !r.fix.includes('The previous round found'), r.fix)
+  const r601 = await run([{ ...finding(3), summary: 'the skip misses file order' }], { round2: [regress] })
+  t('#601\'s shape (one medium, then one regressing its fix) stops stuck with both rounds, and the delete option reaches the owner\'s notify', r601.report.stoppedAt === 'group 3 review' && r601.report.reason.includes('the skip misses file order') && r601.report.reason.includes('the skip misses a path through a done milestone') && r601.report.notify.includes('PRAC-0014'), [r601.report.notify, r601.report.reason])
+  t('round 2\'s fixer is given round 1\'s findings, and every fix\'s notes reach the report', fix2.includes('The previous round found these') && fix2.includes('the skip misses file order') && (r.report.groups[0].fixNotes || []).join('|') === 'round 1: deleted the edge skip; costs a few grey edges|round 2: deleted the edge skip; costs a few grey edges', [fix2, r.report.groups[0].fixNotes])
   const MAIN = { gitDir: '/repo/.git', commonDir: '/repo/.git/', toplevel: '/repo' }
   // The settings agent (project-config.sh) runs before preflight; "after preflight" counts from it.
   const afterPreflight = (calls) => { const i = calls.findIndex((c) => c.opts.label === 'preflight'); return i < 0 ? null : calls.slice(i + 1) }
