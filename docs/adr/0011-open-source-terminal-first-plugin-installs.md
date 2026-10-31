@@ -70,9 +70,32 @@ keep them apart.
   `framework/internal/panel/web`.
 - MIT: the `LICENSE` file REL-1 adds. Nothing checks that no row reintroduces a paid gate.
 
+## Amendment — 2026-10-31: the binary is the engine of every control, shipped in the plugin release
+- **Source**: ADR-0016, ADR-0017 and ADR-0018 (accepted by the owner, 2026-10-31); OPS-182 (S19).
+
+Decisions 1, 2, 4, 6 and 7 stand. Decisions 3 and 5 change, and so does a line of *Related*:
+- **Decision 3.** The binary still stops installing the model, but it no longer becomes "the terminal
+  UI and its engine only". It is the engine of every control (ADR-0017): the hooks, the gate, the
+  lease and the merge path run through it, and the plugin's MCP server is the same binary. A
+  plugin release carries it (ADR-0018), so a stranger adds the plugin and gets the engine with it;
+  the terminal UI is that binary's `stridal ui`. This repository moves to the plugin earlier than
+  planned, in Phase 2 (OPS-145, before any port).
+- **Decision 5.** "One version number" becomes one release: `hooks.json`, the skills and agents and
+  the engine ship together, and a repository pins that release in `.claude/stridal.lock`, read from
+  `origin/<main>` (ADR-0018).
+- **ADR-0006 is no longer "unchanged".** ADR-0016 supersedes it: a guarded repository needs the
+  engine, so the promise that a repository works without stridal is withdrawn.
+- **The phases above are renumbered** by the re-plan of 2026-10-31 (`docs/roadmap.md`): the
+  terminal UI is Phase 6, the product module Phase 7, the launch Phase 8.
+
+**Enforcement** (in addition to the above): OPS-183 and OPS-184 (the lock, the fail-closed
+dispatcher and the release that carries the engine) and OPS-145 (plugin-only install). Until they
+merge, **Nothing. You.**
+
 ## Related
 - ADR-0003 (one panel for many repositories: still true of the engine and its terminal UI)
 - ADR-0004 (superseded when OPS-145 merges)
-- ADR-0006 (a repository works without stridal: unchanged, and easier, since the binary installs nothing)
+- ADR-0006 (a repository works without stridal: superseded by ADR-0016, 2026-10-31; see the amendment above)
+- ADR-0016, ADR-0017, ADR-0018 (the engine and its one version authority)
 - ADR-0007 (the plugin: now the only install channel)
 - ADR-0009 (the panel's colour rules: carried into PRD-tui)

@@ -1,6 +1,6 @@
 # ADR 0006: A repository works without stridal installed
 
-- **Status**: Accepted
+- **Status**: Superseded by ADR-0016 (2026-10-31)
 - **Date**: 2026-09-30
 - **Tags**: template, panel, plugin
 - **Source**: PRD-change-process D10 (OPS-12, #23); built in OPS-8
@@ -71,4 +71,6 @@ environment fails `no-stridal`. The scheduled double pass on `main` keeps the ca
 gives up. `CHECKS_DOUBLE_PASS=1` restores the old behaviour in any run.
 
 ## Related
+- Superseded by ADR-0016 (the owner, 2026-10-31): its reason stopped binding when ADR-0011 made the
+  plugin the install.
 - ADR-0007; Standing Tee gets the same check at convergence (roadmap ST-3)
