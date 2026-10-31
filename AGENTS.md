@@ -129,7 +129,7 @@ another person needs goes in the repo. Detail: `docs/conventions.md`; how-to: `d
 - **Branching.** One change = one branch = one squash PR: `change/<id>` for a capability,
   `fix/<n>-<slug>`, `ops/<name>` otherwise. No stacked PRs. The main checkout stays on `main`.
 - **Commits and PR titles** start with the roadmap row's id, `PREFIX-N:` (`PANEL-19:`), in the
-  imperative. **No `Co-Authored-By`**, no provenance trailers (`model-roles.json`, ADR-0008).
+  imperative. **No `Co-Authored-By`**, no provenance trailers (`.claude/model-roles.json`, ADR-0008).
 - **The gate** is `GATE_RUN` in `.claude/project.conf`; agents run it through `GATE`.
 - **`template/` is the product.** A template edit ships: rebuild the plugin
   (`scripts/build-plugin.sh`) and sync this repo's copy with `stridal update`.
