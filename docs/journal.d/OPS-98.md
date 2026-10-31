@@ -15,9 +15,9 @@ The repository went public on 2026-10-29 (OPS-155), so its standard runners are 
 
 This repo's `GATE_PR_CHECKS` is `"test"` again. What it makes the merge guard require (`pr-merge-guard.sh` rule 2(a2)): on `gh pr merge`, the PR's head must have reported a check named `test` or `test (…)` (the matrix job, `test (ubuntu-latest)` on a PR), and every such check must be in the `pass` bucket. A check that has not registered yet blocks ("has not reported the checks GATE_PR_CHECKS requires: test"); one pending, failed or skipped blocks ("not green"), except a bare `test` skipped beside a passing `test (…)` of the same workflow (a draft's skipped run, then the ready PR's); a gh error reading the checks blocks as a gh problem, not CI. So a draft's skipped run never counts, and a merge waits for the ready PR's run. The guard's own cases for each state are in `checks/merge-guard.sh` (rule 2(a2)) and pass. The template's value stays empty (`CONF_NOT_READ` in `scripts/ci/steps.sh`).
 
-OPS-60's Ubuntu leg: pending this PR's first run.
+OPS-60's Ubuntu leg: passed. Run 41156307678 (2026-10-30, Ubuntu, tmux 3.4, head e6a0a8e0) passed `internal/panel`, which holds TestRestartFallsBackWhenClaudeRejectsTheFlag; the run is not verbose, so the pass is the package's.
 
-Billing standing: pending this PR's first run.
+Billing standing: good. The run started at once after `gh pr ready` and finished green (`test (ubuntu-latest)` pass); nothing was blocked on billing. On the same head, the draft's earlier run left a bare `test`=skipping beside it, the state rule 2(a2) now excuses. #343's three fixes and #361 held there: `internal/template` (TestTemplateChecks, with gate.sh's locked fixture, which fails if the step ran outside the clean room), `internal/testgit` and `internal/panel/claudecall` all passed. macOS runs only on the push to `main`.
 
 ## Decisions
 
