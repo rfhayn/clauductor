@@ -14,6 +14,191 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 19 — 2026-10-31 — Rich — re-architecture on record; hooks fail closed
+
+**Totals.** Gate 0 min (a row's gate was CANNOT CHECK, so this is a floor); cost $0 (a row's cost was CANNOT CHECK, so this is a floor).
+
+**Rows folded.** OPS-180 (#372); OPS-182 (#371); OPS-214 (#372).
+
+**The totals, by hand.** The fold's floor reads 0 for the same reason as S18: the lanes share the orchestrator's session id and left their gates to the batch. Gates from `gate-runs.log`: OPS-182 14 min (failed), then 18; OPS-214's quick run 14 (failed); the S19 batch 15 and 15. Cost: **~$52.89** for S19's main session and its agents (list price, this machine; `usage-report.sh`, the main session's reading; `claude-haiku-5-5` is unpriced, so the claude-code-guide agent counts as $0, not as free). The since-midnight-UTC table, which also holds S18's close and its last batches, reads ~$89.78. By role: session $34.20, general-purpose $30.19, ops $11.55, researcher $3.58, s18-close $3.53, batch-d $2.22, Plan $1.78, reviewer-docs $1.60, batch-c $1.14, claude-code-guide unpriced. By model: Opus $88.18, Sonnet $1.60, Haiku unpriced. Quota was ignored this session, by the owner's decision.
+
+**Flow.** 30d to 2026-10-31: cycle 1.8h median, lead 3.2h, 44.6 merges/wk, change-fail 5.5%, approval wait 3.2h, review rounds 2, spend $951.84/wk, 4 in flight.
+
+**What happened.** S19 was meant to start terminal orchestration (ST-15 to ST-19). Instead it stopped building and examined the foundation. The owner asked whether all the shell was a bad architecture, and then the harder question: why had no review caught it? Every review had judged one diff against ADR-0006, which required shell, so a trend spread over dozens of changes never showed up in any one review. The owner chose the full re-architecture: controls and queries move into the `stridal` engine, and judgment stays in skills and agents. OPS-182's block below tells that story in full. It covers the researcher's three corrections, two rounds of docs review that each found a high in the author's own drafts, and the pre-mortem that found one shape behind every pivot since 10-01: a design accepted in prose before its binding constraint was checked.
+- **The deep-dive turned into experiments.** Five spikes ran in throwaway repos, each against a nested headless Claude Code (`docs/plans/s19-spikes.md`). They refuted three claims in the drafts within minutes, and found that every hook fails open by default.
+- **#371 (OPS-182)** put it on record: ADR-0016 to ADR-0021 accepted, ADR-0022 proposed for Gate C, PRAC-0023 (evidence before acceptance), and the roadmap rebuilt as nine gated phases.
+- **#372 (OPS-214 and OPS-180)**, one batch and one gate: the first spike result went straight into code, so every blocking guard is now registered `onFailure: "block"` with a timeout. This repo's AGENTS.md also gained the template's `batch.sh` row, with 3 bytes to spare.
+- **OPS-179 did not land.** It stopped at its review cap of 2 with a medium: its fix still matched a path substring in the `needLine` lookups, the same class as the original bug. A fix (aac9f278) sits on the lane, unreviewed. Raising the cap is the owner's call (owner queue). OPS-194 (#370) was not started.
+
+**Key decisions** (the owner's, 2026-10-31): the re-architecture in full; ADR-0016 to ADR-0021 and PRAC-0023 accepted, with each untested assumption "accepted at risk" and owned by OPS-199; Claude Code only, so Cursor is out of scope; quota ignored for the session.
+
+**The sandbox lesson, twice.** The `.claude/agents/` block that S18 logged as a sandbox limit was a prefix problem all along. The worktree checkouts had run as `cd <dir>; git worktree add …`, and `excludedCommands` matches the start of the command line, so they ran sandboxed. A bare `git worktree add` worked at once from the main session (`sandbox/cd-prefix-defeats-exclusion`). Subagents are a different story. S19's batch lane ran bare `git` and `gate.sh` and was still sandboxed. This close lane hit the same thing: its bare `git -C … worktree add` was refused on `.claude/agents/builder.md`, so the main session created the worktree. Whether a subagent's Bash honours `excludedCommands` at all is now one of OPS-199's spikes (`sandbox/subagent-exclusions-unclear`).
+
+**Learning.** Every S19 insight row has a decision except `review/no-aggregate-view`, which no row owns yet. It stays Raw for S20, because a new review mechanism is a design decision. Promoted: `engine/one-version-authority` and `hooks/fail-open-by-default` (ADR-0018), `decisions/accepted-before-tested` (PRAC-0023), `hooks/prompt-hook-ends-session` (ADR-0020), `mcp/no-context-through-mcp-tool-hooks` (ADR-0017). Instances: the ADR whose reason expired (rule 1), the language-is-not-the-class row (ADR-0012), the plan rewrite that dropped content (rule 2), the cd prefix. Not promoted: the TAB-IFS `read` gotcha, which was fixed where it bit, and ADR-0016 moves controls out of shell anyway. Deferred: the subagent sandbox row (OPS-199).
+
+**Roadmap.** S19 is marked done. OPS-179 and OPS-194 move to the front of S20. Known limits went to their owning rows: OPS-202 now has the ADR-0007/0011/0012 Status lines (#371) and the upgrade note for 5-column `hook-expectations.tsv` files (#372); OPS-185 now has the Stop and SubagentStop `onFailure` exemption (#372). PRAC-0013's Enforcement no longer says this repo lacks the `batch.sh` row.
+
+**What's next.** S20: the OPS-179 decision and OPS-194 first, then the Gate A spikes on the Mac (OPS-199, including the subagent sandbox question), then the evidence-gated ADR check (OPS-200) and the server-side required check (OPS-165). After S20 comes binary drift.
+
+### OPS-180 — this repo's AGENTS.md gains the template's batch.sh row
+
+- **PR**: #372
+- **Session**: S19, started 2026-10-31 05:31 ET
+- **Review**: 2 rounds, peak low, cap 2
+- **Gate**: CANNOT CHECK — S19 batch: one gate runs over the batch after this commit
+- **Cost**: CANNOT CHECK — a batch lane shares the orchestrator's session id, so no cost is the row's own
+- **Session start**: CANNOT CHECK — a batch lane runs no session-start marker
+
+#### What happened
+
+The root AGENTS.md has the template's `scripts/ci/batch.sh` row, byte for byte, in the template's place (after the wall-clock row, before this repo's own rows). The file was 15994 bytes against its 16000 ceiling. Prose-only trims pay for the row's 241 bytes, and the file is now 15997 bytes: the opening quote, the rules intro and the table intro are reworded, "(or the project's equivalent)" and "the role named" are dropped, and the template and reuse bullets are shortened. The table rows are untouched, so the shared rows still match the template's. The ceiling did not move.
+
+#### Decisions
+
+- The trims are prose, never a table row, so `stridal update`'s row suggestions (matched by first cell) and the template comparison stay exact.
+- Round 1's low: dropping "; models: `.claude/model-roles.json`" lost the file's only full path to the models file. The path went back into the Essentials commits bullet rather than into table row 83, which would then differ from the template's row.
+
+#### Surprises
+
+PRAC-0013's Enforcement section still says this repo's AGENTS.md lacks the row because it sits at its byte ceiling. `docs/practices/` belongs to the concurrent OPS-182 lane, so that sentence is left for OPS-182 or the S19 close. The file now has 3 bytes of headroom, so the next template row needs another trim.
+
+#### Insights
+
+None.
+
+### OPS-182 — the re-architecture on record: ADR-0016 to ADR-0022, PRAC-0023, the S19 spikes and the engine re-plan
+
+- **PR**: #371
+- **Session**: S19, started 2026-10-31 05:30 ET
+- **Review**: 0 rounds, peak none, cap 2
+- **Gate**: CANNOT CHECK — the lane's gate runs on the fragment's own commit; the main session fills this after review
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id; filled at the close
+- **Session start**: CANNOT CHECK — S19 ran no marker for this row; filled at the close
+
+#### What happened
+
+S19 was planned as the start of terminal orchestration (ST-15 to ST-19). It became the session
+that stopped building on the foundation and examined it. At session start, the owner asked whether
+all the shell was a bad architecture. The honest answer was "not busted, but concentrated": about
+5.5k of 31.5k lines do a parser's or a program's job in shell, and they are where the review rounds
+go. The owner asked the harder question: why didn't any review catch it? Because every review
+judged a diff against ADR-0006, and ADR-0006 required shell. A trend across dozens of changes is
+invisible to dozens of reviews of one change each.
+
+The owner chose the full re-architecture. The controls move into the `stridal` engine, while
+judgment stays in skills and agents. The organizing rule was the one the repo already lived by
+(rule 4): a control is something the harness runs every time, never something the model chooses to
+do. "More agentic" was the wrong fix, because it would have turned controls back into requests.
+
+An independent researcher then corrected the first design in three places:
+- The libraries are the extension API, so they need a CLI contract before they can move.
+- ADR-0012 was about to be built in shell and then ported, doing 2,300 lines twice.
+- A repo lock next to plugin-registered hooks makes two version authorities, a new and worse drift.
+
+The design was redrafted as four ADRs (0016 to 0019) around one artifact carrying both
+registration and engine, pinned by the repo. It then went through two rounds of independent docs
+review before the owner read it, and both rounds found highs in the author's own work:
+- **Round 1:** the re-plan ignored the roadmap's grammar, which the parser would have refused. And
+  the version design never said what happens in a repo that doesn't use the model: it would have
+  failed closed in every unrelated repo the owner opened.
+- **Round 2:** "the old sessions, unchanged" had quietly erased eight sessions of owner decisions.
+
+Each fix was proven by a mechanism (a `diff`, a named row, a test case), not by a re-read. The
+model reviewing its own architecture is the model working: the controls that caught these were the
+same practices the migration is protecting.
+
+**The second half of the night: planning not to pivot again.** The owner then asked the question
+that mattered most: plan this deeply enough that we don't get further down the road and pivot
+again. Three independent reads ran at once:
+- a remap of every open row in all seven phases;
+- a pre-mortem that read this repo's own history of pivots;
+- an outside check of MCP and Claude Code's hooks.
+
+The pre-mortem found one pattern behind every pivot since 10-01: a design accepted in prose, work
+committed, and the binding constraint checked only later. It also found the new drafts repeating
+it. Three claims in them were refuted by the docs in minutes:
+- that context could arrive through `mcp_tool` hooks;
+- that judgment gates could keep a log;
+- that binaries could ship in the plugin at no cost.
+
+So the night ended with experiments, not more prose. Five spikes ran in throwaway repos, with a
+nested headless Claude Code per case (`docs/plans/s19-spikes.md`). They showed four things:
+- **Every hook fails open by default.** A missing binary or a hung one lets the call through,
+  unless the hook says `onFailure: "block"`.
+- **A prompt hook that blocks on PreToolUse ends the whole session.** An agent hook blocks only the
+  call.
+- **A plugin MCP server that dies simply vanishes.**
+- **The Go dispatcher costs 0.2 ms more per call than the shell it replaces.**
+
+Each result went into an ADR's new *Rests on* section. A new practice (PRAC-0023) makes that
+binding: an ADR is accepted only on the evidence its assumptions name, and a phase starts only on
+its gate's evidence. The roadmap was rebuilt as nine gated phases. A script verified that every
+open row was placed, not lost.
+
+What landed in this PR: ADR-0016 to ADR-0021 (Accepted) and ADR-0022 (Proposed, for Gate C);
+ADR-0006 superseded by ADR-0016; amendments to ADR-0007, ADR-0011 and ADR-0012; PRAC-0023;
+`docs/plans/s19-spikes.md`; the re-planned `docs/roadmap.md`, with the rows that finished since the
+reset of 2026-10-27 and sessions S14–S18 moved to `docs/roadmap-history.md` word for word; issue
+#370 for OPS-194; and the owner-queue item on `.claude/agents/` ticked.
+
+#### Decisions
+
+- **The re-architecture, in full** (the owner, 2026-10-31): controls and queries in the engine,
+  judgment in skills and agents (ADR-0016, ADR-0017).
+- **ADR-0016 to ADR-0021 and PRAC-0023 accepted** (the owner, 2026-10-31: "I accept the new ADRs
+  and PRAC-23"). Each item in their *Rests on* that no spike has tested reads "accepted at risk by
+  the owner (2026-10-31)" and names the row that tests it: OPS-199 for the platform assumptions,
+  OPS-185, OPS-187 and OPS-197 for the three their own builds measure. ADR-0022 stays Proposed:
+  the owner decides it at Gate C.
+- **Claude Code only** (the owner, 2026-10-31: "we can just worry about Claude only"). Cursor is out
+  of scope: ADR-0016's *Rests on* says so, and OPS-199 no longer spikes it.
+- **The finished rows move to the history, not out of the record.** The re-plan replaced every
+  phase table, so the 45 rows that merged or were cancelled after the reset, and S14–S18, went to
+  `docs/roadmap-history.md` as its header prescribes, keeping their ids (and o.5 and o.6) taken.
+- **PR #25 is left for the owner** to close: it is the owner's PR.
+
+#### Surprises
+
+The sandbox's `.claude/agents/` block, logged in S18 as a batch-merge nuisance, looked overnight
+like it stopped every worktree checkout, so the session produced the decision, the plan and the
+records, and parked the code for an owner decision. The decision was never needed. The checkouts
+had been run as `cd <dir>; git worktree add …`, and the sandbox's `git *` exclusion matches the start
+of the command line, so they ran sandboxed. A bare `git worktree add` succeeded at once.
+
+#### Insights
+
+10 row(s), moved to the insights log.
+
+### OPS-214 — every blocking guard is registered fail-closed
+
+- **PR**: #372
+- **Session**: S19, started 2026-10-31 05:31 ET
+- **Review**: 3 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — S19 batch: one gate runs over the batch after this commit
+- **Cost**: CANNOT CHECK — a batch lane shares the orchestrator's session id, so no cost is the row's own
+- **Session start**: CANNOT CHECK — a batch lane runs no session-start marker
+
+#### What happened
+
+Claude Code (2.1.316) lets a call through when a hook cannot start, times out, or exits with a code other than 0 or 2, unless its registration says `"onFailure": "block"`. No registration set it. Now the 10 registrations of the 9 guard scripts on pre-action events carry it, with a timeout (60 s, or 300 s for pr-merge-guard, which calls GitHub): pr-merge-guard, no-blind-source-rewrite, no-background-gate, no-silent-wait (Bash and AskUserQuestion), cd-guard, catch-up-guard, no-worktree-force-remove, no-pattern-kill and worktree-hook-drift. read-by-range, pattern-kill-path, focus-staleness and format keep the default, and their rows say why. That covers the template's settings.json, the generated plugin hooks.json and this repo's copy.
+
+`checks/hooks.sh`'s registration table gains a sixth column (`block` or `continue: <why>`). A "Fail closed" section fails a guard registered without onFailure block, without a positive numeric timeout, or registered async, and fails a fail-open hook registered with block. Eleven self-tests run doctored copies. The section was shown failing first, on origin/main's settings (all 10 registrations). A fixture crashes each guard registration three ways (its script gone, exit 1, killed) and shows the command passes the crash on, so onFailure block makes it a block. Its negative case, a `|| true` registration, is refused. `TestHooksKeepFailClosed` holds the plugin build to the template's fields.
+
+#### Decisions
+
+- Which events are judged: the five Claude Code treats as guarding an action (PreToolUse, PermissionRequest, UserPromptSubmit, UserPromptExpansion, PreModelSwitch). Claude Code ignores onFailure on Stop, SubagentStop and TeammateIdle, so no-silent-wait's SubagentStop and cd-guard's Stop still fail open on a crash, and no setting changes that.
+- The fixture does not run Claude Code. That Claude Code honours the field rests on its schema and the S19 spike, and the ok line says so (round 1's medium).
+- A local `.claude/local/hook-expectations.tsv` row with five columns now fails, naming the column to add. A loud upgrade break, chosen over a guard that passes unjudged.
+- To fit the root AGENTS.md budget, cd-guard's row points to its header for when a hold ends, and the hooks row names the fail-closed property (template and root alike).
+
+#### Surprises
+
+`read` with a TAB IFS folds empty fields together, so an absent onFailure next to a timeout shifted the columns. Every absent field is now written as `-`. A comment inside no-blind-source-rewrite's single-quoted awk program cannot hold an apostrophe: the check caught the parse failure.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
 ## Session 18 — 2026-10-30 — Rich — S18: four batches, the two PRDs and two practices, CI back as a required check, the gate halved
 
 **Totals.** Gate 0 min (a row's gate was CANNOT CHECK, so this is a floor); cost $0 (a row's cost was CANNOT CHECK, so this is a floor).
