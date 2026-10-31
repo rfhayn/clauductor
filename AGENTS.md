@@ -1,17 +1,17 @@
 # Working conventions
 
-> **A budget, not an archive.** Every session and every subagent loads this file at startup, so
-> each line is paid for again every time an agent starts. `.claude/checks/agents-md-budget.sh`
-> holds it to a byte ceiling and each table row to a length ceiling. **New lessons go to
-> `docs/insights-log.md`** (from a row, by its fragment); detail goes to **`docs/conventions.md`**. Change this file only to
-> add a mechanism or to delete something, and give the mechanism its row in the table below.
+> **A budget, not an archive.** Every session and subagent loads this file, so each line is paid
+> for on every agent start. `.claude/checks/agents-md-budget.sh` holds it to a byte ceiling and
+> each table row to a length ceiling. **New lessons go to `docs/insights-log.md`** (from a row, by
+> its fragment); detail goes to **`docs/conventions.md`**. Change this file only to add a
+> mechanism or to delete something, and give the mechanism its row in the table below.
 
 ## Four rules that keep the model honest
 
-Rule 4 is the general shape; rules 1–3 are the three instances of it that cost the most. What
-unites them is a failure MODE, not a subject: **each degrades to silence rather than to an
-error**, so every automated check passes and the work reads as correct. The reasoning behind the
-cited principles is in `docs/principles.md`.
+Rule 4 is the general shape; rules 1–3 are its three costliest instances. What unites them is a
+failure MODE, not a subject: **each degrades to silence rather than to an error**, so every
+automated check passes and the work reads as correct. The cited principles are argued in
+`docs/principles.md`.
 
 **1. Deferring a finding means naming the CHANGE that will close it, not an endpoint.** An
 endpoint is a hope; a queued change is a commitment. If no such change exists, creating it (a
@@ -43,8 +43,8 @@ file", it is documentation, not a control. Corollaries:
 
 ### What executes each rule
 
-Rule 4 applied to this file. Most of what is written here is documentation, and that is stated
-rather than hidden. One line per row. Add your project's own controls; keep the last row last.
+Rule 4 applied to this file: most of it is documentation, and says so. One line per row; keep
+the last row last.
 
 | Rule / convention | What executes it |
 |---|---|
@@ -98,6 +98,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Shell scripts check out with LF on every OS (Windows via WSL2 included) | **`.gitattributes`** (`install` and `update` merge it); **`checks/line-endings.sh`** |
 | A script's temporary file lands in `$TMPDIR`: every `mktemp` line holds a `${TMPDIR:-` template or says why not | **`checks/mktemp-in-tmpdir.sh`** over every tracked shell script |
 | No unmarked `date +%s` clock read in a check: each says why (`# wall-clock:`); a check waits with `wait_for` (`checks/lib.sh`), never a fixed-count poll or a guessed sleep | **`checks/wall-clock.sh`** over every check `run.sh` runs; the polls and sleeps: **Nothing. You.** |
+| A batch merges its lanes `--no-ff` in order, merges `origin/<main>` before each gate, and names its PR in each row's fragment | **`scripts/ci/batch.sh`** (the playbook's batch steps); **`checks/batch.sh`**; running it: **Nothing. You.** |
 | The owner's roadmap tracker matches `docs/roadmap.md` | **`.claude/local/roadmap-tracker.sh`** via the session-start and session-close steps; the STALE line in session-start's context; **`local:roadmap-tracker`** |
 | A team-queue issue is listed as facts, approved only by an `approved` label after its last edit, bound to its content, worked only through its row; `new-row` proposes one | **`.claude/local/context.d/session-start/team-queue.sh`** (the states); **`local:team-queue`**; the handling steps: **Nothing. You.** |
 | The gate runs every check of both sets, and a shared one once only while the framework matches the template | **`scripts/ci/steps.sh`**; **`checks/check-sets.sh`**; keys: job `test` if in `GATE_PR_CHECKS`, else **Nothing. You.** |
@@ -109,7 +110,7 @@ Run every check with `sh .claude/checks/run.sh`.
 
 ## Who decides
 
-**The owner decides** (the role named `OWNER_ROLE` in `.claude/project.conf`):
+**The owner decides** (`OWNER_ROLE` in `.claude/project.conf`):
 - a change's proposal and every `design.md` decision, unless `APPROVAL_DELEGATED="1"` delegates
   them to Claude (`/propose` step 3a): never for a change on a path `.claude/lib/approval-guarded.txt`
   or `.claude/local/approval-guarded.txt` lists, nor one the decisions below keep;
@@ -118,22 +119,19 @@ Run every check with `sh .claude/checks/run.sh`.
 - anything outward beyond this repo.
 
 **Everything else runs without asking, merging included**, through `merge-pr` once the merge guard
-passes and review has converged. Reach the owner with `PushNotification` (or the project's
-equivalent) only when blocked on one of the decisions above, once per delegated approval, and once when a
-session is done.
-Where several people work, each merges only their own PRs. Claude's memory is per machine, so what
-another person needs goes in the repo. Detail: `docs/conventions.md`; how-to: `docs/playbook.md`;
-models: `.claude/model-roles.json`.
+passes and review has converged. Reach the owner with `PushNotification` only when blocked on
+one of the decisions above, once per delegated approval, and once when a session is done.
+Where several people work, each merges only their own PRs. Claude's memory is per machine: what
+another person needs goes in the repo. Detail: `docs/conventions.md`; how-to: `docs/playbook.md`.
 
 ## Essentials every agent applies
 
 - **Branching.** One change = one branch = one squash PR: `change/<id>` for a capability,
   `fix/<n>-<slug>`, `ops/<name>` otherwise. No stacked PRs. The main checkout stays on `main`.
 - **Commits and PR titles** start with the roadmap row's id, `PREFIX-N:` (`PANEL-19:`), in the
-  imperative. **No `Co-Authored-By`**, no provenance trailers (`model-roles.json`, ADR-0008).
+  imperative. **No `Co-Authored-By`**, no provenance trailers (`.claude/model-roles.json`, ADR-0008).
 - **The gate** is `GATE_RUN` in `.claude/project.conf`; agents run it through `GATE`.
-- **`template/` is the product.** A template edit ships to every project: rebuild the plugin
-  (`scripts/build-plugin.sh`), and sync this repo's own copy with `stridal update`.
+- **`template/` is the product.** A template edit ships: rebuild the plugin
+  (`scripts/build-plugin.sh`) and sync this repo's copy with `stridal update`.
 - **Never kill a tmux server or another session's process from a script** (ADR-0005).
-- **Reuse before you write.** Grep for the concept before adding a function, a query or a
-  dependency.
+- **Reuse before you write.** Grep for the concept before adding a function, query or dependency.
