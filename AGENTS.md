@@ -60,7 +60,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | Every scenario a change adds or modifies is cited by a test, and a merged one stays cited | **`.claude/scenario-trace.sh`**: a `run-local.sh` step and `pr-merge-guard.sh` rule 10 (blocking); **`checks/scenarios.sh`** |
 | A build merges finished; an archive holds only a finished change, its cost and its outcome row | **`pr-merge-guard.sh`** rules 9 and 11 (blocking); `/verify-change`; **`checks/merge-guard.sh`** |
 | An archive loses no living scenario, keeps superseded wording out, and skips a `NOT-SYNCED.md` capability | **`.claude/archive-change.sh`** (`archive-change` step 1); **`checks/archive-change.sh`** |
-| Every registered hook launches from any directory; the panel's cards run what session-start runs | **`checks/hooks.sh`** (the registration table); **`checks/panel-contract.sh`** (and no panel hook checked in) |
+| Every registered hook launches from any directory, and a guard that crashes or hangs blocks; the panel's cards run what session-start runs | **`checks/hooks.sh`** (the registration table, `onFailure`); **`checks/panel-contract.sh`** (and no panel hook checked in) |
 | A squash commit names its change, role, model and session | **`pr-merge-guard.sh`** rule 12 (blocking while `provenance.enabled`) |
 | With attribution off, only a squash merges, and it carries no Co-authored-by trailer | **`pr-merge-guard.sh`** rule 15 (blocking); **`checks/merge-guard.sh`** |
 | A role's model or a trigger it declares (`evals.triggers`: its agent, the marked review prompt) changes only with a passing eval receipt | **`pr-merge-guard.sh`** rule 13 (blocking); **`checks/model-roles.sh`** (the `eval` evidence); **`checks/evals.sh`** |
@@ -76,7 +76,7 @@ rather than hidden. One line per row. Add your project's own controls; keep the 
 | No forced worktree removal, no pattern kill | **`.claude/hooks/no-worktree-force-remove.sh`**, **`.claude/hooks/no-pattern-kill.sh`** (blocking); **`pattern-kill-path.sh`** puts **`.claude/bin/pkill`** first |
 | No gate ends where nobody hears it; a subagent waits for its gate in the foreground | **`.claude/hooks/no-background-gate.sh`** (blocking); **`scripts/ci/gate-wait.sh`**; **`checks/hooks.sh`**, **`checks/gate.sh`** |
 | No agent ends its turn while a command it started runs; no blocking question to the owner while work runs | **`.claude/hooks/no-silent-wait.sh`** (blocking: SubagentStop, AskUserQuestion, an agent's `&`; TeammateIdle unprobed); **`checks/hooks.sh`** |
-| A build-change run's agents work in its worktree: the session never `cd`s out while the run holds it | **`.claude/hooks/cd-guard.sh`** (blocking: the main session's Bash `cd`; the hold ends with the run's state file, a Stop not listing it, its worktree or its age); **`checks/hooks.sh`** |
+| A build-change run's agents work in its worktree: the session never `cd`s out while the run holds it | **`.claude/hooks/cd-guard.sh`** (blocking: the main session's Bash `cd`; when the hold ends: its header); **`checks/hooks.sh`** |
 | With catch-up on, no agent's git command moves the main checkout | **`.claude/hooks/catch-up-guard.sh`** (blocking: aimed there, or re-aimed where it cannot tell); **`checks/hooks.sh`** |
 | A worktree agent is guarded by the hooks on `origin/main` | **`.claude/hooks/worktree-hook-drift.sh`** (blocking on drift) |
 | The status-line focus says what this lane is doing | **`.claude/hooks/focus-staleness.sh`** (a nudge, not a block) |

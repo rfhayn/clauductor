@@ -53,27 +53,39 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pr-merge-guard.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pr-merge-guard.sh",
+            "timeout": 300,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-blind-source-rewrite.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-blind-source-rewrite.sh",
+            "timeout": 60,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-background-gate.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-background-gate.sh",
+            "timeout": 60,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-silent-wait.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-silent-wait.sh",
+            "timeout": 60,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cd-guard.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/cd-guard.sh",
+            "timeout": 60,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/catch-up-guard.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/catch-up-guard.sh",
+            "timeout": 60,
+            "onFailure": "block"
           },
           {
             "type": "command",
@@ -81,11 +93,15 @@
           },
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-worktree-force-remove.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-worktree-force-remove.sh",
+            "timeout": 60,
+            "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-pattern-kill.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-pattern-kill.sh",
+            "timeout": 60,
+            "onFailure": "block"
           }
         ]
       },
@@ -103,7 +119,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/worktree-hook-drift.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/worktree-hook-drift.sh",
+            "timeout": 60,
+            "onFailure": "block"
           }
         ]
       },
@@ -112,7 +130,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-silent-wait.sh"
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/no-silent-wait.sh",
+            "timeout": 60,
+            "onFailure": "block"
           }
         ]
       }
