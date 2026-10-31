@@ -14,6 +14,335 @@ entries with one number on `main`.
 
 <!-- Newest session goes below this line. -->
 
+## Session 18 — 2026-10-30 — Rich — S18: four batches, the two PRDs and two practices, CI back as a required check, the gate halved
+
+**Totals.** Gate 0 min (a row's gate was CANNOT CHECK, so this is a floor); cost $0 (a row's cost was CANNOT CHECK, so this is a floor).
+
+**Rows folded.** OPS-171 (#368, also closes OPS-172); OPS-173 (#368); OPS-175 (#363); OPS-176 (#363); OPS-177 (#367); OPS-178 (#368); OPS-98 (#350); ST-13 (#366, also closes ST-12, PROD-1, PANEL-60).
+
+**The totals, by hand.** The fold's floor reads 0 because every lane left its gate to its batch and its cost to the orchestrator, whose session id the lanes share. The batch gates, from `gate-runs.log`: batch B 19 and 17 min, batch C 15, 15 and 15, OPS-98 16, batch D 13 (failed) then 16 and 16, OPS-177's docs gate 11 (failed, sandboxed) then 4. Cost: **~$259.60** for the whole session (list price, this machine; `usage-report.sh`), by role ops $178.18, st $30.82, session $26.17, panel $9.70, prod $5.58, batch-c $3.35, batch-d $2.22, batch-b $1.76, this close $1.69, reviewer-docs $0.13; by model Opus $254.96, Sonnet $4.63. The orchestrator's earlier reading was ~$256.17; the difference is this close and the last merges.
+
+**Flow.** cycle 1.9h median, lead 3.3h, 44.1 merges/wk, change-fail 4.9%, spend $1000.38/wk, 12 in flight.
+
+**What happened.** Seven rows were planned and twelve landed: the owner slotted five more into S18 on 2026-10-30 (OPS-171, OPS-172, OPS-173, OPS-177, OPS-178). They went out in four batches with one gate each (PRAC-0013) and one row PR:
+- Batch A, OPS-98 (#350): CI runs on PRs again, a draft runs nothing, and `GATE_PR_CHECKS="test"` makes a merge wait for `test`. #343 and #361 closed with it.
+- Batch B, OPS-175 and OPS-176 (#363): the checks run in parallel, and `scripts/ci/batch.sh` runs a batch's mechanical steps. Each check phase fell from 554–794 s to 217–302 s, and a full passing gate from 33–56 min to 15–19 min.
+- Batch C, ST-13, ST-12, PROD-1 and PANEL-60 (#366): PRAC-0015 and PRAC-0014, PRD-product and PRD-tui.
+- Batch D, OPS-171, OPS-173, OPS-172 and OPS-178 (#368): check-sets holds CI's whole-set run in place instead of scanning source; the artifacts TERM race (#335) and name-residue's lows (#346) closed.
+- OPS-177 (#367): no code change; OPS-98's wait was #345's fix, proved under load.
+
+**Key decisions** (the owner's, 2026-10-30):
+- PRD-product approved with nine decisions, and PRD-tui with six.
+- PRAC-0014 (converge review by deleting mechanism) and PRAC-0015 (a classifier stop is a park signal) accepted.
+- ADR-0011's two phase-number fixes approved.
+- The review bar: every medium resolved before merge in general, and everything resolved for the PRDs. Five rows ran past the cap of 3 under it: OPS-171 (10 rounds), OPS-175 (7), OPS-178 (6), OPS-98 (5) and OPS-176 (4).
+- Going past the 90% quota threshold for this session.
+- OPS-32 and OPS-68 placed in S22–S23, after the `gh` wrapper.
+
+**Surprises.**
+- **Reviewer handbacks went to the orchestrator**, not to the lane that spawned the reviewer, in nearly every lane. The workaround was a `$TMPDIR` file the reviewer wrote and the lane read. #308 owns it.
+- **The stash list is shared by every worktree.** OPS-98's `git stash pop` applied OPS-175's stash; nothing was lost. OPS-181 now owns a guard.
+- **The sandbox blocks writes to `.claude/agents/`**, so a batch merge that touches agent files fails sandboxed. Batch A's unsandboxed retry was allowed. Batch C's was refused, and batch C routed around it with a temporary worktree and the Edit tool (the result was verified byte-identical). That is what PRAC-0015's item 1, accepted the same day, forbids. Whether batch worktrees may write there is now an owner-queue item.
+- **#343 was intermittent**, not a steady red: while OPS-171 was built, `go test` failed on some PR runs and passed on others, so CI's process-checks step ran on about 4 runs in 10. OPS-98's fixes held on its ready run.
+- **A `| tail` or a `cd` before the gate** still runs it sandboxed (OPS-176's probe, OPS-177's first docs gate).
+
+**Learning.** The S18 insight rows each have a decision, and none is Raw. Instances: the reviewer route (#308), the agents-directory refusal (PRAC-0015), fixes breeding findings (PRAC-0014: OPS-178's four rounds of one class closed once the scan read the index; OPS-176, OPS-175 and ST-12 showed the same shape), three tests passing without their control (rule 2: OPS-176 ×2, OPS-175's test 4, OPS-98 ×1), the stub that fails without working (rule 2), and both gate-prefix rows (`sandbox/exclusion-matches-text`). Deferred: the shared stash (OPS-181). Shipped or fixed: the parallel-checks measurement (OPS-175), runtime guards vs. dedup (OPS-171), `git grep`'s silent skips (OPS-178), and the broken-floor row's `artifacts.sh` remainder (OPS-173). Techniques: case-owned signals, forcing a flake. **Promoted → PRAC-0015**: the three classifier rows it cites (2026-10-17, 2026-10-18, 2026-10-19), per ST-13's fragment.
+
+**Roadmap.** S18 is marked done. New rows: OPS-179 (#359, a doctor test that depends on its checkout path), OPS-180 (this repo's AGENTS.md gains the template's `batch.sh` row; the file is 6 bytes under its 16000 ceiling, so the row trims to fit) and OPS-181 (the stash guard), all in S19–S20 with OPS-174. OPS-118's outcome check (o.9, due 2026-10-30) was not done, and it moves to S19's plan text. The issues still open from this session are the known limits of OPS-175 (#362), OPS-178 (#364) and OPS-171 (#365), and #360 (template files cite repo-only PRAC numbers).
+
+**Owner queue.** Ticked: test.yml (OPS-98, #350), and the panel item (the owner won't run the panel, S17). Kept: Lite's R50/R52. Added: the `.claude/agents/` sandbox decision.
+
+**What's next.** S19–S20 starts with ST-15, the worktree launcher, which needs one launch on the Mac (Ghostty). Then come the rest of the terminal orchestration rows (ST-10, ST-16 to ST-19). Beside them: OPS-174 (the shell reader's mutants), OPS-179 (#359), OPS-180 (the AGENTS.md row), OPS-181 (the stash guard), and o.9, OPS-118's outcome check, now overdue.
+
+### OPS-171 — CI's whole-set run, not a source scan, answers for CONF_NOT_READ
+
+- **PR**: #368
+- **Session**: S18, started 2026-10-30 16:45 ET
+- **Review**: 10 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — batch D: the lead runs one gate over the batch after this commit
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id, so no cost is the row's own
+- **Session start**: 147795711 tokens, 111 min
+- **Also closes**: OPS-172
+
+#### What happened
+
+check-sets' key scan, which said "no CHECKS_ONCE check reads a CONF_NOT_READ key", read only each check's own source by pattern, so a key read by a file the check runs went unseen. Shown on a copy of main: a run form added to `health` (`cd "$ROOT" && sh .claude/probe.sh`, where probe.sh tests PROJECT_NAME) left main's check-sets green and the template's run of health green, while health over this repo's project.conf failed. The scan is gone. check-sets part 5 now holds the run that answers the question: test.yml's process-checks step runs `sh .claude/checks/run.sh`, this repo's whole set with CHECKS_ONCE included, over this repo's project.conf. The guard reads the step's keys against an allowlist and refuses CHECKS_SKIP, continue-on-error, a default shell, an earlier GITHUB_ENV or GITHUB_PATH write and a second run of the set where they would reach the step. Each refused form has a doctored copy of test.yml shown failing, and each allowed form has one shown passing. A fixture shows such a read passing the local gate's form and failing test.yml's command.
+
+#### Decisions
+
+- No per-gate runtime guard. Running CHECKS_ONCE again with the CONF_NOT_READ keys poisoned costs at least the run the local gate's dedup leaves out (the 15 checks took about 223 s one at a time), so it can never beat not deduplicating. CI's process-checks step is that exact run, over this repo's real values rather than poisoned ones; the target is that every PR waits for it.
+- What enforces it depends on the conf, and check-sets reads it: while GATE_PR_CHECKS names the step's job, a merge waits for that job, which passes only once the step has run and passed; while GATE_PR_CHECKS is empty, nothing does, and check-sets prints a SKIPPED line. On 2026-10-30, while this row was built, nothing enforced it: test.yml had been re-enabled that day, but GATE_PR_CHECKS was empty and `go test` failed intermittently (#343), so many runs stopped before the step (it ran and passed on about 4 PR runs in 10). OPS-98 (#350) sets GATE_PR_CHECKS="test". AGENTS.md's row is worded for both states. A GATE_PR_CHECKS that names other checks but not that job fails.
+- The old scan was not kept as a partial screen for the gap. It is a pattern reader whose green line claimed a subject it could not check, and the gap belonged to OPS-98 (#350), then an open row of this session.
+
+#### Surprises
+
+- Each review round found one more channel into the step that a line reader had not listed: the step's `if:`, the job a merge waits for, `$GITHUB_ENV` from an earlier step (let through when round 2 narrowed the CHECKS_SKIP scan), and `defaults.run.shell`. The fix that held was to list every source of the step's run configuration and allow only what is listed.
+- Known limit: what an earlier step executes (a script, `go test`, a `uses:` action) can write GITHUB_ENV without naming it, and no reading of test.yml can see that.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-173 — the artifacts currency rule's TERM case sends its own TERM instead of racing the clock
+
+- **PR**: #368
+- **Session**: S18, started 2026-10-30 16:39 ET
+- **Review**: 3 rounds, peak low, cap 3
+- **Gate**: CANNOT CHECK — batch D's lead runs one full gate over the batch
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id, so no reading is this row's own
+- **Session start**: 131767474 tokens, 105 min
+
+#### What happened
+
+`checks/artifacts.sh` proved that `currency.sh`'s TERM trap reads as "did not finish" with a fake `jq` that slept 2 s once under a 1 s budget: it had to end after `with_timeout`'s TERM and before its KILL 2 s later, a one-second margin each way. The fake could not see when the TERM reached its parent, and its parent is not the shell the TERM goes to (the first `jq` runs inside a command substitution, under both bash-as-sh and dash). Now a pass-through `sh` on the case's PATH records the pid of `currency.sh`'s shell (the pid `with_timeout` would signal), the first `jq` after that sends it the TERM itself and marks that it did, and the budget is `slow 60`, which the run never reaches. Nothing waits on the clock and no KILL comes. The case asserts its TERM landed before it reads the verdict.
+
+Evidence: the case passed under bash-as-sh and dash, and 3 of 3 beside 10 CPU burners and 16 fork loops (load 56 to 90), beside a copy of the old case. With the trap changed to `exit 2` it fails under both shells ("could not run (exit 2)"); with the wrapper's match broken it fails on its own precondition. The reviewers also ran it three at a time with `STRIDAL_TEST_SLOW=2` and under a bare `env -i` PATH.
+
+#### Decisions
+
+- The case sends the TERM, not the budget. The issue's other option, a setting for `with_timeout`'s KILL delay, would close the KILL edge but not the TERM edge: the fake still could not tell when the TERM had landed. The budget's own TERM is still exercised by the 0 s case above it, and `lib/modules.sh` is unchanged.
+- The pid comes from a pass-through `sh`, not the fake's `$PPID`: the first `jq` runs in a command substitution, so its parent is a subshell, which a TERM kills by default without reaching the trap.
+- This closes the part of the 2026-10-29 "broken-floor bounds" insight left to OPS-173 (#335): its decision can read Fixed at the close.
+
+#### Surprises
+
+- The old case passed 3 of 3 beside the same burners: the race is real but rare on this machine, so it could not be shown red under load. The new case does not depend on it.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-175 — run the process checks in parallel
+
+- **PR**: #363
+- **Session**: S18, started 2026-10-30 15:52 ET
+- **Review**: 7 rounds, peak medium, cap 3, past it on the owner's bar (no medium at merge); round 7 clean
+- **Gate**: CANNOT CHECK — no full gate on this branch; it lands in the session's batch B gate
+- **Cost**: CANNOT CHECK — the lane did not run usage-report.sh
+- **Session start**: 51233732 tokens, 58 min
+
+#### What happened
+
+`checks/run.sh` now runs the checks `CHECKS_JOBS` at a time (default: the processor count, at most
+8), keeps each check's output in its own file, and prints the results in the checks' order. A check
+that declares `# run.sh: serial (<what it shares>)` in its leading comment block runs alone, in
+run.sh's foreground, after the parallel ones. An INT or a TERM reaches every running check and its
+children before the run dies. The new `checks/run-parallel.sh` shows a pair that shares a fixed path
+failing side by side without the declaration and passing with it. It also holds the parallelism,
+the order and the TERM path. Each of its cases failed on the serial run.sh first.
+
+#### Decisions
+
+- **The declaration lives in the check's own file**, not in a list in run.sh. The directory stays
+  the list, so a new check that shares state carries its own declaration.
+- **Serial checks run in the foreground, after the parallel phase.** A background job starts with
+  INT ignored, and no sh can undo that. A check that must receive INT, such as no-stridal.sh's
+  INT fixture, therefore has to run in the foreground.
+- **No real check was found to share state.** Every check writes only to its own scratch and its
+  own HOME. Only no-stridal.sh is declared, and only for its signal. The reviewer audited the same
+  ground independently and agreed.
+
+#### Surprises
+
+In the sandbox, any git call with a fresh HOME fails on xcrun's cache, and ps is denied, so the
+whole-set runs had to run outside it. There, both sets passed: the process checks took 407 s and
+the template checks 408 s. The last serial gates on `gate-runs.log` took 554–657 s and 646–794 s.
+CI on a10822bd caught a real race under dash, a check continuing between its child's TERM and its
+own; telling each tree top down (55fa145c) fixed it.
+
+#### Insights
+
+None.
+
+### OPS-176 — the batch script, and the gate from a subagent lane
+
+- **PR**: #363
+- **Session**: S18, started 2026-10-30 16:04 ET
+- **Review**: 4 rounds, peak high, cap 3
+- **Gate**: CANNOT CHECK — batch B's gate, not run in the lane (quick gate 33 min)
+- **Cost**: CANNOT CHECK — not read in the lane
+- **Session start**: 66759894 tokens, 70 min
+
+#### What happened
+
+`scripts/ci/batch.sh` (template and this repo) runs PRAC-0013's mechanical steps: `merge` merges the
+lane branches `--no-ff` in the order given and runs `BATCH_REGENERATE` (here `sh
+scripts/build-plugin.sh`), committing what it changed; `sync` merges `origin/main` before a gate;
+`record <PR> <row>…` writes the batch PR into each row's fragment and names a row with none under
+the first fragment's **Also closes**. `checks/batch.sh` holds it in a fixture repo. The playbook's
+*Batching reviewed lanes* section names the order and the pre-PR pass (`scripts/ci/gate.sh -C
+<worktree> --quick`, which is `go test -short` plus both check sets).
+
+The row's experiment, run first: this lane, a subagent whose Bash starts in the main checkout, ran
+`scripts/ci/gate.sh -C <worktree> --quick` on its own, and the ps checks passed outside the sandbox
+(the template set's `machine-quiet` and `gate`, the full process checks; PASS for 77e8078e). The
+first try piped it into `tail`, which breaks the exclusion's text match, so it ran sandboxed and
+was stopped: the known limit holds for the bare command only.
+
+#### Decisions
+
+`record` runs on the draft batch PR before `sync` and the gate, since it commits: the receipt then
+covers the fragments too. `batch.sh` moves beside a moved gate runner (`conf.go`), which the quick
+gate's `TestInstallFollowsGateRun` asked for. No AGENTS.md row in this repo: it is 40 bytes under
+its ceiling, so the template's row, PRAC-0013's Enforcement and the playbook name the mechanism.
+
+#### Surprises
+
+The quick gate took 33 minutes from a lane while other lanes ran: the process checks alone 18.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-177 — the claudecall no-signal flake: OPS-98's wait was the fix, proved under load
+
+- **PR**: #367
+- **Session**: S18, started 2026-10-30 22:59 ET
+- **Review**: 0 rounds, peak none, cap 2
+- **Gate**: CANNOT CHECK — the orchestrator runs the gate
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id
+- **Session start**: 369145202 tokens, 485 min
+
+#### What happened
+
+No code change: OPS-98 (#350) already fixed #345 at its cause, and this row proves it. In
+`TestGateLogsNoSignalItDidNotSend` the gate marks the call stopped in `context.AfterFunc`'s own
+goroutine (`gate.go`, `stop`), and `stop` does nothing once the call has ended. The caller's return
+does not wait for that goroutine, so the old test could close `release` first, let the held runner
+return and `end` date the call, and only then have `stop` run and find it ended: `stopped:false,
+term:false`, #345's line exactly. OPS-98 waits until the call is marked stopped before releasing it.
+Nothing but `release` lets the call end, so that wait is an ordering, not a timing: no bound is left
+that load can outrun. Its 30 s ceiling (scaled) only bounds one goroutine's scheduling, and the
+reaped wait's 10 s ceiling had nothing to do with #345.
+
+The evidence, on 48539ee9, with race-built test binaries:
+- **Negative case**, the test as it was before OPS-98, under `GOMAXPROCS=1` beside 20 `yes`
+  burners (2 × 10 CPUs): **25 of 200 failed**, every one at `gate_test.go:324` with `stopped:false`.
+  #345 had it passing 30 of 30 alone, so the load is what exposes it.
+- **The current test**, same load: **0 of 200 failed**.
+- **The row's condition**: `go -C framework test -race -count=20 -run
+  'TestGateLogsNoSignalItDidNotSend$' ./internal/panel/claudecall/` passed **20 of 20** three
+  times beside batch D's full gate (`lock-run --lane s18-batch-d`, `run-local.sh` running before
+  and after each run): once during its process checks (22:42 ET), and twice during its race step
+  (`go test -race -count=1 -timeout 25m ./...`, 22:57 and 22:58 ET), the second while the gate's own
+  `claudecall.test`, `panel.test` and `cmd.test` were running.
+
+#### Decisions
+
+No code change, because the remaining waits are orderings or generous ceilings, not races (the
+row asks for the cause, PRAC-0010). The fragment is the row's PR, so it needs no code review.
+
+#### Surprises
+
+Batch D's first gate ended during its process checks and a second one started, so the first
+beside-gate run saw only the checks' load. The run was repeated during the race step.
+
+#### Insights
+
+1 row(s), moved to the insights log.
+
+### OPS-178 — name-residue's four review lows closed, and what ships read from the index
+
+- **PR**: #368
+- **Session**: S18, started 2026-10-30 16:32 ET
+- **Review**: 6 rounds, peak medium, cap 3, past it on the owner's bar (no medium at merge)
+- **Gate**: CANNOT CHECK — batch D's lead runs the gate after this commit
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id
+- **Session start**: 113776408 tokens, 98 min
+
+#### What happened
+
+The four lows OPS-104 left at its cap in `.claude/checks/name-residue.sh` (#346) are closed, each with a case shown failing first. Every setting that shapes `git grep`'s output is pinned on one call line (`scan`), and a "shaped" case sets every `grep.*` key `git help --config` lists against a repository at once, so a key a later git adds fails the check. Every candidate split of a line is read, not the longest tracked path, so a mirrored `x.go:1:<piece>` name hides no split. Tracked symlinks have their target blobs read, as the link's line 1. The fail-closed count is fed a line directly. Review then found, one cause per round, the class the counter could not see: a tracked file `git grep` silently does not read in the working tree (a sparse checkout's, a deleted one, one turned into a link, one it may not open, one behind a directory link or a case-folded name). The scan now reads every line twice, from the index (`--cached`, what ships) and from the working tree (unstaged edits), so each of those is found rather than refused; and every regular file the index lists must have been read by one of the two, or the scan fails. Tracked paths are read as lines too, their quoting's escapes deleted, so a path that splits the name with a `/` or a tab is found, and the plain name is checked before the split exemption, so it is allowed nowhere. Every command whose output residue reads is made to fail in turn, having written all its output, and must fail the scan with status 2.
+
+#### Decisions
+
+- The issue's road to the counter (`grep.fullName=true` from a subdirectory) is closed by pinning `--no-full-name`, and no other road is known once every setting is pinned, so the case feeds `credit` a line itself. Pinning and an end-to-end road through the counter exclude each other.
+- The pins are held to git's own list of its settings (`git help --config`), and the files read to the index's list of regular files, not to lists kept here: *enumerate the authority*.
+- `--no-column` and `-F` pin settings that today change nothing the scan compares; they stay, and the comment says no case fails without them.
+- Read both the index and the working tree: the index alone would miss an unstaged edit, the working tree alone misses whatever is not there as itself. The plain-name `-i -l` scans went, since credit now finds the plain name on every line and path.
+
+#### Surprises
+
+- `git grep` quotes paths as `ls-files` does, from the top too, so a quoted name never reached the counter.
+- Rounds 1 to 4 each found one more way for a tracked file to go unread in the working tree; guarding each cause, then comparing names with the index, each left the next open. Reading the index's blobs closed them.
+- `git grep --cached` skips an intent-to-add entry and an unmerged path, so the authority check needs both scans.
+- The stubs first returned failure without running the command, and two exits (`ls-files`, `tr`) were then backstopped by later steps, so their cases proved nothing alone. A stub now runs the real command and then fails.
+
+#### Insights
+
+2 row(s), moved to the insights log.
+
+### OPS-98 — GitHub Actions runs on PRs again: a draft runs nothing, and a merge waits for `test`
+
+- **PR**: #350
+- **Session**: S18, started 2026-10-30 15:34 ET
+- **Review**: 5 rounds, peak high, cap 3
+- **Gate**: CANNOT CHECK — the session's lead runs the gate
+- **Cost**: CANNOT CHECK — a lane shares the orchestrator's session id
+- **Session start**: CANNOT CHECK — a lane shares the orchestrator's session id
+
+#### What happened
+
+The repository went public on 2026-10-29 (OPS-155), so its standard runners are free, and the owner re-enabled `test.yml` and `release-build.yml` the same night (`gh workflow list --all` shows both active). Fork-PR workflow approval is set to all external contributors.
+
+`test.yml` now skips a draft PR: the `pull_request` trigger lists `opened`, `synchronize`, `reopened` and `ready_for_review`, and the job carries `if: github.event_name != 'pull_request' || github.event.pull_request.draft == false`. Every row opens its PR as a draft (OPS-108), so a push to it spends no minutes, and marking it ready starts the suite. Pushes to `main` run as before (macOS and Ubuntu). `release-build.yml` is unchanged.
+
+This repo's `GATE_PR_CHECKS` is `"test"` again. What it makes the merge guard require (`pr-merge-guard.sh` rule 2(a2)): on `gh pr merge`, the PR's head must have reported a check named `test` or `test (…)` (the matrix job, `test (ubuntu-latest)` on a PR), and every such check must be in the `pass` bucket. A check that has not registered yet blocks ("has not reported the checks GATE_PR_CHECKS requires: test"); one pending, failed or skipped blocks ("not green"), except a bare `test` skipped beside a passing `test (…)` of the same workflow (a draft's skipped run, then the ready PR's); a gh error reading the checks blocks as a gh problem, not CI. So a draft's skipped run never counts, and a merge waits for the ready PR's run. The guard's own cases for each state are in `checks/merge-guard.sh` (rule 2(a2)) and pass. The template's value stays empty (`CONF_NOT_READ` in `scripts/ci/steps.sh`).
+
+OPS-60's Ubuntu leg: passed. Run 41156307678 (2026-10-30, Ubuntu, tmux 3.4, head e6a0a8e0) passed `internal/panel`, which holds TestRestartFallsBackWhenClaudeRejectsTheFlag; the run is not verbose, so the pass is the package's.
+
+Billing standing: good. The run started at once after `gh pr ready` and finished green (`test (ubuntu-latest)` pass); nothing was blocked on billing. On the same head, the draft's earlier run left a bare `test`=skipping beside it, the state rule 2(a2) now excuses. #343's three fixes and #361 held there: `internal/template` (TestTemplateChecks, with gate.sh's locked fixture, which fails if the step ran outside the clean room), `internal/testgit` and `internal/panel/claudecall` all passed. macOS runs only on the push to `main`.
+
+#### Decisions
+
+- The draft condition sits on the job, not on each step: a skipped job spends no runner time at all, where a step-level condition still starts a runner to skip every step.
+- The ready PR's run is the one a merge reads; no rerun is needed after marking ready, because `ready_for_review` is a trigger of its own.
+
+#### Surprises
+
+Review round 1 (peak high, cap 3) stopped the row; it moves to S18, since S17's rename needs a clean tree and the fixes reach `template/`. S18 starts from commit 0c4f62e2 and fixes:
+- **High**: a draft's skipped run reports a bare `test`=skipping on the head, and rule 2(a2) (`pr-merge-guard.sh`, the `bad=` filter) blocks on it forever, even once `test (ubuntu-latest)` passes on the same head after `gh pr ready`; only a new push (and a new receipt) gets out. Fixed in S18: the bare name skipped no longer blocks once a matrix job of that name passed; a skipped matrix job (`test (e2e)`) still does (review round 2's medium: the first fix excused it too). Round 3 narrowed it to a pass of the same workflow (gh's `workflow` field). Fixtures in `checks/merge-guard.sh`: {bare skipping + matrix pass, one workflow} exits 0; {bare and `test (e2e)` skipping + pass}, {bare skip in e2e + matrix pass in ci} and {bare skip + bare pass, two workflows} exit 2; {skipping} alone exits 2. `checks/gate.sh`'s locked fixture now fails if the step ran in the checkout: #343's Ubuntu log showed `repo/locked`, which no path explains, so this PR's first Ubuntu run says where it ran (#343 owns it). The draft condition stays on the job.
+- **Medium**: merge-pr waits for `GATE_PR_CHECKS` at step 2 but marks the PR ready only at step 4, so the wait never ends on a draft: `gh pr ready` moves into step 2, before the wait.
+- **Low**: `docs/panel.md`'s CI paragraph has a 147-character line; rewrap it.
+- Then confirm the real check names on S18's first draft-then-ready run (`gh pr checks <n> --json name,state,bucket` on the head before and after marking ready).
+
+#### Insights
+
+None.
+
+### ST-13 — a classifier stop is a park signal, drafted as PRAC-0015
+
+- **PR**: #366
+- **Session**: S18, started 2026-10-30 16:15 ET
+- **Review**: 3 rounds, peak medium, cap 3
+- **Gate**: CANNOT CHECK — no gate in the lane; batch C gates it
+- **Cost**: CANNOT CHECK — not read in the lane
+- **Session start**: CANNOT CHECK — a lane runs no session-start
+- **Also closes**: ST-12, PROD-1, PANEL-60
+
+#### What happened
+
+PRAC-0015 drafted Proposed from Standing Tee's PRAC-0044: a classifier refusal parks, a retry is
+decided outside the session with its stop rule agreed first. Its rule is a line in the builder's
+brief and in apply-change's report clause, both held by `checks/change-process.sh`.
+
+#### Decisions
+
+Numbered 0015 because ST-12 drafts 0014 in parallel. The template lines carry no PRAC number,
+since a project receiving them has no such record. At the close, retag the insights rows *classifier
+blocks the orchestrator* (2026-10-19), *no laundered workaround* (2026-10-18) and *classifier
+inconsistency* (2026-10-17) `Promoted → PRAC-0015` (new-adr step 5), whatever its Status then;
+if the owner later rejects it, the close that records the rejection restores them.
+
+#### Surprises
+
+The lane's sandbox refused `.claude/` writes from the shell and `stridal update` (it keeps a
+modified copy), so this repo's copies were synced by hand.
+
+#### Insights
+
+None.
+
 ## Session 17 — 2026-10-30 — Rich — S17: the rename to stridal, everywhere, and the machine migrated
 
 **Totals.** Gate 191 min over seven full runs on OPS-104 (one pass: fe84066a, 38 min); cost ~$46.34, list price, this machine.
