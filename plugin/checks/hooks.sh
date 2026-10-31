@@ -1006,32 +1006,42 @@ done < "$d/launching"
 # showed both: a PreToolUse guard that exited 126 or 127, or timed out, let the tool call through,
 # and with "onFailure": "block" it was blocked. So a guard registered without it fails OPEN on any
 # crash and says nothing. Every `block` row's registrations on an event that guards an action
-# carry "onFailure": "block" and an explicit "timeout" (how long a hung guard holds the call is
-# chosen here, not left to the default); a `continue:` row keeps the default and says why.
+# carry "onFailure": "block", a numeric "timeout" (how long a hung guard holds the call is chosen
+# here, not left to Claude Code's default: 60 s for a local guard, longer for one that calls
+# GitHub), and no "async"/"asyncRewake" (an async hook cannot block, and Claude Code ignores its
+# onFailure); a `continue:` row keeps the default and says why.
 # Not judged, known limits: Claude Code ignores onFailure on Stop, SubagentStop, TaskCompleted and
 # TeammateIdle (no-silent-wait's SubagentStop and cd-guard's Stop fail open on a crash, and no
-# setting changes that), a PostToolUse hook runs after the action it would guard, and an inline
-# command that runs no script file has no row to say what it is.
+# setting changes that). PostToolUse and SubagentStart registrations guard nothing themselves, but
+# no-silent-wait's and cd-guard's RECORD what their SubagentStop and Bash `cd` guards read later,
+# so one that crashes on a payload leaves that guard failing open; a crash of the whole script
+# still shows, since the same script's PreToolUse registration blocks. An inline command that runs
+# no script file has no row to say what it is. The plugin's registrations run if-project.sh in
+# every repository the user opens: a plugin root that vanishes mid-session blocks every guarded
+# call there too, the price of the guards failing closed where the model runs.
 GUARD_EVENTS=" PreToolUse PermissionRequest UserPromptSubmit UserPromptExpansion PreModelSwitch "
 # failclosed REGS EXPECT: one line per row or registration that breaks the rule. REGS holds one
-# event<TAB>command<TAB>onFailure<TAB>timeout line per command hook, as jq reads settings.json.
+# event, command, onFailure, timeout's JSON type, timeout, async line per command hook (fcregs),
+# TAB-separated, with `-` for an absent field: `read` with a TAB IFS folds empty fields together.
 failclosed() {
   awk -F'\t' 'NF { print $1 "\t" $6 }' "$2" | while IFS="$TAB" read -r s mode; do
-    case $mode in block|"continue: "?*) ;; *) echo "$s: its row's sixth column (onFailure) is '$mode', not block or 'continue: <why>'" ;; esac
+    case $mode in block|"continue: "?*) ;; *) echo "$s: its row's sixth column (onFailure) is '$mode', not block or 'continue: <why>' (add it, TAB-separated, to its row in checks/hooks.sh or .claude/local/hook-expectations.tsv)" ;; esac
   done
-  while IFS="$TAB" read -r ev cmd onf to; do
+  while IFS="$TAB" read -r ev cmd onf ttype to async; do
     case $GUARD_EVENTS in *" $ev "*) ;; *) continue ;; esac
     s=$(script_of "$cmd"); [ -n "$s" ] || continue
     mode=$(awk -F'\t' -v s="$s" '$1 == s { print $6; exit }' "$2")
     case $mode in
       block)
         [ "$onf" = block ] || echo "$ev $s: a guard registered without \"onFailure\": \"block\", so a crash or a hang lets the call through"
-        { printf '%s' "$to" | grep -qE '^[0-9]+$' && [ "$to" -gt 0 ]; } || echo "$ev $s: a guard registered without an explicit \"timeout\" in seconds" ;;
+        { [ "$ttype" = number ] && awk -v v="$to" 'BEGIN { exit !(v + 0 > 0) }'; } || echo "$ev $s: a guard registered without an explicit \"timeout\" in seconds (a positive number, not $ttype)"
+        [ "$async" = false ] || echo "$ev $s: a guard registered async, which cannot block and ignores onFailure" ;;
       "continue: "?*) [ "$onf" != block ] || echo "$ev $s: registered with \"onFailure\": \"block\", but its row says it keeps the default" ;;
     esac
   done < "$1"
 }
-fcregs() { jq -r '(.hooks // {}) | to_entries[] | .key as $e | .value[] | .hooks[]? | select(.type == "command") | [$e, .command, (.onFailure // ""), ((.timeout // "") | tostring)] | @tsv' "$1"; }
+fcregs() { jq -r '(.hooks // {}) | to_entries[] | .key as $e | .value[] | .hooks[]? | select(.type == "command")
+  | [$e, .command, (.onFailure // "-"), (.timeout | type), ((.timeout // "-") | tostring), ((.async == true or .asyncRewake == true) | tostring)] | @tsv' "$1"; }
 fcregs "$SETTINGS" > "$d/fc-regs"
 awk -F'\t' -v g="$GUARD_EVENTS" '$3 == "block" && index(g, " " $1 " ")' "$d/fc-regs" > "$d/fc-block"
 fc=$(failclosed "$d/fc-regs" "$d/expect.tsv")
@@ -1042,7 +1052,7 @@ EOF
 else
   nb=$(grep -c . "$d/fc-block" || true)
   if [ -z "$plugin" ] && [ "$nb" -lt 3 ]; then fail "fail closed: only $nb guard registration(s) carry onFailure block: the rule would pass vacuously"
-  else ok "fail closed: $nb guard registration(s) carry onFailure block and a timeout ($(while IFS="$TAB" read -r ev cmd _ _; do printf '%s ' "$(script_of "$cmd")"; done < "$d/fc-block" | tr ' ' '\n' | sort -u | tr '\n' ' ')); every other hook's row says why it keeps the default"; fi
+  else ok "fail closed: $nb guard registration(s) carry onFailure block and a timeout ($(while IFS="$TAB" read -r ev cmd _; do printf '%s ' "$(script_of "$cmd")"; done < "$d/fc-block" | tr ' ' '\n' | sort -u | tr '\n' ' ')); every other hook's row says why it keeps the default"; fi
 fi
 
 # The rule, both ways, on doctored copies of the registrations (each must be refused).
@@ -1060,6 +1070,10 @@ if [ -z "$plugin" ]; then
   fcbad "a guard ($first) with no timeout" "$first: a guard registered without an explicit" "$sel |= del(.timeout)"
   fcbad "a guard ($first) with onFailure continue" "$first: a guard registered without \"onFailure\"" "$sel.onFailure = \"continue\""
   fcbad "a guard ($first) with a timeout of 0" "$first: a guard registered without an explicit" "$sel.timeout = 0"
+  fcbad "a guard ($first) with a string timeout" "$first: a guard registered without an explicit.*not string" "$sel.timeout = \"60\""
+  fcbad "a guard ($first) with no onFailure but a timeout" "$first: a guard registered without \"onFailure\"" "$sel |= (del(.onFailure) | .timeout = 60)"
+  fcbad "a guard ($first) registered async" "$first: a guard registered async" "$sel.async = true"
+  fcbad "a guard ($first) registered asyncRewake" "$first: a guard registered async" "$sel.asyncRewake = true"
   [ -n "$open1" ] && fcbad "a fail-open hook ($open1) registered with onFailure block" "$open1: registered with \"onFailure\": \"block\", but" \
     '(.hooks[][].hooks[] | select(.command | endswith("/'"$open1"'"))) |= (.onFailure = "block" | .timeout = 30)'
   fcbad "a row with no onFailure column" "$first: its row's sixth column" '.' "/^$first	/s/	block\$//"
@@ -1067,20 +1081,26 @@ if [ -z "$plugin" ]; then
 fi
 
 # The fixture: each guard registration crashes three ways in a copy of the throwaway project (its
-# script gone, `exit 1`, killed by a signal) and is launched as Claude Code launches it. Under
-# Claude Code's reading (0 allows, 2 blocks, any other end is a failure, which blocks only under
-# "onFailure": "block") every crash must block with the registration's own onFailure, and the
-# exit-1 and killed crashes must NOT block under the default: so it is the field that blocks them.
-# (A gone script is exit 127 under bash's sh and 2 under dash's, which blocks either way.) A hang
-# is not run: it is the same failure, after the registration's timeout, which the rule holds.
+# script gone, `exit 1`, killed by a signal) and is launched as Claude Code launches it. What it
+# PROVES is this side of the contract: the registered command hands its script's crash on as an
+# exit that is neither 0 nor 2 (or 2), never swallowing it into a 0 that would allow (`|| true`,
+# an `exit 0` wrapper), so Claude Code's rule (0 allows, 2 blocks, any other end is a failure,
+# which blocks only under "onFailure": "block") blocks it, and the exit-1 and killed crashes would
+# NOT block under the default, so it is the field that blocks them. That Claude Code applies that
+# rule is not run here (no Claude Code in a check): it rests on its 2.1.316 settings schema and the
+# S19 spike. A gone script is exit 127 under bash's sh and 2 under dash's. A hang is not run: it is
+# the same failure, after the registration's timeout, which the rule holds. A guard registered by
+# an absolute path, outside the project, is not crashed (this would edit a file the project does
+# not own); the rule above still holds its registration, and the ok line names it.
 verdict() { case $1 in 0) echo allow ;; 2) echo block ;; *) [ "$2" = block ] && echo block || echo allow ;; esac; }
 C="$d/crash"; cp -R "$P" "$C"; C=$(cd "$C" && pwd -P)
-proved=""
+proved="" outside=""
 while IFS="$TAB" read -r ev cmd onf _; do
   [ -n "$cmd" ] || continue
   s=$(script_of "$cmd"); rel=$(printf '%s' "$cmd" | sed -n 's|.*CLAUDE_PROJECT_DIR[^/]*/\([^"'"'"' ]*\).*|\1|p')
+  [ -n "$rel" ] || { outside="$outside $ev/$s"; continue; }
   f="$C/$rel"
-  [ -n "$rel" ] && [ -f "$f" ] || { fail "fail closed fixture: $ev $s: cannot find its script in the project to crash it ($cmd)"; continue; }
+  [ -f "$f" ] || { fail "fail closed fixture: $ev $s: cannot find its script in the project to crash it ($cmd)"; continue; }
   cp "$f" "$d/fc-keep"; seen=""
   for kind in gone exit1 killed; do
     case $kind in gone) rm -f "$f" ;; exit1) printf 'exit 1\n' > "$f" ;; killed) printf 'kill -9 $$\n' > "$f" ;; esac
@@ -1093,7 +1113,20 @@ while IFS="$TAB" read -r ev cmd onf _; do
   cp "$d/fc-keep" "$f"; proved="$proved $ev/$s($seen )"
 done < "$d/fc-block"
 [ -z "$plugin" ] && [ -z "$proved" ] && fail "fail closed fixture: no guard registration was crashed, so it proves nothing"
-[ -n "$proved" ] && ok "fail closed fixture: every guard registration blocks when its script is gone, exits 1 or is killed:$proved"
+# The fixture's negative case: a registration that swallows its script's exit (`|| true`) reads as
+# an allow, even under onFailure block, so the fixture above would have refused it.
+sw=$(awk -F'\t' 'NR == 1 { print $2 }' "$d/fc-block")
+if [ -n "$sw" ]; then
+  rel=$(printf '%s' "$sw" | sed -n 's|.*CLAUDE_PROJECT_DIR[^/]*/\([^"'"'"' ]*\).*|\1|p'); f="$C/$rel"
+  if [ -n "$rel" ] && [ -f "$f" ]; then
+    cp "$f" "$d/fc-keep"; printf 'exit 1\n' > "$f"
+    rc=0; (cd "$C" && printf '{}' | CLAUDE_PROJECT_DIR="$C" HOME="$C/home" sh -c "$sw || true" >/dev/null 2>&1) 2>/dev/null || rc=$?
+    cp "$d/fc-keep" "$f"
+    [ "$(verdict "$rc" block)" = allow ] && ok "fail closed fixture self-test: a registration that swallows its crash (|| true) reads as an allow, so it would be refused" \
+      || fail "fail closed fixture self-test: '$sw || true' with a crashing script exited $rc, which the fixture cannot tell from a passed-on crash"
+  fi
+fi
+[ -n "$proved" ] && ok "fail closed fixture: every guard registration's command passes its script's crash on (gone, exit 1, killed: exit codes below), which onFailure block makes a block under Claude Code's 2.1.316 rule (not run here):$proved${outside:+; not crashed, outside the project:$outside}"
 
 # The detector itself, both ways, on fixture commands (so a clean pass above is not vacuous).
 # Fixture commands, spelled through $D so no line here is itself a path this check uses.

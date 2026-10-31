@@ -461,7 +461,8 @@ scan_awk() {
     }
     # THE NEXT CHARACTER, or "" at the end — and "" must never reach index(): BWK awk (macOS)
     # answers index(s, "") with a NON-ZERO, so a `while (index(set, next))` at the end of a string
-    # spun forever, and a hook that hangs fails OPEN at Claude Code own timeout, minutes later.
+    # spun forever, and a hook that hung failed OPEN at the Claude Code timeout, minutes later
+    # (since OPS-214 a hang blocks at the timeout its registration names, still stalling every call).
     function isnext(set, s, i,   c) { c = substr(s, i + 1, 1); return c != "" && index(set, c) > 0 }
     function scan(s, feed,   i, L, ch, nx, q) {
       n = 0; redir = 0; rin = 0; RIN = ""; PIPED = ""; reset_word(); q = ""; FEED = feed
