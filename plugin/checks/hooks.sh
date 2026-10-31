@@ -1089,44 +1089,53 @@ fi
 # NOT block under the default, so it is the field that blocks them. That Claude Code applies that
 # rule is not run here (no Claude Code in a check): it rests on its 2.1.316 settings schema and the
 # S19 spike. A gone script is exit 127 under bash's sh and 2 under dash's. A hang is not run: it is
-# the same failure, after the registration's timeout, which the rule holds. A guard registered by
-# an absolute path, outside the project, is not crashed (this would edit a file the project does
-# not own); the rule above still holds its registration, and the ok line names it.
+# the same failure, after the registration's timeout, which the rule holds. A guard whose script is
+# not reached through CLAUDE_PROJECT_DIR (an absolute path) is not crashed: this would edit a file
+# by a path outside the throwaway copy. The rule above still holds its registration, and the ok
+# line names it.
 verdict() { case $1 in 0) echo allow ;; 2) echo block ;; *) [ "$2" = block ] && echo block || echo allow ;; esac; }
 C="$d/crash"; cp -R "$P" "$C"; C=$(cd "$C" && pwd -P)
-proved="" outside=""
-while IFS="$TAB" read -r ev cmd onf _; do
-  [ -n "$cmd" ] || continue
-  s=$(script_of "$cmd"); rel=$(printf '%s' "$cmd" | sed -n 's|.*CLAUDE_PROJECT_DIR[^/]*/\([^"'"'"' ]*\).*|\1|p')
-  [ -n "$rel" ] || { outside="$outside $ev/$s"; continue; }
-  f="$C/$rel"
-  [ -f "$f" ] || { fail "fail closed fixture: $ev $s: cannot find its script in the project to crash it ($cmd)"; continue; }
+# crash EV CMD ONF: crash CMD's script in $C three ways and restore it; prints one `refused: …` line
+# per crash the registration would let through, `outside` or `missing` when it cannot crash it,
+# and last `seen: <kind>:<exit>…`.
+crash() {
+  s=$(script_of "$2"); rel=$(printf '%s' "$2" | sed -n 's|.*CLAUDE_PROJECT_DIR[^/]*/\([^"'"'"' ]*\).*|\1|p')
+  [ -n "$rel" ] || { echo outside; return; }
+  f="$C/$rel"; [ -f "$f" ] || { echo missing; return; }
   cp "$f" "$d/fc-keep"; seen=""
   for kind in gone exit1 killed; do
     case $kind in gone) rm -f "$f" ;; exit1) printf 'exit 1\n' > "$f" ;; killed) printf 'kill -9 $$\n' > "$f" ;; esac
     # The outer 2>/dev/null takes the shell's own "Killed: 9" job report, which is no finding.
-    rc=0; (cd "$C" && printf '{}' | CLAUDE_PROJECT_DIR="$C" HOME="$C/home" sh -c "$cmd" >/dev/null 2>&1) 2>/dev/null || rc=$?
-    [ "$(verdict "$rc" "$onf")" = block ] || fail "fail closed fixture: $ev $s, $kind (exit $rc): its registration lets the call through"
-    [ "$kind" = gone ] || [ "$(verdict "$rc" "")" = allow ] || fail "fail closed fixture: $ev $s, $kind (exit $rc) blocks without onFailure too, so it proves nothing about the field"
+    rc=0; (cd "$C" && printf '{}' | CLAUDE_PROJECT_DIR="$C" HOME="$C/home" sh -c "$2" >/dev/null 2>&1) 2>/dev/null || rc=$?
+    [ "$(verdict "$rc" "$3")" = block ] || echo "refused: $1 $s, $kind (exit $rc): its registration lets the call through"
+    [ "$kind" = gone ] || [ "$(verdict "$rc" "")" = allow ] || echo "refused: $1 $s, $kind (exit $rc) blocks without onFailure too, so it proves nothing about the field"
     seen="$seen $kind:$rc"
   done
-  cp "$d/fc-keep" "$f"; proved="$proved $ev/$s($seen )"
+  cp "$d/fc-keep" "$f"; echo "seen:$seen"
+}
+proved="" outside=""
+while IFS="$TAB" read -r ev cmd onf _; do
+  [ -n "$cmd" ] || continue
+  out=$(crash "$ev" "$cmd" "$onf"); s=$(script_of "$cmd")
+  case $out in
+    outside) outside="$outside $ev/$s"; continue ;;
+    missing) fail "fail closed fixture: $ev $s: cannot find its script in the project to crash it ($cmd)"; continue ;;
+  esac
+  printf '%s\n' "$out" | grep '^refused: ' | sed 's/^refused: //' > "$d/fc-refused"
+  while IFS= read -r l; do fail "fail closed fixture: $l"; done < "$d/fc-refused"
+  proved="$proved $ev/$s($(printf '%s\n' "$out" | sed -n 's/^seen://p') )"
 done < "$d/fc-block"
 [ -z "$plugin" ] && [ -z "$proved" ] && fail "fail closed fixture: no guard registration was crashed, so it proves nothing"
-# The fixture's negative case: a registration that swallows its script's exit (`|| true`) reads as
-# an allow, even under onFailure block, so the fixture above would have refused it.
+# The fixture's negative case, through the same crash(): a registration that swallows its script's
+# exit (`|| true`) is refused, even under onFailure block.
 sw=$(awk -F'\t' 'NR == 1 { print $2 }' "$d/fc-block")
 if [ -n "$sw" ]; then
-  rel=$(printf '%s' "$sw" | sed -n 's|.*CLAUDE_PROJECT_DIR[^/]*/\([^"'"'"' ]*\).*|\1|p'); f="$C/$rel"
-  if [ -n "$rel" ] && [ -f "$f" ]; then
-    cp "$f" "$d/fc-keep"; printf 'exit 1\n' > "$f"
-    rc=0; (cd "$C" && printf '{}' | CLAUDE_PROJECT_DIR="$C" HOME="$C/home" sh -c "$sw || true" >/dev/null 2>&1) 2>/dev/null || rc=$?
-    cp "$d/fc-keep" "$f"
-    [ "$(verdict "$rc" block)" = allow ] && ok "fail closed fixture self-test: a registration that swallows its crash (|| true) reads as an allow, so it would be refused" \
-      || fail "fail closed fixture self-test: '$sw || true' with a crashing script exited $rc, which the fixture cannot tell from a passed-on crash"
-  fi
+  out=$(crash PreToolUse "$sw || true" block)
+  printf '%s' "$out" | grep -q 'its registration lets the call through' \
+    && ok "fail closed fixture self-test: a registration that swallows its crash (|| true) is refused" \
+    || fail "fail closed fixture self-test: '$sw || true' over a crashing script was not refused: $out"
 fi
-[ -n "$proved" ] && ok "fail closed fixture: every guard registration's command passes its script's crash on (gone, exit 1, killed: exit codes below), which onFailure block makes a block under Claude Code's 2.1.316 rule (not run here):$proved${outside:+; not crashed, outside the project:$outside}"
+[ -n "$proved" ] && ok "fail closed fixture: every guard registration's command passes its script's crash on (gone, exit 1, killed: exit codes below), which onFailure block makes a block under Claude Code's 2.1.316 rule (not run here):$proved${outside:+; not crashed, not reached through CLAUDE_PROJECT_DIR:$outside}"
 
 # The detector itself, both ways, on fixture commands (so a clean pass above is not vacuous).
 # Fixture commands, spelled through $D so no line here is itself a path this check uses.
