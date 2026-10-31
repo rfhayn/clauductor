@@ -8,6 +8,10 @@ STRIDAL_FW=$(cd "$(dirname "$0")/.." && pwd) # stridal plugin: the plugin root (
 # reason: a sentence that must be ABSENT is asserted next to a case where it must be present.
 # The co-author line (.claude/health/coauthor-trailers.sh, OPS-169) is here too: it is the third
 # line over .claude/lib/health.sh, read through local git in a fixture repo of its own.
+# Every line under test is a thin caller the fixture writes over lib/health.sh (a framework file),
+# never this project's .claude/health/*.sh: those files are the project's to keep or delete (README
+# there), so a check that needed them would fail a project that declined them (OPS-172). A copy the
+# project keeps is run last on the same fixture and must say what the caller says.
 . "$(dirname "$0")/lib.sh"
 need git jq awk
 
@@ -15,7 +19,29 @@ d=$(scratch)
 R="$d/p"; new_repo "$R"
 mkdir -p "$R/.claude/lib" "$R/.claude/health" "$R/.github/workflows" "$d/bin"
 cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/health.sh" "$STRIDAL_FW/lib/modules.sh" "$R/.claude/lib/"
-cp "$ROOT/.claude/health/push-main.sh" "$ROOT/.claude/health/scheduled-workflows.sh" "$R/.claude/health/"
+# Spelt through `here`, never the ROOT forms the plugin builder rewrites to the plugin's model: these
+# callers run in the scratch project, on the copy of lib/ the check put there (plugin_test.go,
+# TestCheckHeredocsKeepTheirProject).
+cat > "$d/push-main-caller.sh" <<'EOF'
+#!/bin/sh
+here=$(cd "$(dirname "$0")/../.." && pwd)
+ROOT=$here
+. "$here/.claude/lib/conf.sh"
+. "$here/.claude/lib/health.sh"
+health_push_main
+exit 0
+EOF
+cat > "$d/scheduled-caller.sh" <<'EOF'
+#!/bin/sh
+here=$(cd "$(dirname "$0")/../.." && pwd)
+ROOT=$here
+. "$here/.claude/lib/conf.sh"
+. "$here/.claude/lib/health.sh"
+health_scheduled "$@"
+exit 0
+EOF
+cp "$d/push-main-caller.sh" "$R/.claude/health/push-main.sh"
+cp "$d/scheduled-caller.sh" "$R/.claude/health/scheduled-workflows.sh"
 cp "$STRIDAL_FW/extensions.sh" "$R/.claude/"
 printf 'name: Audit\non:\n  schedule:\n    - cron: "0 14 * * 1"\n  workflow_dispatch:\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/audit.yml"
 printf 'name: CI\non:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/workflows/ci.yml"
@@ -93,8 +119,9 @@ if [ -d "$ROOT/.github/workflows" ]; then cover "$ROOT" "this project"; else ok 
 # .git): --list from a directory outside the repo still reads the repo's workflows.
 [ "$(cd "$d" && sh "$R/.claude/health/scheduled-workflows.sh" --list)" = audit.yml ] && ok "scheduled: resolves its root from its own path, not from git or the cwd" || fail "scheduled: --list from outside the repo: $(cd "$d" && sh "$R/.claude/health/scheduled-workflows.sh" --list 2>&1)"
 # No workflow file named in the executable half: a literal name is a hand list, and the coverage
-# case above would then agree with it forever.
-code=$(sed 's/#.*$//' "$STRIDAL_FW/lib/health.sh" "$ROOT/.claude/health/scheduled-workflows.sh" "$ROOT/.claude/health/push-main.sh")
+# case above would then agree with it forever. The project's two callers are read where it keeps them.
+code=$(sed 's/#.*$//' "$STRIDAL_FW/lib/health.sh"
+  for f in scheduled-workflows.sh push-main.sh; do [ ! -f "$ROOT/.claude/health/$f" ] || sed 's/#.*$//' "$ROOT/.claude/health/$f"; done)
 named=""
 for f in "$ROOT"/.github/workflows/*.yml "$ROOT"/.github/workflows/*.yaml audit.yml ci.yml; do
   n=$(basename "$f"); case $n in '*.yml' | '*.yaml') continue ;; esac
@@ -222,10 +249,8 @@ has "push-main: no push workflow says there is no post-merge net" "$(PM)" "OK no
 # so no case asserts on a history it never built. The fixture's project.conf (when a case writes one)
 # never sets MAIN_BRANCH, so its line reads origin/main whatever this project's MAIN_BRANCH is; its
 # local branch is whatever new_repo made (FB).
-# The line under test is the fixture's own thin caller over lib/health.sh (a framework file), never
-# this project's .claude/health/coauthor-trailers.sh: that file is the project's to keep or delete
-# (README there), so a check that needed it would fail a project that declined it. The project's
-# copy, when present, is run last against the same fixture and must say what the caller says.
+# The line under test is the fixture's own thin caller over lib/health.sh, as for the two above; the
+# project's copy, when present, is run last against the same fixture and must say what it says.
 must() { "$@" >/dev/null || { fail "coauthor: a fixture step failed, so the cases after it would read a history never built: $*"; finish; }; }
 C="$d/co"; new_repo "$C"
 FB=$(git -C "$C" symbolic-ref --short HEAD)
@@ -252,6 +277,7 @@ ROOT=$here
 . "$here/.claude/lib/conf.sh"
 . "$here/.claude/lib/health.sh"
 health_coauthor ".claude/health/$(basename "$0")"
+exit 0
 EOF
 must cp "$d/coauthor-caller.sh" "$C/.claude/health/coauthor-trailers.sh"
 CO() { (cd "$C" && env "$@" sh .claude/health/coauthor-trailers.sh 2>&1); }
@@ -383,16 +409,38 @@ out=$(cd "$Mf" && sh .claude/health/coauthor-trailers.sh 2>&1); cos="$cos$out
 has "coauthor: MAIN_BRANCH=master reads origin/master" "$out" "FAILED Co-authored-by on origin/master in $(git -C "$Mf" rev-parse --short HEAD) \"Y-1: From elsewhere\""
 has "coauthor: ...and names that branch in the fix" "$out" "rewrite master to remove the trailer from it"
 # This project's own copy of the line, only where it keeps one: on the same fixture it must say
-# exactly what the thin caller says (it adds only the CANNOT CHECK lines for a missing library).
-# Its stdout only: a tool's warning on stderr (git's, naming a temporary file) differs run to run.
-CO1() { (cd "$C" && sh .claude/health/coauthor-trailers.sh 2>/dev/null); }
+# exactly what the thin caller says, exit status included (the runner shows a non-zero exit as
+# CANNOT CHECK). Its stdout only: a tool's warning on stderr (git's, naming a temporary file)
+# differs run to run. Then what only the project's copy does (own_lib).
+# own_lib DIR NAME WANT: the project's copy of NAME, in fixture DIR, with no lib/health.sh in its
+# checkout. In a plugin project the library is the plugin's, which the line finds through
+# STRIDAL_FW (the runner exports it) and must then print WANT; with no library at all, it says so
+# by name.
+own_lib() {
+  mkdir -p "$d/fw/lib"; mv "$1/.claude/lib/health.sh" "$d/fw/lib/health.sh"
+  out=$(cd "$1" && CONTEXT_OFFLINE=1 STRIDAL_FW= sh ".claude/health/$2" 2>/dev/null; echo "exit $?")
+  case $out in *"lib/health.sh is missing"*"exit 0") ok "$2: with no lib/health.sh in its checkout, and no plugin, it says so by name, exit 0" ;;
+    *) fail "$2: with no lib/health.sh and no plugin, no \"lib/health.sh is missing\" and exit 0 in: $out" ;; esac
+  out=$(cd "$1" && CONTEXT_OFFLINE=1 STRIDAL_FW="$d/fw" sh ".claude/health/$2" 2>/dev/null; echo "exit $?")
+  case $out in *"$3"*"exit 0") ok "$2: finds the plugin's lib/health.sh through STRIDAL_FW, exit 0" ;;
+    *) fail "$2: with the plugin's lib/health.sh, no \"$3\" and exit 0 in: $out" ;; esac
+  mv "$d/fw/lib/health.sh" "$1/.claude/lib/health.sh"
+}
+CO1() { (cd "$C" && sh .claude/health/coauthor-trailers.sh 2>/dev/null; echo "exit $?"); }
 if [ -f "$ROOT/.claude/health/coauthor-trailers.sh" ]; then
   want=$(CO1)
   must cp "$ROOT/.claude/health/coauthor-trailers.sh" "$C/.claude/health/coauthor-trailers.sh"
   got=$(CO1)
-  must cp "$d/coauthor-caller.sh" "$C/.claude/health/coauthor-trailers.sh"
   [ -n "$want" ] && [ "$got" = "$want" ] && ok "coauthor: this project's .claude/health/coauthor-trailers.sh says what the fixture's caller says" \
     || fail "coauthor: this project's coauthor-trailers.sh differs from the caller over lib/health.sh. Want: $want  Got: $got"
+  own_lib "$C" coauthor-trailers.sh "$(printf '%s\n' "$want" | head -1)"
+  # A library older than the line (no health_coauthor: a plugin not yet updated) is CANNOT CHECK.
+  must mkdir -p "$d/fw-old/lib"; printf '# a lib/health.sh from before health_coauthor\n' > "$d/fw-old/lib/health.sh"
+  must mv "$C/.claude/lib/health.sh" "$d/health.sh.kept"
+  out=$(cd "$C" && STRIDAL_FW="$d/fw-old" sh .claude/health/coauthor-trailers.sh 2>/dev/null; echo "exit $?")
+  must mv "$d/health.sh.kept" "$C/.claude/lib/health.sh"
+  case $out in "CANNOT CHECK — "*"has no health_coauthor"*"exit 0") ok "coauthor: a library without health_coauthor is CANNOT CHECK, exit 0" ;; *) fail "coauthor: a library without health_coauthor: $out" ;; esac
+  must cp "$d/coauthor-caller.sh" "$C/.claude/health/coauthor-trailers.sh"
 else
   ok "coauthor: this project keeps no .claude/health/coauthor-trailers.sh (its call); the line's logic is tested through the fixture's caller"
 fi
@@ -404,12 +452,42 @@ printf 'name: CI\non:\n  push:\njobs:\n  a:\n    runs-on: x\n' > "$R/.github/wor
 all=$( { SW GH_FAIL=1; SW GH_SCHED="$F0"; PM GH_PUSH="$(pushrun success completed "$(ago 1)" "$OLD")"; PM GH_PUSH='[]'; } )
 bad=$(printf '%s\n' "$all" | grep -vE '^(OK|FAILED|STALE|STUCK|RUNNING|NEVER RAN|CANNOT CHECK —) ')
 [ -z "$bad" ] && ok "every health line starts with its verdict (.claude/health/README.md)" || fail "lines without a verdict: $bad"
-# A plugin project: its health lines are its own files, but lib/health.sh is the plugin's. The
-# runner exports the plugin root (STRIDAL_FW), and the line finds the library there.
-mkdir -p "$d/fw/lib"; mv "$R/.claude/lib/health.sh" "$d/fw/lib/health.sh"
-has "a health line with no lib/health.sh in its checkout, and no plugin, says so by name" "$(cd "$R" && CONTEXT_OFFLINE=1 STRIDAL_FW= sh .claude/health/push-main.sh)" "lib/health.sh is missing"
-has "a health line finds the plugin's lib/health.sh through STRIDAL_FW" "$(cd "$R" && CONTEXT_OFFLINE=1 STRIDAL_FW="$d/fw" sh .claude/health/scheduled-workflows.sh)" "CANNOT CHECK — offline"
-mv "$d/fw/lib/health.sh" "$R/.claude/lib/health.sh"
+
+# ── This project's own push-main.sh and scheduled-workflows.sh, only where it keeps them ───────
+# Each, on the fixture above, must say what the fixture's caller says (its stdout and exit status,
+# run from outside the repo, so it finds its root from its own path), as the coauthor line's copy
+# does; then own_lib.
+L() {  # L NAME [VAR=VALUE...]: the line NAME in the fixture, its stdout and exit, from outside the repo
+  _n=$1; shift
+  (cd "$d" && env PATH="$d/bin:$PATH" HEALTH_TODAY="$TODAY" CONTEXT_OFFLINE= "$@" sh "$R/.claude/health/$_n" 2>/dev/null; echo "exit $?")
+}
+cases() {  # cases NAME: what NAME prints over the cases a project's copy must agree on
+  case $1 in
+    scheduled-workflows.sh)
+      (cd "$d" && sh "$R/.claude/health/$1" --list 2>/dev/null; echo "exit $?")
+      L "$1" GH_FAIL=1
+      L "$1" GH_SCHED="$F0" GH_STEPS=0 GH_SUCCESS="$(succ "$(ago 2)" workflow_dispatch)"
+      L "$1" GH_SCHED="$(sched success completed "$(ago 1)")" ;;
+    push-main.sh)
+      L "$1" GH_FAIL=1
+      L "$1" GH_PUSH="$(pushrun success completed "$(ago 1)" "$OLD")"
+      L "$1" GH_PUSH="$(pushrun failure completed "$(ago 1)" "$(git -C "$R" rev-parse origin/main)")" ;;
+  esac
+}
+for n in push-main.sh scheduled-workflows.sh; do
+  caller="$d/push-main-caller.sh"; [ "$n" = push-main.sh ] || caller="$d/scheduled-caller.sh"
+  if [ ! -f "$ROOT/.claude/health/$n" ]; then
+    ok "this project keeps no .claude/health/$n (its call); the line's logic is tested through the fixture's caller"
+    continue
+  fi
+  want=$(cases "$n")
+  cp "$ROOT/.claude/health/$n" "$R/.claude/health/$n"
+  got=$(cases "$n")
+  [ -n "$want" ] && [ "$got" = "$want" ] && ok "this project's .claude/health/$n says what the fixture's caller says" \
+    || fail "this project's $n differs from the caller over lib/health.sh. Want: $want  Got: $got"
+  own_lib "$R" "$n" "CANNOT CHECK — offline"
+  cp "$caller" "$R/.claude/health/$n"
+done
 # ...and the runner hands STRIDAL_FW on. The plugin's copy sets it, NOT exported, in a prologue;
 # that is simulated here by an unexported assignment just before the export line (so it is the
 # export line, and nothing in the caller's environment, that can make it reach the health line).
@@ -422,4 +500,24 @@ rm -f "$R/.claude/health/zz-fw.sh"
 printf '#!/bin/sh\necho "CANNOT CHECK — said on stderr" >&2\n' > "$R/.claude/health/zz-stderr.sh"
 has "the runner (extensions.sh health) merges a health line's stderr, so a CANNOT CHECK there is read" \
   "$(cd "$R" && sh .claude/extensions.sh health 2>/dev/null)" "CANNOT CHECK — said on stderr"
+
+# ── A project that keeps none of the three lines (OPS-172) ──────────────────────────────────────
+# This project keeps them, so the branches above for one it deleted never run here. A copy of this
+# check runs in a project with no .claude/health/ but with workflows (one that deleted the lines
+# still has its CI, so every branch on a project's workflows runs too), and must pass whole, saying
+# it found none of the three. Falsified by copying the project's push-main.sh into the fixture
+# again, as before OPS-172: red. The copy runs with HEALTH_LINES_INNER=1, so it never recurses.
+if [ -z "${HEALTH_LINES_INNER:-}" ]; then
+  P="$d/bare"; mkdir -p "$P/.claude/checks" "$P/.claude/lib" "$P/.github/workflows"
+  printf 'name: A\non:\n  schedule:\n    - cron: "0 1 * * 1"\njobs:\n  a:\n    runs-on: x\n' > "$P/.github/workflows/a.yml"
+  printf 'name: CI\non:\n  push:\n    branches: [main]\njobs:\n  a:\n    runs-on: x\n' > "$P/.github/workflows/ci.yml"
+  cp "$STRIDAL_FW/lib/conf.sh" "$STRIDAL_FW/lib/health.sh" "$STRIDAL_FW/lib/modules.sh" "$P/.claude/lib/"
+  cp "$STRIDAL_FW/extensions.sh" "$P/.claude/"
+  cp "$(dirname "$0")/lib.sh" "$0" "$P/.claude/checks/"
+  out=$(cd "$P" && HEALTH_LINES_INNER=1 ROOT="$P" sh ".claude/checks/${0##*/}" 2>&1); rc=$?
+  kept=$(printf '%s\n' "$out" | grep -c "keeps no .claude/health/")
+  [ "$rc" = 0 ] && [ "$kept" = 3 ] && ! printf '%s\n' "$out" | grep -q '^FAIL' \
+    && ok "a project with none of the three health lines passes this check, and says it keeps none" \
+    || fail "a project with none of the three health lines (exit $rc, $kept 'keeps no' line(s)): $(printf '%s\n' "$out" | grep -v '^ok' | head -5)"
+fi
 finish
