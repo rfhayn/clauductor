@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -30,7 +31,8 @@ var Path, _ = exec.LookPath("git")
 // the packages that import it, and a directory's tests are two packages when it has external
 // tests (x and x_test): each form whose files hold code imports testgit (`import _
 // ".../testgit"` when it uses nothing of it), and is then covered from its first line.
-// TESTGIT_HELPER_NOSTRIP is the probe's negative case alone: a binary that did not strip.
+// TESTGIT_HELPER_NOSTRIP is the probe's negative case alone: a binary that did not strip. It then
+// sets configEnv, so no git the binary starts runs auto maintenance (noMaintenance).
 func init() {
 	if os.Getenv("TESTGIT_HELPER_NOSTRIP") != "" {
 		return
@@ -40,12 +42,17 @@ func init() {
 			os.Unsetenv(k)
 		}
 	}
+	for _, kv := range configEnv() {
+		k, v, _ := strings.Cut(kv, "=")
+		os.Setenv(k, v)
+	}
 }
 
-// Env is this process's environment with no GIT_ variable, and a commit identity. init has
-// already dropped what the test binary inherited; Env also drops what a test set itself, as a
-// test standing in for a hook does (template's TestTheFixturesGitStaysInTheFixture). A caller
-// that needs more (GIT_EDITOR, an isolated config) appends it.
+// Env is this process's environment with none of its own GIT_ variables, plus testgit's git
+// config (configEnv) and a commit identity. init has already dropped what the test binary
+// inherited; Env also drops what a test set itself, as a test standing in for a hook does
+// (template's TestTheFixturesGitStaysInTheFixture), then sets configEnv again. A caller that
+// needs more appends it (GIT_EDITOR), or a config through WithConfig.
 func Env() []string {
 	var env []string
 	for _, kv := range os.Environ() {
@@ -53,6 +60,7 @@ func Env() []string {
 			env = append(env, kv)
 		}
 	}
+	env = append(env, configEnv()...)
 	return append(env, "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 }
 
@@ -115,4 +123,34 @@ func Outer(t testing.TB) (env []string, touched func() string) {
 		}
 		return ""
 	}
+}
+
+// WithConfig is env with this package's git config (configEnv) plus the key-value pairs kv, as
+// GIT_CONFIG_COUNT entries: a caller that needs a config of its own adds it here, since a second
+// GIT_CONFIG_COUNT would replace the first.
+func WithConfig(env []string, kv ...string) []string {
+	var out []string
+	for _, e := range env {
+		if !strings.HasPrefix(e, "GIT_CONFIG_COUNT=") && !strings.HasPrefix(e, "GIT_CONFIG_KEY_") && !strings.HasPrefix(e, "GIT_CONFIG_VALUE_") {
+			out = append(out, e)
+		}
+	}
+	return append(out, configEnv(kv...)...)
+}
+
+// noMaintenance keeps every git a test starts from auto maintenance and auto gc: a write (a
+// commit, a branch, a worktree) may start them in the background, and they take and drop
+// .git/objects/maintenance.lock while a test walks .git (#343's TestOuterSeesEachChange, #361's
+// TestCatchUpLeavesAnotherBranchDetachedOrAhead, both on Ubuntu).
+var noMaintenance = []string{"maintenance.auto", "false", "gc.auto", "0"}
+
+// configEnv is noMaintenance and the pairs kv as GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n and
+// GIT_CONFIG_VALUE_n, which every git reads above any config file.
+func configEnv(kv ...string) []string {
+	pairs := append(append([]string{}, noMaintenance...), kv...)
+	env := []string{"GIT_CONFIG_COUNT=" + strconv.Itoa(len(pairs)/2)}
+	for i := 0; i+1 < len(pairs); i += 2 {
+		env = append(env, "GIT_CONFIG_KEY_"+strconv.Itoa(i/2)+"="+pairs[i], "GIT_CONFIG_VALUE_"+strconv.Itoa(i/2)+"="+pairs[i+1])
+	}
+	return env
 }

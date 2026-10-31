@@ -130,7 +130,7 @@ CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals
 
 # The project.conf keys that may differ between the two ROOTs: no CHECKS_ONCE check reads them
 # (check-sets.sh fails one that names any). Every other key must be the same in both.
-# GATE_PR_CHECKS among them: this repo turns it back on when Actions minutes return (OPS-98).
+# GATE_PR_CHECKS among them: this repo's is "test", the template's empty (OPS-98).
 # APPROVAL_DELEGATED and GATE_DOCS: this repo's own are "1" (OPS-89, OPS-127). Only
 # change-approval.sh and run-local.sh read them; no CHECKS_ONCE check runs change-approval.sh, gate
 # and ci-status run run-local.sh only in fixtures whose project.conf they write, and conf.sh sets

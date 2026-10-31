@@ -90,8 +90,14 @@ too. `gh pr checks` cannot see a dispatched run; poll `gh run list --workflow <f
 - **A reported check is red**: STOP; the guard blocks on anything reported and not passing.
 - **A required check has not reported or is not green**: the project names the PR checks a merge
   waits for in `GATE_PR_CHECKS` (`.claude/project.conf`; empty = none). The guard blocks until each
-  has reported and passed on the head. Wait with `gh pr checks <n> --watch`. If it says gh itself
-  failed, fix gh (`gh auth status`): that is not CI.
+  has reported and passed on the head. When the Context block's PR line says `draft`, run
+  `gh pr ready <n>` first (where CI skips drafts, that starts it). Then read `gh pr checks <n>`:
+  every required name passed on the head (a bare name skipped beside its matrix job's pass counts,
+  as the guard reads it), go on; one pending, `gh pr checks <n> --watch`; none passed or pending
+  yet (a draft's skipped run leaves the bare name `skipping`: that is not yet, not red), poll
+  until one is, and if none appears within five minutes STOP and compare
+  `GATE_PR_CHECKS` with the names gh shows (or CI is not running: billing, disabled workflows).
+  If it says gh itself failed, fix gh (`gh auth status`): that is not CI.
 
 ### 2b. The slice line (change PRs only)
 Find the change from the PR's own diff (`git diff --name-only origin/main...HEAD` under
@@ -156,8 +162,8 @@ Write the result into the PR body as one line: `Review: converged in <n> round(s
 Nothing checks this line; it is a skill step (AGENTS.md, *What executes*).
 
 ### 4. Squash-merge and prune
-A row's PR opens as a draft (`session-start/marker.sh`), and GitHub refuses to merge a draft: when
-the Context block's PR line says `draft`, run `gh pr ready <n>` first.
+A row's PR opens as a draft (`session-start/marker.sh`), and GitHub refuses to merge a draft: if
+step 2 did not already mark it ready, run `gh pr ready <n>` first.
 
 Write the squash body to a file: the PR's summary, then ONE trailer block. While
 `provenance.enabled` in `.claude/model-roles.json` is true (the template's default), the block has

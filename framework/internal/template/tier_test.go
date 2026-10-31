@@ -100,16 +100,16 @@ func diskClaudeDirs(root string) ([]string, error) {
 	return dirs, nil
 }
 
-// gitEnv is testgit.Env: no GIT_ variable, so a git hook's GIT_DIR, GIT_WORK_TREE and
-// GIT_INDEX_FILE cannot aim a test's git at the outer repository. isolated also drops the global
+// gitEnv is testgit.Env: none of the caller's GIT_ variables (testgit's config only), so a git
+// hook's GIT_DIR, GIT_WORK_TREE and GIT_INDEX_FILE cannot aim a test's git at the outer repository. isolated also drops the global
 // and system config, so a fixture reads only its own ignore rules and hooks. The user's ignore
 // file needs core.excludesFile set as well: git reads ~/.config/git/ignore by default even with
 // no global config.
 func gitEnv(isolated bool) []string {
 	env := testgit.Env()
 	if isolated {
-		env = append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
-			"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.excludesFile", "GIT_CONFIG_VALUE_0=/dev/null")
+		env = testgit.WithConfig(append(env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"),
+			"core.excludesFile", "/dev/null")
 	}
 	return env
 }
