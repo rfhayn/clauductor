@@ -32,5 +32,27 @@ skills, agents and hooks through a marketplace, read-only and versioned.
 gate runs `stridal plugin check` from source (`scripts/ci/steps.sh`); the plugin tests run the
 checks in a scaffolded repository on macOS and Linux.
 
+## Amendment — 2026-10-31: a plugin release also carries the engine, and the repo pins it
+- **Source**: ADR-0018 (accepted by the owner, 2026-10-31); OPS-182 (S19).
+
+The plugin stays the generated copy of `template/`. What a release holds, and what a repository
+runs, change:
+- **A release carries the engine.** Under ADR-0017 the controls move into the `stridal` binary, so
+  a plugin release carries `hooks.json`, the skills and agents, and the engine for that same
+  version: the binaries under `engine/` (never a top-level `bin/`), or their manifest with sha256s
+  (where they live is OPS-184's choice). The plugin's hooks and its MCP server call one bootstrap
+  launcher, which picks the binary for the running platform.
+- **The repo pins the release.** `.claude/stridal.lock`, read from `origin/<main>`, names the
+  release and its sha256s, so every worktree is guarded by main's release. A mismatch refuses
+  every guarded decision, and allows the commands that repair it.
+- **The first consequence above no longer holds.** "The model reaches Claude Code users without the
+  binary" was ADR-0006's promise, which ADR-0016 withdraws: a guarded repository needs the engine,
+  and the plugin brings it.
+
+**Enforcement** (in addition to the above): built by OPS-183 (the lock and the fail-closed
+dispatcher) and OPS-184 (the release that carries the engine, and a check that rebuilds a tagged
+release to reproduce its sha256s). Until they merge, **Nothing. You.**: the plugin ships shell
+hooks, as before.
+
 ## Related
-- ADR-0004, ADR-0006
+- ADR-0004, ADR-0006 (superseded by ADR-0016), ADR-0017, ADR-0018

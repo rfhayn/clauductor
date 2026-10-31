@@ -49,3 +49,4 @@ older records as written). Never renumber a record on `main`; supersede it.
 | [0013](0013-batch-reviewed-lanes-one-gate-per-batch.md) | Batch reviewed lanes into one integration branch, one gate per batch | Accepted |
 | [0014](0014-converge-review-by-deleting-mechanism.md) | Converge review by deleting mechanism, not adding it | Accepted |
 | [0015](0015-a-classifier-stop-is-a-park-signal.md) | A classifier stop is a park signal, by a rule agreed before the retry | Accepted |
+| [0023](0023-evidence-before-acceptance.md) | A decision is accepted only on the evidence its assumptions name | Accepted |

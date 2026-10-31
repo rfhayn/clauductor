@@ -266,6 +266,33 @@ every other merge; `pr-merge-guard.sh` for the route check and D4; `checks/merge
 acceptance cases; for D5, the drift refusals of `merge.sh` and the wrapper, and the extended
 `worktree-hook-drift.sh`; for D7, GitHub's ruleset on `main`.
 
+## Amendment — 2026-10-31: the merge path is built in Go, in the engine
+- **Source**: ADR-0017 decision 2 and ADR-0019 (accepted by the owner, 2026-10-31); OPS-182 (S19).
+  ADR-0017's count: about 2.3k lines of shell were about to be written for D1, D2 and D4, and then
+  ported.
+
+D1 to D7 stand as decisions. What builds them changes:
+- **D1.** The one merge path is `stridal merge <pr>`, not `.claude/merge.sh`. It is written in Go
+  from the start (OPS-162), and OPS-77 and OPS-78 write their rules into it. `merge-pr` step 4
+  calls it.
+- **D2.** The `gh` wrapper is the engine (`stridal gh`) behind a one-line shim first on PATH
+  (OPS-163). It reads gh's grammar by position, as D2 requires.
+- **D4.** The hook's merge reader is deleted under ADR-0019's parity rule (OPS-164): the deletion
+  carries a parity receipt, and the multi-shell rows of `checks/merge-guard.sh` (bash 3.2, bash 5,
+  zsh) are deleted by name rather than ported. D6 PR 3's acceptance cases run against the wrapper.
+- **D5.** `stridal merge` refuses while its engine differs from the repo's lock (ADR-0018), which
+  is read from `origin/<main>`, so a lane's edit of its own copy does not change what judges its
+  merge.
+- **D6.** The three PRs keep their order, after the engine's floor (Phase 2) and the extension
+  contract (OPS-186): the Session plan's S28 to S31.
+- **No row writes any of these in shell first.** OPS-162 to OPS-164 are never built in shell and
+  then ported.
+
+**Enforcement** (replacing the paths named above): once built, `stridal merge` for the rules, the
+`stridal gh` wrapper for the refusal of every other merge, and ADR-0019's parity receipt for the
+reader's deletion, which the merge guard checks (OPS-185). Until OPS-162 to OPS-164 merge, the
+guard keeps the limits its header lists, as above.
+
 ## Related
 - PRAC-0010 (close the class, not the instance): this record applies it to the merge guard.
 - `docs/principles.md`, *A check that reads source is a parser*.
