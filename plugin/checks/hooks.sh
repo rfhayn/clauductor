@@ -881,10 +881,13 @@ expect_rc 2 "$rc" "the killall wrapper refuses every call"
 # root of a throwaway copy, and asks each for its OWN proof that it ran: exit code alone is not it,
 # since dash exits 2 when it cannot open a script, the very code a guard blocks with.
 #
-# THE TABLE: one row per registered hook script (script, exit, proof, payload, why), and a row for
-# a script that is not registered fails too, so a new hook cannot be registered without saying how
-# it proves it launched. A project that registers its own hook adds its row to
-# .claude/local/hook-expectations.tsv, the same five tab-separated columns. proof is `out:<ERE>`
+# THE TABLE: one row per registered hook script (script, exit, proof, payload, why, onFailure), and
+# a row for a script that is not registered fails too, so a new hook cannot be registered without
+# saying how it proves it launched. A project that registers its own hook adds its row to
+# .claude/local/hook-expectations.tsv, the same six tab-separated columns. onFailure is `block` for
+# a guard (its registrations on an event that guards an action carry "onFailure": "block" and a
+# timeout; see "Fail closed" below) or `continue: <why>` for a hook that keeps the default and
+# says why it may fail open. proof is `out:<ERE>`
 # (stdout and stderr together), `file:<path>` (it must exist after) or `exit` (the exit code and no
 # launch error: only for a hook with nothing else to show). @REPO@ in a payload or path is the
 # throwaway project; @TRACKED@ a tracked file in it; @GATE_WAIT@ gate-wait.sh beside GATE_RUN.
@@ -928,19 +931,19 @@ TAB=$(printf '\t')
 plugin=""
 [ -n "${STRIDAL_FW:-}" ] && [ -f "$STRIDAL_FW/hooks/hooks.json" ] && plugin=1
 cat > "$d/core.tsv" <<'EOF'
-pr-merge-guard.sh	2	out:BLOCKED by pr-merge-guard: '--auto' merges before checks settle	{"tool_name":"Bash","tool_input":{"command":"gh pr merge 1 --auto"}}	rule 1 refuses --auto before it asks GitHub anything
-no-blind-source-rewrite.sh	2	out:BLOCKED by no-blind-source-rewrite	{"tool_name":"Bash","tool_input":{"command":"sed -i '' 's/a/b/' @TRACKED@"}}	an in-place sed on a tracked file
-no-background-gate.sh	2	out:BLOCKED by no-background-gate: a subagent started the gate with run_in_background	{"tool_name":"Bash","agent_id":"check","tool_input":{"command":"@GATE_WAIT@","run_in_background":true}}	a subagent's gate wait in the background
-no-silent-wait.sh	0	file:@REPO@/.git/stridal-wait/hooks-check/tasks/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","agent_id":"check","tool_name":"Bash","tool_response":{"backgroundTaskId":"b1"}}	a subagent's backgrounded command is recorded for its stop to read
-worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so
-cd-guard.sh	0	file:@REPO@/.git/stridal-cd-guard/hooks-check/holds/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{"taskId":"check"}}	a build-change run is recorded as holding the worktree it started in
-catch-up-guard.sh	0	out:catch-up-guard: (no stridal on PATH|catch-up is off)	{"tool_name":"Bash","tool_input":{"command":"git pull --ff-only origin main"}}	a pull in the main checkout, catch-up off or unaskable: allowed, and says so
-read-by-range.sh	2	out:BLOCKED by read-by-range:	{"tool_name":"Read","tool_input":{"file_path":"@REPO@/big.txt"}}	a whole Read of a file over 400 lines
-no-worktree-force-remove.sh	2	out:BLOCKED by no-worktree-force-remove:	{"tool_name":"Bash","tool_input":{"command":"git worktree remove --force x"}}	a forced worktree removal
-no-pattern-kill.sh	2	out:BLOCKED by no-pattern-kill:	{"tool_name":"Bash","tool_input":{"command":"/usr/bin/pkill -f sleep"}}	a path to pkill, which skips the wrapper
-pattern-kill-path.sh	0	out:pattern-kill-path:	{"hook_event_name":"SessionStart","session_id":"hooks-check"}	SessionStart puts .claude/bin first, or says it could not
-focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges
-format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written
+pr-merge-guard.sh	2	out:BLOCKED by pr-merge-guard: '--auto' merges before checks settle	{"tool_name":"Bash","tool_input":{"command":"gh pr merge 1 --auto"}}	rule 1 refuses --auto before it asks GitHub anything	block
+no-blind-source-rewrite.sh	2	out:BLOCKED by no-blind-source-rewrite	{"tool_name":"Bash","tool_input":{"command":"sed -i '' 's/a/b/' @TRACKED@"}}	an in-place sed on a tracked file	block
+no-background-gate.sh	2	out:BLOCKED by no-background-gate: a subagent started the gate with run_in_background	{"tool_name":"Bash","agent_id":"check","tool_input":{"command":"@GATE_WAIT@","run_in_background":true}}	a subagent's gate wait in the background	block
+no-silent-wait.sh	0	file:@REPO@/.git/stridal-wait/hooks-check/tasks/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","agent_id":"check","tool_name":"Bash","tool_response":{"backgroundTaskId":"b1"}}	a subagent's backgrounded command is recorded for its stop to read	block
+worktree-hook-drift.sh	0	out:worktree-hook-drift: CANNOT CHECK	{"tool_name":"Agent","tool_input":{"prompt":"p","isolation":"worktree"}}	a worktree spawn with no origin/main to compare: allowed, and says so	block
+cd-guard.sh	0	file:@REPO@/.git/stridal-cd-guard/hooks-check/holds/check	{"hook_event_name":"PostToolUse","session_id":"hooks-check","tool_name":"Workflow","tool_input":{"name":"build-change"},"tool_response":{"taskId":"check"}}	a build-change run is recorded as holding the worktree it started in	block
+catch-up-guard.sh	0	out:catch-up-guard: (no stridal on PATH|catch-up is off)	{"tool_name":"Bash","tool_input":{"command":"git pull --ff-only origin main"}}	a pull in the main checkout, catch-up off or unaskable: allowed, and says so	block
+read-by-range.sh	2	out:BLOCKED by read-by-range:	{"tool_name":"Read","tool_input":{"file_path":"@REPO@/big.txt"}}	a whole Read of a file over 400 lines	continue: it fails open by design (a context budget, not a safety guard): a crash that blocked would stop every Read and Bash call to save context
+no-worktree-force-remove.sh	2	out:BLOCKED by no-worktree-force-remove:	{"tool_name":"Bash","tool_input":{"command":"git worktree remove --force x"}}	a forced worktree removal	block
+no-pattern-kill.sh	2	out:BLOCKED by no-pattern-kill:	{"tool_name":"Bash","tool_input":{"command":"/usr/bin/pkill -f sleep"}}	a path to pkill, which skips the wrapper	block
+pattern-kill-path.sh	0	out:pattern-kill-path:	{"hook_event_name":"SessionStart","session_id":"hooks-check"}	SessionStart puts .claude/bin first, or says it could not	continue: SessionStart guards no action, and the pkill wrapper it puts first is a second line behind no-pattern-kill
+focus-staleness.sh	0	out:focus may be stale	{"prompt":"hello"}	no focus file yet: it nudges	continue: a nudge, not a guard: a crash that blocked would refuse the owner's prompt
+format.sh	0	file:@REPO@/formatted.stamp	{"tool_name":"Write","tool_input":{"file_path":"@TRACKED@"}}	FORMAT_CMD runs on the file just written	continue: a formatter, not a guard: it runs after the edit (PostToolUse), so blocking would undo nothing
 EOF
 if [ -n "$plugin" ]; then : > "$d/expect.tsv"; else cp "$d/core.tsv" "$d/expect.tsv"; fi
 [ -f "$ROOT/.claude/local/hook-expectations.tsv" ] && grep -v '^[[:space:]]*#' "$ROOT/.claude/local/hook-expectations.tsv" | grep -v '^[[:space:]]*$' >> "$d/expect.tsv"
@@ -995,6 +998,102 @@ while IFS="$TAB" read -r ev cmd; do
     esac
   done
 done < "$d/launching"
+
+# ── Fail closed (OPS-214): a guard that crashes or hangs blocks ────────────────────────────────
+# Claude Code counts a hook that could not start, timed out, or exited with a code other than 0 or
+# 2 as a FAILURE, and a failure lets the action through unless the registration says
+# "onFailure": "block", which counts it as exit 2 (its settings schema, 2.1.316). The S19 spike
+# showed both: a PreToolUse guard that exited 126 or 127, or timed out, let the tool call through,
+# and with "onFailure": "block" it was blocked. So a guard registered without it fails OPEN on any
+# crash and says nothing. Every `block` row's registrations on an event that guards an action
+# carry "onFailure": "block" and an explicit "timeout" (how long a hung guard holds the call is
+# chosen here, not left to the default); a `continue:` row keeps the default and says why.
+# Not judged, known limits: Claude Code ignores onFailure on Stop, SubagentStop, TaskCompleted and
+# TeammateIdle (no-silent-wait's SubagentStop and cd-guard's Stop fail open on a crash, and no
+# setting changes that), a PostToolUse hook runs after the action it would guard, and an inline
+# command that runs no script file has no row to say what it is.
+GUARD_EVENTS=" PreToolUse PermissionRequest UserPromptSubmit UserPromptExpansion PreModelSwitch "
+# failclosed REGS EXPECT: one line per row or registration that breaks the rule. REGS holds one
+# event<TAB>command<TAB>onFailure<TAB>timeout line per command hook, as jq reads settings.json.
+failclosed() {
+  awk -F'\t' 'NF { print $1 "\t" $6 }' "$2" | while IFS="$TAB" read -r s mode; do
+    case $mode in block|"continue: "?*) ;; *) echo "$s: its row's sixth column (onFailure) is '$mode', not block or 'continue: <why>'" ;; esac
+  done
+  while IFS="$TAB" read -r ev cmd onf to; do
+    case $GUARD_EVENTS in *" $ev "*) ;; *) continue ;; esac
+    s=$(script_of "$cmd"); [ -n "$s" ] || continue
+    mode=$(awk -F'\t' -v s="$s" '$1 == s { print $6; exit }' "$2")
+    case $mode in
+      block)
+        [ "$onf" = block ] || echo "$ev $s: a guard registered without \"onFailure\": \"block\", so a crash or a hang lets the call through"
+        { printf '%s' "$to" | grep -qE '^[0-9]+$' && [ "$to" -gt 0 ]; } || echo "$ev $s: a guard registered without an explicit \"timeout\" in seconds" ;;
+      "continue: "?*) [ "$onf" != block ] || echo "$ev $s: registered with \"onFailure\": \"block\", but its row says it keeps the default" ;;
+    esac
+  done < "$1"
+}
+fcregs() { jq -r '(.hooks // {}) | to_entries[] | .key as $e | .value[] | .hooks[]? | select(.type == "command") | [$e, .command, (.onFailure // ""), ((.timeout // "") | tostring)] | @tsv' "$1"; }
+fcregs "$SETTINGS" > "$d/fc-regs"
+awk -F'\t' -v g="$GUARD_EVENTS" '$3 == "block" && index(g, " " $1 " ")' "$d/fc-regs" > "$d/fc-block"
+fc=$(failclosed "$d/fc-regs" "$d/expect.tsv")
+if [ -n "$fc" ]; then
+  while IFS= read -r l; do fail "fail closed: $l"; done <<EOF
+$fc
+EOF
+else
+  nb=$(grep -c . "$d/fc-block" || true)
+  if [ -z "$plugin" ] && [ "$nb" -lt 3 ]; then fail "fail closed: only $nb guard registration(s) carry onFailure block: the rule would pass vacuously"
+  else ok "fail closed: $nb guard registration(s) carry onFailure block and a timeout ($(while IFS="$TAB" read -r ev cmd _ _; do printf '%s ' "$(script_of "$cmd")"; done < "$d/fc-block" | tr ' ' '\n' | sort -u | tr '\n' ' ')); every other hook's row says why it keeps the default"; fi
+fi
+
+# The rule, both ways, on doctored copies of the registrations (each must be refused).
+fcbad() {  # fcbad LABEL WANT-ERE JQ-FILTER-ON-SETTINGS [EXPECT-SED]
+  jq "$3" "$SETTINGS" > "$d/fc-doc.json" && fcregs "$d/fc-doc.json" > "$d/fc-doc"
+  sed "${4:-}" "$d/expect.tsv" > "$d/fc-doc.tsv"
+  out=$(failclosed "$d/fc-doc" "$d/fc-doc.tsv")
+  printf '%s' "$out" | grep -qE -- "$2" && ok "fail closed self-test: $1 is refused" || fail "fail closed self-test: $1 passed: ${out:-nothing reported}"
+}
+if [ -z "$plugin" ]; then
+  first=$(awk -F'\t' '$6 == "block" { print $1; exit }' "$d/expect.tsv")
+  open1=$(awk -F'\t' '$6 ~ /^continue: / { print $1; exit }' "$d/expect.tsv")
+  sel='(.hooks.PreToolUse[].hooks[] | select(.command | endswith("/'"$first"'")))'
+  fcbad "a guard ($first) with no onFailure" "$first: a guard registered without \"onFailure\"" "$sel |= del(.onFailure)"
+  fcbad "a guard ($first) with no timeout" "$first: a guard registered without an explicit" "$sel |= del(.timeout)"
+  fcbad "a guard ($first) with onFailure continue" "$first: a guard registered without \"onFailure\"" "$sel.onFailure = \"continue\""
+  fcbad "a guard ($first) with a timeout of 0" "$first: a guard registered without an explicit" "$sel.timeout = 0"
+  [ -n "$open1" ] && fcbad "a fail-open hook ($open1) registered with onFailure block" "$open1: registered with \"onFailure\": \"block\", but" \
+    '(.hooks[][].hooks[] | select(.command | endswith("/'"$open1"'"))) |= (.onFailure = "block" | .timeout = 30)'
+  fcbad "a row with no onFailure column" "$first: its row's sixth column" '.' "/^$first	/s/	block\$//"
+  fcbad "a continue row with no reason" "$first: its row's sixth column" '.' "/^$first	/s/	block\$/	continue/"
+fi
+
+# The fixture: each guard registration crashes three ways in a copy of the throwaway project (its
+# script gone, `exit 1`, killed by a signal) and is launched as Claude Code launches it. Under
+# Claude Code's reading (0 allows, 2 blocks, any other end is a failure, which blocks only under
+# "onFailure": "block") every crash must block with the registration's own onFailure, and the
+# exit-1 and killed crashes must NOT block under the default: so it is the field that blocks them.
+# (A gone script is exit 127 under bash's sh and 2 under dash's, which blocks either way.) A hang
+# is not run: it is the same failure, after the registration's timeout, which the rule holds.
+verdict() { case $1 in 0) echo allow ;; 2) echo block ;; *) [ "$2" = block ] && echo block || echo allow ;; esac; }
+C="$d/crash"; cp -R "$P" "$C"; C=$(cd "$C" && pwd -P)
+proved=""
+while IFS="$TAB" read -r ev cmd onf _; do
+  [ -n "$cmd" ] || continue
+  s=$(script_of "$cmd"); rel=$(printf '%s' "$cmd" | sed -n 's|.*CLAUDE_PROJECT_DIR[^/]*/\([^"'"'"' ]*\).*|\1|p')
+  f="$C/$rel"
+  [ -n "$rel" ] && [ -f "$f" ] || { fail "fail closed fixture: $ev $s: cannot find its script in the project to crash it ($cmd)"; continue; }
+  cp "$f" "$d/fc-keep"; seen=""
+  for kind in gone exit1 killed; do
+    case $kind in gone) rm -f "$f" ;; exit1) printf 'exit 1\n' > "$f" ;; killed) printf 'kill -9 $$\n' > "$f" ;; esac
+    # The outer 2>/dev/null takes the shell's own "Killed: 9" job report, which is no finding.
+    rc=0; (cd "$C" && printf '{}' | CLAUDE_PROJECT_DIR="$C" HOME="$C/home" sh -c "$cmd" >/dev/null 2>&1) 2>/dev/null || rc=$?
+    [ "$(verdict "$rc" "$onf")" = block ] || fail "fail closed fixture: $ev $s, $kind (exit $rc): its registration lets the call through"
+    [ "$kind" = gone ] || [ "$(verdict "$rc" "")" = allow ] || fail "fail closed fixture: $ev $s, $kind (exit $rc) blocks without onFailure too, so it proves nothing about the field"
+    seen="$seen $kind:$rc"
+  done
+  cp "$d/fc-keep" "$f"; proved="$proved $ev/$s($seen )"
+done < "$d/fc-block"
+[ -z "$plugin" ] && [ -z "$proved" ] && fail "fail closed fixture: no guard registration was crashed, so it proves nothing"
+[ -n "$proved" ] && ok "fail closed fixture: every guard registration blocks when its script is gone, exits 1 or is killed:$proved"
 
 # The detector itself, both ways, on fixture commands (so a clean pass above is not vacuous).
 # Fixture commands, spelled through $D so no line here is itself a path this check uses.

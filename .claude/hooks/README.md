@@ -6,6 +6,11 @@ exit-code table, in both directions. Its registration table then runs every comm
 `settings.json` registers exactly as Claude Code does (`sh -c`, `CLAUDE_PROJECT_DIR` set) from a
 subdirectory and the root, and needs each hook's own proof that it ran: register every hook through
 `"$CLAUDE_PROJECT_DIR"/`, and give a hook you add a row in `.claude/local/hook-expectations.tsv`.
+A guard fails CLOSED: Claude Code lets the call through when a hook cannot start, times out or
+exits with a code other than 0 or 2, unless its registration says `"onFailure": "block"`. So every
+guard's registration on an event that guards an action (PreToolUse, UserPromptSubmit, ...) carries
+it and a `timeout`, and the table's sixth column says which hooks keep the default, and why
+(OPS-214). Claude Code ignores `onFailure` on Stop, SubagentStop and TeammateIdle.
 
 | Hook | Event | Blocks? | What it does |
 |---|---|---|---|

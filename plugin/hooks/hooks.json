@@ -36,26 +36,38 @@
         "hooks": [
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" pr-merge-guard.sh",
+            "onFailure": "block",
+            "timeout": 300,
             "type": "command"
           },
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-blind-source-rewrite.sh",
+            "onFailure": "block",
+            "timeout": 60,
             "type": "command"
           },
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-background-gate.sh",
+            "onFailure": "block",
+            "timeout": 60,
             "type": "command"
           },
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
+            "onFailure": "block",
+            "timeout": 60,
             "type": "command"
           },
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" cd-guard.sh",
+            "onFailure": "block",
+            "timeout": 60,
             "type": "command"
           },
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" catch-up-guard.sh",
+            "onFailure": "block",
+            "timeout": 60,
             "type": "command"
           },
           {
@@ -64,10 +76,14 @@
           },
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-worktree-force-remove.sh",
+            "onFailure": "block",
+            "timeout": 60,
             "type": "command"
           },
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-pattern-kill.sh",
+            "onFailure": "block",
+            "timeout": 60,
             "type": "command"
           }
         ]
@@ -86,6 +102,8 @@
         "hooks": [
           {
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/if-project.sh\" no-silent-wait.sh",
+            "onFailure": "block",
+            "timeout": 60,
             "type": "command"
           }
         ]

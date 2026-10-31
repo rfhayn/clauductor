@@ -254,6 +254,75 @@ func TestHooksRewritten(t *testing.T) {
 	}
 }
 
+// A guard the template registers fail-closed ("onFailure": "block" and a timeout, OPS-214) is
+// registered the same way by the plugin: a plugin install whose guards fail open on a crash would
+// pass every check the template's settings.json is held to.
+func TestHooksKeepFailClosed(t *testing.T) {
+	out, _ := build(t)
+	type handler struct {
+		Command   string `json:"command"`
+		OnFailure string `json:"onFailure"`
+		Timeout   any    `json:"timeout"`
+	}
+	type file struct {
+		Hooks map[string][]struct {
+			Matcher string    `json:"matcher"`
+			Hooks   []handler `json:"hooks"`
+		} `json:"hooks"`
+	}
+	read := func(path string) file {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var f file
+		if err := json.Unmarshal(raw, &f); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	tmpl := read(filepath.Join(repoRoot(t), "template", ".claude", "settings.json"))
+	plug := read(filepath.Join(out, "hooks", "hooks.json"))
+	script := regexp.MustCompile(`([a-z0-9-]+\.sh)"?$`)
+	key := func(event, matcher, cmd string) string {
+		return event + "|" + matcher + "|" + script.FindString(strings.TrimSuffix(cmd, `"`))
+	}
+	got := map[string]handler{}
+	for ev, groups := range plug.Hooks {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				got[key(ev, g.Matcher, h.Command)] = h
+			}
+		}
+	}
+	guards := 0
+	for ev, groups := range tmpl.Hooks {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				if h.OnFailure == "" && h.Timeout == nil {
+					continue
+				}
+				guards++
+				k := key(ev, g.Matcher, h.Command)
+				if _, dropped := droppedHooks[script.FindString(h.Command)]; dropped {
+					continue
+				}
+				p, ok := got[k]
+				if !ok {
+					t.Errorf("%s: fail-closed in the template, not registered by the plugin", k)
+					continue
+				}
+				if p.OnFailure != h.OnFailure || fmt.Sprint(p.Timeout) != fmt.Sprint(h.Timeout) {
+					t.Errorf("%s: the plugin registers onFailure %q timeout %v, the template %q %v", k, p.OnFailure, p.Timeout, h.OnFailure, h.Timeout)
+				}
+			}
+		}
+	}
+	if guards < 3 {
+		t.Errorf("only %d template hooks carry onFailure or timeout: the test would pass vacuously", guards)
+	}
+}
+
 // fwPath matches a framework path still spelled the project's way in code.
 var fwLeft = regexp.MustCompile(`(?:"\$ROOT"?/|\bsh |^|[\s(])\.claude/(?:skills/|agents|hooks|checks|lib|modules|workflows|[a-z-]+\.sh)`)
 
