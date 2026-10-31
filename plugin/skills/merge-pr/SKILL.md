@@ -119,7 +119,9 @@ Converged means **the last review round found nothing medium or worse.** By how 
   made after the report (a merge of `origin/main`, a doc fix) are unreviewed: review that delta.
 - **Built by hand** (a fix or ops branch, a session close): run `/code-review` (or the `stridal:reviewer` agent)
   on `git diff origin/main...HEAD`, fix what is medium or worse, and re-run until a round comes back
-  clean, or the cap. Stop and notify if peak severity rises between rounds.
+  clean, or the cap. Stop and notify if peak severity rises between rounds. When a round's finding
+  sits in the same small mechanism as the last round's and regresses its fix, ask first whether the
+  mechanism can be deleted, and state a deletion's cost in the PR body (PRAC-0014).
 - **Docs only**: when the context reads `review-lane: docs`, spawn the `stridal:reviewer-docs` agent
   instead; same convergence rule. Anything `full` gets the full review.
 - **A proposal PR** (`proposal: <id>`): `propose` step 2b reviewed it before the owner read it.

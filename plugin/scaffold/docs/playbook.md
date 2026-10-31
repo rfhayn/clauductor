@@ -140,6 +140,33 @@ started from the panel's **New lane** (or by hand), on one branch:
   its **New lane**.
   `checks/quota-reading.sh` holds the file and both readers.
 
+### Batching reviewed lanes
+
+When several reviewed lanes are ready, they can land as one batch with one gate instead of one gate
+each (PRAC-0013 in this repo; adopt it as a practice of your own if it fits). Before its PR, every
+lane runs the **pre-PR pass**, the quick gate over its worktree, `scripts/ci/gate.sh -C <worktree>
+--quick`, so the batch gate is not the first run of a repo-wide check. Review stays per lane PR.
+Then, on an integration branch in its own worktree, cut from `origin/<main>`:
+
+1. `scripts/ci/batch.sh merge <first row id> <lane branch>…` merges the lanes `--no-ff` in the order given (a row
+   that changes a rule the others are judged by goes first), then runs `BATCH_REGENERATE`
+   (`.claude/project.conf`) and commits what it changed. A conflict stops it, naming the branch,
+   with the merge aborted and the earlier ones kept.
+2. Push and open the batch PR as a draft, titled by its first row's id and naming every row; then
+   `scripts/ci/batch.sh record <PR> <row id>…` writes the PR into each row's fragment and names a row
+   with no fragment under the first one's **Also closes** (and commits), so the fold marks every
+   row merged by the PR that merged, not by its closed lane PR.
+3. `scripts/ci/batch.sh sync` merges `origin/<main>`: run it right before **every** gate, so the
+   receipt covers a head GitHub will merge (a conflict stops here, not at GitHub's merge).
+4. The gate; a failure is fixed in the batch, one commit per row, its id in the subject, and steps
+   3–4 run again. A row that leaves the batch instead: `git revert -m 1` its lane merge and run
+   `record` again with the rows that remain, which takes back the rows it added before; otherwise
+   the fold marks the row merged by the batch PR. If the revert conflicts on the row's own
+   fragment (`record` edited it), `git rm` the fragment (it leaves with its lane) and
+   `git revert --continue`. Then merge, and close each lane PR with a comment naming the batch PR.
+
+`checks/batch.sh` holds the script; the order, the pre-PR pass and which rows join: **Nothing. You.**
+
 ## Several people
 
 Each person has their own Claude and **merges only their own PRs**. `session-start` stars
@@ -310,7 +337,7 @@ is an earlier group lifts the group boundary for exactly that fix.
 | gate still red | two fix attempts failed | read the failure; fix or split the group |
 | severity rose | fixes introduced worse defects than they removed | read the rounds; usually the group is too big: split it |
 | not converged | the review cap (`review-cap.sh`, by risk) without a clean round | rule on the builder's disputes, split the group, or list what is left under KNOWN LIMITS with its owner |
-| stuck (notify says STUCK) | the stuck-loop breaker: a fixed finding came back unchanged, the peak and the count both stopped falling, or a round reviewed a diff already reviewed | read the finding it names; usually a design question or a group too big: decide, or split |
+| stuck (notify says STUCK) | the stuck-loop breaker: a fixed finding came back unchanged, the peak and the count both stopped falling, or a round reviewed a diff already reviewed | read the finding it names; usually a design question or a group too big: decide, or split. If both rounds' findings sit in one small mechanism, each regressing the last fix, ask whether to delete it (PRAC-0014) |
 | agent returned nothing | new agent types register at session start | restart Claude Code, re-run with `resume` |
 | receipt | the full gate failed on HEAD | fix, re-run the full gate |
 | budget | the change's spend passed its budget | raise the budget (the roadmap row on main first, then the proposal) or cut scope, then re-run |

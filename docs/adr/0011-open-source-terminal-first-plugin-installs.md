@@ -31,7 +31,7 @@ keep them apart.
    site keeps only its docs (OPS-117).
 2. **The terminal is the local face.** The panel's Go engine stays. Its face becomes a full-screen terminal UI in the
    same binary, built with compiled-in Go libraries (Bubble Tea and Lip Gloss), so users install nothing extra
-   (Phase 6, PRD-tui). The browser page is frozen (fixes only, no new features) until the terminal UI covers what
+   (Phase 4, PRD-tui). The browser page is frozen (fixes only, no new features) until the terminal UI covers what
    the owner uses, and is then removed (PANEL-64). A desktop app may follow after v0.1.0 (PANEL-65).
 3. **The plugin is the one way to install the operating model.** `/stridal:init` writes the lite profile by
    default, with the product module on, and `--full` writes the full profile. The binary stops installing the model
@@ -42,7 +42,7 @@ keep them apart.
 5. **One version number** covers the plugin, the template and the binary.
 6. **v0.1.0 ships only under the new name.** The fallback of shipping under the old name and renaming at v0.2 is dropped:
    after a public release, a rename breaks the Go module path, the plugin id, links and people's scripts.
-7. **What Standing Tee's operating model does that the template does not is ported into the template** (Phase 4),
+7. **What Standing Tee's operating model does that the template does not is ported into the template** (Phase 2),
    reversing OPS-71's cancellation of the Standing Tee ports. Practices still flow one way.
 
 ## Consequences
