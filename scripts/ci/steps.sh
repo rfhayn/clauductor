@@ -128,8 +128,12 @@ race_scope() {
 # and health-lines read ROOT's records and workflows; the rest read the records themselves.
 CHECKS_ONCE="archive-change artifacts ci-status gate health ideas living-visuals machine-quiet modules people premise-check report-back review-lane risk-register run-parallel write-surfaces"
 
-# The project.conf keys that may differ between the two ROOTs: no CHECKS_ONCE check reads them
-# (check-sets.sh fails one that names any). Every other key must be the same in both.
+# The project.conf keys that may differ between the two ROOTs: no CHECKS_ONCE check reads them.
+# Nothing local proves it (a key read through a file a check runs is not in its source): CI's
+# process-checks step (test.yml) is the run of this repo's whole set over its own project.conf,
+# and check-sets.sh holds it in place (OPS-171). It enforces this only while GATE_PR_CHECKS names
+# its job (OPS-98 sets it); with GATE_PR_CHECKS empty, Nothing. You. (check-sets prints which).
+# Every other key must be the same in both.
 # GATE_PR_CHECKS among them: this repo's is "test", the template's empty (OPS-98).
 # APPROVAL_DELEGATED and GATE_DOCS: this repo's own are "1" (OPS-89, OPS-127). Only
 # change-approval.sh and run-local.sh read them; no CHECKS_ONCE check runs change-approval.sh, gate
